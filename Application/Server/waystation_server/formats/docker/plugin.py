@@ -15,12 +15,16 @@ router resolves the repository, SPEC §4.4) and at ``/repository/<repo>/v2/<name
 - Upstream auth: ``upstream_auth.RegistryAuth`` (Docker Hub and any ``WWW-Authenticate: Bearer`` registry);
   Docker Hub names without a namespace get ``library/``; ``ratelimit-*`` headers are recorded for upstream health.
 
+Browse (``browser``, ``formats.docker.browse``): every cached manifest is recorded in ``docker_manifests`` and every
+cached tag manifest in ``docker_tags``, in the background after the fill (parsed in a thread).
+
 Not yet (later tasks): hosted/group repositories, ``_catalog`` and the referrers API (404 makes clients fall back to
 the tag schema).
 """
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from collections.abc import Callable
 from urllib.parse import urlencode
@@ -28,12 +32,23 @@ from urllib.parse import urlencode
 from starlette.responses import JSONResponse, Response
 
 from waystation_common.errors import NotFound, WaystationError
+from waystation_server.db import docker as docker_db
 from waystation_server.formats.base import FormatRequest
+from waystation_server.formats.common.background import Background
 from waystation_server.formats.docker import protocol as p
+from waystation_server.formats.docker.browse import DockerBrowse, parse_manifest
 from waystation_server.formats.docker.descriptor import DESCRIPTOR, DockerOptions
 from waystation_server.formats.docker.upstream_auth import RegistryAuth, TokenCache
 from waystation_server.problems import oci_error
-from waystation_server.proxy.engine import AssetKind, AssetSpec, Expected, StoredAsset, UpstreamInfo
+from waystation_server.proxy.engine import (
+    AssetKind,
+    AssetSpec,
+    Expected,
+    OnStored,
+    ProxyEngine,
+    StoredAsset,
+    UpstreamInfo,
+)
 from waystation_server.repos.model import AuthKind, secret_aad
 
 API_VERSION = 'Docker-Distribution-API-Version'
@@ -81,6 +96,12 @@ class DockerPlugin:
 
     def __init__(self) -> None:
         self.tokens = TokenCache()
+        self.browser = DockerBrowse()
+        self._indexing = Background('docker-manifests')
+
+    async def drain(self) -> None:
+        """Wait for background indexing (tests, shutdown)."""
+        await self._indexing.drain()
 
     async def handle(self, req: FormatRequest) -> Response:
         path = req.path
@@ -120,7 +141,36 @@ class DockerPlugin:
     # -------------------------------------------------------------- specs
     def _spec(self, req: FormatRequest, op: p.Operation, name: str, upstream: _Upstream) -> AssetSpec:
         spec = self._asset(req, op, name)
-        return dataclasses.replace(spec, authenticator=self._auth(req, name), on_upstream=upstream, component=name)
+        return dataclasses.replace(
+            spec,
+            authenticator=self._auth(req, name),
+            on_upstream=upstream,
+            component=name,
+            on_stored=self._on_manifest_stored(req.proxy, req.repo.id, op, name) if op.op == 'manifest' else None,
+        )
+
+    def _on_manifest_stored(self, engine: ProxyEngine, repo_id: str, op: p.Operation, name: str) -> OnStored:
+        """Record a cached manifest (and, fetched by tag, the tag) for browsing, off the response path."""
+
+        async def stored(asset: StoredAsset, data: bytes | None) -> None:
+            async def index() -> None:
+                raw = data if data is not None else await engine.read(asset, max_bytes=p.MANIFEST_MAX_BYTES)
+                record = await asyncio.to_thread(parse_manifest, raw, asset.content_type)
+                if op.by_digest:
+                    digest = op.reference
+                else:
+                    header = asset.headers.get('Docker-Content-Digest', '')
+                    digest = header if p.DIGEST_RE.fullmatch(header) else f'sha256:{asset.blob_sha256}'
+                await docker_db.record_manifest(engine.db, repo_id, name, digest, record)
+                if not op.by_digest:
+                    authoritative = asset.path == f'{name}/manifests/{op.reference}'
+                    await docker_db.record_tag(
+                        engine.db, repo_id, name, op.reference, digest, authoritative=authoritative
+                    )
+
+            self._indexing.spawn((repo_id, asset.path, asset.blob_sha256), index)
+
+        return stored
 
     @staticmethod
     def _asset(req: FormatRequest, op: p.Operation, name: str) -> AssetSpec:

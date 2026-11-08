@@ -3,6 +3,18 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S09 (M0 slice): browse API to the M0 contract (`api/browse.py`, contract test extended):
+  `GET /api/v1/repositories/{name}/browse` (generic folder tree of cached assets, every format: folders first, keyset
+  cursors, one index seek per sub-folder, 404 for a missing folder), npm `packages`/`versions`, apt
+  `suites`/`packages`, docker `images`/`tags`/`manifest`; `browse` permission, hidden repositories 404, format views
+  404 on other formats. Format-neutral `waystation_server.browse` package (response models, `BrowseContext`, the
+  `NpmBrowser`/`AptBrowser`/`DockerBrowser` protocols a plugin exposes as `browser`, cursors). Background indexing
+  after cache fills (`formats/common/background.py`): `npm_packages` (packument summaries), `apt_packages` (each
+  cached `Packages` stanza; `deb822` now also reads Package/Version/Architecture/Section and the descriptive
+  `Release` fields), `docker_tags`/`docker_manifests` (every cached manifest; `repo_image_updated` index). Repository
+  delete also drops these records and `apt_pool_index`. Integration tests populate repositories through a fake
+  upstream and explain every browse query (no collection scans); the raw, npm, apt and docker harness scripts check
+  the browse API after their installs and pulls. The UI's browse renderers now work against the real server.
 - T-P2-DOCKERP (M0 slice): Docker / OCI proxy plugin (`formats/docker/plugin.py`, `protocol.py`, `upstream_auth.py`,
   registered in `plugins.py`). Pull side of the registry API at `/v2/<repo|alias|default>/...` and
   `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, checked against the upstream

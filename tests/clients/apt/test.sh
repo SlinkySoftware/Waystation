@@ -84,4 +84,16 @@ apt-get clean
 # shellcheck disable=SC2086
 apt-get install --reinstall $packages || fail 'apt-get install --reinstall'
 
+step 'browse API: suites from the cached Release files, installed packages listed as cached and verified'
+ws_login
+ws_api GET "/repositories/$main/apt/suites" | grep -q "\"suite\":\"$suite\"" || fail "$suite is not a suite of $main"
+for p in $packages; do
+  found=
+  for r in "$main:$suite" "$sec:$sec_suite"; do
+    ws_api GET "/repositories/${r%%:*}/apt/packages?suite=${r#*:}&cached=true&q=$p&limit=500" \
+      | grep -q "\"name\":\"$p\",.*\"cached\":true,\"verified\":true" && found=1
+  done
+  [ -n "$found" ] || fail "$p is not listed as cached and verified by the browse API"
+done
+
 pass

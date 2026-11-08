@@ -51,4 +51,23 @@ cp "$work/fresh/package.json" "$work/fresh/package-lock.json" "$work/again/"
 step 'npm audit (POST relayed to the upstream, anonymous)'
 (cd "$work/pinned" && npm audit --audit-level=critical --cache "$work/cache-pinned") || fail 'npm audit'
 
+step 'browse API (anonymous): cached packages and versions'
+node -e '
+  const api = process.env.WAYSTATION_URL + "/api/v1/repositories/npm/npm";
+  const get = async (p) => { const r = await fetch(api + p); if (!r.ok) throw new Error(p + " " + r.status); return r.json(); };
+  (async () => {
+    for (let i = 0; ; i++) {  // packument summaries are recorded in the background
+      const names = (await get("/packages?limit=500")).items.map((p) => p.name);
+      if (["is-odd", "is-number", "@sindresorhus/is"].every((n) => names.includes(n))) break;
+      if (i > 20) throw new Error("packages not listed: " + names);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    const odd = (await get("/packages?q=is-odd")).items.find((p) => p.name === "is-odd");
+    if (!odd || odd.cached_versions < 1 || odd.size_bytes <= 0) throw new Error("is-odd: " + JSON.stringify(odd));
+    const versions = await get("/versions?package=" + encodeURIComponent("@sindresorhus/is"));
+    const v = versions.items.find((x) => x.version === "4.6.0");
+    if (!v || !v.cached || !v.integrity) throw new Error("@sindresorhus/is 4.6.0: " + JSON.stringify(v));
+  })().catch((e) => { console.error(e.message); process.exit(1); });
+' || fail 'browse API'
+
 pass

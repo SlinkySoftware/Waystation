@@ -13,7 +13,8 @@ Three kinds of file, all under ``/repository/<repo>/``:
      with the new hash, then it fails. Files the ``Release`` does not list answer 404 (they cannot be verified).
    - ``by-hash/SHA256/<h>`` (and ``SHA512``) paths are immutable and self-validating.
    When a ``Packages`` file is cached its ``Filename → (SHA256, Size)`` entries are written to ``apt_pool_index``
-   (parsed and decompressed in a thread, bounded; in the background, so the response is not delayed).
+   and its stanzas (name, version, architecture, section) to ``apt_packages`` for browsing (parsed and decompressed
+   in a thread, bounded; in the background, so the response is not delayed).
 3. **Pool files** (``pool/...``): content, validated against their ``apt_pool_index`` listing; fetched before any
    listing they are served and recorded ``unverified`` (computed hash), and checked when a listing arrives.
 
@@ -36,6 +37,7 @@ from waystation_common.errors import DigestMismatch, NotFound, UpstreamError, Va
 from waystation_server.db import apt as apt_db
 from waystation_server.db import assets as assets_db
 from waystation_server.formats.apt import deb822
+from waystation_server.formats.apt.browse import AptBrowse, browse_suite
 from waystation_server.formats.apt.descriptor import DESCRIPTOR, AptOptions
 from waystation_server.formats.base import FormatRequest
 from waystation_server.problems import native_error
@@ -149,6 +151,7 @@ class AptPlugin:
         self._parsed: OrderedDict[str, deb822.Release] = OrderedDict()
         self._tasks: set[asyncio.Task[None]] = set()
         self._indexing: set[tuple[str, str]] = set()
+        self.browser = AptBrowse(self)
 
     async def handle(self, req: FormatRequest) -> Response:
         if req.method not in ('GET', 'HEAD'):
@@ -186,6 +189,10 @@ class AptPlugin:
             max_age_s=max_age_s,
             validate=_validate_release if signed else None,
         )
+
+    async def parse_release(self, engine: ProxyEngine, asset: StoredAsset) -> deb822.Release:
+        """A cached ``Release``/``InRelease`` parsed (in a thread, bounded; kept in a small cache by digest)."""
+        return await self._parse(engine, asset)
 
     async def _parse(self, engine: ProxyEngine, asset: StoredAsset) -> deb822.Release:
         cached = self._parsed.get(asset.blob_sha256)
@@ -313,6 +320,19 @@ class AptPlugin:
             )
             for filename in mismatched:
                 log.warning('cached pool file does not match its listing; dropped', extra={'path': filename})
+            stanzas = [
+                apt_db.Stanza(e.filename, e.sha256, e.size, e.package, e.version, e.architecture, e.section)
+                for e in entries
+            ]
+            await apt_db.record_packages(
+                engine.db,
+                repo_id,
+                stanzas,
+                suite=browse_suite(what.suite),
+                component=what.component,
+                arch=what.arch,
+                gen=asset.blob_sha256,
+            )
             log.info('indexed Packages', extra={'path': asset.path, 'entries': len(listings)})
         except Exception as exc:
             log.warning('Packages indexing failed', extra={'path': asset.path, 'error': type(exc).__name__})
