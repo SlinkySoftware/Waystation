@@ -107,19 +107,34 @@ immutable unless the format says otherwise. Negative cache entries live in Valke
 Stale-on-error and offline mode as SPEC §4.1.
 
 ### 6.3 Coalescing (single-flight across replicas)
-- Key `fill:<repo>:<asset-key>` in Valkey (`SET NX PX`), holding the owner's upload file id and a progress counter.
-- The owner streams upstream → `BlobWriter` and → its client simultaneously (tee), updating progress every 256 KiB.
+- Key `fill:<repo>:<sha1(asset-key)>` in Valkey: a hash created atomically by a Lua claim script (the equivalent of
+  `SET NX PX`: created with a lease TTL only when no pending/streaming fill exists; otherwise the caller is counted as
+  a follower in the same call), holding the owner token and host id, the owner's upload file id, progress and the
+  outcome. Implemented by `waystation_server.proxy.coalesce`; field list in DATA_MODEL §2.
+- The owner streams upstream → `BlobWriter` and → its client simultaneously (tee). Progress (bytes flushed to the
+  upload file) is published by a background task, never on the tee path: every 20 ms while followers are attached,
+  every 250 ms otherwise; the follower count shows on the owner's live transfer.
 - Followers either (a) **tail** the in-progress upload file using the progress counter, streaming to their client
-  as bytes land, or (b) wait for completion, then serve via X-Accel. Owner failure = key expiry/abort flag,
-  followers retry and one becomes owner.
+  as bytes land (holding back the last piece until the owner has verified and committed, like the owner), or (b)
+  wait for completion, then serve via X-Accel. Metadata fetches and revalidations are coalesced the same way
+  (followers always wait). A failed or mismatched fetch fails its followers with the same error (stale-on-error
+  still applies per follower); nothing unverified is ever completed.
+- Owner failure = lease expiry (owner died) or an `aborted` outcome (its client went away, internal error):
+  followers claim again and one becomes owner. A follower that already sent bytes continues only after checking
+  that they are a prefix of the new fill (sha256 of the sent bytes vs the new file / new upstream bytes); a
+  different upstream answer aborts that client's transfer.
 - Tailing is only safe where the follower sees the owner's writes immediately: same host and a local filesystem.
   On NFS/SMB (close-to-open consistency, attribute caching) a follower on another host can read stale or short
-  data. Rules: the owner `fdatasync`s before publishing each progress value; the progress record carries the owner's
-  host id; `WAYSTATION_COALESCE_TAIL=auto` (default) tails only when the follower is on the owner's host and the
-  data dir is not a network filesystem (detected from `/proc/mounts`), otherwise waits; `local` / `wait` force a mode.
-  Followers that wait still get bytes as soon as the commit lands. T-F07/T-S08 CI covers both modes, including
-  followers on a second host against an NFS export.
-- Lock lease renewed while streaming; abort cleans the upload file.
+  data. Rules: while followers are attached the owner `fdatasync`s before publishing the `synced` offset (followers
+  on another host never read past it; followers on the owner's host, sharing its page cache, read up to `written`);
+  the progress record carries the owner's host id (the kernel boot id, shared by containers on one machine);
+  `WAYSTATION_COALESCE_TAIL=auto` (default) tails only when the follower is on the owner's host and the data dir is
+  not a network filesystem (detected from `/proc/mounts`), otherwise waits; `local` / `wait` force a mode.
+  Followers that wait still get bytes as soon as the commit lands. T-F07/T-S08 CI covers both modes; followers on a
+  second host against an NFS export are not covered yet.
+- Lock lease (`WAYSTATION_COALESCE_LEASE_S`, default 15 s) renewed every third of it while the fill makes progress
+  (a fill with no progress for the upstream timeouts plus a lease stops renewing and expires); abort cleans the
+  upload file. Valkey unavailable = no coalescing (each request fetches), never an error.
 
 ### 6.4 Validation
 Bytes are committed to `blobs/` only after the expected digest/size (when the protocol supplies one) matches.

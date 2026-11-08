@@ -108,6 +108,15 @@ class BlobWriter:
     def closed(self) -> bool:
         return self._done
 
+    @property
+    def flushed(self) -> int:
+        """Bytes written to the upload file so far (what a reader of ``path`` can see; the rest is buffered)."""
+        return self.size - len(self._buffer)
+
+    def fileno(self) -> int:
+        """The upload file's descriptor (e.g. to ``os.dup`` for an ``fdatasync`` from another task)."""
+        return self._require_fd()
+
     async def write(self, data: bytes | bytearray | memoryview) -> None:
         if self._done:
             raise ValueError('writer is closed')

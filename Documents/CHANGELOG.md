@@ -3,6 +3,23 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S08: request coalescing across replicas (ARCHITECTURE §6.3). New `waystation_server.proxy.coalesce`: one
+  Valkey hash per asset (`fill:<repo_id>:<sha1(key)>`) claimed by a Lua script (owner or counted follower in one
+  round trip), lease renewed by a background publisher (`WAYSTATION_COALESCE_LEASE_S`, default 15 s) that also
+  publishes progress (every 20 ms while followed, 250 ms otherwise) and `fdatasync`s for a `synced` offset while
+  followers are attached; one shared poller per key and process for followers of other replicas, in-process
+  followers read the owner's lease directly. Engine: `serve`/`ensure` claim before contacting the upstream for a
+  missing or stale asset; followers of a streaming content fill tail the upload file (`COALESCED`, last piece held
+  back until the owner committed), others wait and are served by X-Accel (metadata, `HEAD`, `COALESCE_TAIL=wait`,
+  other host or network filesystem from `/proc/mounts`, host id = kernel boot id); failures and mismatches fail
+  followers with the same error (stale-on-error per follower); an aborted owner (client gone) or a dead one (lease
+  expiry) is replaced by a follower, which resumes after checking the bytes it already sent are a prefix of the new
+  fill; Valkey down disables coalescing only. The tee moved into `_tee` (unchanged behaviour for a single client).
+  Live transfers carry `followers` (`Transfer.followers`, `EventEmitter.transfer_followers`), new metric
+  `waystation_coalesce{repo,event}`; `BlobWriter.flushed`/`fileno()`. No format plugin changes. Tests: two uvicorn
+  replicas with 200 clients for one 64 MiB blob (1 upstream fetch, identical bytes; `WAYSTATION_TEST_COALESCE_MIB`),
+  owner replica SIGKILLed mid-transfer, and in-process two-instance tests (mismatch, takeover, metadata, 404, wait
+  mode, Valkey down). The fake upstream can pause mid-body (`gate`/`pause_at`) or stall (`hang_after`).
 - T-S09 (M0 slice): browse API to the M0 contract (`api/browse.py`, contract test extended):
   `GET /api/v1/repositories/{name}/browse` (generic folder tree of cached assets, every format: folders first, keyset
   cursors, one index seek per sub-folder, 404 for a missing folder), npm `packages`/`versions`, apt
