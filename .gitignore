@@ -1,0 +1,44 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+dist/
+build/
+*.egg-info/
+
+# Node / web
+node_modules/
+Application/Web/dist/
+Application/Web/.quasar/
+Application/Web/coverage/
+Application/Web/test-results/
+Application/Web/playwright-report/
+
+# Local runtime data
+/data/
+/.dev-data/
+tests/**/recordings-tmp/
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Agent worktrees
+.claude/worktrees/
