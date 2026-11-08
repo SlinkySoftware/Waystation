@@ -144,7 +144,10 @@ After `down -v` the next start is a fresh install with a new one-time admin pass
 
 ## Known limits of the M0 build
 
-- One local admin account. Users, groups, roles, LDAP/OIDC and API tokens come in later milestones.
+- One local admin account. Users, groups, roles and LDAP/OIDC come in later milestones. You can create personal API
+  tokens on your profile page (avatar menu > Profile). Format clients that send credentials (basic or bearer auth on
+  `/repository/...`) must use a token, not your password. The proxies in this guide allow anonymous reads, so the
+  examples need no credentials.
 - Proxy repositories only, for Docker, npm, apt and raw. Hosted and group repositories, and the other formats,
   come later.
 - No TLS in the web tier. Put a reverse proxy in front for HTTPS (SPECIFICATION §8).

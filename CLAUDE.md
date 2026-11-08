@@ -14,7 +14,7 @@ UI and cached files, **MongoDB** for metadata and stats, **Valkey** for hot-path
 5. `Documents/UI_DESIGN.md`: the design system and every page. The UI must look like professional, shipped software.
 6. `Documents/TASKS.md`: pick a task whose dependencies are DONE, mark it IN PROGRESS, and work only on that task.
 
-`appidea.txt` is the original brief. Never edit it.
+`appidea.txt` is the original brief. It is local only (gitignored, never committed). Never edit it.
 
 ## Non-negotiables
 - **No environment details in this repo.** It is public. No real hostnames, IP addresses, domains, usernames,
