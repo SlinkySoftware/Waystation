@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -45,10 +47,20 @@ async def xrange(valkey: Redis, *, after: str, count: int) -> list[Entry]:
     return _entries(await valkey.xrange(keys.ACTIVITY, min=f'({after}', max='+', count=count))
 
 
-async def xrevrange(valkey: Redis, *, before: str | None, count: int) -> list[Entry]:
-    """``activity`` entries strictly before ``before`` (or the newest), newest first."""
+async def xrevrange(
+    valkey: Redis, *, before: str | None, count: int, until_ms: int | None = None, since_ms: int | None = None
+) -> list[Entry]:
+    """``activity`` entries strictly before ``before`` (or the newest), newest first; ``until_ms`` / ``since_ms``
+    bound them by time (stream ids start with the entry's epoch milliseconds, so this is a pure range read)."""
     upper = f'({before}' if before else '+'
-    return _entries(await valkey.xrevrange(keys.ACTIVITY, max=upper, min='-', count=count))
+    if until_ms is not None and (before is None or _ms(before) > until_ms):
+        upper = str(until_ms)  # an id prefix as the max: every entry of that millisecond
+    lower = str(since_ms) if since_ms is not None else '-'
+    return _entries(await valkey.xrevrange(keys.ACTIVITY, max=upper, min=lower, count=count))
+
+
+def _ms(stream_id: str) -> int:
+    return int(stream_id.partition('-')[0])
 
 
 async def xread(valkey: Redis, *, after: str, block_ms: int, count: int) -> list[Entry]:
@@ -194,6 +206,7 @@ def activity_view(stream_id: str, event: ActivityEvent) -> dict[str, Any] | None
         'repository': event.repo,
         'format': event.format,
         'artifact': artifact,
+        'path': event.path,
         'principal': _who(event),
         'cache': event.cache.value if event.cache else None,
         'bytes': event.bytes,
@@ -208,38 +221,98 @@ def parse_activity(fields: dict[str, str]) -> ActivityEvent | None:
         return None
 
 
+@dataclass(frozen=True)
+class ActivityFilter:
+    """What the Activity page (and its CSV export) asks for. ``visible`` = repository names the principal may see;
+    events of other repositories are never returned. ``principal`` matches case-insensitively as a substring (a user
+    name or a client address prefix); every other field is an exact match. Times are epoch milliseconds."""
+
+    visible: frozenset[str]
+    repo: str | None = None
+    kind: str | None = None
+    format: str | None = None
+    principal: str | None = None
+    cache: str | None = None
+    outcome: str | None = None
+    since_ms: int | None = None
+    until_ms: int | None = None
+
+    def view(self, stream_id: str, fields: dict[str, str]) -> dict[str, Any] | None:
+        """The entry in the API shape when it passes the filter, else None."""
+        event = parse_activity(fields)
+        if event is None or (event.repo and event.repo not in self.visible):
+            return None
+        if self.repo and event.repo != self.repo:
+            return None
+        if self.format and event.format != self.format:
+            return None
+        view = activity_view(stream_id, event)
+        if view is None:
+            return None
+        if self.kind and view['kind'] != self.kind:
+            return None
+        if self.cache and view['cache'] != self.cache:
+            return None
+        if self.outcome and view['outcome'] != self.outcome:
+            return None
+        if self.principal and self.principal.lower() not in (view['principal'] or '').lower():
+            return None
+        return view
+
+
 async def activity_page(
     valkey: Redis,
+    flt: ActivityFilter,
     *,
-    visible: set[str],
-    repo: str | None,
-    kind: str | None,
     cursor: str | None,
     limit: int,
     scan_cap: int = 5000,
 ) -> tuple[list[dict[str, Any]], str | None]:
-    """Newest first. ``visible`` = repository names the principal may see; entries of other repositories are skipped."""
+    """Newest first. Reads at most ``scan_cap`` entries per call; when that runs out before ``limit`` matches, the
+    page is short and ``next_cursor`` continues the scan (sparse filters page through history without a long call)."""
     items: list[dict[str, Any]] = []
     before = cursor
     scanned = 0
     last_id: str | None = None
     while len(items) < limit and scanned < scan_cap:
-        batch = await xrevrange(valkey, before=before, count=min(500, max(limit * 2, 50)))
+        batch = await xrevrange(
+            valkey,
+            before=before,
+            count=min(500, max(limit * 2, 50), scan_cap - scanned),
+            until_ms=flt.until_ms,
+            since_ms=flt.since_ms,
+        )
         if not batch:
             return items, None
         for stream_id, fields in batch:
             scanned += 1
             last_id = stream_id
-            event = parse_activity(fields)
-            if event is None or (event.repo and event.repo not in visible):
-                continue
-            if repo and event.repo != repo:
-                continue
-            view = activity_view(stream_id, event)
-            if view is None or (kind and view['kind'] != kind):
+            view = flt.view(stream_id, fields)
+            if view is None:
                 continue
             items.append(view)
             if len(items) >= limit:
                 return items, stream_id
         before = last_id
     return items, last_id if scanned >= scan_cap else None
+
+
+async def activity_scan(valkey: Redis, flt: ActivityFilter, *, max_rows: int) -> AsyncIterator[list[dict[str, Any]]]:
+    """Every matching entry, newest first, in batches (CSV export); stops after ``max_rows`` matches."""
+    before: str | None = None
+    sent = 0
+    while sent < max_rows:
+        batch = await xrevrange(valkey, before=before, count=500, until_ms=flt.until_ms, since_ms=flt.since_ms)
+        if not batch:
+            return
+        out: list[dict[str, Any]] = []
+        for stream_id, fields in batch:
+            view = flt.view(stream_id, fields)
+            if view is not None:
+                out.append(view)
+                if sent + len(out) >= max_rows:
+                    break
+        before = batch[-1][0]
+        if out:
+            sent += len(out)
+            yield out
