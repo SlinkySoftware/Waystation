@@ -16,6 +16,7 @@ import random
 import signal
 import socket
 import sys
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -181,18 +182,43 @@ class Download:
         return digest.hexdigest()
 
 
-async def eventually(check: Callable[[], Awaitable[bool]], within: float = 60.0) -> None:
+# Every wait in these tests is bounded and says what it was waiting for: a stuck run fails, it never hangs.
+WAIT_S = 60.0
+DOWNLOADS_S = 240.0
+
+
+async def eventually(check: Callable[[], Awaitable[bool]], what: str, within: float = WAIT_S) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + within
     while not await check():
         if loop.time() > deadline:
-            raise AssertionError('condition not reached in time')
+            raise AssertionError(f'not reached within {within:.0f} s: {what}')
         await asyncio.sleep(0.05)
+
+
+async def finished[T](tasks: list[asyncio.Task[T]], downloads: list[Download], what: str) -> list[T]:
+    """Every task's result, or a clear failure (with the clients' progress) after ``DOWNLOADS_S``."""
+    _, pending = await asyncio.wait(tasks, timeout=DOWNLOADS_S)
+    if pending:
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        received = sorted(d.received // MiB for d in downloads)
+        raise AssertionError(
+            f'{what}: {len(pending)} of {len(tasks)} not finished within {DOWNLOADS_S:.0f} s '
+            f'(MiB received, lowest first: {received[:10]})'
+        )
+    return [task.result() for task in tasks]
 
 
 async def fill_state(valkey: Redis, repo_id: str) -> dict[str, Any]:
     raw: dict[str, Any] = await valkey.hgetall(Coalescer.key(repo_id, PATH))
     return raw
+
+
+def logs(tmp_path: Path) -> str:
+    """The tail of both replicas' logs (warnings and up), for failure messages."""
+    return '\n'.join(f'{n}: {line}' for n in 'ab' for line in (tmp_path / f'{n}.log').read_text().splitlines()[-15:])
 
 
 def _client() -> httpx.AsyncClient:
@@ -210,12 +236,17 @@ async def test_200_clients_on_two_replicas_cause_one_upstream_fetch(
     tmp_path: Path,
 ) -> None:
     expected = hashlib.sha256(data).hexdigest()
+    # The production lease (the fixture's 2 s only speeds up the takeover test). A lease is how followers detect a
+    # dead owner, so a stall of Valkey or of the owner's event loop longer than the lease is indistinguishable from
+    # death and legitimately costs a second fetch (ARCHITECTURE §6.3); on a loaded machine Valkey's AOF writes have
+    # been seen to stall for 8 s, which a 2 s lease does not survive.
+    env = {**services_settings_env, 'WAYSTATION_COALESCE_LEASE_S': '15'}
     gate = asyncio.Event()
     # Slow upstream: it stops after 8 MiB until every follower is attached, then trickles 1 MiB chunks.
     upstream.routes[f'/{PATH}'] = Respond(200, {}, data, chunk=MiB, chunk_delay=0.005, pause_at=8 * MiB, gate=gate)
     async with (
-        Replica(services_settings_env, tmp_path / 'a.log') as a,
-        Replica(services_settings_env, tmp_path / 'b.log') as b,
+        Replica(env, tmp_path / 'a.log') as a,
+        Replica(env, tmp_path / 'b.log') as b,
         _client() as http,
     ):
         first = Download(http, a.url + URL)
@@ -224,18 +255,24 @@ async def test_200_clients_on_two_replicas_cause_one_upstream_fetch(
         async def streaming() -> bool:
             return (await fill_state(valkey, repo_id)).get('status') == 'streaming'
 
-        await eventually(streaming)
+        await eventually(streaming, 'the first request owns a streaming fill')
         downloads = [Download(http, (a if i % 2 else b).url + URL) for i in range(CLIENTS - 1)]
         tasks = [asyncio.create_task(d.run()) for d in downloads]
 
         async def attached() -> bool:
             return int((await fill_state(valkey, repo_id)).get('followers', 0)) == CLIENTS - 1
 
-        await eventually(attached)
+        await eventually(attached, f'{CLIENTS - 1} followers attached to the fill')
         gate.set()
-        digests = await asyncio.gather(owner, *tasks)
+        digests = await finished([owner, *tasks], [first, *downloads], 'downloads')
 
-    assert upstream.hits(f'/{PATH}') == 1
+    hits = upstream.hits(f'/{PATH}')
+    import shutil  # DIAG
+    _d = Path('/src/.diag') / f'{time.time():.0f}-{hits}'
+    _d.mkdir(parents=True)
+    for _n in ('a', 'b'):
+        shutil.copy(tmp_path / f'{_n}.log', _d / f'{_n}.log')
+    assert hits == 1, f'{hits} upstream fetches for {CLIENTS} coalesced requests; replica logs:\n{logs(tmp_path)}'
     assert digests == [expected] * CLIENTS
     everyone = [first, *downloads]
     assert all(d.status == 200 and d.received == SIZE for d in everyone)
@@ -274,18 +311,18 @@ async def test_owner_replica_killed_a_follower_takes_over(
             state = await fill_state(valkey, repo_id)
             return state.get('status') == 'streaming' and int(state.get('written', 0)) >= 4 * MiB
 
-        await eventually(written)
+        await eventually(written, 'the owner has written 4 MiB')
         downloads = [Download(http, b.url + URL) for _ in range(followers)]
         tasks = [asyncio.create_task(d.run()) for d in downloads]
 
         async def receiving() -> bool:
             return all(d.received >= 2 * MiB for d in downloads)
 
-        await eventually(receiving)
+        await eventually(receiving, 'every follower has received 2 MiB')
         a.kill()
         with pytest.raises(httpx.HTTPError):
-            await owner
-        digests = await asyncio.gather(*tasks)
+            await asyncio.wait_for(owner, WAIT_S)
+        digests = await finished(tasks, downloads, 'downloads after the takeover')
 
     assert upstream.hits(f'/{PATH}') == 2
     assert digests == [expected] * followers

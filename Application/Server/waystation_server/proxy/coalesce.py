@@ -16,10 +16,13 @@ Lua ``claim`` script (``HSET`` + ``PEXPIRE`` only when no active fill exists, ot
   transfer).
 
 The owner's ``Lease`` runs a small publisher task: it renews the lease (``lease_s``, renewed every third) and
-publishes progress (every 20 ms while followers are attached, else every 250 ms), ``fdatasync``-ing first while
-followers are attached so tailers on other hosts can rely on ``synced``. Nothing on the tee path waits on Valkey:
-``advance`` is O(1) in memory. Terminal states are kept for ``LINGER_MS`` so late pollers see them. A fill that
-makes no progress for ``stall_s`` stops being renewed (it expires and is taken over).
+publishes progress (every 20 ms while followers are attached, else every 250 ms). While followers are attached a
+separate sync task ``fdatasync``s the upload file and only then raises ``synced``, so tailers on other hosts can rely
+on it. The renewal never waits on that sync (or on the thread pool): on a busy disk one ``fdatasync`` can take
+seconds, longer than the lease, and an owner that is alive and fetching must not lose its lease to a slow disk.
+Nothing on the tee path waits on Valkey: ``advance`` is O(1) in memory. Terminal states are kept for ``LINGER_MS``
+so late pollers see them. A fill that makes no progress for ``stall_s`` stops being renewed (it expires and is taken
+over).
 
 Followers read the state from the local ``Lease`` when the owner is in the same process (no Valkey round trip),
 else from one shared poller per key and process (``HGETALL`` every ``poll_s``). Whether a follower may tail the
@@ -185,6 +188,16 @@ def host_id() -> str:
     return value or socket.gethostname()
 
 
+def _close_later(fd: int) -> None:
+    """Close ``fd`` off the event loop (closing may flush on a network filesystem); fire and forget."""
+
+    def close() -> None:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+
+    asyncio.get_running_loop().run_in_executor(None, close)
+
+
 def _unescape(field_value: str) -> str:
     return field_value.encode('latin-1').decode('unicode_escape') if '\\' in field_value else field_value
 
@@ -268,6 +281,8 @@ class Lease:
         self.signal = _Signal()
         self._wake = asyncio.Event()
         self._sync_fd: int | None = None
+        self._syncing: asyncio.Task[None] | None = None  # the in-flight fdatasync (never awaited by the renewal)
+        self._last_sync = 0.0
         self._task: asyncio.Task[None] | None = None
         self._last_change = time.monotonic()
         self._closed = False
@@ -378,18 +393,49 @@ class Lease:
                 await task
         if self._sync_fd is not None:
             fd, self._sync_fd = self._sync_fd, None
-            with contextlib.suppress(OSError):
-                await asyncio.to_thread(os.close, fd)  # may flush on a network filesystem
+            syncing = self._syncing
+            if syncing is not None and not syncing.done():
+                # Never close a descriptor a sync thread is still using (its number could be reused); and don't hold
+                # up the outcome for a slow disk either: the sync task closes it when it is done.
+                syncing.add_done_callback(lambda _: _close_later(fd))
+            else:
+                with contextlib.suppress(OSError):
+                    await asyncio.to_thread(os.close, fd)  # may flush on a network filesystem
         if self.solo or self.lost:
             return
         try:
-            await self._send(LINGER_MS)
+            _r = await self._send(LINGER_MS)
+            log.warning('DIAG close %s', {'tok': self.token, 'status': self.status, 'result': _r, 't': time.monotonic()})
         except Exception as exc:  # Valkey down: followers notice through lease expiry
             self.coalescer._warn('could not publish the fill outcome', exc)
 
+    def _maybe_sync(self) -> None:
+        """Start an ``fdatasync`` of the upload file in the background when followers may tail it (at most one at a
+        time, at most every ``SYNC_INTERVAL_S``); ``synced`` rises when it completes."""
+        if (
+            self.followers
+            and self._sync_fd is not None
+            and self._syncing is None
+            and self.written > self.synced
+            and time.monotonic() - self._last_sync >= SYNC_INTERVAL_S
+        ):
+            self._syncing = asyncio.create_task(
+                self._sync(self._sync_fd, self.written), name=f'coalesce-sync-{self.key}'
+            )
+
+    async def _sync(self, fd: int, target: int) -> None:
+        try:
+            await asyncio.to_thread(os.fdatasync, fd)
+            self.synced = max(self.synced, target)
+        except OSError as exc:
+            self.coalescer._warn('could not sync an upload file', exc)
+        finally:
+            self._last_sync = time.monotonic()
+            self._syncing = None
+            self._wake.set()  # publish the new ``synced``
+
     async def _publish(self) -> None:
         c = self.coalescer
-        last_sync = 0.0
         try:
             while True:
                 with contextlib.suppress(TimeoutError):
@@ -398,19 +444,7 @@ class Lease:
                 if time.monotonic() - self._last_change > c.stall_s():
                     log.warning('fill made no progress; letting its lease expire', extra={'key': self.key})
                     return
-                if (
-                    self.followers
-                    and self._sync_fd is not None
-                    and self.written > self.synced
-                    and time.monotonic() - last_sync >= SYNC_INTERVAL_S
-                ):
-                    target = self.written
-                    try:
-                        await asyncio.to_thread(os.fdatasync, self._sync_fd)
-                        self.synced = target
-                    except OSError, TypeError:  # closed under us at commit: the next update is terminal
-                        pass
-                    last_sync = time.monotonic()
+                self._maybe_sync()
                 try:
                     followers = await self._send(c.lease_ms)
                 except Exception as exc:
