@@ -1,0 +1,7 @@
+# GHCR blob downloads redirect to the GitHub package CDN.
+githubusercontent.com
+# Public hosts in Docker Hub / GHCR manifests and image configs (labels, attestation predicates).
+mobyproject.org
+github.com
+in-toto.io
+slsa.dev

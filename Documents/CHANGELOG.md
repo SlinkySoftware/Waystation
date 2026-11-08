@@ -3,6 +3,19 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-P2-DOCKERP (M0 slice): Docker / OCI proxy plugin (`formats/docker/plugin.py`, `protocol.py`, `upstream_auth.py`,
+  registered in `plugins.py`). Pull side of the registry API at `/v2/<repo|alias|default>/...` and
+  `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, checked against the upstream
+  `Docker-Content-Digest`, never converted), stale tags re-checked with an upstream `HEAD` first; digest manifests and
+  blobs as content verified against their digest (blobs keyed by digest, CDN redirects followed without
+  Authorization); tags/list with paging; `HEAD` misses answered by an upstream `HEAD`; OCI error codes. Upstream auth
+  pings `/v2/` once per repository and process to learn the challenge, fetches anonymous or credentialed pull tokens
+  (Docker Hub realm built in) and caches them per scope; Docker Hub one-segment names get `library/` and
+  `ratelimit-*` headers are recorded for upstream health. Engine: `AssetSpec.revalidate_head` (keep a stale asset
+  that an upstream `HEAD` confirms unchanged) and `AssetSpec.on_upstream` (see each upstream response's headers).
+  Real-client harness format `docker` (dockerd mirror mode, prefix and alias pulls from Docker Hub and GHCR; skopeo
+  inspect, list-tags and copy) with 2.6 MB of fixtures; the `client-docker` service is now `docker:29-dind` plus curl
+  and skopeo with its entrypoint cleared. Client guide `Documents/Operations/clients/docker.md`.
 - T-P2-APT (M0 slice): apt proxy plugin (`formats/apt/plugin.py`, bounded `Release`/`Packages` parsers and
   decompression in `formats/apt/deb822.py`, `apt_pool_index` access in `db/apt.py`, registered in `plugins.py`):
   `InRelease`/`Release`/`Release.gpg` passed through untouched as metadata; index files served only by the SHA256 the

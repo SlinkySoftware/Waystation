@@ -103,9 +103,14 @@ services:
     <<: *client
     image: quay.io/skopeo/stable:v1.20
     entrypoint: []
-  client-docker:  # docker CLI + daemon (docker format: pull via alias, prefix and registry-mirrors)
+  client-docker:  # docker CLI + daemon, plus curl (setup.sh) and skopeo (docker format: one client container)
     <<: *client
-    image: docker:29-dind
+    build:
+      dockerfile_inline: |
+        FROM docker:29-dind
+        RUN apk add --no-cache curl skopeo
+    image: waystation-harness-docker:29-1  # bump the suffix when the Dockerfile above changes
+    entrypoint: []  # dockerd is started by the format's setup.sh (the dind entrypoint would set DOCKER_HOST)
     privileged: true
 
   # ---- Waystation stack under test: own container names, no published port, trusts the harness CA.

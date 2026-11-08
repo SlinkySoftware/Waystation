@@ -80,6 +80,7 @@ __all__ = [
     'AssetKind',
     'AssetSpec',
     'Expected',
+    'OnUpstream',
     'ProxyEngine',
     'StaticAuth',
     'StoredAsset',
@@ -168,6 +169,8 @@ Transform = Callable[[bytes, UpstreamInfo], bytes]
 Validate = Callable[[bytes, UpstreamInfo], None]
 OnStored = Callable[[StoredAsset, bytes | None], Awaitable[None]]
 Expect = Callable[[], Awaitable[Expected | None]]
+OnUpstream = Callable[[UpstreamInfo], None]
+SameAsCached = Callable[[StoredAsset, UpstreamInfo], bool]
 
 
 @dataclass(frozen=True)
@@ -198,6 +201,10 @@ class AssetSpec:
     on_stored: OnStored | None = None  # after commit (metadata: also the original upstream bytes)
     authenticator: UpstreamAuthenticator | None = None  # replaces the repository's static credentials
     head_passthrough: bool | None = None  # HEAD on a miss asks upstream with HEAD (default: content yes)
+    # Stale metadata: ask upstream with HEAD first and keep the cached copy when this says it is unchanged (e.g. same
+    # Docker-Content-Digest; Docker Hub does not count HEADs against its pull limit). False/errors: normal refresh.
+    revalidate_head: SameAsCached | None = None
+    on_upstream: OnUpstream | None = None  # sees every final upstream response's headers (rate limits); sync, cheap
     artifact: str | None = None  # display name in live transfers (default: last path segment)
     component: str | None = None
 
@@ -270,6 +277,8 @@ class ProxyEngine:
         if asset is not None:
             if proxy.offline or self._fresh(asset, spec, proxy):
                 return self._hit(req, asset, CacheState.HIT, started)
+            if await self._unchanged_by_head(req, spec, proxy, asset):
+                return self._hit(req, asset, CacheState.REVALIDATED, started)
             try:
                 spec = await self._expect(spec)
                 response, info = await self._open(req, spec, proxy, conditional=asset)
@@ -332,6 +341,8 @@ class ProxyEngine:
             return asset
         if asset is None and proxy.offline:
             raise NotFound('Not Found')
+        if asset is not None and await self._unchanged_by_head(req, spec, proxy, asset):
+            return asset
         started = time.perf_counter()
         try:
             spec = await self._expect(spec)
@@ -509,6 +520,23 @@ class ProxyEngine:
             log.warning('negative cache update failed', extra={'error': type(exc).__name__})
 
     # ------------------------------------------------------------------ upstream requests
+    async def _unchanged_by_head(
+        self, req: FormatRequest, spec: AssetSpec, proxy: StoredProxy, asset: StoredAsset
+    ) -> bool:
+        """``spec.revalidate_head``: a stale asset confirmed unchanged by an upstream HEAD (timestamps updated).
+        Any failure or a changed answer returns False and the caller refreshes as usual."""
+        if spec.revalidate_head is None:
+            return False
+        try:
+            response, info = await self._open(req, spec, proxy, method='HEAD')
+        except UpstreamError, DigestMismatch:
+            return False
+        await response.aclose()
+        if info.status != 200 or not spec.revalidate_head(asset, info):
+            return False
+        await self._revalidated(asset, info)
+        return True
+
     def _auth(self, repo: RepoConfig, proxy: StoredProxy, spec: AssetSpec) -> UpstreamAuthenticator | None:
         if spec.authenticator is not None:
             return spec.authenticator
@@ -620,6 +648,8 @@ class ProxyEngine:
                 headers={k.lower(): v for k, v in response.headers.items()},
                 latency_ms=latency,
             )
+            if spec.on_upstream is not None:
+                spec.on_upstream(info)
             return response, info
 
     def _upstream_failed(self, req: FormatRequest, error: str, *, after_response: bool = False) -> None:

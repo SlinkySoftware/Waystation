@@ -1,0 +1,37 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://ghcr.io/v2/"
+  },
+  "response": {
+    "body_sha256": "89a052af62c612d0e05d2596f03edba77d7d904c4478b387a5dc6305821fe0a1",
+    "body_size": 73,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "docker-distribution-api-version",
+        "registry/2.0"
+      ],
+      [
+        "www-authenticate",
+        "Bearer realm=\"https://ghcr.io/token\",service=\"ghcr.io\",scope=\"repository:user/image:pull\""
+      ],
+      [
+        "content-length",
+        "73"
+      ]
+    ],
+    "status": 401
+  }
+}

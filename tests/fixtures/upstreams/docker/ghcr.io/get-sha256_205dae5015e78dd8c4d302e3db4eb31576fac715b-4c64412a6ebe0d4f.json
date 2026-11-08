@@ -1,0 +1,37 @@
+{
+  "request": {
+    "auth": "bearer",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://ghcr.io/v2/containerd/busybox/blobs/sha256:205dae5015e78dd8c4d302e3db4eb31576fac715b46d099fe09680ba28093a7a"
+  },
+  "response": {
+    "body_sha256": null,
+    "body_size": 0,
+    "headers": [
+      [
+        "content-length",
+        "0"
+      ],
+      [
+        "content-type",
+        "application/vnd.oci.image.layer.v1.tar+gzip"
+      ],
+      [
+        "docker-distribution-api-version",
+        "registry/2.0"
+      ],
+      [
+        "location",
+        "https://pkg-containers.githubusercontent.com/ghcr1/blobs/sha256:205dae5015e78dd8c4d302e3db4eb31576fac715b46d099fe09680ba28093a7a?se=harness-redacted&sig=harness-redacted&ske=harness-redacted&skoid=harness-redacted&sks=harness-redacted&skt=harness-redacted&sktid=harness-redacted&skv=harness-redacted&sp=harness-redacted&spr=https&sr=b&sv=harness-redacted&hmac=b7d3584db56529ecb22888a01c4f9bcb00408d386d5656bc2f8e71a1af9af799"
+      ]
+    ],
+    "status": 307
+  }
+}
