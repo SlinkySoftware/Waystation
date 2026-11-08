@@ -74,7 +74,7 @@ def test_tail_decisions(tmp_path: Path) -> None:
     assert coalescer.readable(there) == 40
     coalescer.network_fs = True
     assert not coalescer.tail_ok(here)
-    coalescer.mode = CoalesceTail.LOCAL
+    coalescer.mode = CoalesceTail.LOCAL  # forbidden-strings: allow
     assert coalescer.tail_ok(there)
     coalescer.mode = CoalesceTail.WAIT
     assert not coalescer.tail_ok(here)

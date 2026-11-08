@@ -14,7 +14,8 @@
 #   WAYSTATION_ADMIN_PASSWORD_FILE a file holding it
 #   WAYSTATION_ADMIN_USER          default admin
 #   KEEP_IMAGES=1                  keep the pulled images in the local Docker image store
-# Creates the demo repositories when missing (dockerhub-proxy, debian, debian-security, npm, raw-releases).
+# Creates the demo repositories when missing (dockerhub-proxy, ghcr-proxy, debian, debian-security, ubuntu,
+# ubuntu-security, npm, raw-releases).
 set -euo pipefail
 
 URL=${WAYSTATION_URL:-http://localhost:8080}
@@ -61,11 +62,15 @@ ensure_repo() {  # name json
   api POST /repositories "$2" >/dev/null || fail "could not create $1"
   ok "$1 created"
 }
-ensure_repo dockerhub-proxy '{"name":"dockerhub-proxy","format":"docker","type":"proxy","description":"Docker Hub","proxy":{"upstream_url":"https://registry-1.docker.io"},"format_options":{"aliases":["docker.io"],"docker_hub":true,"default_repo":true}}'
-ensure_repo debian '{"name":"debian","format":"apt","type":"proxy","description":"Debian","proxy":{"upstream_url":"https://deb.debian.org/debian"},"format_options":{"distribution":"trixie"}}'
-ensure_repo debian-security '{"name":"debian-security","format":"apt","type":"proxy","description":"Debian security updates","proxy":{"upstream_url":"https://security.debian.org/debian-security","metadata_max_age_s":600},"format_options":{"distribution":"trixie-security"}}'
-ensure_repo npm '{"name":"npm","format":"npm","type":"proxy","description":"npmjs.org","proxy":{"upstream_url":"https://registry.npmjs.org"},"format_options":{"audit_passthrough":true}}'
-ensure_repo raw-releases '{"name":"raw-releases","format":"raw","type":"proxy","description":"GitHub release downloads","proxy":{"upstream_url":"https://github.com"},"format_options":{"content_disposition":"attachment"}}'
+ensure_repo dockerhub-proxy '{"name":"dockerhub-proxy","format":"docker","type":"proxy","online":true,"description":"Docker Hub","proxy":{"upstream_url":"https://registry-1.docker.io"},"format_options":{"aliases":["docker.io"],"docker_hub":true,"default_repo":true}}'
+ensure_repo debian '{"name":"debian","format":"apt","type":"proxy","online":true,"description":"Debian","proxy":{"upstream_url":"https://deb.debian.org/debian"},"format_options":{"distribution":"trixie"}}'
+ensure_repo debian-security '{"name":"debian-security","format":"apt","type":"proxy","online":true,"description":"Debian security updates","proxy":{"upstream_url":"https://security.debian.org/debian-security","metadata_max_age_s":600},"format_options":{"distribution":"trixie-security"}}'
+ensure_repo npm '{"name":"npm","format":"npm","type":"proxy","online":true,"description":"npmjs.org","proxy":{"upstream_url":"https://registry.npmjs.org"},"format_options":{"audit_passthrough":true}}'
+ensure_repo raw-releases '{"name":"raw-releases","format":"raw","type":"proxy","online":true,"description":"GitHub release downloads","proxy":{"upstream_url":"https://github.com"},"format_options":{"content_disposition":"attachment"}}'
+# The rest of the demo set (not exercised below; the dashboard and Set me up pages show them).
+ensure_repo ghcr-proxy '{"name":"ghcr-proxy","format":"docker","type":"proxy","online":true,"description":"GitHub Container Registry","proxy":{"upstream_url":"https://ghcr.io"},"format_options":{"aliases":["ghcr.io"]}}'
+ensure_repo ubuntu '{"name":"ubuntu","format":"apt","type":"proxy","online":true,"description":"Ubuntu","proxy":{"upstream_url":"http://archive.ubuntu.com/ubuntu"},"format_options":{"distribution":"resolute"}}'
+ensure_repo ubuntu-security '{"name":"ubuntu-security","format":"apt","type":"proxy","online":true,"description":"Ubuntu security updates","proxy":{"upstream_url":"http://security.ubuntu.com/ubuntu","metadata_max_age_s":600},"format_options":{"distribution":"resolute-security"}}'
 
 step 'watch the live event stream while the clients run'
 curl -fsSN -b "$JAR" "$URL/api/v1/events/stream?topics=transfers,activity" > "$WORK/sse.log" 2>/dev/null &

@@ -204,7 +204,8 @@ class Runner:
             clock=self.clock,
             settings=self.settings,
         )
-        self._event(EventType.JOB_STARTED, env, run_id, attempt)
+        if not payload_type.routine:  # routine jobs (e.g. the 10 s stats rollup) would flood the activity feed
+            self._event(EventType.JOB_STARTED, env, run_id, attempt)
         self.running[delivery.entry_id] = env
         lost = asyncio.Event()
         handler_task: asyncio.Task[dict[str, Any] | None] = asyncio.create_task(
@@ -236,7 +237,8 @@ class Runner:
                 self.db, run_id, status='succeeded', now=self._now(), result=result if isinstance(result, dict) else {}
             )
         )
-        self._event(EventType.JOB_FINISHED, env, run_id, attempt, status='succeeded')
+        if not payload_type.routine:
+            self._event(EventType.JOB_FINISHED, env, run_id, attempt, status='succeeded')
         log.log(
             logging.DEBUG if payload_type.routine else logging.INFO,
             'job finished',

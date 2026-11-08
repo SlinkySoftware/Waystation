@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -597,7 +598,7 @@ class Coalescer:
             lease.start()
             return lease
         items = list(result)
-        state = FillState.parse(dict(zip(items[::2], items[1::2], strict=True)))
+        state = FillState.parse(dict(itertools.batched(items, 2, strict=True)))
         if state is None:  # unreadable record: fetch alone rather than wait on it
             return Lease(self, key, token, solo=True)
         local = self._leases.get(key)
@@ -607,7 +608,7 @@ class Coalescer:
         """May a follower stream the owner's upload file as it grows (else it waits for the commit)?"""
         if self.mode is CoalesceTail.WAIT:
             return False
-        if self.mode is CoalesceTail.LOCAL:
+        if self.mode is CoalesceTail.LOCAL:  # forbidden-strings: allow
             return True
         return state.host == self.host and not self.network_fs
 

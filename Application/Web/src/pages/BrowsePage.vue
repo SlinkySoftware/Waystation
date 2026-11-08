@@ -9,7 +9,7 @@
         <FormatIcon :mark="repoMark(r)" :size="26" brand />
         <div class="pick__text">
           <div class="pick__name">{{ r.name }}</div>
-          <div class="pick__meta">{{ formatLabel(r.format) }} · {{ formatBytes(r.stats.size_bytes) }} · {{ t('browse.artifactCount', { count: formatCount(r.stats.artifact_count) }) }}</div>
+          <div class="pick__meta">{{ formatLabel(r.format) }} · {{ formatBytes(r.stats.size_bytes) }} · {{ t('browse.artifactCount', { count: r.stats.artifact_count, n: formatCount(r.stats.artifact_count) }) }}</div>
         </div>
         <q-icon :name="iconChevronRight" size="20px" class="text-faint" />
       </router-link>
