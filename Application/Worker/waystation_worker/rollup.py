@@ -1,6 +1,6 @@
 """Per-minute stats rollup (ARCHITECTURE §8): Valkey counters of **closed** minutes -> ``stats_minute``, exactly once.
 
-Every ``INTERVAL_S`` the worker holding the ``lease:rollup`` lease (one roller across replicas):
+Each run, holding the ``lease:rollup`` lease (one roller across replicas):
 
 1. reads ``stats:pending``; for each ``<minute>:<repo_id>`` whose minute ended more than ``GRACE_S`` ago, builds
    the document from ``cnt:``/``lat:`` hashes and inserts it unless one already exists for (repo, minute);
@@ -11,44 +11,33 @@ increments for an already rolled-up minute (beyond the grace) are discarded the 
 
 Also sweeps ``transfers`` entries not updated for ``STALE_TRANSFER_S`` (their process died).
 
-Minimal M0 loop; the job framework (T-F08) will host it later, with hour/day rollups, snapshots and last-seen
-flushes (T-F09 full).
+Runs as the scheduled job ``stats.rollup`` (``waystation_worker.jobs.builtin``, every 10 s on the ``stats``
+queue). The job system already runs one rollup at a time; the lease stays as a second guard because two concurrent
+rollups could both insert a minute (the existence check is not atomic). Hour/day rollups, snapshots and last-seen
+flushes are T-F09 (full).
 """
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import json
 import logging
 import time
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from redis.asyncio import Redis
 
 from waystation_common.db import stats as stats_db
-from waystation_common.db.client import Database, create_client, database
+from waystation_common.db.client import Database
 from waystation_common.events import keys
-from waystation_common.settings import Settings
-from waystation_common.valkey import create_valkey
+from waystation_common.leases import hold_lease, release_lease
 
 log = logging.getLogger('waystation.worker.rollup')
 
-INTERVAL_S = 10.0
 GRACE_S = 5.0
 LEASE_KEY = 'lease:rollup'
 LEASE_TTL_MS = 30_000
 STALE_TRANSFER_S = 300.0
-
-# Acquire the lease, or renew it if we already hold it. Returns 1 when held.
-_LEASE_LUA = """
-local v = redis.call('GET', KEYS[1])
-if not v then redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2]) return 1 end
-if v == ARGV[1] then redis.call('PEXPIRE', KEYS[1], ARGV[2]) return 1 end
-return 0
-"""
 
 
 def _str(value: bytes | str) -> str:
@@ -57,11 +46,6 @@ def _str(value: bytes | str) -> str:
 
 async def _hgetall(redis: Redis, key: str) -> dict[str, str]:
     return {_str(k): _str(v) for k, v in (await redis.hgetall(key)).items()}
-
-
-async def hold_lease(redis: Redis, owner: str, *, key: str = LEASE_KEY, ttl_ms: int = LEASE_TTL_MS) -> bool:
-    result = await redis.eval(_LEASE_LUA, 1, key, owner, str(ttl_ms))
-    return bool(int(result))
 
 
 def build_minute_doc(minute: int, repo_id: str, cnt: dict[str, str], lat: dict[str, str]) -> dict[str, Any]:
@@ -113,29 +97,14 @@ async def sweep_stale_transfers(redis: Redis, *, now: float | None = None) -> in
 
 
 async def rollup_once(redis: Redis, db: Database, owner: str, *, now: float | None = None) -> int | None:
-    """One cycle if we hold the lease; None when another worker does."""
-    if not await hold_lease(redis, owner):
+    """One cycle if we hold the lease (released afterwards); None when another worker holds it."""
+    if not await hold_lease(redis, owner, key=LEASE_KEY, ttl_ms=LEASE_TTL_MS):
         return None
-    inserted = await rollup_closed_minutes(redis, db, now=now)
-    swept = await sweep_stale_transfers(redis, now=now)
+    try:
+        inserted = await rollup_closed_minutes(redis, db, now=now)
+        swept = await sweep_stale_transfers(redis, now=now)
+    finally:
+        await release_lease(redis, owner, key=LEASE_KEY)
     if inserted or swept:
         log.info('stats rolled up', extra={'minutes': inserted, 'stale_transfers': swept})
     return inserted
-
-
-async def rollup_loop(settings: Settings, stop: asyncio.Event) -> None:  # pragma: no cover - wiring, run by the stack
-    owner = uuid.uuid4().hex
-    redis = create_valkey(settings)
-    client = create_client(settings, app_name='waystation-worker')
-    db = database(client, settings)
-    try:
-        while not stop.is_set():
-            try:
-                await rollup_once(redis, db, owner)
-            except Exception:  # Valkey/MongoDB outage: log and retry next cycle
-                log.exception('stats rollup failed')
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(stop.wait(), timeout=INTERVAL_S)
-    finally:
-        await redis.aclose()
-        await client.close()
