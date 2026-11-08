@@ -108,7 +108,15 @@ def scope_matches(scope: str, repo: RepoConfig) -> bool:
 
 # ---------------------------------------------------------------------------- decisions
 def check(principal: Principal, action: Action, repo: RepoConfig | None = None) -> bool:
-    """May ``principal`` perform ``action`` (on ``repo``; without a repo: on at least one repository)?"""
+    """May ``principal`` perform ``action`` (on ``repo``; without a repo: on at least one repository)?
+
+    A principal authenticated by a Docker registry token is also limited to what the token grants (ARCH §7)."""
+    if principal.token_access is not None:
+        if action in GLOBAL_ACTIONS or repo is None:
+            return False
+        granted = {a for name, actions in principal.token_access if name == repo.name for a in actions}
+        if action not in granted:
+            return False
     grants = grants_for(principal.roles)
     if grants.is_admin:
         return True

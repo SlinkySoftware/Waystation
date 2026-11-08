@@ -196,7 +196,9 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - **API tokens**: per user and per service account; scopes (`read`, `write`, `delete`, `admin`) and optional
   repo restriction; expiry; last used; shown once at creation, stored hashed.
 - **Format client auth**: docker (Bearer token service at `/auth/token` per Docker token spec; `docker login` with
-  username + password or API token), npm (`npm login --auth-type=legacy` and `_authToken` = API token), PyPI/twine
+  username + password or API token; today: anonymous tokens and local passwords. `/v2/` accepts only these
+  5-minute EdDSA tokens and answers everything else with the `401` Bearer challenge naming the scope; a token's
+  grants are re-checked against RBAC on every request), npm (`npm login --auth-type=legacy` and `_authToken` = API token), PyPI/twine
   (basic: username + token), Maven (basic in `settings.xml`), Helm classic repos (basic: `helm repo add --username
   --password`), Terraform/OpenTofu (`credentials` block → `Authorization: Bearer`), Ansible Galaxy
   (`Authorization: Token <api-token>`), Swift (`swift package-registry login`: basic or token), NuGet
@@ -481,6 +483,7 @@ Waystation/
 | Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
 | Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block, per-repo CA/proxy and coalescing (T-S08) pending; no format plugin uses it yet (Formats lane) |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
+| Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified. API-token login pending (T-S04) |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)
