@@ -1,0 +1,244 @@
+"""``/api/v1/repositories/{name}/browse`` and the format-aware browse views (OpenAPI tag ``browse``).
+
+Every route needs ``browse`` on the repository (hidden repositories answer 404, ARCHITECTURE §7). The generic folder
+listing works for every format; the format views (``/npm/*``, ``/apt/*``, ``/docker/*``) answer 404 for a repository
+of another format, or whose plugin has no browser yet. The REST layer reaches a format's views only through its
+registered plugin's ``browser`` attribute and the protocols in ``waystation_server.browse.models`` (ARCHITECTURE §3).
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Query, Request
+
+from waystation_common.errors import NotFound
+from waystation_server.api.auth import registry_host
+from waystation_server.api.deps import ServicesDep
+from waystation_server.browse import tree
+from waystation_server.browse.models import (
+    AptBrowser,
+    AptPackagePage,
+    AptSuite,
+    BrowseContext,
+    DockerBrowser,
+    DockerImagePage,
+    DockerManifest,
+    DockerTagPage,
+    FolderListing,
+    NpmBrowser,
+    NpmPackagePage,
+    NpmVersionPage,
+)
+from waystation_server.repos.model import RepoConfig
+from waystation_server.security import access
+from waystation_server.security.access import Action
+from waystation_server.services import Services
+
+router = APIRouter(tags=['browse'])
+
+PROBLEM = {'content': {'application/problem+json': {'schema': {'$ref': '#/components/schemas/Problem'}}}}
+NOT_FOUND: dict[int | str, dict[str, Any]] = {404: PROBLEM}
+
+Cursor = Annotated[str | None, Query(max_length=512, description="Opaque cursor from a previous page's `next_cursor`")]
+Limit = Annotated[int, Query(ge=1, le=500)]
+
+
+def _context(svc: Services, repo: RepoConfig) -> BrowseContext:
+    return BrowseContext(
+        repo=repo, db=svc.db, proxy=svc.proxy, base_url=svc.base_url, registry_host=registry_host(svc.base_url)
+    )
+
+
+def _browser(svc: Services, repo: RepoConfig, fmt: str) -> object:
+    """The format plugin's browse views, when ``repo`` is of format ``fmt``."""
+    browser = getattr(svc.formats.plugin(repo.format), 'browser', None) if repo.format == fmt else None
+    if browser is None:
+        raise NotFound(f'not a {fmt} repository')
+    return browser
+
+
+def _npm(svc: Services, repo: RepoConfig) -> NpmBrowser:
+    browser = _browser(svc, repo, 'npm')
+    if not isinstance(browser, NpmBrowser):
+        raise NotFound('not an npm repository')
+    return browser
+
+
+def _apt(svc: Services, repo: RepoConfig) -> AptBrowser:
+    browser = _browser(svc, repo, 'apt')
+    if not isinstance(browser, AptBrowser):
+        raise NotFound('not an apt repository')
+    return browser
+
+
+def _docker(svc: Services, repo: RepoConfig) -> DockerBrowser:
+    browser = _browser(svc, repo, 'docker')
+    if not isinstance(browser, DockerBrowser):
+        raise NotFound('not a docker repository')
+    return browser
+
+
+@router.get('/repositories/{name}/browse', response_model=FolderListing, operation_id='browsePath', responses=NOT_FOUND)
+@access.requires_repo(Action.BROWSE)
+async def browse_path(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    path: Annotated[
+        str, Query(max_length=1024, description='Folder path relative to the repository root; empty = root')
+    ] = '',
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> FolderListing:
+    repo: RepoConfig = request.state.repo
+    return await tree.list_folder(svc.db, repo.id, path, cursor=cursor, limit=limit)
+
+
+# ---------------------------------------------------------------------------- npm
+@router.get(
+    '/repositories/{name}/npm/packages',
+    response_model=NpmPackagePage,
+    operation_id='listNpmPackages',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_npm_packages(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=214)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> NpmPackagePage:
+    repo: RepoConfig = request.state.repo
+    browser = _npm(svc, repo)
+    return await browser.packages(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/npm/versions',
+    response_model=NpmVersionPage,
+    operation_id='listNpmVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_npm_versions(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    package: Annotated[str, Query(max_length=214, description='Package name, scoped names as `@scope/name`')],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> NpmVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _npm(svc, repo)
+    return await browser.versions(_context(svc, repo), package=package, cursor=cursor, limit=limit)
+
+
+# ---------------------------------------------------------------------------- apt
+@router.get(
+    '/repositories/{name}/apt/suites',
+    response_model=list[AptSuite],
+    operation_id='listAptSuites',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_apt_suites(name: str, request: Request, svc: ServicesDep) -> list[AptSuite]:
+    repo: RepoConfig = request.state.repo
+    browser = _apt(svc, repo)
+    return await browser.suites(_context(svc, repo))
+
+
+@router.get(
+    '/repositories/{name}/apt/packages',
+    response_model=AptPackagePage,
+    operation_id='listAptPackages',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_apt_packages(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    suite: Annotated[str, Query(max_length=100)],
+    component: Annotated[str | None, Query(max_length=100)] = None,
+    arch: Annotated[str | None, Query(max_length=32)] = None,
+    cached: Annotated[bool | None, Query(description='Only packages whose `.deb` is in the cache')] = None,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> AptPackagePage:
+    repo: RepoConfig = request.state.repo
+    browser = _apt(svc, repo)
+    return await browser.packages(
+        _context(svc, repo),
+        suite=suite,
+        component=component,
+        arch=arch,
+        cached=cached,
+        q=q,
+        cursor=cursor,
+        limit=limit,
+    )
+
+
+# ---------------------------------------------------------------------------- docker
+Image = Annotated[str, Query(max_length=255, description='Image name within the repository, e.g. `library/nginx`')]
+
+
+@router.get(
+    '/repositories/{name}/docker/images',
+    response_model=DockerImagePage,
+    operation_id='listDockerImages',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_docker_images(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> DockerImagePage:
+    repo: RepoConfig = request.state.repo
+    browser = _docker(svc, repo)
+    return await browser.images(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/docker/tags',
+    response_model=DockerTagPage,
+    operation_id='listDockerTags',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_docker_tags(
+    name: str, request: Request, svc: ServicesDep, image: Image, cursor: Cursor = None, limit: Limit = 50
+) -> DockerTagPage:
+    repo: RepoConfig = request.state.repo
+    browser = _docker(svc, repo)
+    return await browser.tags(_context(svc, repo), image=image, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/docker/manifest',
+    response_model=DockerManifest,
+    operation_id='getDockerManifest',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def get_docker_manifest(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    image: Image,
+    reference: Annotated[str, Query(max_length=200, description='Tag or `sha256:` digest')],
+    platform: Annotated[
+        str | None, Query(max_length=64, description='For an index, select one platform (`os/arch[/variant]`)')
+    ] = None,
+) -> DockerManifest:
+    repo: RepoConfig = request.state.repo
+    browser = _docker(svc, repo)
+    return await browser.manifest(_context(svc, repo), image=image, reference=reference, platform=platform)

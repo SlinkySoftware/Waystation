@@ -82,4 +82,11 @@ step 'Docker Hub ratelimit-* headers are recorded for upstream health'
 ws_login
 ws_api GET /stats/upstreams | grep -Eq '"rate_limit": *\{ *"limit"' || fail 'no Docker Hub rate limit in upstream health'
 
+step 'browse API: images, tags and the manifest of what was pulled'
+ws_api GET '/repositories/docker-hub/docker/images' | grep -q '"name":"library/hello-world"' || fail 'docker images'
+ws_api GET '/repositories/docker-hub/docker/tags?image=library/hello-world' | grep -q '"tag":"latest"' \
+  || fail 'docker tags'
+ws_api GET '/repositories/docker-hub/docker/manifest?image=library/hello-world&reference=latest' \
+  | grep -q '"is_index":true' || fail 'docker manifest'
+
 pass

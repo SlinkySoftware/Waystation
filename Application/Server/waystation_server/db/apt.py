@@ -10,6 +10,12 @@ Entries come from two places:
 
 Lookups use ``repo_filename_unique``; listing writes are unordered bulk upserts in batches. Only written on cache fills,
 never per cache hit (ARCHITECTURE §8).
+
+``apt_packages`` (browse) holds one document per stanza of every cached ``Packages`` index: ``(suite, component,
+arch)`` identify the index, ``name``/``version``/``architecture``/``section`` come from the stanza. Each index's
+documents are replaced when a new generation of it is indexed (``gen`` = the index blob's sha256). Pages are read
+through ``repo_suite_name``; "is it cached" joins ``assets`` (``repo_path_unique``) the other way round through
+``filename_repo``.
 """
 
 from __future__ import annotations
@@ -17,12 +23,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from pymongo import UpdateOne
 from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db.client import Database
-from waystation_common.db.collections import APT_POOL_INDEX
+from waystation_common.db.collections import APT_PACKAGES, APT_POOL_INDEX, ASSETS
 from waystation_server.db import assets as assets_db
 
 BATCH = 1000
@@ -130,3 +137,153 @@ async def drop_cached(db: Database, repo_id: str, filename: str) -> None:
     asset = await assets_db.get(db, repo_id, filename)
     if asset is not None:
         await assets_db.delete(db, asset.id)
+
+
+# ---------------------------------------------------------------------------- apt_packages (browse)
+PACKAGE_SORT: tuple[str, ...] = ('name', 'filename', 'arch', 'component')
+
+
+@dataclass(frozen=True)
+class Stanza:
+    filename: str
+    sha256: str
+    size: int
+    name: str
+    version: str
+    architecture: str
+    section: str
+
+
+async def record_packages(
+    db: Database, repo_id: str, stanzas: Sequence[Stanza], *, suite: str, component: str, arch: str, gen: str
+) -> None:
+    """Make ``stanzas`` the listing of the index ``(suite, component, arch)``: upsert them, drop older entries."""
+    listing = {'repo_id': repo_id, 'suite': suite, 'component': component, 'arch': arch}
+    now = datetime.now(UTC)
+    ops = [
+        UpdateOne(
+            {**listing, 'filename': s.filename},
+            {
+                '$set': {
+                    'name': s.name,
+                    'version': s.version,
+                    'architecture': s.architecture,
+                    'section': s.section or None,
+                    'sha256': s.sha256,
+                    'size': s.size,
+                    'gen': gen,
+                    'updated_at': now,
+                }
+            },
+            upsert=True,
+        )
+        for s in {s.filename: s for s in stanzas}.values()
+    ]
+    for start in range(0, len(ops), BATCH):
+        await db[APT_PACKAGES].bulk_write(ops[start : start + BATCH], ordered=False)
+    await db[APT_PACKAGES].delete_many({**listing, 'gen': {'$ne': gen}})
+
+
+def _after(values: Sequence[Any]) -> dict[str, Any]:
+    """Keyset condition: strictly after ``values`` in ``PACKAGE_SORT`` order."""
+    branches = []
+    for i, key in enumerate(PACKAGE_SORT):
+        branch: dict[str, Any] = {PACKAGE_SORT[j]: values[j] for j in range(i)}
+        branch[key] = {'$gt': values[i]}
+        branches.append(branch)
+    return {'$or': branches}
+
+
+def _listing_filter(
+    repo_id: str, suite: str, component: str | None, arch: str | None, name_regex: str | None
+) -> dict[str, Any]:
+    query: dict[str, Any] = {'repo_id': repo_id, 'suite': suite}
+    if arch is not None:
+        query['arch'] = arch
+    if component is not None:
+        query['component'] = component
+    if name_regex is not None:
+        query['name'] = {'$regex': name_regex, '$options': 'i'}
+    return query
+
+
+async def package_page(
+    db: Database,
+    repo_id: str,
+    *,
+    suite: str,
+    component: str | None,
+    arch: str | None,
+    name_regex: str | None,
+    after: Sequence[Any] | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """A page of a suite's listing, by ``PACKAGE_SORT``."""
+    query = _listing_filter(repo_id, suite, component, arch, name_regex)
+    if after is not None:
+        query = {'$and': [query, _after(after)]}
+    return await db[APT_PACKAGES].find(query, {'_id': 0}).sort([(k, 1) for k in PACKAGE_SORT]).limit(limit).to_list()
+
+
+async def cached_package_page(
+    db: Database,
+    repo_id: str,
+    *,
+    suite: str,
+    component: str | None,
+    arch: str | None,
+    name_regex: str | None,
+    after: Sequence[Any] | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Like ``package_page`` but only entries whose file is cached: walks the repository's assets (what is cached is
+    usually far less than what is listed) and joins their listings."""
+    listing = _listing_filter(repo_id, suite, component, arch, None)
+    match: dict[str, Any] = {}
+    if name_regex is not None:
+        match['name'] = {'$regex': name_regex, '$options': 'i'}
+    if after is not None:
+        match = {'$and': [match, _after(after)]} if match else _after(after)
+    pipeline: list[dict[str, Any]] = [
+        {'$match': {'repo_id': repo_id}},
+        {'$project': {'path': 1, '_id': 0}},
+        {
+            '$lookup': {
+                'from': APT_PACKAGES,
+                'localField': 'path',
+                'foreignField': 'filename',
+                'pipeline': [{'$match': listing}, {'$project': {'_id': 0}}],
+                'as': 'listed',
+            }
+        },
+        {'$unwind': '$listed'},
+        {'$replaceRoot': {'newRoot': '$listed'}},
+    ]
+    if match:
+        pipeline.append({'$match': match})
+    pipeline += [{'$sort': dict.fromkeys(PACKAGE_SORT, 1)}, {'$limit': limit}]
+    return [doc async for doc in await db[ASSETS].aggregate(pipeline, allowDiskUse=True)]
+
+
+async def suite_count(db: Database, repo_id: str, suite: str) -> int:
+    return await db[APT_PACKAGES].count_documents({'repo_id': repo_id, 'suite': suite})
+
+
+async def cached_counts(db: Database, repo_id: str) -> dict[str, int]:
+    """Listing entries whose file is cached, per suite."""
+    pipeline: list[dict[str, Any]] = [
+        {'$match': {'repo_id': repo_id}},
+        {'$project': {'path': 1, '_id': 0}},
+        {
+            '$lookup': {
+                'from': APT_PACKAGES,
+                'localField': 'path',
+                'foreignField': 'filename',
+                'pipeline': [{'$match': {'repo_id': repo_id}}, {'$project': {'suite': 1, '_id': 0}}],
+                'as': 'listed',
+            }
+        },
+        {'$unwind': '$listed'},
+        {'$group': {'_id': '$listed.suite', 'count': {'$sum': 1}}},
+    ]
+    return {str(doc['_id']): int(doc['count']) async for doc in await db[ASSETS].aggregate(pipeline)}
