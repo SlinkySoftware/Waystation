@@ -2,12 +2,18 @@
 // Bundle budget (SPEC §5.1, ARCH §9): the JS needed for the initial route must stay under the limit, gzipped.
 // "Initial" = the entry chunk plus every chunk it imports statically (modulepreload links in index.html and the
 // entry's static imports), excluding lazily loaded route chunks.
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 
 const DIST = process.env.DIST_DIR ?? 'dist/spa'
-const LIMIT_KB = Number(process.env.BUNDLE_BUDGET_KB ?? 250)
+const BUDGET_ID = 'spa_initial_route_js_kb_gzip'
+// The limit lives in Build/ci/budgets.json; the image build (which only sees Application/Web) falls back to 250.
+const BUDGETS = '../../Build/ci/budgets.json'
+const fromFile = existsSync(BUDGETS)
+  ? JSON.parse(readFileSync(BUDGETS, 'utf8')).budgets?.find((b) => b.id === BUDGET_ID)?.limit
+  : undefined
+const LIMIT_KB = Number(process.env.BUNDLE_BUDGET_KB ?? fromFile ?? 250)
 
 const html = readFileSync(join(DIST, 'index.html'), 'utf8')
 const refs = new Set()
@@ -43,6 +49,9 @@ for (const [file, size] of rows) console.log(`  ${(size / 1024).toFixed(1).padSt
 const all = readdirSync(join(DIST, 'assets')).filter((f) => f.endsWith('.js'))
 const kb = total / 1024
 console.log(`Initial route JS: ${kb.toFixed(1)} kB gzip (budget ${LIMIT_KB} kB); ${refs.size} of ${all.length} JS chunks.`)
+// Measured value for the CI budget report (make budgets reads dist/bundle-budget.json).
+const result = { [BUDGET_ID]: Number(kb.toFixed(1)) }
+writeFileSync(join(DIST, '..', 'bundle-budget.json'), JSON.stringify(result, null, 2) + '\n')
 if (kb > LIMIT_KB) {
   console.error('Bundle budget exceeded.')
   process.exit(1)

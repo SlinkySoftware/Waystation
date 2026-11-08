@@ -144,7 +144,7 @@ async def test_field_errors(admin: httpx.AsyncClient) -> None:
             'format': 'raw',
             'type': 'proxy',
             'online': True,
-            'proxy': {'upstream_url': 'http://10.1.2.3/files/'},
+            'proxy': {'upstream_url': 'http://10.1.2.3/files/'},  # forbidden-strings: allow
         },
     )
     assert fields(private) == {'proxy.upstream_url': 'ssrf'}
