@@ -269,8 +269,21 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
   The UI uses only this API. Pagination by opaque cursor; filtering and sorting params documented.
 - **Event stream**: `GET /api/v1/events/stream` (Server-Sent Events) with topic filters (`transfers`, `stats`,
   `repo:<name>`, `tasks`, `workers`); RBAC-filtered per subscriber; heartbeat 15 s; resumable with `Last-Event-ID`.
-- Auth: session cookie (UI) or `Authorization: Bearer <api-token>`.
+- Auth: session cookie (UI) or `Authorization: Bearer <api-token>`. CSRF for cookie sessions is a double-submit
+  token: `POST /auth/login` and `GET /auth/me` return `csrf_token` (also set in the readable `ws_csrf` cookie);
+  unsafe methods must echo it in `X-CSRF-Token`. Bearer requests are exempt.
 - Versioned: breaking changes only in `/api/v2/`.
+- **Contract (M0)**: the API the UI depends on is written contract-first in
+  `Application/Web/openapi/waystation-m0.yaml` (OpenAPI 3.1): config, auth/session, repositories (CRUD for proxy
+  repos with format options, test-upstream, Set me up snippets), stats (summary with sparklines, traffic series by
+  range `15m|1h|24h|7d|30d` split hit/upstream or by format, storage, upstream health incl. Docker Hub rate limit),
+  live transfers, activity, browse (generic folder listing, docker images/tags/manifest, npm packages/versions, apt
+  suites/packages) and the SSE event schemas (`LiveEvent`: `transfers.snapshot`, `transfer.started|progress|finished|failed`,
+  `stats.tick`, `upstream.state`, `activity`). Errors are RFC 9457 problem+json with field-level `errors[]`.
+  `make gen-api` regenerates the UI's TypeScript types (`src/api/schema.d.ts`); CI fails if they are stale. Once
+  the server generates its own document, a contract test keeps it compatible with this file.
+- EventSource cannot set headers, so a client that reopens the stream itself passes `last_event_id` as a query
+  parameter (same meaning as `Last-Event-ID`). On (re)connect the server first sends `transfers.snapshot`.
 
 ## 8. Deployment
 
@@ -407,6 +420,7 @@ Waystation/
 | Plan and documents | Drafted 2026-11-08 |
 | Repository bootstrap (T-F01) | Done 2026-11-08: skeleton, LICENSE (GPL-3.0-or-later), VERSION 0.1.0; not yet pushed |
 | Dev tooling (T-F02) | Done 2026-11-08: dev image (Python 3.14, uv, Node 26 LTS), Makefile, uv workspace (`waystation_common`, `waystation_server`, `waystation_worker`), ruff, mypy strict, import-linter contracts (ARCH §3), pre-commit hook |
+| M0 API contract + mocks (T-V01) | Done 2026-11-08: OpenAPI 3.1 contract (`Application/Web/openapi/waystation-m0.yaml`), generated TS types + `openapi-fetch` client, MSW handlers with seeded fixtures (11 proxy repos: Docker Hub, GHCR, Quay, registry.k8s.io, npmjs, Debian, Debian security, Ubuntu, Raspberry Pi OS, two raw) and a live-event generator (bursty docker pulls, npm installs, apt runs, raw downloads, coalescing, failures); `npm run dev:mock` / `make frontend-mock`. Server-side contract test pending (server lane) |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

@@ -3,6 +3,11 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-V01: contract-first M0 API. OpenAPI 3.1 at `Application/Web/openapi/waystation-m0.yaml` (auth/session with
+  double-submit CSRF, repositories, test-upstream, Set me up, stats, live transfers, activity, browse, SSE event
+  schemas, problem+json errors); generated types + `openapi-fetch` client in `src/api/`; MSW handlers with seeded
+  fixtures and a live-event generator (`src/mocks/`); Make targets `frontend-install`, `frontend-mock`,
+  `frontend-lint`, `frontend-test`, `gen-api`, `gen-api-check`.
 - T-F02: dev tooling. Dev image (`Build/Containers/dev/`: Python 3.14, uv 0.13, Node 26 LTS); Makefile with every
   planned target (later ones say which task delivers them); uv workspace with the three packages and the server/worker
   subpackage skeleton; ruff (single quotes, 120 columns), mypy strict, pytest with coverage; six import-linter
