@@ -200,8 +200,14 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   (`X-NuGet-ApiKey` for push, basic for read), apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic).
   Each format's auth is part of its Definition of Done (FORMATS.md).
 - Anonymous access: a configurable `anonymous` principal with its own roles (default: read on proxy repos only).
-- Sessions: HttpOnly, Secure, SameSite=Lax cookies; CSRF on unsafe methods; idle and absolute timeouts; login
-  rate limiting; account lockout after N failures (local only).
+- Sessions: HttpOnly, Secure (https base URL), SameSite=Lax cookie `ws_session`; a new session on every sign-in;
+  stored as a sha256 of the token; CSRF on unsafe methods (double submit: readable cookie `ws_csrf`, header
+  `X-CSRF-Token`; bearer requests exempt); idle (`SESSION_IDLE_MINUTES`, default 8 h) and absolute
+  (`SESSION_MAX_HOURS`, default 7 days) timeouts; login rate limiting per client address (`LOGIN_RATE_LIMIT` per
+  5 min, then 429 + `Retry-After`); account lockout after `LOGIN_LOCKOUT_FAILURES` failures for
+  `LOGIN_LOCKOUT_MINUTES` (local only). Sign-in failures never say which part was wrong.
+- First administrator: `init` creates local user `admin` (role `admin`) when there are no users, with
+  `BOOTSTRAP_ADMIN_PASSWORD[_FILE]` or a one-time password printed once to the init container's stderr.
 
 ### 4.10 RBAC
 - **Permissions** are `(action, scope)`: actions `browse`, `read` (download/pull), `write` (upload/push),
@@ -429,6 +435,7 @@ Waystation/
 | Blob store (T-F07) | M0 slice 2026-11-08: local-filesystem `BlobStore` (streaming sha256, size limits, verified atomic commit, X-Accel paths, orphan sweeper, free-space guard); NFS CI scenario pending |
 | Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once. Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
+| Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

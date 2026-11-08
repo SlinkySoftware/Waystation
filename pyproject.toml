@@ -47,7 +47,7 @@ select = ["E", "W", "F", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF", "PT", "C4",
 ignore = ["S101"]  # asserts are fine; tests use them and mypy narrowing relies on them
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**" = ["S", "PT011"]
+"**/tests/**" = ["S", "PT011", "PT018"]
 "Application/Common/waystation_common/errors.py" = ["N818"]  # HTTP-status style names (NotFound, Forbidden...)
 
 [tool.ruff.lint.flake8-quotes]

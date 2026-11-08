@@ -9,9 +9,11 @@ themselves.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from redis.asyncio import Redis
+from starlette.requests import Request
 
 from waystation_common.crypto import Keyring
 from waystation_common.db.client import Client, Database, create_client, database
@@ -26,8 +28,12 @@ from waystation_server.metrics import Metrics
 from waystation_server.proxy.engine import ProxyEngine
 from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import RepoConfig
+from waystation_server.security.principal import Principal
+from waystation_server.security.sessions import SessionManager
 
 log = logging.getLogger('waystation.server')
+
+BearerAuthenticator = Callable[[Request, str], Awaitable[Principal | None]]
 
 
 @dataclass
@@ -40,7 +46,10 @@ class Services:
     catalog: RepoCatalog
     formats: FormatRegistry
     metrics: Metrics
+    sessions: SessionManager
     proxy: ProxyEngine = field(default_factory=ProxyEngine)
+    # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
+    bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
     mongo_client: Client | None = None
     check_schema_on_start: bool = True
@@ -79,6 +88,7 @@ class Services:
             catalog=RepoCatalog(load),
             formats=formats,
             metrics=metrics,
+            sessions=SessionManager(db, redis, settings),
             keyring=keyring,
             mongo_client=client,
             check_schema_on_start=check_schema_on_start,
