@@ -10,7 +10,6 @@ public package ecosystems and a private registry for the things you build, with 
 - **See it happen**: live transfers, cache hit ratios, bandwidth saved, upstream health and per-package stats.
 - **Sign in** with local accounts, LDAP or OIDC; role-based access control down to the repository.
 - **No caps**: no component or request limits, no mandatory telemetry.
-- **Nexus-compatible URLs** (`/repository/<name>/...`) so existing clients can switch without reconfiguration.
 
 Status: planning. See `Documents/SPECIFICATION.md` and `Documents/TASKS.md`.
 
