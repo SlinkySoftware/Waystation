@@ -102,10 +102,20 @@ repo, size, last downloaded; digest search ("sha256:..." shows every asset using
 ### 4.6 Activity
 Live, filterable event log (virtual scroll, follows tail until the user scrolls): time, type icon, principal,
 repo, artifact, outcome, duration, bytes. Pause/resume, export CSV for the selected range.
+As built (T-U07): newest first; following = new events appear at the top in 4 Hz batches; scrolling away from the
+top or pressing Pause holds them behind an "N new events" pill (Resume or scrolling back to the top applies them).
+Filters (URL keys `kind`, `repo`, `format`, `user`, `cache`, `outcome`, `range` or `from`/`to`) apply to history and
+the live tail alike; a window ending in the past shows "History" and does not follow. Rows open a side drawer with
+every field and one-click narrowing. Export CSV downloads the current filter. Columns collapse at < 1360 px (who and
+duration move to the drawer) and become two-line rows < 900 px.
 
 ### 4.7 Storage
 Total and free space (from the data dir), growth chart, by-repo table (bytes, % of total, assets, de-dup savings),
 largest artifacts, GC status (last run, bytes reclaimed, next run).
+As built (T-U07): KPIs (stored, free, saved by de-duplication, blobs), data volume bar (Waystation blobs / other
+files / free, warning under 15 % free), by-format donut, largest repositories bar list, repository table (size,
+share bar, artifacts, average artifact size; sort and filter in the URL; link to the repository's activity). Growth
+chart, largest artifacts, per-repository de-dup savings and GC status wait for storage snapshots and GC.
 
 ### 4.8 Cleanup
 Policies list → editor with criteria builder; **Preview** shows matches (count, bytes, sample table) before

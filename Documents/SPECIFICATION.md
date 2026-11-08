@@ -357,7 +357,8 @@ WCAG 2.2 AA. Keyboard navigable, command palette. No external CDNs or fonts (wor
 
 ### 5.5 Observability
 Structured JSON logs (request id, principal, repo), Prometheus metrics, health/readiness endpoints per container,
-OpenTelemetry tracing hooks (off by default). Zabbix template in `Build/monitoring/` (Phase 6).
+OpenTelemetry tracing hooks (off by default). Zabbix 7 template and Grafana dashboard in `Build/monitoring/`
+(`Documents/Operations/MONITORING.md`).
 
 ## 6. User interface
 See `UI_DESIGN.md`. Summary: dashboard with live transfers and KPIs, repositories, browse/search, component
@@ -374,6 +375,10 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
   after `Last-Event-ID` (header or `last_event_id` query parameter, up to 1000); `stats.tick` at 1 Hz (rates over the
   last 10 s from the live counters). Stats endpoints (`/stats/*`, `/transfers`, `/activity`) need `stats-read` and
   only cover repositories the principal can see; series buckets are 1 min (15m, 1h), 10 min (24h), 1 h (7d), 6 h (30d).
+  `GET /activity` filters by `repo`, `kind`, `format`, `principal` (case-insensitive substring of the user name or
+  client address), `cache`, `outcome` and an inclusive `since`/`until` window, newest first with a stream-id cursor (a
+  sparse filter may return a short page with `next_cursor` set: keep paging). `GET /activity/export` streams the same
+  selection as CSV (newest first, at most 100,000 rows; cells a spreadsheet would read as a formula are prefixed `'`).
 - Auth: session cookie (UI) or `Authorization: Bearer <api-token>`. CSRF for cookie sessions is a double-submit
   token: `POST /auth/login` and `GET /auth/me` return `csrf_token` (also set in the readable `ws_csrf` cookie);
   unsafe methods must echo it in `X-CSRF-Token`. Bearer requests are exempt.
@@ -443,7 +448,10 @@ as root with `CHOWN`, `FOWNER`, `DAC_OVERRIDE`, `SETUID`, `SETGID` to fix data-d
 Either `web` terminates TLS (cert/key paths, HTTP→HTTPS redirect, HTTP/2) or it runs plain HTTP behind a trusted
 proxy (`WAYSTATION_TRUST_FORWARDED=true`, trusted CIDRs). Large uploads/downloads must pass through untouched:
 docs list the required proxy settings (no buffering, no body size limit, long timeouts) for nginx, Traefik,
-Caddy, HAProxy and Synology DSM.
+Caddy, HAProxy and Synology DSM (`Documents/Operations/REVERSE_PROXIES.md`; the example files in
+`Build/Containers/examples/reverse-proxies/` are checked in containers by `make proxies-check`). Today only the
+external-proxy mode exists: `web` listens on plain HTTP; TLS termination in `web` is planned (T-F05). Deployment
+guide: `Documents/Operations/DEPLOYMENT.md`.
 
 ### 8.5 Backup and restore
 `make backup` / documented commands: `mongodump --archive --gzip` (consistent with a snapshot of the blob path
@@ -466,9 +474,13 @@ configured in the UI/API (stored in MongoDB). Planned (Phase 6, T-O09): optional
 a YAML file (`WAYSTATION_PROVISION_FILE`, applied idempotently at start; GitOps-friendly).
 
 ## 10. Observability
-See §5.5. Metric names: `waystation_requests_total{repo,format,status,cache}`, `waystation_bytes_total{repo,direction}`,
-`waystation_upstream_latency_seconds`, `waystation_inflight_transfers`, `waystation_storage_bytes{repo}`,
-`waystation_jobs_total{queue,status}`, `waystation_upstream_state{repo}`.
+See §5.5. Exported today by the server (per process): `waystation_requests_total{repo,format,status,cache}`,
+`waystation_bytes_total{repo,direction}`, `waystation_upstream_latency_seconds{repo}` (histogram),
+`waystation_inflight_transfers`, `waystation_coalesce_total{repo,event}`; `waystation_upstream_state{repo}` is declared
+but not set yet. Planned: `waystation_storage_bytes{repo}`, `waystation_jobs_total{queue,status}`, queue depth, Docker
+Hub rate limit, free space (the full gap list is in `Documents/Operations/MONITORING.md`). The Grafana dashboard
+(`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) use only the exported metrics
+plus `/healthz` and `/readyz`.
 
 ## 11. Testing strategy
 - Unit tests next to code (pytest, Vitest). Property-based tests (hypothesis) for path normalisation, version
@@ -533,7 +545,7 @@ Waystation/
     Containers/  compose*.yaml, web/ (Dockerfile, nginx.conf.template), server/, worker/, dev/ (dev image), examples/
     githooks/    pre-commit hook (`make hooks`)
     ci/          budgets.json, scripts used by workflows
-    monitoring/  zabbix template, grafana dashboard (Phase 6)
+    monitoring/  zabbix/ (Zabbix 7 template), grafana/ (dashboard)
   tests/  clients/<format>/  fixtures/upstreams/<format>/  perf/  security/  e2e/
   Documents/  SPECIFICATION.md  TASKS.md  CHANGELOG.md  UI_DESIGN.md
               Architecture/ ARCHITECTURE.md DATA_MODEL.md FORMATS.md adr/
@@ -571,11 +583,14 @@ Waystation/
 | Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block and per-repo CA/proxy pending; used by the raw plugin (T-P2-RAW) |
 | Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Followers on a second host against NFS not covered by CI yet |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
+| Activity and Storage pages (T-U07) | 2026-11-09: Activity page (live tail with pause and scroll-hold, filters in the URL incl. user, cache state, outcome and time window, history paging, detail drawer, CSV export through the new streaming `/activity/export`); Storage page (stored/free/de-duplication/blob KPIs, data volume bar, by-format donut, largest repositories, sortable repository table). Storage growth, largest artifacts, per-repository de-duplication and GC status pending |
 | Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified; `docker login` with an API token (T-S04) |
 | Raw format (T-P2-RAW) | M0 slice 2026-11-08: raw proxy repositories serve `GET`/`HEAD /repository/<repo>/<path>` through the proxy engine (cache by path, metadata regex → revalidated metadata, extension-based Content-Type, `Content-Disposition` + `nosniff`, native 404 with negative cache); curl and wget pass the real-client harness in replay. Directory listings, hosted and group pending |
 | apt format (T-P2-APT) | M0 slice 2026-11-08: apt proxy repositories pass `InRelease`/`Release` through untouched, serve index files only by the SHA256 the cached `Release` lists (by-hash fetch, one `Release` revalidation on mismatch, then 502), accept self-validating `by-hash` paths, index cached `Packages` files into `apt_pool_index` and validate pool files against it (or record them `unverified`); several suites per repository. apt on Debian 13 and Ubuntu 26.04 passes the real-client harness in replay (`*-updates` and `*-security` suites). Hosted, Raspberry Pi OS / arm64 clients and worker-side re-verification pending |
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted, group, `_catalog`, referrers and podman/containerd/crane harness runs pending |
+| Deployment docs (T-M03) | 2026-11-09: `Operations/DEPLOYMENT.md` (single-host compose as it works today, env reference, TLS options, scaling status, manual backups, upgrades) and `Operations/REVERSE_PROXIES.md` (nginx, Traefik labels + file provider, Caddy, HAProxy, Synology DSM) with example files checked in containers by `make proxies-check`. `BACKUP.md` waits for T-O07 |
+| Monitoring (T-O06) | 2026-11-09: Grafana dashboard (`Build/monitoring/grafana/waystation-dashboard.json`: request rate, cache hit ratio, bytes served from cache / fetched, upstream errors and latency, coalescing, per-repository table) and Zabbix 7 template (`Build/monitoring/zabbix/waystation_by_http.yaml`: HTTP agent items on `/healthz`, `/readyz`, `/metrics`, repository discovery, down/degraded upstream, error-ratio and availability triggers), both checked by loading them into Grafana 12.2 / Zabbix 7.0; `Operations/MONITORING.md`. Upstream state, Docker Hub rate limit, job queues, worker health and disk space are not exported as metrics yet |
 | LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
 | OIDC provider (T-A02) | Done 2026-11-09: several OIDC providers (discovery, code + PKCE S256, state + nonce bound to the browser, ID token checks with JWKS rotation and an asymmetric alg allowlist, optional userinfo, claim and group-claim mapping, require-group, auto-provision toggle, RP-initiated logout), write-only encrypted client secret, IdP calls on the pooled client + SSRF guard; admin form with test discovery; "Sign in with" buttons. Tested against Keycloak and (opt-in) authentik. JOSE library choice is ADR 0004 (Proposed) |
 | Identity linking and group sync (T-A03) | LDAP half and OIDC half done 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`), LDAP and OIDC provider admin forms. Users/Groups admin pages wait for T-U08 |

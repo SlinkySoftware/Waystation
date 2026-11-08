@@ -1,0 +1,37 @@
+# Traefik v3 dynamic configuration (file provider) for Waystation (Documents/Operations/REVERSE_PROXIES.md).
+# Traefik streams request and response bodies (no buffering middleware here, ever) and flushes text/event-stream
+# responses immediately, so the live event stream and large blobs need no special route.
+http:
+  routers:
+    waystation:
+      rule: Host(`registry.example.com`)
+      entryPoints: [websecure]
+      service: waystation
+      tls: {}
+      # tls:
+      #   certResolver: letsencrypt
+
+  services:
+    waystation:
+      loadBalancer:
+        servers:
+          - url: http://waystation-web:8080
+        passHostHeader: true
+        serversTransport: waystation
+        healthCheck:
+          path: /healthz
+          interval: 15s
+          timeout: 3s
+
+  serversTransports:
+    waystation:
+      forwardingTimeouts:
+        dialTimeout: 10s
+        # 0 = wait as long as needed for response headers (a cache fill of a large blob can take a while to start).
+        responseHeaderTimeout: 0s
+        idleConnTimeout: 90s
+
+tls:
+  certificates:
+    - certFile: /etc/traefik/tls/fullchain.pem
+      keyFile: /etc/traefik/tls/privkey.pem
