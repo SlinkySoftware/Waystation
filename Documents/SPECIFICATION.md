@@ -337,7 +337,8 @@ WCAG 2.2 AA. Keyboard navigable, command palette. No external CDNs or fonts (wor
 
 ### 5.5 Observability
 Structured JSON logs (request id, principal, repo), Prometheus metrics, health/readiness endpoints per container,
-OpenTelemetry tracing hooks (off by default). Zabbix template in `Build/monitoring/` (Phase 6).
+OpenTelemetry tracing hooks (off by default). Zabbix 7 template and Grafana dashboard in `Build/monitoring/`
+(`Documents/Operations/MONITORING.md`).
 
 ## 6. User interface
 See `UI_DESIGN.md`. Summary: dashboard with live transfers and KPIs, repositories, browse/search, component
@@ -423,7 +424,10 @@ as root with `CHOWN`, `FOWNER`, `DAC_OVERRIDE`, `SETUID`, `SETGID` to fix data-d
 Either `web` terminates TLS (cert/key paths, HTTP→HTTPS redirect, HTTP/2) or it runs plain HTTP behind a trusted
 proxy (`WAYSTATION_TRUST_FORWARDED=true`, trusted CIDRs). Large uploads/downloads must pass through untouched:
 docs list the required proxy settings (no buffering, no body size limit, long timeouts) for nginx, Traefik,
-Caddy, HAProxy and Synology DSM.
+Caddy, HAProxy and Synology DSM (`Documents/Operations/REVERSE_PROXIES.md`; the example files in
+`Build/Containers/examples/reverse-proxies/` are checked in containers by `make proxies-check`). Today only the
+external-proxy mode exists: `web` listens on plain HTTP; TLS termination in `web` is planned (T-F05). Deployment
+guide: `Documents/Operations/DEPLOYMENT.md`.
 
 ### 8.5 Backup and restore
 `make backup` / documented commands: `mongodump --archive --gzip` (consistent with a snapshot of the blob path
@@ -446,9 +450,13 @@ configured in the UI/API (stored in MongoDB). Planned (Phase 6, T-O09): optional
 a YAML file (`WAYSTATION_PROVISION_FILE`, applied idempotently at start; GitOps-friendly).
 
 ## 10. Observability
-See §5.5. Metric names: `waystation_requests_total{repo,format,status,cache}`, `waystation_bytes_total{repo,direction}`,
-`waystation_upstream_latency_seconds`, `waystation_inflight_transfers`, `waystation_storage_bytes{repo}`,
-`waystation_jobs_total{queue,status}`, `waystation_upstream_state{repo}`.
+See §5.5. Exported today by the server (per process): `waystation_requests_total{repo,format,status,cache}`,
+`waystation_bytes_total{repo,direction}`, `waystation_upstream_latency_seconds{repo}` (histogram),
+`waystation_inflight_transfers`, `waystation_coalesce_total{repo,event}`; `waystation_upstream_state{repo}` is declared
+but not set yet. Planned: `waystation_storage_bytes{repo}`, `waystation_jobs_total{queue,status}`, queue depth, Docker
+Hub rate limit, free space (the full gap list is in `Documents/Operations/MONITORING.md`). The Grafana dashboard
+(`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) use only the exported metrics
+plus `/healthz` and `/readyz`.
 
 ## 11. Testing strategy
 - Unit tests next to code (pytest, Vitest). Property-based tests (hypothesis) for path normalisation, version
@@ -511,7 +519,7 @@ Waystation/
     Containers/  compose*.yaml, web/ (Dockerfile, nginx.conf.template), server/, worker/, dev/ (dev image), examples/
     githooks/    pre-commit hook (`make hooks`)
     ci/          budgets.json, scripts used by workflows
-    monitoring/  zabbix template, grafana dashboard (Phase 6)
+    monitoring/  zabbix/ (Zabbix 7 template), grafana/ (dashboard)
   tests/  clients/<format>/  fixtures/upstreams/<format>/  perf/  security/  e2e/
   Documents/  SPECIFICATION.md  TASKS.md  CHANGELOG.md  UI_DESIGN.md
               Architecture/ ARCHITECTURE.md DATA_MODEL.md FORMATS.md adr/
@@ -554,6 +562,8 @@ Waystation/
 | apt format (T-P2-APT) | M0 slice 2026-11-08: apt proxy repositories pass `InRelease`/`Release` through untouched, serve index files only by the SHA256 the cached `Release` lists (by-hash fetch, one `Release` revalidation on mismatch, then 502), accept self-validating `by-hash` paths, index cached `Packages` files into `apt_pool_index` and validate pool files against it (or record them `unverified`); several suites per repository. apt on Debian 13 and Ubuntu 26.04 passes the real-client harness in replay (`*-updates` and `*-security` suites). Hosted, Raspberry Pi OS / arm64 clients and worker-side re-verification pending |
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted, group, `_catalog`, referrers and podman/containerd/crane harness runs pending |
+| Deployment docs (T-M03) | 2026-11-09: `Operations/DEPLOYMENT.md` (single-host compose as it works today, env reference, TLS options, scaling status, manual backups, upgrades) and `Operations/REVERSE_PROXIES.md` (nginx, Traefik labels + file provider, Caddy, HAProxy, Synology DSM) with example files checked in containers by `make proxies-check`. `BACKUP.md` waits for T-O07 |
+| Monitoring (T-O06) | 2026-11-09: Grafana dashboard (`Build/monitoring/grafana/waystation-dashboard.json`: request rate, cache hit ratio, bytes served from cache / fetched, upstream errors and latency, coalescing, per-repository table) and Zabbix 7 template (`Build/monitoring/zabbix/waystation_by_http.yaml`: HTTP agent items on `/healthz`, `/readyz`, `/metrics`, repository discovery, down/degraded upstream, error-ratio and availability triggers), both checked by loading them into Grafana 12.2 / Zabbix 7.0; `Operations/MONITORING.md`. Upstream state, Docker Hub rate limit, job queues, worker health and disk space are not exported as metrics yet |
 | LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
 | Identity linking and group sync (T-A03) | LDAP half 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`); OIDC half waits for T-A02 |
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
