@@ -16,15 +16,15 @@ from waystation_server.proxy.ssrf import SsrfGuard, UpstreamBlocked
     ('ip', 'allow_private', 'allowed'),
     [
         ('127.0.0.1', False, False),
-        ('10.1.2.3', False, False),
-        ('169.254.169.254', False, False),  # cloud metadata
+        ('10.1.2.3', False, False),  # forbidden-strings: allow
+        ('169.254.169.254', False, False),  # cloud metadata; forbidden-strings: allow
         ('192.0.2.10', False, False),  # documentation range: not global
         ('::1', False, False),
-        ('fd00::1', False, False),
-        ('::ffff:127.0.0.1', False, False),  # v4-mapped loopback
-        ('10.1.2.3', True, True),
+        ('fd00::1', False, False),  # forbidden-strings: allow
+        ('::ffff:127.0.0.1', False, False),  # v4-mapped loopback; forbidden-strings: allow
+        ('10.1.2.3', True, True),  # forbidden-strings: allow
         ('0.0.0.0', True, False),
-        ('224.0.0.1', True, False),
+        ('224.0.0.1', True, False),  # forbidden-strings: allow
         ('198.51.100.7', False, True),  # in the allow list below
     ],
 )

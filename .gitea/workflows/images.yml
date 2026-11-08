@@ -1,0 +1,77 @@
+# Gitea mirror: build the server, worker and web images on every push to main and push them to the Gitea container
+# registry (T-F03, Documents/Operations/CI.md). Everything environment-specific comes from organisation-level
+# settings, referenced here by name only:
+#   vars.REGISTRY_HOST         registry host name (the Gitea instance)
+#   vars.REGISTRY_NAMESPACE    optional; image namespace (default: the repository owner, lower case)
+#   vars.IMAGE_PLATFORMS       optional; e.g. linux/amd64,linux/arm64 (default: linux/amd64)
+#   secrets.REGISTRY_USER      user (or bot account) allowed to push packages
+#   secrets.REGISTRY_TOKEN     its access token with package write scope
+# Actions are pinned by commit SHA (version in the comment).
+name: images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  images:
+    name: ${{ matrix.role }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [server, worker, web]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Image name and tags
+        id: image
+        env:
+          REGISTRY_HOST: ${{ vars.REGISTRY_HOST }}
+          REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE }}
+          PLATFORMS: ${{ vars.IMAGE_PLATFORMS }}
+          ROLE: ${{ matrix.role }}
+        run: |
+          if [ -z "$REGISTRY_HOST" ]; then echo "::error::organisation variable REGISTRY_HOST is not set"; exit 1; fi
+          ns=${REGISTRY_NAMESPACE:-$GITHUB_REPOSITORY_OWNER}
+          name="$REGISTRY_HOST/${ns,,}/waystation-$ROLE"
+          {
+            echo "name=$name"
+            echo "platforms=${PLATFORMS:-linux/amd64}"
+            echo "tags<<EOF"
+            echo "$name:main"
+            echo "$name:$(cat VERSION)-dev"
+            echo "$name:sha-${GITHUB_SHA::12}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        if: ${{ steps.image.outputs.platforms != 'linux/amd64' }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ vars.REGISTRY_HOST }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Build/Containers/${{ matrix.role }}/Dockerfile
+          platforms: ${{ steps.image.outputs.platforms }}
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          # Attestation manifests are left to the GitHub release images; plain images keep every registry happy.
+          provenance: false
+          sbom: false
+          cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache
+          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max

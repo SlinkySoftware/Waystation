@@ -5,7 +5,8 @@ ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30-alpine
 
 # ---- SPA build (Quasar/Vite; output Application/Web/dist/spa, public path /ui/). Until the SPA exists the image
 # ships a placeholder page.
-FROM ${NODE_IMAGE} AS spa
+# The SPA is architecture-independent: build it once on the build platform, even for multi-arch images.
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS spa
 WORKDIR /web
 COPY Application/Web/ ./
 COPY Build/Containers/web/placeholder/ /placeholder/
