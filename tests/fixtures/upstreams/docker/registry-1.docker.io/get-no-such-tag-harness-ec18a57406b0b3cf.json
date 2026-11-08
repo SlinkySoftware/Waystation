@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "bearer",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry-1.docker.io/v2/library/hello-world/manifests/no-such-tag-harness"
+  },
+  "response": {
+    "body_sha256": "e549264b7bffdc6ee0959dcd4c392101c931d0894ab17baa238487da9166ad6d",
+    "body_size": 113,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "113"
+      ],
+      [
+        "docker-distribution-api-version",
+        "registry/2.0"
+      ],
+      [
+        "ratelimit-limit",
+        "100;w=3600"
+      ],
+      [
+        "ratelimit-remaining",
+        "83;w=3600"
+      ]
+    ],
+    "status": 404
+  }
+}

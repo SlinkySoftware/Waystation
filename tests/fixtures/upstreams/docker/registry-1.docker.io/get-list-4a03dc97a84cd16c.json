@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "bearer",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry-1.docker.io/v2/library/hello-world/tags/list"
+  },
+  "response": {
+    "body_sha256": "aecb93ca21dde623b88c8a54098449386d1ed34dd38584d4907af4c5d45f6c99",
+    "body_size": 206,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "206"
+      ],
+      [
+        "docker-distribution-api-version",
+        "registry/2.0"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://ghcr.io/token?service=ghcr.io&scope=repository:containerd/busybox:pull"
+  },
+  "response": {
+    "body_sha256": "664d99f91c4a2d06542342b8363f36ecde8f551e7646b28a2c88baf34fe7cd8a",
+    "body_size": 28,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "docker-distribution-api-version",
+        "registry/2.0"
+      ],
+      [
+        "content-length",
+        "28"
+      ]
+    ],
+    "status": 200
+  }
+}
