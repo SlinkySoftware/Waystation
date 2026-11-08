@@ -181,7 +181,7 @@ class Download:
         return digest.hexdigest()
 
 
-async def eventually(check: Callable[[], Awaitable[bool]], timeout: float = 60.0) -> None:
+async def eventually(check: Callable[[], Awaitable[bool]], timeout: float = 60.0) -> None:  # noqa: ASYNC109
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while not await check():

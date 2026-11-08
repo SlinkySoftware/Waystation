@@ -70,4 +70,26 @@ node -e '
   })().catch((e) => { console.error(e.message); process.exit(1); });
 ' || fail 'browse API'
 
+step 'API token in .npmrc (_authToken): install with it, narrowed, refused once revoked'
+ws_login
+auth_line() { printf '%s:_authToken=%s\n' "${registry#http:}" "$1"; }  # //host:port/repository/npm/:_authToken=...
+ws_token '["read"]' '["npm"]'
+token=$WS_TOKEN token_id=$WS_TOKEN_ID
+mkdir "$work/token"
+cp "$work/fresh/package.json" "$work/fresh/package-lock.json" "$work/token/"
+auth_line "$token" > "$work/token/.npmrc"
+(cd "$work/token" && npm ci --cache "$work/cache-token") || fail 'npm ci with an API token'
+ws_token '["read"]' '["docker-*"]'
+auth_line "$WS_TOKEN" > "$work/token/.npmrc"
+if (cd "$work/token" && npm view --cache "$work/cache-narrow" is-odd@3.0.1 version > "$work/narrow.log" 2>&1); then
+  fail 'a token limited to docker-* could read the npm repository'
+fi
+grep -q 'E404' "$work/narrow.log" || fail "narrowed token: $(cat "$work/narrow.log")"
+ws_revoke "$token_id"
+auth_line "$token" > "$work/token/.npmrc"
+if (cd "$work/token" && npm view --cache "$work/cache-revoked" is-odd@3.0.1 version > "$work/revoked.log" 2>&1); then
+  fail 'a revoked token still works'
+fi
+grep -q 'E401' "$work/revoked.log" || fail "revoked token: $(cat "$work/revoked.log")"
+
 pass

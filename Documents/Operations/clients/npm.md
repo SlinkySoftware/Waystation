@@ -75,10 +75,21 @@ registry = "https://waystation.example.com/repository/npm/"
 
 ## Authentication
 
-M0: proxy repositories are read anonymously when the deployment allows anonymous reads (the default for
-proxies). Token authentication (`//waystation.example.com/repository/npm/:_authToken=...` in `.npmrc`, issued by
-`npm login` or from the UI) arrives with API tokens (T-S04); `npm whoami` answers 401 until then for anonymous
-users.
+Proxy repositories are read anonymously when the deployment allows anonymous reads (the default for proxies).
+Otherwise put an API token in `.npmrc` as `_authToken` for the registry URL (npm sends it as
+`Authorization: Bearer`). Create an API token on your profile page (avatar menu → Profile → API tokens; shown once, copy it then) or, for
+CI, on a service account. Give it only the `read` scope and, ideally, restrict it to the repositories the client
+needs: a token only ever narrows what its owner may do. A revoked or expired token is refused at once (401); it
+never falls back to anonymous access.
+
+```ini
+registry=https://registry.example.com/repository/npm/
+//registry.example.com/repository/npm/:_authToken=${WAYSTATION_TOKEN}
+```
+
+Keep the token in an environment variable (as above) or in the user-level `~/.npmrc`, never in a project `.npmrc`
+that is committed. `npm login` (the CouchDB login flow) is not supported; create the token in the UI. A revoked token
+makes npm fail with `E401`; a token restricted to other repositories gets `E404`.
 
 ## What the proxy does
 

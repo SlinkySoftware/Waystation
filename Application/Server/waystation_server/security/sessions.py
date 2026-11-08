@@ -23,6 +23,7 @@ from redis.asyncio import Redis
 from starlette.responses import Response
 
 from waystation_common.db.client import Database
+from waystation_common.db.seen import SEEN_SESSIONS
 from waystation_common.settings import Settings
 from waystation_server.db import sessions as sessions_db
 from waystation_server.security.identity import SessionRecord
@@ -32,7 +33,7 @@ log = logging.getLogger('waystation.sessions')
 SESSION_COOKIE = 'ws_session'
 CSRF_COOKIE = 'ws_csrf'
 CSRF_HEADER = 'x-csrf-token'
-SEEN_KEY = 'seen:sessions'
+SEEN_KEY = SEEN_SESSIONS
 TOUCH_EVERY_S = 60.0
 
 

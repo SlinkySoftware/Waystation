@@ -2,7 +2,8 @@
 
 Routes map a path to a ``Respond`` (or a function of the ``Seen`` request returning one). ``Respond`` can split
 the body into chunks with delays, cut the connection after N body bytes (``reset_after``), never answer (``hang``),
-stop after N body bytes until an event is set (``pause_at`` + ``gate``) or for good (``hang_after``). Every request is recorded in ``upstream.seen``.
+stop after N body bytes until an event is set (``pause_at`` + ``gate``) or for good (``hang_after``). Every request
+is recorded in ``upstream.seen``.
 """
 
 from __future__ import annotations

@@ -36,10 +36,27 @@ const SHOTS = [
   { name: 'browse-yum', path: 'repositories/rocky/browse' },
   { name: 'browse-raw', path: 'repositories/raw-releases/browse?path=docker%2Fcompose%2Freleases%2Fdownload%2Fv2.40.3', full: true },
   { name: 'repo-settings', path: 'repositories/ghcr-proxy/settings', full: true },
+  { name: 'profile-tokens', path: 'profile', full: true },
+  { name: 'create-token', path: 'profile', action: createToken },
+  { name: 'token-created', path: 'profile', action: tokenCreated },
 ]
 
 async function openSetup(page) {
   await page.getByRole('button', { name: /set me up/i }).first().click()
+  await page.waitForTimeout(900)
+}
+
+async function createToken(page) {
+  await page.getByRole('button', { name: /create token/i }).first().click()
+  await page.waitForTimeout(500)
+  await page.getByLabel('Name', { exact: true }).fill('GitHub Actions: build images')
+  await page.getByText('Also push and upload').click()
+  await page.waitForTimeout(300)
+}
+
+async function tokenCreated(page) {
+  await createToken(page)
+  await page.locator('.form-dialog button[type=submit]').click()
   await page.waitForTimeout(900)
 }
 
