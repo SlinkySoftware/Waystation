@@ -14,13 +14,22 @@ Pieces: ``model`` (typed payloads, ``JobEnvelope``, ``QUEUES``), ``queue`` (the 
 """
 
 from waystation_common.jobs.client import JobClient
-from waystation_common.jobs.model import JOB_TYPES, QUEUES, JobEnvelope, JobPayload, Queue, StatsRollup
+from waystation_common.jobs.model import (
+    JOB_TYPES,
+    QUEUES,
+    CleanupRun,
+    JobEnvelope,
+    JobPayload,
+    Queue,
+    StatsRollup,
+)
 from waystation_common.jobs.queue import Delivery, EnqueueResult, JobQueue
 from waystation_common.jobs.schedule import parse_schedule
 
 __all__ = [
     'JOB_TYPES',
     'QUEUES',
+    'CleanupRun',
     'Delivery',
     'EnqueueResult',
     'JobClient',

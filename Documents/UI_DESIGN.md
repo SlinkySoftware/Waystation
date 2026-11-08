@@ -110,6 +110,15 @@ largest artifacts, GC status (last run, bytes reclaimed, next run).
 ### 4.8 Cleanup
 Policies list → editor with criteria builder; **Preview** shows matches (count, bytes, sample table) before
 saving; run history with reclaimed bytes.
+As built (T-O01/T-O02): the policies table (format, criteria chips with protections marked, attached repositories,
+last run with progress, schedule and next run, enabled toggle, run now / history / edit / delete); the editor is a
+wide dialog with the form on the left (criteria read as sentences with a switch and an inline value; schedule
+presets manual/daily/weekly/custom cron with a plain-language reading) and a **live impact panel** on the right
+("N items · X across M repositories", per-repository bars, debounced dry run) that opens the paged candidate table.
+A **Blob GC** card on the same page (admins) shows the last run, reclaimed bytes, what waits out the grace period,
+the next run and "Run now" (the Storage page will link to it). The repository detail page has a **Cleanup** tab for
+users who may manage the repository: attached policies in run order (attach compatible policies, reorder, detach)
+and what they would remove from this repository.
 
 ### 4.9 Tasks and workers
 Scheduled tasks table (kind, schedule, last result, next run, run now), job runs with progress bars and log

@@ -30,7 +30,7 @@ const routes: RouteRecordRaw[] = [
       { path: '', name: 'dashboard', component: () => import('@/pages/DashboardPage.vue'), meta: { title: 'nav.dashboard' } },
       { path: 'repositories', name: 'repositories', component: () => import('@/pages/RepositoriesPage.vue'), meta: { title: 'nav.repositories' } },
       {
-        path: 'repositories/:name/:tab(overview|browse|settings)?',
+        path: 'repositories/:name/:tab(overview|browse|cleanup|settings)?',
         name: 'repository',
         component: () => import('@/pages/RepositoryDetailPage.vue'),
         meta: { title: 'nav.repositories' },
@@ -39,7 +39,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'search', name: 'search', component: placeholder, meta: { title: 'nav.search', planned: 'T-U06' } },
       { path: 'activity', name: 'activity', component: placeholder, meta: { title: 'nav.activity', planned: 'T-U07' } },
       { path: 'storage', name: 'storage', component: placeholder, meta: { title: 'nav.storage', planned: 'T-U07' } },
-      { path: 'cleanup', name: 'cleanup', component: placeholder, meta: { title: 'nav.cleanup', planned: 'T-O01' } },
+      { path: 'cleanup', name: 'cleanup', component: () => import('@/pages/CleanupPage.vue'), meta: { title: 'nav.cleanup' } },
       { path: 'tasks', name: 'tasks', component: placeholder, meta: { title: 'nav.tasks', planned: 'T-O04' } },
       { path: 'admin/users', name: 'admin-users', component: placeholder, meta: { title: 'nav.users', planned: 'T-U08' } },
       { path: 'admin/groups', name: 'admin-groups', component: placeholder, meta: { title: 'nav.groups', planned: 'T-U08' } },

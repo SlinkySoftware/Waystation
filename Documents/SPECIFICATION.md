@@ -183,13 +183,20 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - Exposed via API, SSE event stream (live), Prometheus `/metrics`.
 
 ### 4.8 Cleanup, retention, garbage collection, quotas
-- **Cleanup policies** (named, reusable, attached to repos): criteria `last_downloaded_older_than`,
-  `published_older_than`, `keep_latest_n_versions` (per component), name/version regex include/exclude,
-  `prerelease_only`, docker `untagged_older_than`. Every policy has a **dry-run preview** (counts, bytes, sample).
-- Policies run on a schedule (cron per policy) in workers; they delete assets/components, never blobs directly.
+- **Cleanup policies** (named, reusable, attached to repos in run order; a policy is for one format or `*`):
+  criteria `last_downloaded_older_than_days` (never downloaded = since cached), `published_older_than_days`,
+  `keep_latest_n_versions` (per component, in the format's version order: semver for npm, dpkg for apt, rpm for yum;
+  raw: newest cached files per folder), name/version regex include/exclude, `prerelease_only`, docker
+  `untagged_older_than_days`. Every criterion that is set must match. Docker policies select tags (image = name, tag =
+  version, newest by recency); removing a tag also removes the manifests only it reached and the layers no remaining
+  manifest uses. Only content is removed, never metadata (indexes, packuments). Every policy has a **dry-run
+  preview** (counts, bytes, per repository, paged candidates with the reason) computed by the same code a run uses.
+- Policies run on a schedule (cron per policy, or manually) as worker jobs with progress in the job history; they
+  delete asset/tag/manifest records, never blobs. Downloads are recorded in Valkey on the request path and flushed to
+  the assets in bulk (≤ 10 s), feeding "last downloaded" and download counts.
 - **Blob GC**: mark-and-sweep in workers; a blob is deleted only if unreferenced for a grace period (default 24 h)
   so in-flight uploads/fetches are never broken.
-- Docker hosted: untagged manifest cleanup; layer GC via blob GC.
+- Docker: untagged manifest cleanup through cleanup policies; layer GC via blob GC.
 - Quotas per repo (§4.2) and a global low-disk guard (refuse new cache writes below a free-space threshold,
   keep serving hits, alert).
 
@@ -529,6 +536,7 @@ Waystation/
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted, group, `_catalog`, referrers and podman/containerd/crane harness runs pending |
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
+| Cleanup policies (T-O01) | Done 2026-11-09: named policies (criteria per SPEC §4.8, per-format version order, docker tag cascade), dry-run preview API (same planning code as runs), `cleanup.run` worker job with progress, per-policy cron schedules, attachment per repository, REST + UI (`/cleanup` page with live impact count, candidate preview and run history; repository Cleanup tab); downloads recorded off the hot path into `assets.last_downloaded_at`/`download_count`. Audit records pending (T-S10) |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

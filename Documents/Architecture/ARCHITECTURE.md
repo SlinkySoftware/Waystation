@@ -172,8 +172,9 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   - **Activity (lower rate, durable-ish)**: started/finished/failed, uploads, deletes, upstream state changes, jobs
     go to the `activity` stream (`XADD`, MAXLEN ~200k ≈ hours-days of history). `Last-Event-ID` resumes on this stream.
 - Hot path writes are O(1) Valkey ops (`HSET`, `PUBLISH`, `XADD`, `HINCRBY` per-minute counters, latency histogram
-  buckets). **Never write MongoDB per request**: session `last_seen_at` and token `last_used_at` are recorded in Valkey
-  and flushed in bulk by the rollup job (≤ 60 s staleness acceptable).
+  buckets). **Never write MongoDB per request**: session `last_seen_at`, token `last_used_at` and asset downloads
+  (`last_downloaded_at`, `download_count`) are recorded in Valkey and flushed in bulk by the rollup job (≤ 60 s
+  staleness acceptable).
 - **Rollups** (worker, every 10 s) write only **closed** minutes into `stats_minute` (time-series collections cannot
   upsert, so a minute is written exactly once, after it ends plus a 5 s grace); hour and day rollups run on closed
   hours/days. Latency is stored as fixed log-scale histogram buckets (counts), so percentiles can be recomputed
