@@ -2,6 +2,23 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-09
+- T-M03: deployment and reverse-proxy guides. `Documents/Operations/DEPLOYMENT.md` describes the single-host
+  `compose.yaml` as it works today: containers and networks, requirements (Waystation owns the root of its host
+  name), sizing, images, host layout and storage, the env file (with a compose override for `*_FILE` secrets), the
+  environment reference (application settings from `.env.example` plus compose-only variables), start-up and first
+  sign-in, health checks, TLS options, scaling and split-deployment status, manual backup/restore commands, upgrades
+  and troubleshooting; planned pieces are marked with their task IDs. `Documents/Operations/REVERSE_PROXIES.md`:
+  requirements for any proxy (no body limit, no request/response buffering, unbuffered event stream, long idle
+  timeouts, keep-alive), `X-Forwarded-For` trust, and example configurations for nginx, Traefik v3 (static config,
+  file provider, Docker labels in the new `Build/Containers/examples/traefik.override.example.yaml`), Caddy and
+  HAProxy under `Build/Containers/examples/reverse-proxies/`, plus Synology DSM notes. `make proxies-check` runs each
+  example in containers (`nginx -t`, `caddy validate`, `haproxy -c`, Traefik start-up, `docker compose config`), then
+  against a stand-in web tier over TLS (redirect, unbuffered SSE, 1 GiB download and upload, forwarded headers;
+  `SLOW=1` adds a 75 s idle response and an 80 s upload) and checks the doc blocks equal the files. `compose.yaml`
+  now passes `WAYSTATION_INSTANCE_NAME`, `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD[_FILE]`, the session lifetimes and the
+  sign-in limits through to the containers (they were silently ignored before).
+
 ## 2026-11-08
 - T-F08: job system on Valkey Streams (ARCHITECTURE §10). `waystation_common.jobs`: typed payloads (`JobPayload`
   with `kind`, `queue`, `max_attempts`, `dedupe_key()`, `routine`; `JOB_TYPES` registry), `JobEnvelope`, the queue
