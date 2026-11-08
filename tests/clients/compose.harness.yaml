@@ -99,6 +99,12 @@ services:
   client-ubuntu:  # apt on Ubuntu 26.04
     <<: *client
     image: ubuntu:26.04
+  client-rocky:  # dnf on Rocky Linux 10 (yum format)
+    <<: *client
+    image: rockylinux/rockylinux:10.2
+  client-alma:  # dnf on AlmaLinux 10 (yum format)
+    <<: *client
+    image: almalinux:10.2
   client-skopeo:  # registry API pulls without a daemon (docker format)
     <<: *client
     image: quay.io/skopeo/stable:v1.20

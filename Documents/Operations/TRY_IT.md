@@ -148,7 +148,7 @@ After `down -v` the next start is a fresh install with a new one-time admin pass
   tokens on your profile page (avatar menu > Profile). Format clients that send credentials (basic or bearer auth on
   `/repository/...`) must use a token, not your password. The proxies in this guide allow anonymous reads, so the
   examples need no credentials.
-- Proxy repositories only, for Docker, npm, apt and raw. Hosted and group repositories, and the other formats,
+- Proxy repositories only, for Docker, npm, apt, yum/dnf and raw (yum arrived after the tour was taken). Hosted and group repositories, and the other formats,
   come later.
 - No TLS in the web tier. Put a reverse proxy in front for HTTPS (SPECIFICATION §8).
 - Menu items marked "soon" are placeholders.
