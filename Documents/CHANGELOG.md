@@ -15,7 +15,9 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `init`). `GET /api/v1/audit` (time range, actor, action incl. `<category>.*`, target, outcome; cursor paging) and
   streamed CSV/NDJSON `GET /api/v1/audit/export`, both `audit-read`; capability `audit.read`. Contract, MSW mocks and
   the Audit log page (filters in the URL, detail drawer with the change diff, export). Acceptance test enumerates the
-  catalog; actions of features not built yet are listed as pending with their task.
+  catalog; actions of features not built yet are listed as pending with their task. The real-directory LDAP tests
+  check the sign-in, provisioning, link, group sync and failure-reason (`not_in_group`, `directory_unavailable`)
+  records.
 - T-O06: monitoring. Grafana dashboard `Build/monitoring/grafana/waystation-dashboard.json` (Prometheus data
   source as a variable; job, instance and repository filters; stat tiles for request rate, cache hit ratio, bytes
   served from cache and fetched from upstream, upstream error ratio and transfers in flight; requests by cache state,
@@ -44,6 +46,18 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `SLOW=1` adds a 75 s idle response and an 80 s upload) and checks the doc blocks equal the files. `compose.yaml`
   now passes `WAYSTATION_INSTANCE_NAME`, `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD[_FILE]`, the session lifetimes and the
   sign-in limits through to the containers (they were silently ignored before).
+- T-U07: Activity and Storage pages. Activity (`/activity`): the live event log, following the `activity` SSE topic
+  (applied in 4 Hz batches; holds new events while paused or scrolled down, with an "N new events" pill), filters for
+  event kind, repository, format, user or address, cache state, outcome and time (presets or a custom window), all in
+  the URL; a virtualised list that pages back through history; a detail drawer (every field, copy path/id, narrow the
+  log to this repository/user/kind or to the 10 minutes around the event); CSV export of the current filter. Server:
+  `GET /activity` gains `format`, `principal`, `cache`, `outcome`, `since`, `until` (time windows are stream-id
+  ranges) and `ActivityEvent.path`; new `GET /activity/export` streams CSV (≤ 100,000 rows, formula-looking cells
+  prefixed `'`, `stats-read`, visible repositories only). Storage (`/storage`): stored/free/de-duplication/blob KPIs
+  (stored bytes live from stats ticks), data volume bar, storage by format, largest repositories (new `BarList`
+  chart), a sortable, filterable repository table (sort and filter in the URL), and a placeholder for growth until
+  storage snapshots exist. Contract, generated client and MSW mocks updated (mock activity: stream-id cursors, the
+  same filters, a day of seeded history, CSV export).
 - T-A01: LDAP sign-in provider. `security.ldap` (ldap3 in a dedicated thread pool, connect/response timeouts and an
   overall ceiling): ordered server list with failover (unreachable or TLS-failing servers skipped for 30 s), LDAPS,
   StartTLS or clear text, custom CA with host-name verification by Python `ssl`, service bind with a write-only

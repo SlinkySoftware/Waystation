@@ -73,6 +73,7 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/stats/upstreams', 'get'),
     ('/transfers', 'get'),
     ('/activity', 'get'),
+    ('/activity/export', 'get'),
     ('/events/stream', 'get'),
     ('/audit', 'get'),
     ('/audit/export', 'get'),
