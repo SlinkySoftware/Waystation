@@ -911,11 +911,19 @@ paths:
       tags: [live]
       operationId: listActivity
       summary: Recent activity, newest first
+      description: |
+        Filters combine (AND). A page holds at most `limit` events; with a sparse filter it may hold fewer while
+        `next_cursor` is still set (the server bounds how much history one call reads), so keep paging until
+        `next_cursor` is null. Only repositories the caller may see are included.
       parameters:
-        - { name: repo, in: query, schema: { type: string } }
-        - name: kind
-          in: query
-          schema: { $ref: '#/components/schemas/ActivityKind' }
+        - $ref: '#/components/parameters/ActivityRepo'
+        - $ref: '#/components/parameters/ActivityKindParam'
+        - $ref: '#/components/parameters/ActivityFormat'
+        - $ref: '#/components/parameters/ActivityPrincipal'
+        - $ref: '#/components/parameters/ActivityCache'
+        - $ref: '#/components/parameters/ActivityOutcome'
+        - $ref: '#/components/parameters/Since'
+        - $ref: '#/components/parameters/Until'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -924,6 +932,33 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ActivityPage' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+
+  /activity/export:
+    get:
+      tags: [live]
+      operationId: exportActivity
+      summary: The filtered activity as CSV (download)
+      description: |
+        Same filters as `GET /activity`, streamed newest first as `text/csv` (UTF-8, CRLF, header row:
+        `time,kind,outcome,repository,format,artifact,path,principal,cache,bytes,duration_ms,summary,id`), at most
+        100,000 rows. Text cells that a spreadsheet would read as a formula are prefixed with `'`.
+      parameters:
+        - $ref: '#/components/parameters/ActivityRepo'
+        - $ref: '#/components/parameters/ActivityKindParam'
+        - $ref: '#/components/parameters/ActivityFormat'
+        - $ref: '#/components/parameters/ActivityPrincipal'
+        - $ref: '#/components/parameters/ActivityCache'
+        - $ref: '#/components/parameters/ActivityOutcome'
+        - $ref: '#/components/parameters/Since'
+        - $ref: '#/components/parameters/Until'
+      responses:
+        '200':
+          description: 'CSV file, sent as an attachment'
+          content:
+            text/csv:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
 
   /events/stream:
     get:
@@ -1001,6 +1036,42 @@ components:
       name: range
       in: query
       schema: { $ref: '#/components/schemas/StatsRange' }
+    ActivityRepo:
+      name: repo
+      in: query
+      description: Repository name (exact)
+      schema: { type: string }
+    ActivityKindParam:
+      name: kind
+      in: query
+      schema: { $ref: '#/components/schemas/ActivityKind' }
+    ActivityFormat:
+      name: format
+      in: query
+      schema: { $ref: '#/components/schemas/Format' }
+    ActivityPrincipal:
+      name: principal
+      in: query
+      description: User name or client address (case-insensitive substring)
+      schema: { type: string, maxLength: 128 }
+    ActivityCache:
+      name: cache
+      in: query
+      schema: { $ref: '#/components/schemas/CacheState' }
+    ActivityOutcome:
+      name: outcome
+      in: query
+      schema: { type: string, enum: [success, failure, info] }
+    Since:
+      name: since
+      in: query
+      description: Only events at or after this time (RFC 3339)
+      schema: { type: string, format: date-time }
+    Until:
+      name: until
+      in: query
+      description: Only events at or before this time (RFC 3339)
+      schema: { type: string, format: date-time }
     TrafficMetric:
       name: metric
       in: query
@@ -2026,6 +2097,7 @@ components:
         repository: { type: [string, 'null'] }
         format: { oneOf: [{ $ref: '#/components/schemas/Format' }, { type: 'null' }] }
         artifact: { type: [string, 'null'] }
+        path: { type: [string, 'null'], description: Full path of the asset in the repository, when there is one }
         principal: { type: [string, 'null'], description: 'Username, `anonymous`, or a client IP' }
         cache: { oneOf: [{ $ref: '#/components/schemas/CacheState' }, { type: 'null' }] }
         bytes: { type: [integer, 'null'] }
