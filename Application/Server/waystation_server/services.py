@@ -18,6 +18,7 @@ from starlette.requests import Request
 from waystation_common.audit import AuditWriter
 from waystation_common.crypto import Keyring
 from waystation_common.db import audit as audit_db
+from waystation_common.db.blobs import MongoBlobGuard
 from waystation_common.db.client import Client, Database, create_client, database
 from waystation_common.db.migrations import check_schema
 from waystation_common.events import EventEmitter
@@ -103,6 +104,8 @@ class Services:
             return await repos_db.list_all(db)
 
         blobs = BlobStore.from_settings(settings)
+        blobs.on_refused = metrics.storage_refused
+        blobs.guard = MongoBlobGuard(db)  # commits claim their blob against GC (waystation_common.db.blobs)
         storage = StorageStats(db, settings.data_dir)
         catalog = RepoCatalog(load)
         groups = GroupDirectory(lambda: groups_db.list_all(db))
@@ -117,6 +120,8 @@ class Services:
             return current.used_bytes, current.artifacts
 
         upstream = UpstreamClients(settings)
+        hub = Hub(redis, visible, figures)
+        metrics.track(metrics.sse_clients, lambda: float(len(hub.subscribers)))
         return cls(
             settings=settings,
             db=db,
@@ -130,7 +135,7 @@ class Services:
             tokens=TokenService(db, redis, settings, roles_for=groups.roles_for),
             upstream=upstream,
             storage=storage,
-            hub=Hub(redis, visible, figures),
+            hub=hub,
             registry_signer=SignerHolder(settings.data_dir, keyring),
             auth_providers=ProviderCatalog(lambda: auth_providers_db.list_all(db)),
             groups=groups,
@@ -167,12 +172,14 @@ class Services:
         self.audit.start()
         await self.proxy.coalescer.start()
         self.tokens.start()
+        self.metrics.start()
         self._started = True
 
     async def stop(self) -> None:
         if not self._started:
             return
         self._started = False
+        await self.metrics.stop()
         await self.hub.stop()
         await self.proxy.coalescer.aclose()
         await self.tokens.stop()

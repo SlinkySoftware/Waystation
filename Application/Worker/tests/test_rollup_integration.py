@@ -9,7 +9,7 @@ from redis.asyncio import Redis
 from waystation_common.db import seen
 from waystation_common.db import stats as stats_db
 from waystation_common.db.client import Database
-from waystation_common.db.collections import API_TOKENS, SESSIONS
+from waystation_common.db.collections import API_TOKENS, ASSETS, SESSIONS
 from waystation_common.db.schema import ensure_schema
 from waystation_common.events import CacheState, EventEmitter, Transfer, keys
 from waystation_common.leases import hold_lease, release_lease
@@ -113,6 +113,36 @@ async def test_flush_last_seen(valkey: Redis, mongo_db: Database) -> None:
     # a hash left by a crashed cycle is flushed first
     await valkey.hset(f'{seen.SEEN_TOKENS}:flushing', 't1', f'{int(late.timestamp()) + 60} 192.0.2.3')
     assert await rollup.flush_last_seen(valkey, mongo_db) == 1
+
+
+async def test_flush_asset_downloads(valkey: Redis, mongo_db: Database) -> None:
+    """Downloads recorded by the emitter (hot path: Valkey only) reach ``assets`` in bulk (cleanup criteria)."""
+    await ensure_schema(mongo_db)
+    early, late = datetime(2026, 11, 8, 10, tzinfo=UTC), datetime(2026, 11, 8, 11, tzinfo=UTC)
+    await mongo_db[ASSETS].insert_many(
+        [
+            {'_id': 'a1', 'repo_id': 'r', 'path': 'a1', 'last_downloaded_at': early, 'download_count': 4},
+            {'_id': 'a2', 'repo_id': 'r', 'path': 'a2'},
+        ]
+    )
+    em = EventEmitter(valkey, clock=FixedClock(late.timestamp()))
+    em.asset_downloaded('a1')
+    em.asset_downloaded('a1')
+    em.asset_downloaded('a2', ts=early.timestamp())
+    em.asset_downloaded('gone')  # deleted meanwhile: a no-op
+    await em.flush()
+    assert await rollup.flush_last_seen(valkey, mongo_db) == 2
+    a1 = await mongo_db[ASSETS].find_one({'_id': 'a1'})
+    a2 = await mongo_db[ASSETS].find_one({'_id': 'a2'})
+    assert a1 is not None and a1['last_downloaded_at'] == late and a1['download_count'] == 6
+    assert a2 is not None and a2['last_downloaded_at'] == early and a2['download_count'] == 1
+    assert not await valkey.exists(seen.SEEN_ASSETS, seen.DL_ASSETS)
+    # an older time never moves it back; counts still add up
+    await valkey.hset(seen.SEEN_ASSETS, 'a1', str(int(early.timestamp())))
+    await valkey.hset(seen.DL_ASSETS, 'a1', 'x')
+    await rollup.flush_last_seen(valkey, mongo_db)
+    a1 = await mongo_db[ASSETS].find_one({'_id': 'a1'})
+    assert a1 is not None and a1['last_downloaded_at'] == late and a1['download_count'] == 6
 
 
 async def test_sweep_stale_transfers(valkey: Redis) -> None:

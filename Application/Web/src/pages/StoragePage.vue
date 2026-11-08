@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Storage (UI_DESIGN §4.7): totals, the data volume, de-duplication savings, bytes by format and repository. -->
+<!-- Storage (UI_DESIGN §4.7): totals, the data volume, de-duplication savings, bytes by format and repository, blob GC. -->
 <template>
   <q-page class="ws-page">
     <PageHeader :title="t('nav.storage')" :caption="t('storage.caption')">
@@ -67,6 +67,8 @@
 
       <StorageTable :rows="rows" :loading="!data" class="q-mb-md" />
 
+      <GcCard v-if="isAdmin" :can-run="isAdmin" class="q-mb-md" />
+
       <PageCard :title="t('storage.growth.title')" :caption="t('storage.growth.caption')">
         <EmptyState compact :icon="iconTrend" :title="t('storage.growth.pendingTitle')" :text="t('storage.growth.pendingText')" />
       </PageCard>
@@ -80,6 +82,7 @@ import { computed, onMounted } from 'vue'
 import { api, call, errorMessage } from '@/api/client'
 import type { Format } from '@/api/types'
 import BarList from '@/components/charts/BarList.vue'
+import GcCard from '@/components/cleanup/GcCard.vue'
 import DonutChart from '@/components/charts/DonutChart.vue'
 import KpiTile from '@/components/dashboard/KpiTile.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -90,6 +93,7 @@ import StorageTable from '@/components/storage/StorageTable.vue'
 import VolumeBar from '@/components/storage/VolumeBar.vue'
 import { useAsync } from '@/composables/useAsync'
 import { useLiveTopic } from '@/composables/useLiveTopic'
+import { useAuthStore } from '@/stores/auth'
 import { t } from '@/i18n'
 import { useLiveStore } from '@/stores/live'
 import { useRepositoriesStore } from '@/stores/repositories'
@@ -98,6 +102,7 @@ import { formatBytes, formatCount, formatPercent } from '@/utils/format'
 import { iconError, iconRefresh, iconStorage, iconTrend } from '@/utils/icons'
 import { dedupFigures, largest, repoRows, volumeBreakdown } from '@/utils/storageStats'
 
+const isAdmin = computed(() => useAuthStore().can('admin'))
 const TOP = 8
 
 const live = useLiveStore()

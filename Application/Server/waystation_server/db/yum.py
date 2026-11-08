@@ -28,6 +28,7 @@ from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db.client import Database
 from waystation_common.db.collections import YUM_PACKAGES
+from waystation_common.searchkeys import name_keys
 from waystation_server.db import assets as assets_db
 
 BATCH = 1000
@@ -107,6 +108,7 @@ async def record_primary(
                     'verified': True,
                     'repo_dir': repo_dir,
                     'name': e.name,
+                    **(name_keys(e.name) if e.name else {}),
                     'epoch': e.epoch,
                     'version': e.version,
                     'release': e.release,

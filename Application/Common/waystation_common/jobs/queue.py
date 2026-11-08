@@ -166,6 +166,20 @@ class StartResult:
     outbox_ids: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class QueueStats:
+    """One queue's figures (``JobQueue.stats``; Prometheus job metrics)."""
+
+    waiting: int = 0  # in the stream, not yet delivered to a worker
+    running: int = 0  # delivered, not acknowledged (running, or held by a worker that died until reclaimed)
+    delayed: int = 0  # retry backoff and ``run_after`` jobs not due yet
+    oldest_waiting_age_s: float = 0.0  # age of the oldest waiting entry (0 when none)
+
+
+def _stream_ms(entry_id: Any) -> int:
+    return int(_str(entry_id).split('-', 1)[0])
+
+
 def _ms(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
 
@@ -357,6 +371,51 @@ class JobQueue:
                 await self.redis.xgroup_delconsumer(keys.stream(queue), keys.GROUP, name)
                 removed += 1
         return removed
+
+    async def stats(self, queues: tuple[str, ...] | list[str], *, now: float | None = None) -> dict[str, QueueStats]:
+        """Waiting, running and delayed jobs per queue and the oldest waiting age (two pipelined round trips)."""
+        now_ms = (time.time() if now is None else now) * 1000
+        async with self.redis.pipeline(transaction=False) as pipe:
+            for queue in queues:
+                pipe.xlen(keys.stream(queue))
+                pipe.xinfo_groups(keys.stream(queue))
+                pipe.zcard(keys.delayed(queue))
+            raw = await pipe.execute(raise_on_error=False)
+        figures: dict[str, tuple[int, int, int, str]] = {}
+        for i, queue in enumerate(queues):
+            length, groups, delayed = raw[3 * i : 3 * i + 3]
+            length = length if isinstance(length, int) else 0
+            delayed = delayed if isinstance(delayed, int) else 0
+            group = (
+                next((g for g in groups if _str(g.get('name')) == keys.GROUP), None)
+                if isinstance(groups, list)
+                else None
+            )
+            running = int(group.get('pending') or 0) if group else 0
+            last = _str(group.get('last-delivered-id') or '0-0') if group else '0-0'
+            figures[queue] = (max(0, length - running), running, delayed, last)
+        oldest: dict[str, int] = {}
+        waiting = [q for q, f in figures.items() if f[0] > 0]
+        if waiting:
+            async with self.redis.pipeline(transaction=False) as pipe:
+                for queue in waiting:
+                    pipe.xrange(keys.stream(queue), min=f'({figures[queue][3]}', count=1)
+                entries = await pipe.execute(raise_on_error=False)
+            for queue, found in zip(waiting, entries, strict=True):
+                if isinstance(found, list) and found:
+                    oldest[queue] = _stream_ms(found[0][0])
+        return {
+            queue: QueueStats(
+                waiting=f[0],
+                running=f[1],
+                delayed=f[2],
+                oldest_waiting_age_s=max(0.0, (now_ms - oldest[queue]) / 1000) if queue in oldest else 0.0,
+            )
+            for queue, f in figures.items()
+        }
+
+    async def dead_count(self) -> int:
+        return int(await self.redis.xlen(keys.DEAD))
 
     async def dead_letters(self, count: int = 100) -> list[dict[str, Any]]:
         """Most recent dead-lettered jobs, newest first: ``{'id', 'job', 'error', 'ts'}``."""

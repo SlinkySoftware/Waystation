@@ -60,17 +60,21 @@ async def health(services: Services, repos: Sequence[RepoConfig]) -> dict[str, H
     except Exception:  # Valkey down: health unknown, report ok
         return out
     for i, repo in enumerate(proxies):
-        raw, rate = results[2 * i], results[2 * i + 1]
-        latency = raw.get('last_latency_ms')
-        out[repo.id] = Health(
-            last_ok_at=_when(raw.get('last_ok_at')),
-            last_error=raw.get('last_error'),
-            last_error_at=_when(raw.get('last_error_at')),
-            consecutive_failures=int(raw.get('consecutive_failures') or 0),
-            last_latency_ms=float(latency) if latency else None,
-            rate_limit=dict(rate),
-        )
+        out[repo.id] = parse_health(results[2 * i], results[2 * i + 1])
     return out
+
+
+def parse_health(raw: dict[str, str], rate: dict[str, str]) -> Health:
+    """``Health`` from the ``upstream:<id>:health`` and ``upstream:<id>:ratelimit`` hashes."""
+    latency = raw.get('last_latency_ms')
+    return Health(
+        last_ok_at=_when(raw.get('last_ok_at')),
+        last_error=raw.get('last_error'),
+        last_error_at=_when(raw.get('last_error_at')),
+        consecutive_failures=int(raw.get('consecutive_failures') or 0),
+        last_latency_ms=float(latency) if latency else None,
+        rate_limit=dict(rate),
+    )
 
 
 def status_of(repo: RepoConfig, h: Health | None, *, now: datetime | None = None) -> str:

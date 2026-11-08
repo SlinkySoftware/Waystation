@@ -203,6 +203,7 @@ class Runner:
             valkey=self.valkey,
             clock=self.clock,
             settings=self.settings,
+            emitter=self.emitter,
         )
         if not payload_type.routine:  # routine jobs (e.g. the 10 s stats rollup) would flood the activity feed
             self._event(EventType.JOB_STARTED, env, run_id, attempt)

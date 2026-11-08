@@ -165,6 +165,18 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - Global search across repositories the principal can read: name (prefix and substring), version, format,
   repository, digest/checksum lookup ("where is this sha256 used?"), with facets (format, repo, type).
   Target: results in < 150 ms p95 for 1M assets.
+  Now (T-U06, 2026-11-09): `GET /api/v1/search?q=&format=&repository=&kind=&type=&cached=&cursor=&limit=` searches
+  only the repositories the principal may `browse` (`access.filter_repos`; a hidden repository never appears in a
+  hit, a facet value or a count, and naming it as a filter yields an empty result). `q` is
+  `<name prefix>[ <version prefix>]`, case-insensitive, matched on the full name or its last `/` segment (`nginx`
+  finds `library/nginx`, `node` finds `@types/node`); empty lists everything. Sources: docker tags (kind `image`),
+  npm packages and apt/yum index listings (kind `package`; `cached` says whether the listed file is in the cache),
+  and cached files of every format but docker (kind `file`). `cached=true` leaves out the apt/yum listings. A digest
+  (`sha256:<8-64 hex>` or 64 hex digits) finds every cached file with that blob and the docker tags pointing at it,
+  in any visible repository. Results come straight from per-collection `(name_lc, repo_id, _id)` indexes, merged
+  with exact keyset cursor paging; facet counts (format, repository, kind, repository type) are disjunctive (each
+  ignores its own filter), on the first page only, and lower bounds when `capped`. Every hit carries a Browse deep
+  link. Substring (non-prefix) matching and the 1M-asset p95 measurement are still to do.
 - Component pages show: coordinates, versions/tags, size, digests, created/last downloaded/last modified,
   download count and sparkline, which repos hold it, upstream URL, uploader (hosted), install/pull snippet.
 
@@ -183,13 +195,23 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - Exposed via API, SSE event stream (live), Prometheus `/metrics`.
 
 ### 4.8 Cleanup, retention, garbage collection, quotas
-- **Cleanup policies** (named, reusable, attached to repos): criteria `last_downloaded_older_than`,
-  `published_older_than`, `keep_latest_n_versions` (per component), name/version regex include/exclude,
-  `prerelease_only`, docker `untagged_older_than`. Every policy has a **dry-run preview** (counts, bytes, sample).
-- Policies run on a schedule (cron per policy) in workers; they delete assets/components, never blobs directly.
-- **Blob GC**: mark-and-sweep in workers; a blob is deleted only if unreferenced for a grace period (default 24 h)
-  so in-flight uploads/fetches are never broken.
-- Docker hosted: untagged manifest cleanup; layer GC via blob GC.
+- **Cleanup policies** (named, reusable, attached to repos in run order; a policy is for one format or `*`):
+  criteria `last_downloaded_older_than_days` (never downloaded = since cached), `published_older_than_days`,
+  `keep_latest_n_versions` (per component, in the format's version order: semver for npm, dpkg for apt, rpm for yum;
+  raw: newest cached files per folder), name/version regex include/exclude, `prerelease_only`, docker
+  `untagged_older_than_days`. Every criterion that is set must match. Docker policies select tags (image = name, tag =
+  version, newest by recency); removing a tag also removes the manifests only it reached and the layers no remaining
+  manifest uses. Only content is removed, never metadata (indexes, packuments). Every policy has a **dry-run
+  preview** (counts, bytes, per repository, paged candidates with the reason) computed by the same code a run uses.
+- Policies run on a schedule (cron per policy, or manually) as worker jobs with progress in the job history; they
+  delete asset/tag/manifest records, never blobs. Downloads are recorded in Valkey on the request path and flushed to
+  the assets in bulk (≤ 10 s), feeding "last downloaded" and download counts.
+- **Blob GC**: mark-and-sweep in workers (every 6 h by default, or on demand); a blob is deleted only if unreferenced
+  and unclaimed for a grace period (default 24 h), so in-flight uploads/fetches are never broken: a cache fill claims
+  its blob before putting it in place, and a claim either stops the deletion or waits for it and writes the file
+  again. Orphan upload files older than 24 h are removed; untracked blob files are adopted; referenced blobs whose
+  file is missing are reported (proxies re-fetch them). Freed bytes show in the activity feed and `/metrics`.
+- Docker: untagged manifest cleanup through cleanup policies; layer GC via blob GC.
 - Quotas per repo (§4.2) and a global low-disk guard (refuse new cache writes below a free-space threshold,
   keep serving hits, alert).
 
@@ -484,13 +506,30 @@ configured in the UI/API (stored in MongoDB). Planned (Phase 6, T-O09): optional
 a YAML file (`WAYSTATION_PROVISION_FILE`, applied idempotently at start; GitOps-friendly).
 
 ## 10. Observability
-See §5.5. Exported today by the server (per process): `waystation_requests_total{repo,format,status,cache}`,
-`waystation_bytes_total{repo,direction}`, `waystation_upstream_latency_seconds{repo}` (histogram),
-`waystation_inflight_transfers`, `waystation_coalesce_total{repo,event}`; `waystation_upstream_state{repo}` is declared
-but not set yet. Planned: `waystation_storage_bytes{repo}`, `waystation_jobs_total{queue,status}`, queue depth, Docker
-Hub rate limit, free space (the full gap list is in `Documents/Operations/MONITORING.md`). The Grafana dashboard
-(`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) use only the exported metrics
-plus `/healthz` and `/readyz`.
+See §5.5. `/metrics` on the server exports two kinds of metric (the full list with labels and meanings is in
+`Documents/Operations/MONITORING.md`):
+- **Process metrics**, updated where things happen (O(1) per update): `waystation_requests_total{repo,format,status,
+  cache}`, `waystation_bytes_total{repo,direction}`, `waystation_upstream_latency_seconds{repo}` (histogram),
+  `waystation_coalesce_total{repo,event}`, `waystation_http_request_duration_seconds{route,method,status}` (histogram
+  of every HTTP request except the event stream; `route` is the matched route template, `status` the class `2xx`...),
+  `waystation_storage_refusals_total` (writes refused by the free-space guard), and the gauges
+  `waystation_inflight_transfers` and `waystation_sse_clients`. With `WAYSTATION_SERVER_WORKERS > 1` the processes
+  share them through `PROMETHEUS_MULTIPROC_DIR` (a fresh directory on the server's tmpfs) and every scrape returns
+  the sum over all processes.
+- **Cluster figures**, read from Valkey, MongoDB and the data filesystem when `/metrics` is scraped (cached 10 s, each
+  source bounded to 2 s; a source that fails is reported by `waystation_metrics_source_up{source}` = 0 and its
+  metrics are left out): `waystation_upstream_state{repo}` (0 ok, 1 degraded, 2 blocked, 3 offline: the UI's rule),
+  `waystation_upstream_consecutive_failures{repo}`, `waystation_upstream_ratelimit_{limit,remaining,window_seconds,
+  updated_timestamp_seconds}{repo}`, `waystation_jobs_{waiting,running,delayed,oldest_waiting_seconds}{queue}`,
+  `waystation_jobs_dead_letters`, `waystation_workers`, `waystation_scheduler_leaders`,
+  `waystation_blobstore_{used_bytes,blobs,free_bytes,size_bytes,min_free_bytes}`, and the cleanup and blob GC
+  running totals `waystation_cleanup_removed_{items,bytes}_total`, `waystation_gc_{runs,freed_blobs,freed_bytes,
+  orphan_uploads_removed}_total` (counters, from the Valkey hash `maintenance:totals` the workers write). Every server
+  process and replica reports the same values (aggregate with `max`).
+
+The Grafana dashboard (`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) cover all
+of them plus `/healthz` and `/readyz` (low-disk, guard, workers, scheduler, job age, dead letters, upstream state and
+rate limit, API latency triggers). Not exported yet: process CPU/memory, sign-in failures, quota hits.
 
 ## 11. Testing strategy
 - Unit tests next to code (pytest, Vitest). Property-based tests (hypothesis) for path normalisation, version
@@ -590,7 +629,7 @@ Waystation/
 | Browse API (T-S09 min) | M0 slice 2026-11-08: generic folder listing of cached assets for every format, npm packages/versions, apt suites/packages, docker images/tags/manifest, to the M0 contract; indexing in the background after cache fills (`npm_packages`, `apt_packages`, `docker_tags`/`docker_manifests`); every browse query index-backed (explain test); the raw, npm, apt and docker real-client harness runs check it. Components, `version_sort`, download counters and "where used" pending
 | Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
 | Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block and per-repo CA/proxy pending; used by the raw plugin (T-P2-RAW) |
-| Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Followers on a second host against NFS not covered by CI yet |
+| Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Lease renewal independent of `fdatasync` (2026-11-09 fix for a second fetch under disk load). Followers on a second host against NFS not covered by CI yet |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
 | Activity and Storage pages (T-U07) | 2026-11-09: Activity page (live tail with pause and scroll-hold, filters in the URL incl. user, cache state, outcome and time window, history paging, detail drawer, CSV export through the new streaming `/activity/export`); Storage page (stored/free/de-duplication/blob KPIs, data volume bar, by-format donut, largest repositories, sortable repository table). Storage growth, largest artifacts, per-repository de-duplication and GC status pending |
 | Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified; `docker login` with an API token (T-S04) |
@@ -599,10 +638,13 @@ Waystation/
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted, group, `_catalog`, referrers and podman/containerd/crane harness runs pending |
 | Deployment docs (T-M03) | 2026-11-09: `Operations/DEPLOYMENT.md` (single-host compose as it works today, env reference, TLS options, scaling status, manual backups, upgrades) and `Operations/REVERSE_PROXIES.md` (nginx, Traefik labels + file provider, Caddy, HAProxy, Synology DSM) with example files checked in containers by `make proxies-check`. `BACKUP.md` waits for T-O07 |
-| Monitoring (T-O06) | 2026-11-09: Grafana dashboard (`Build/monitoring/grafana/waystation-dashboard.json`: request rate, cache hit ratio, bytes served from cache / fetched, upstream errors and latency, coalescing, per-repository table) and Zabbix 7 template (`Build/monitoring/zabbix/waystation_by_http.yaml`: HTTP agent items on `/healthz`, `/readyz`, `/metrics`, repository discovery, down/degraded upstream, error-ratio and availability triggers), both checked by loading them into Grafana 12.2 / Zabbix 7.0; `Operations/MONITORING.md`. Upstream state, Docker Hub rate limit, job queues, worker health and disk space are not exported as metrics yet |
+| Monitoring (T-O06) | 2026-11-09: Grafana dashboard (`Build/monitoring/grafana/waystation-dashboard.json`: request rate, cache hit ratio, bytes served from cache / fetched, upstream errors and latency, coalescing, per-repository table) and Zabbix 7 template (`Build/monitoring/zabbix/waystation_by_http.yaml`: HTTP agent items on `/healthz`, `/readyz`, `/metrics`, repository discovery, down/degraded upstream, error-ratio and availability triggers), both checked by loading them into Grafana 12.2 / Zabbix 7.0; `Operations/MONITORING.md`. 2026-11-09 (gaps): upstream state and consecutive failures, upstream rate limits, job queues (waiting, running, delayed, oldest waiting age), dead letters, live workers and scheduler leaders, blob store used/free/size and the free-space guard (cluster figures read on scrape, 10 s cache), free-space guard refusals, HTTP latency per route template, event-stream clients; multi-process aggregation for `SERVER_WORKERS > 1` (`PROMETHEUS_MULTIPROC_DIR`); dashboard rows and Zabbix items, discovery and triggers (low disk, guard, workers, scheduler, job age, dead letters, upstream state, rate limit, API latency) for all of them, re-validated in Grafana 12.2 / Zabbix 7.0; cleanup and blob GC totals exported as cluster figures (also with several server processes), with dashboard panels, Zabbix items and a GC-not-run trigger |
 | LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
 | Identity linking and group sync (T-A03) | LDAP half 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`); OIDC half waits for T-A02 |
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
+| Cleanup policies (T-O01) | Done 2026-11-09: named policies (criteria per SPEC §4.8, per-format version order, docker tag cascade), dry-run preview API (same planning code as runs), `cleanup.run` worker job with progress, per-policy cron schedules, attachment per repository, REST + UI (`/cleanup` page with live impact count, candidate preview and run history; repository Cleanup tab); downloads recorded off the hot path into `assets.last_downloaded_at`/`download_count`. Audit records pending (T-S10) |
+| Blob GC (T-O02) | Done 2026-11-09: `blob.gc` worker job (every 6 h, 24 h grace): orphan uploads, adoption of untracked files, mark-and-sweep with a claim protocol that makes a racing cache fill safe (property test + real fill-vs-sweep race test), missing referenced blobs reported; GC status/run API and UI card; freed bytes as activity events and Prometheus counters (`waystation_gc_*`, `waystation_cleanup_*`) |
+| Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Left: substring matching, the 1M-asset p95 benchmark |
 | Everything else | Not started |
 | M0 feedback build (T-V02) | Ready 2026-11-09, tag `v0.1.0-m0` pending approval: `make e2e-m0` runs real docker, npm, apt (Debian 13) and raw clients through a running stack and checks the live stream, stats, activity and browse; `Documents/Operations/TRY_IT.md` (fresh host from images and an env file); real-server screenshot tour `Documents/Notes/UI_TOUR_M0.md`; feedback log `Documents/Notes/UI_FEEDBACK.md` |
 
