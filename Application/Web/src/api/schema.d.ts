@@ -657,8 +657,17 @@ export interface components {
              */
             content_disposition: "inline" | "attachment";
         };
+        YumOptions: {
+            /**
+             * @description Path of the yum repository (the directory holding `repodata/`) below the upstream URL, e.g. `$releasever/BaseOS/$basearch/os/`. Empty: derived for well-known upstreams, else the repository root. Only used by "Set me up" and "test upstream"
+             * @default
+             */
+            repo_path: string;
+            /** @description `gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams */
+            gpg_key?: string | null;
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"];
         RepositoryWrite: {
             name: components["schemas"]["RepositoryName"];
             format: components["schemas"]["Format"];
