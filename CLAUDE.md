@@ -47,6 +47,10 @@ as fast as possible** so James can give UI feedback early, then deepen.
 - **Milestone M0 "feedback build" comes first** (TASKS.md "Fast track"). Everything not needed for M0 waits.
 - **Work in parallel lanes**: platform, server, UI and formats are independent streams. Use subagents and separate
   git worktrees/branches (one per lane or task), merge small PRs often, and keep `main` always runnable.
+- **One integration stack at a time per machine.** `make test-integration` (and so `make check`) queues on a
+  machine-wide lock: each run starts MongoDB, Valkey, OpenLDAP and Samba AD, and parallel runs ran the dev box out of
+  memory on 2026-11-09. Run unit tests, lint and typecheck in parallel freely; a "waiting" message from
+  `test-integration` is normal, so don't work around the lock.
 - **Contract first, UI never waits for the server**: the M0 API is written as OpenAPI first (T-V01) with MSW mock
   handlers and a realistic fake live-event generator; the UI lane builds against `npm run dev:mock` from day one and
   switches to the real server when endpoints land.

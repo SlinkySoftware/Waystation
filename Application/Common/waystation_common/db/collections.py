@@ -64,6 +64,28 @@ def _ix(name: str, keys: list[tuple[str, Any]], **kwargs: Any) -> IndexModel:
     return IndexModel(keys, name=name, **kwargs)
 
 
+# Global search (SPECIFICATION §4.6, ``waystation_common.searchkeys``): prefix ranges on the lower-cased name, results
+# in (key, repo_id, _id) order straight from the index; ``base_lc`` (last ``/`` segment) carries ``name_lc`` so the
+# "name did not match already" filter is evaluated on index keys. Partial: only searchable documents are indexed.
+def _search_indexes(*, base: bool) -> tuple[IndexModel, ...]:
+    indexes = [
+        _ix(
+            'search_name',
+            [('name_lc', ASCENDING), ('repo_id', ASCENDING), ('_id', ASCENDING)],
+            partialFilterExpression={'name_lc': {'$exists': True}},
+        )
+    ]
+    if base:
+        indexes.append(
+            _ix(
+                'search_base',
+                [('base_lc', ASCENDING), ('repo_id', ASCENDING), ('_id', ASCENDING), ('name_lc', ASCENDING)],
+                partialFilterExpression={'base_lc': {'$exists': True}},
+            )
+        )
+    return tuple(indexes)
+
+
 SPECS: tuple[CollectionSpec, ...] = (
     CollectionSpec(
         REPOSITORIES,
@@ -128,6 +150,7 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('blob_sha256', [('blob_sha256', ASCENDING)]),
             _ix('component_id', [('component_id', ASCENDING)]),
             _ix('repo_last_downloaded_at', [('repo_id', ASCENDING), ('last_downloaded_at', ASCENDING)]),
+            *_search_indexes(base=False),
         ),
     ),
     CollectionSpec(BLOBS, (_ix('gc_marked_at', [('gc_marked_at', ASCENDING)]),)),
@@ -143,6 +166,7 @@ SPECS: tuple[CollectionSpec, ...] = (
                 'repo_image_updated',
                 [('repo_id', ASCENDING), ('image', ASCENDING), ('updated_at', DESCENDING), ('tag', ASCENDING)],
             ),
+            *_search_indexes(base=True),
         ),
     ),
     CollectionSpec(
@@ -193,10 +217,15 @@ SPECS: tuple[CollectionSpec, ...] = (
             ),
             # Cached pool files -> the listings that name them ($lookup from assets).
             _ix('filename_repo', [('filename', ASCENDING), ('repo_id', ASCENDING)]),
+            *_search_indexes(base=False),
         ),
     ),
     CollectionSpec(
-        NPM_PACKAGES, (_ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),)
+        NPM_PACKAGES,
+        (
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=True),
+        ),
     ),
     CollectionSpec(
         YUM_PACKAGES,
@@ -206,6 +235,7 @@ SPECS: tuple[CollectionSpec, ...] = (
             # A directory's listing generation: replaced on re-index; "is this primary indexed".
             _ix('repo_dir_gen', [('repo_id', ASCENDING), ('repo_dir', ASCENDING), ('gen', ASCENDING)]),
             _ix('repo_verified', [('repo_id', ASCENDING), ('verified', ASCENDING)]),
+            *_search_indexes(base=False),
         ),
     ),
     CollectionSpec(
@@ -214,6 +244,11 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('ts_desc', [('ts', DESCENDING)]),
             _ix('principal_ts', [('principal.id', ASCENDING), ('ts', DESCENDING)]),
             _ix('action_ts', [('action', ASCENDING), ('ts', DESCENDING)]),
+            _ix('principal_name_ts', [('principal.name', ASCENDING), ('ts', DESCENDING)]),
+            _ix('target_name_ts', [('target.name', ASCENDING), ('ts', DESCENDING)]),
+            _ix('target_id_ts', [('target.id', ASCENDING), ('ts', DESCENDING)]),
+            # Retention: each record carries ts + WAYSTATION_AUDIT_RETENTION_DAYS (SPEC §4.11).
+            _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
         ),
     ),
     CollectionSpec(

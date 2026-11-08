@@ -36,6 +36,7 @@ tags:
   - name: tokens
   - name: repositories
   - name: browse
+  - name: search
   - name: stats
   - name: live
   - name: admin
@@ -448,6 +449,67 @@ paths:
                 items: { $ref: '#/components/schemas/Role' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /audit:
+    get:
+      tags: [admin]
+      operationId: listAudit
+      summary: Audit log, newest first (needs `audit-read`; `admin` implies it)
+      description: |
+        Append-only record of security-relevant actions (SPEC §4.11). Filters combine with AND; `action` may be
+        repeated (OR) and accepts a category wildcard such as `token.*`. Cursor paging, newest first.
+      parameters:
+        - $ref: '#/components/parameters/AuditFrom'
+        - $ref: '#/components/parameters/AuditTo'
+        - $ref: '#/components/parameters/AuditActor'
+        - $ref: '#/components/parameters/AuditAction'
+        - $ref: '#/components/parameters/AuditTarget'
+        - $ref: '#/components/parameters/AuditOutcome'
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Audit page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /audit/export:
+    get:
+      tags: [admin]
+      operationId: exportAudit
+      summary: Export the matching audit records (streamed CSV or NDJSON, newest first, at most 100 000 records)
+      description: |
+        Same filters as `GET /audit`. NDJSON lines are `AuditRecord` objects. CSV has one row per record with
+        `changes` and `details` as JSON text; cells a spreadsheet would treat as a formula are prefixed with `'`.
+        The response is an attachment. When the limit is reached the export stops and says so: the last NDJSON line
+        is `{"truncated": true}`, the last CSV row starts with `# truncated`.
+      parameters:
+        - $ref: '#/components/parameters/AuditFrom'
+        - $ref: '#/components/parameters/AuditTo'
+        - $ref: '#/components/parameters/AuditActor'
+        - $ref: '#/components/parameters/AuditAction'
+        - $ref: '#/components/parameters/AuditTarget'
+        - $ref: '#/components/parameters/AuditOutcome'
+        - name: format
+          in: query
+          schema: { type: string, enum: [csv, ndjson], default: csv }
+      responses:
+        '200':
+          description: The export file
+          content:
+            text/csv:
+              schema: { type: string }
+            application/x-ndjson:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /repositories:
     get:
       tags: [repositories]
@@ -759,6 +821,75 @@ paths:
               schema: { $ref: '#/components/schemas/AptPackagePage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /search:
+    get:
+      tags: [search]
+      operationId: search
+      summary: Search packages, images and files across every repository the principal can browse
+      description: |
+        Name search: `q` is `<name prefix>[ <version prefix>]`, case-insensitive; the name prefix matches a full name
+        or its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`). Sources: docker tags,
+        npm packages, apt and yum index listings, cached files (by file name; not docker layers). Results are ordered
+        by the matched name. An empty `q` lists everything.
+        Digest search: `sha256:<8-64 hex digits>` or 64 hex digits finds every cached file with that blob in any
+        repository and format, and the docker tags pointing at it.
+        Hidden repositories are never searched: they appear in no result, count or facet value.
+        Facets (first page): counts per value with every other filter applied.
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 256, default: '' }
+        - name: format
+          in: query
+          description: Repeat to select several (OR)
+          schema:
+            type: array
+            maxItems: 20
+            items: { $ref: '#/components/schemas/Format' }
+        - name: repository
+          in: query
+          description: Repository names; repeat to select several (OR)
+          schema:
+            type: array
+            maxItems: 50
+            items: { type: string }
+        - name: kind
+          in: query
+          schema:
+            type: array
+            maxItems: 3
+            items: { $ref: '#/components/schemas/SearchKind' }
+        - name: type
+          in: query
+          description: Repository types
+          schema:
+            type: array
+            maxItems: 3
+            items: { $ref: '#/components/schemas/RepositoryType' }
+        - name: cached
+          in: query
+          description: Only what is in the cache (leaves out apt/yum index listings; downloaded packages are still found as files)
+          schema: { type: boolean, default: false }
+        - name: facets
+          in: query
+          description: Facet counts on the first page
+          schema: { type: boolean, default: true }
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: One page of results (and facets on the first page)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchPage' }
+        '400':
+          description: Invalid cursor
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /stats/summary:
     get:
       tags: [stats]
@@ -1023,6 +1154,41 @@ components:
       description: Image name within the repository, e.g. `library/nginx`
       schema: { type: string, maxLength: 255 }
 
+    AuditFrom:
+      name: from
+      in: query
+      description: Records at or after this time (RFC 3339)
+      schema: { type: string, format: date-time }
+    AuditTo:
+      name: to
+      in: query
+      description: Records before this time (RFC 3339)
+      schema: { type: string, format: date-time }
+    AuditActor:
+      name: actor
+      in: query
+      description: Who acted, by name (`admin`, `ci-bot`, `anonymous`) or id
+      schema: { type: string, maxLength: 256 }
+    AuditAction:
+      name: action
+      in: query
+      description: An action (`token.create`) or a category wildcard (`token.*`); repeat for several
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 20
+        items: { type: string, maxLength: 64 }
+    AuditTarget:
+      name: target
+      in: query
+      description: The object acted on, by name (`dockerhub-proxy`) or id
+      schema: { type: string, maxLength: 256 }
+    AuditOutcome:
+      name: outcome
+      in: query
+      schema: { $ref: '#/components/schemas/AuditOutcome' }
+
   responses:
     Unauthorized:
       description: Not signed in
@@ -1151,7 +1317,7 @@ components:
           type: array
           description: |
             Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
-            replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`,
+            replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
             `admin`.
           items: { type: string }
         preferences: { $ref: '#/components/schemas/Preferences' }
@@ -1800,6 +1966,71 @@ components:
           items: { $ref: '#/components/schemas/AptPackage' }
         next_cursor: { type: [string, 'null'] }
 
+    # ---------------------------------------------------------------- search
+    SearchKind:
+      type: string
+      enum: [package, image, file]
+    SearchBrowseLink:
+      type: object
+      required: [repository, query]
+      properties:
+        repository: { type: string }
+        query:
+          type: object
+          description: 'Query of the repository Browse view: `image` + `ref` (docker), `package` (npm), `suite` + `arch` + `q` (apt), `path` (the folder listing of every other format)'
+          additionalProperties: { type: string }
+    SearchHit:
+      type: object
+      required: [kind, format, repository, repository_type, name, version, qualifier, path, size, sha256, updated_at, cached, browse]
+      properties:
+        kind: { $ref: '#/components/schemas/SearchKind' }
+        format: { $ref: '#/components/schemas/Format' }
+        repository: { type: string }
+        repository_type: { $ref: '#/components/schemas/RepositoryType' }
+        name: { type: string, description: 'Package, image or file name' }
+        version: { type: [string, 'null'], description: Version (packages) or tag (images) }
+        qualifier: { type: [string, 'null'], description: 'Where it is listed: suite/component and architecture (apt), arch (yum)' }
+        path: { type: [string, 'null'], description: File path in the repository (files, apt/yum packages) }
+        size: { type: [integer, 'null'] }
+        sha256: { type: [string, 'null'], description: Blob sha256 (files) or manifest digest (images) }
+        updated_at: { type: [string, 'null'], format: date-time }
+        cached: { type: [boolean, 'null'], description: In the cache (a listed apt/yum package may not be); null if unknown }
+        browse: { $ref: '#/components/schemas/SearchBrowseLink' }
+    SearchFacetValue:
+      type: object
+      required: [value, count]
+      properties:
+        value: { type: string }
+        count: { type: integer }
+    SearchFacets:
+      type: object
+      required: [format, repository, kind, type, total, capped]
+      properties:
+        format:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        repository:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        kind:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        type:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        total: { type: integer, description: Matches with every filter applied }
+        capped: { type: boolean, description: 'Counting stopped early: counts are lower bounds' }
+    SearchPage:
+      type: object
+      required: [mode, items, next_cursor, facets]
+      properties:
+        mode: { type: string, enum: [name, digest], description: '`digest` when the query is a sha256 digest (or a prefix of one)' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SearchHit' }
+        next_cursor: { type: [string, 'null'] }
+        facets: { oneOf: [{ $ref: '#/components/schemas/SearchFacets' }, { type: 'null' }], description: 'First page only, unless `facets=false`' }
+
     # ---------------------------------------------------------------- stats
     Sparks:
       type: object
@@ -2078,3 +2309,68 @@ components:
         type: { type: string, const: activity }
         ts: { $ref: '#/components/schemas/Timestamp' }
         event: { $ref: '#/components/schemas/ActivityEvent' }
+
+    # ---------------------------------------------------------------- audit (SPEC §4.11, T-S10)
+    AuditOutcome:
+      type: string
+      enum: [success, failure]
+    AuditActor:
+      type: object
+      description: Who acted. `system` = the server or a worker job acting on its own.
+      required: [kind, id, name, auth, provider, token_id]
+      properties:
+        kind: { type: string, enum: [user, service_account, anonymous, system] }
+        id: { type: [string, 'null'] }
+        name: { type: string, description: 'Username, service account name, `anonymous` or `system`' }
+        auth:
+          type: string
+          description: How the request was authenticated
+          enum: [session, api_token, basic, registry_token, none, system]
+        provider: { type: [string, 'null'], description: 'Sign-in source of the user (`local`, `ldap:<id>`, `oidc:<id>`)' }
+        token_id: { type: [string, 'null'], description: The API token used, when there was one }
+    AuditTarget:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind:
+          type: string
+          description: '`user`, `service_account`, `api_token`, `auth_provider`, `repository`, `session`, `settings`...'
+        id: { type: [string, 'null'] }
+        name: { type: [string, 'null'] }
+    AuditChange:
+      type: object
+      description: One changed field. Secret values are never recorded; `redacted` marks a secret that changed.
+      required: [field, before, after, redacted]
+      properties:
+        field: { type: string, description: 'Dotted path, e.g. `proxy.upstream_url`' }
+        before: { description: Previous value (JSON); null when absent }
+        after: { description: New value (JSON); null when removed }
+        redacted: { type: boolean }
+    AuditRecord:
+      type: object
+      required: [id, ts, action, outcome, actor, target, client_ip, request_id, reason, details, changes]
+      properties:
+        id: { type: string }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        action: { type: string, description: '`<category>.<verb>`, e.g. `auth.login`, `repository.update`' }
+        outcome: { $ref: '#/components/schemas/AuditOutcome' }
+        actor: { $ref: '#/components/schemas/AuditActor' }
+        target: { oneOf: [{ $ref: '#/components/schemas/AuditTarget' }, { type: 'null' }] }
+        client_ip: { type: [string, 'null'] }
+        request_id: { type: [string, 'null'] }
+        reason: { type: [string, 'null'], description: 'Why it failed (`bad_credentials`, `locked`...); null on success' }
+        details:
+          type: object
+          description: Action-specific facts (plain values; never secrets)
+          additionalProperties: true
+        changes:
+          type: array
+          items: { $ref: '#/components/schemas/AuditChange' }
+    AuditPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditRecord' }
+        next_cursor: { type: [string, 'null'] }

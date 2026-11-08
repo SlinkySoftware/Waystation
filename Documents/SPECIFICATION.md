@@ -165,6 +165,18 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - Global search across repositories the principal can read: name (prefix and substring), version, format,
   repository, digest/checksum lookup ("where is this sha256 used?"), with facets (format, repo, type).
   Target: results in < 150 ms p95 for 1M assets.
+  Now (T-U06, 2026-11-09): `GET /api/v1/search?q=&format=&repository=&kind=&type=&cached=&cursor=&limit=` searches
+  only the repositories the principal may `browse` (`access.filter_repos`; a hidden repository never appears in a
+  hit, a facet value or a count, and naming it as a filter yields an empty result). `q` is
+  `<name prefix>[ <version prefix>]`, case-insensitive, matched on the full name or its last `/` segment (`nginx`
+  finds `library/nginx`, `node` finds `@types/node`); empty lists everything. Sources: docker tags (kind `image`),
+  npm packages and apt/yum index listings (kind `package`; `cached` says whether the listed file is in the cache),
+  and cached files of every format but docker (kind `file`). `cached=true` leaves out the apt/yum listings. A digest
+  (`sha256:<8-64 hex>` or 64 hex digits) finds every cached file with that blob and the docker tags pointing at it,
+  in any visible repository. Results come straight from per-collection `(name_lc, repo_id, _id)` indexes, merged
+  with exact keyset cursor paging; facet counts (format, repository, kind, repository type) are disjunctive (each
+  ignores its own filter), on the first page only, and lower bounds when `capped`. Every hit carries a Browse deep
+  link. Substring (non-prefix) matching and the 1M-asset p95 measurement are still to do.
 - Component pages show: coordinates, versions/tags, size, digests, created/last downloaded/last modified,
   download count and sparkline, which repos hold it, upstream URL, uploader (hosted), install/pull snippet.
 
@@ -284,6 +296,36 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 Append-only audit log of security-relevant actions: sign-in/out/failure, token create/revoke/use-refused,
 user/group/role/provider changes, repo create/update/delete, uploads and deletes on hosted repos, cleanup runs,
 settings changes. Searchable in the UI, exported via API; retention configurable (default 400 days).
+- **Record**: time, action (`<category>.<verb>`, catalog `waystation_common.audit.AuditAction`), outcome
+  (`success`/`failure`) and for failures a reason code (`bad_credentials`, `unknown_user`, `locked`, `disabled`,
+  `not_in_group`, `directory_unavailable`, `link_refused`, `invalid_token`, `too_many_failures`), the actor (user,
+  service account, anonymous or `system`; how it authenticated: session, API token, basic, registry token; its
+  sign-in provider; the API token id when one was used), the target (kind, id, name), the client address (after the
+  trusted-proxy rules of §8.4) and the request id, plain `details`, and field-level `changes` (before/after).
+  **Secret values are never recorded**: a changed secret appears as `***` with `redacted: true`; credentials inside
+  URLs are masked.
+- **Recorded now**: `auth.login` (UI sign-in success and every failure, with the attempted username and `via`
+  `ui`/`docker`; a successful `docker login` with a password at most once an hour per user and client address,
+  because Docker clients re-send the password with every token request; API-token `docker login`s are token use, not
+  sign-ins), `auth.lockout`, `auth.logout`, `token.create`, `token.revoke`, `token.use_refused` (an invalid, expired
+  or revoked token, with its display prefix; not past the failure rate limit), `service_account.create|update|delete`,
+  `user.create` (bootstrap admin, provider provisioning), `user.link` (an external account linked for the first time),
+  `user.groups_sync` (the groups a provider reports changed), `auth_provider.create|update|delete|test`,
+  `repository.create|update|delete|test_upstream`. Not yet (the feature does not exist): password change and session
+  revoke (T-S02), user/group admin (T-U08), custom roles (T-S03), hosted uploads/deletes (Phase 5), cleanup runs
+  (T-O01), settings (T-U08); `PENDING` in the catalog names them and the acceptance test fails when one is emitted
+  without a test.
+- **Writing never fails or slows a request**: records go to a bounded in-process queue (10 000) drained by one task
+  with batched inserts (retried with backoff); on overflow or a lost batch the records are counted and logged at
+  ERROR (`AUDIT RECORDS DROPPED`, at most every 10 s with the running total).
+- **Retention**: each record expires `WAYSTATION_AUDIT_RETENTION_DAYS` (default 400) after it was written (MongoDB
+  TTL); a changed setting applies to records written from then on.
+- **API** (`audit-read`, which `admin` implies): `GET /api/v1/audit` with `from`/`to`, `actor` (name or id), `action`
+  (repeatable, exact or `<category>.*`), `target` (name or id), `outcome`, cursor paging (newest first, ≤ 200 per
+  page); `GET /api/v1/audit/export?format=csv|ndjson` streams the same selection (≤ 100 000 records, then a
+  truncation marker; CSV cells that a spreadsheet would evaluate are prefixed with `'`).
+- **UI**: Administration → Audit log: table (time, actor with sign-in method, action, target, outcome, client
+  address) with the filters in the URL, a detail drawer with the change diff, and CSV/NDJSON export.
 
 ### 4.12 Administration
 - Repository CRUD with format-aware forms and validation, test-upstream button, clone repo, enable/disable.
@@ -545,9 +587,10 @@ Waystation/
 | Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. No job API/UI yet (Tasks page) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
+| Audit (T-S10) | Done 2026-11-09: audit catalog and records (actor, target, outcome/reason, client address, request id, details, redacted before/after changes), non-blocking batched writer, TTL retention (`WAYSTATION_AUDIT_RETENTION_DAYS`), `GET /api/v1/audit` (filters, cursor paging) and streamed CSV/NDJSON export, Audit log page. Actions whose features are pending (password change, user/group/role admin, hosted content, cleanup, settings) are emitted by those tasks |
 | RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Since 2026-11-09 (T-A01): groups in MongoDB holding roles, effective roles = own ∪ group roles per request, `GET /roles`. Custom roles, group admin and the grant cache pending |
-| API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audit records (T-S10) and the service-account admin UI (T-U08) pending |
-| Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Hosted/group, clone and audit pending |
+| API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audited (T-S10); the service-account admin UI (T-U08) pending |
+| Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Audited since T-S10. Hosted/group and clone pending |
 | Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Formats: `echo` (self-test), `raw`, `npm` and `apt` (Debian 13 + Ubuntu 26.04 clients in one run: `CLIENT` may list several; `lib.sh` falls back to bash `/dev/tcp` where the image has no curl; apt fixture budget 32 MiB); `setup.sh` creates repositories through the API as a per-run bootstrap admin (`ws_login`/`ws_api` in `lib.sh`); nightly live smoke workflow stub |
 | M0 API contract + mocks (T-V01) | Done 2026-11-08: OpenAPI 3.1 contract (`Application/Web/openapi/waystation-m0.yaml`), generated TS types + `openapi-fetch` client, MSW handlers with seeded fixtures (11 proxy repos: Docker Hub, GHCR, Quay, registry.k8s.io, npmjs, Debian, Debian security, Ubuntu, Raspberry Pi OS, two raw) and a live-event generator (bursty docker pulls, npm installs, apt runs, raw downloads, coalescing, failures); `npm run dev:mock` / `make frontend-mock`. Server-side contract test: `Application/Server/tests/test_contract.py` compares the server's generated OpenAPI with it for every implemented operation (T-S05, T-S11) |
 | Web shell (T-F10) | Done 2026-11-08: Quasar 2 / Vue 3 / TS strict SPA under `/ui/` (build output `Application/Web/dist/spa`), light/dark/system themes, self-hosted Inter + JetBrains Mono, SVG Material Symbols (no icon font), collapsible rail, top bar with live indicator, router + auth guard, local sign-in, shared live store (one stream, topic ref-counting, reconnect + Last-Event-ID, 4 Hz flush), `make frontend-build` with bundle budget (initial route 158 kB gzip of 250) |
@@ -572,6 +615,7 @@ Waystation/
 | LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
 | Identity linking and group sync (T-A03) | LDAP half 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`); OIDC half waits for T-A02 |
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
+| Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Left: substring matching, the 1M-asset p95 benchmark |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

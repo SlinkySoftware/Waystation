@@ -42,6 +42,14 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 | `blobs` | `_id` = sha256 hex, `size`, `first_seen`, `refcount_hint` (advisory; GC is mark-and-sweep), `gc_marked_at?` | `gc_marked_at` |
 | `upload_sessions` | `_id` (uuid), `repo_id`, `kind` (`oci-chunked`/`single`), `principal`, `bytes_received`, `started_at`, `expires_at` | TTL `expires_at` |
 
+**Search keys** (T-U06, `waystation_common.searchkeys`): every searchable document (`npm_packages`, `docker_tags`,
+`apt_packages`, `yum_packages` listing entries, `assets` of kind `content`) carries `name_lc` (its name lower-cased,
+at most 200 characters; files: the last path segment) and, for names with a `/`, `base_lc` (the last segment
+lower-cased, so `nginx` finds `library/nginx`). The format index writers set them; migration `0002_search_keys`
+backfills older documents (idempotent, batched). Indexes, partial on the key existing: `search_name`
+`name_lc,repo_id,_id` on all five collections, and `search_base` `base_lc,repo_id,_id,name_lc` on `docker_tags` and
+`npm_packages`. Global search reads prefix ranges of these in index order (no in-memory sort).
+
 ### Operations, stats, audit
 | Collection | Key fields | Indexes |
 |---|---|---|
@@ -53,7 +61,7 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 | `stats_hour` / `stats_day` | same shape, time-series, rolled up | 90 d / 2 y |
 | `storage_snapshots` | time-series per repo: `bytes`, `assets`, `components` (hourly) | 2 y |
 | `downloads_daily` | `component_id`, `day`, `count`, `bytes` | `component_id,day` unique; TTL 400 d |
-| `audit` | `_id`, `ts`, `principal{kind,id,name}`, `ip`, `action`, `target{kind,id,name}`, `outcome`, `details{...}` | `ts` desc; `principal.id,ts`; `action,ts`; TTL per settings |
+| `audit` | append-only (`waystation_common.audit`): `_id` (ULID), `ts`, `action` (`<category>.<verb>`), `outcome` (`success`/`failure`), `reason` (failures), `principal{kind (`user`/`service_account`/`anonymous`/`system`), id, name, auth (`session`/`api_token`/`basic`/`registry_token`/`none`/`system`), provider, token_id}`, `target{kind,id,name}`, `ip` (client address after the trusted-proxy rules), `request_id`, `details{...}` (secret-looking keys redacted), `changes[]{field, before, after, redacted}` (secret values never stored), `expires_at` (= `ts` + `WAYSTATION_AUDIT_RETENTION_DAYS`) | `ts` desc; `principal.id,ts`; `principal.name,ts`; `action,ts`; `target.name,ts`; `target.id,ts`; TTL `expires_at` |
 | `migrations` | `_id` = applied migration id (`NNNN_slug`), `description`, `applied_at` | – |
 
 Notes:
@@ -87,6 +95,7 @@ Notes:
 | `grants:<principal>:<grant_version>` | bytes | cached effective permissions |
 | `rl:<scope>:<id>` | string counters | rate limiting (logins, token use) |
 | `upstream:<repo_id>:health` | hash (no TTL; one per proxy repo, removed with the repo) | `last_ok_at`, `last_error`, `last_error_at`, `consecutive_failures`, `last_latency_ms`: written by the proxy engine through the emitter; read by upstream health / repository status |
+| `audit:docker-login:<sha256(user id, client address)[:32]>` | string (TTL 1 h) | a successful `docker login` with a password was audited for this user and address within the hour (SPEC §4.11) |
 | `upstream:<repo_id>:ratelimit` | hash | last seen upstream rate-limit headers |
 
 ## 3. Blob store (`WAYSTATION_DATA_DIR`)

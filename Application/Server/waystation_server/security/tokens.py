@@ -49,6 +49,8 @@ from waystation_common.db.client import Database
 from waystation_common.errors import Unauthorized
 from waystation_common.ids import new_id
 from waystation_common.settings import Settings
+from waystation_server import audit
+from waystation_server.audit import AuditAction, Outcome
 from waystation_server.db import service_accounts as accounts_db
 from waystation_server.db import tokens as tokens_db
 from waystation_server.db import users as users_db
@@ -206,7 +208,15 @@ class TokenService:
             if user is None or user.disabled:
                 return None
             roles = await self._roles_for(user) if self._roles_for is not None else tuple(user.roles)
-            return Principal(PrincipalKind.USER, user.id, user.username, roles, AuthMethod.API_TOKEN, token=limits)
+            return Principal(
+                PrincipalKind.USER,
+                user.id,
+                user.username,
+                roles,
+                AuthMethod.API_TOKEN,
+                token=limits,
+                provider=user.source,
+            )
         account = await accounts_db.get(self._db, record.principal.id)
         if account is None or account.disabled:
             return None
@@ -282,6 +292,13 @@ class TokenService:
                 client_ip,
                 limit=self._settings.token_failure_limit,
                 window_s=FAILURE_WINDOW_S,
+            )
+            audit.record(
+                AuditAction.TOKEN_USE_REFUSED,
+                outcome=Outcome.FAILURE,
+                reason='invalid_token',
+                target=audit.target('api_token', None, display_prefix(secret) if _TOKEN_RE.match(secret) else None),
+                details={'prefix': display_prefix(secret) if _TOKEN_RE.match(secret) else None},
             )
             raise Unauthorized(INVALID)
         assert principal.token is not None
