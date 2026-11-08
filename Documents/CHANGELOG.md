@@ -3,6 +3,19 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-V02: M0 feedback build (no tag yet). Walked every M0 page against the real server and fixed what did not match:
+  Docker tags resolved by an upstream HEAD (how the Docker daemon pulls) are now recorded, so they show in browse;
+  activity entries name artifacts the way live transfers do (`image@digest`); a duplicate repository name is a 409
+  with a field error on `name`; the UI makes no session check without a session; the live-transfer format filter
+  lists only formats in use; routine jobs (the 10 s `stats.rollup`) no longer emit `job.started`/`job.finished`
+  activity events, which flooded the dashboard's recent activity (failures still do); "Set me up" shows the API-token
+  note only for snippets that use a token; "1 artifact" singular on Browse. `make e2e-m0` (`tests/e2e/m0/run.sh`):
+  docker pull nginx, npm install, `apt update && apt install` in a Debian 13 container and a raw download through a
+  running stack, checked in the live event stream, stats, activity, upstream health and browse; creates the demo
+  repositories when missing. `Documents/Operations/TRY_IT.md` (fresh host: build images, env file, start, first
+  sign-in, the four repositories, clients, stop/reset). `scripts/screenshots.mjs` gains `REAL=1` (signs in, tours
+  real cached content); the M0 tour is now taken against the real server (`Documents/Notes/UI_TOUR_M0.md`, 88 shots
+  including Activity, Storage, Auth providers and Audit log, pngquant). Feedback log `Documents/Notes/UI_FEEDBACK.md`.
 - T-O06: metrics gaps filled. The server now exports, besides the format traffic metrics: route latency for every
   HTTP request (`waystation_http_request_duration_seconds{route,method,status}`, route template and status class
   only), free-space guard refusals (`waystation_storage_refusals_total`), connected event-stream clients

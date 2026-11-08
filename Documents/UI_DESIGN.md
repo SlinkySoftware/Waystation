@@ -166,7 +166,8 @@ every progress tick), full keyboard operation, no information by colour alone.
   mocks `src/mocks/` (`handlers.ts`, `world.ts` = live generator, `fixtures/`), live store `src/stores/live.ts`
   (mock mode swaps its source for the generator), strings `src/i18n/en.ts`. Run it with `make frontend-mock`
   (http://localhost:9000/ui/, any username/password; password `wrong` shows the error state). A static mock build
-  (`make frontend-build-mock`) serves the same tour. Screenshot tour: `scripts/screenshots.mjs` (Playwright image).
+  (`make frontend-build-mock`) serves the same tour. Screenshot tour: `scripts/screenshots.mjs` (Playwright image; `REAL=1` tours a running stack instead of mocks, as
+  for the M0 tour in `Documents/Notes/UI_TOUR_M0.md`).
 - `<script setup lang="ts">` only, strict TS, ESLint + vue-tsc in CI; components < 300 lines; composables for
   data (`useCrud`, `useLiveStream(topic)`, `useStats(range)`, `useNotify`, `useCopy`).
 - API only through the generated `openapi-fetch` client in `src/api/`; SSE via one shared `EventSource`
