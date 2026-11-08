@@ -134,7 +134,11 @@ Stale-on-error and offline mode as SPEC §4.1.
   second host against an NFS export are not covered yet.
 - Lock lease (`WAYSTATION_COALESCE_LEASE_S`, default 15 s) renewed every third of it while the fill makes progress
   (a fill with no progress for the upstream timeouts plus a lease stops renewing and expires); abort cleans the
-  upload file. Valkey unavailable = no coalescing (each request fetches), never an error.
+  upload file. The renewal never waits on disk I/O: the `fdatasync` behind `synced` runs in its own task, so a slow
+  disk delays `synced` (followers on other hosts), never the lease. A stall of Valkey or of the owner's event loop
+  longer than the lease is indistinguishable from owner death and costs one extra upstream fetch (the takeover
+  rule above); size the lease well above such stalls. Valkey unavailable = no coalescing (each request fetches),
+  never an error.
 
 ### 6.4 Validation
 Bytes are committed to `blobs/` only after the expected digest/size (when the protocol supplies one) matches.

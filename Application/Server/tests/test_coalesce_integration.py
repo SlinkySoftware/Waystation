@@ -8,8 +8,11 @@ The cross-process acceptance test (real servers, 200 clients, owner killed) is `
 import asyncio
 import hashlib
 import json
+import os
 import random
+import threading
 from collections.abc import AsyncIterator, Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -22,7 +25,7 @@ from waystation_common.db.collections import ASSETS
 from waystation_common.events import keys
 from waystation_common.settings import Settings
 from waystation_server.problems import ResponseAborted
-from waystation_server.proxy.coalesce import Coalescer
+from waystation_server.proxy.coalesce import Coalescer, Follower, Lease
 from waystation_server.proxy.engine import AssetKind, AssetSpec, Expected
 from waystation_server.proxy.http import Timeouts
 from waystation_server.services import Services
@@ -207,6 +210,10 @@ async def test_owner_gone_mid_transfer_a_follower_takes_over(
         return Respond(200, {}, DATA, chunk=256 * 1024)
 
     upstream.routes['/big.bin'] = route
+    # The first fetch must end by its client going away, not by the 5 s read timeout (on a loaded machine attaching
+    # 15 followers can take longer, and a timed-out fetch rightly fails its followers instead of handing over).
+    for s in (services, replica_b):
+        s.upstream.timeouts = Timeouts(connect=2.0, read=60.0)
     owner = asyncio.create_task(client.get(URL))
     await eventually(lambda: _status(services, repo, 'streaming'))
     followers = [asyncio.create_task((client if i % 3 else client_b).get(URL)) for i in range(15)]
@@ -217,9 +224,9 @@ async def test_owner_gone_mid_transfer_a_follower_takes_over(
         sent = [t['bytes_done'] for t in await live(services) if t['cache'] == 'COALESCED']
         return len(sent) == 15 and all(n >= 2 * MiB for n in sent)
 
-    await eventually(all_sending)
+    await eventually(all_sending, within=30)
     owner.cancel()  # the owner's client goes away: its fill is aborted, a follower takes it over
-    results = await asyncio.gather(*followers)
+    results = await asyncio.wait_for(asyncio.gather(*followers), 60)
     assert upstream.hits('/big.bin') == 2
     assert all(r.status_code == 200 and r.content == DATA for r in results)
     assert await services.db[ASSETS].count_documents({'path': 'big.bin', 'blob_sha256': SHA}) == 1
@@ -297,3 +304,50 @@ async def test_valkey_unavailable_means_no_coalescing_not_errors(
     assert response.status_code == 200
     assert response.content == DATA
     assert response.headers['x-ws-cache'] == 'FETCHING'
+
+
+async def test_a_slow_fdatasync_does_not_cost_the_owner_its_lease(
+    valkey: Redis, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression (T-S08): on a busy disk one ``fdatasync`` took longer than the lease, the renewal waited behind it,
+    the lease expired and a follower started a second upstream fetch. The renewal must not wait on the sync."""
+    started, release = threading.Event(), threading.Event()
+    real_sync = os.fdatasync
+
+    def slow_sync(fd: int) -> None:
+        started.set()
+        release.wait(10)
+        real_sync(fd)
+
+    monkeypatch.setattr(os, 'fdatasync', slow_sync)
+    coalescer = Coalescer(valkey, data_dir=tmp_path, lease_s=1)
+    key = Coalescer.key('repo', 'big.bin')
+    lease = await coalescer.claim('repo', 'big.bin')
+    assert isinstance(lease, Lease)
+    follower = await coalescer.claim('repo', 'big.bin')  # attached: the owner syncs before publishing ``synced``
+    assert isinstance(follower, Follower)
+    upload = tmp_path / 'upload'
+    fd = os.open(upload, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, b'x' * 1000)
+        lease.streaming(upload='upload', total=None, content_type='application/octet-stream', headers={}, fd=fd)
+        lease.advance(1000)
+        assert await asyncio.to_thread(started.wait, 5), 'the owner never synced the upload file'
+        await asyncio.sleep(2.5)  # the sync is still stuck, well past the 1 s lease
+        state = await valkey.hgetall(key)
+        assert state, 'the lease expired while the owner was alive and waiting on a slow fdatasync'
+        assert (state['owner'], state['status'], state['written']) == (lease.token, 'streaming', '1000')
+        assert state['synced'] == '0' and not lease.lost
+        release.set()
+
+        async def synced() -> bool:
+            return (await valkey.hget(key, 'synced')) == '1000'
+
+        await eventually(synced)
+        await follower.leave()
+        await lease.finish(sha256='0' * 64, size=1000)
+        assert (await valkey.hgetall(key))['status'] == 'done'
+    finally:
+        release.set()
+        os.close(fd)
+        await coalescer.aclose()

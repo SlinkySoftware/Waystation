@@ -1,0 +1,2 @@
+DIAG owner-fetch {'tok': '0ac46994a11d417aae98148964cc6099', 'replaced': False, 'solo': False, 't': 245644.851099257}
+DIAG close {'tok': '0ac46994a11d417aae98148964cc6099', 'status': <Status.DONE: 'done'>, 'result': 185, 't': 245701.604225732}
