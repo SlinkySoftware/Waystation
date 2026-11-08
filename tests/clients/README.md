@@ -49,7 +49,7 @@ Create `tests/clients/<format>/`:
 
 | File | Purpose |
 |---|---|
-| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `debian`, `ubuntu`, `skopeo`, `docker`, or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `ORIGINS`, `RECORD_SERVICES`, `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
+| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `debian`, `ubuntu`, `skopeo`, `docker`, or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `ORIGINS`, `RECORD_SERVICES`, `DROP_JSON_KEYS` (JSON keys removed from recorded JSON bodies at any depth, e.g. npm readmes and maintainer e-mails), `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
 | `setup.sh` | optional, runs first in the client container: create the repos the test needs through `$WAYSTATION_URL/api/v1/...` as the per-run bootstrap admin: `ws_login`, then `ws_api <METHOD> <path> [json]` from `lib.sh` (curl, or bash `/dev/tcp` in images without curl, e.g. debian/ubuntu; `_ws_http` is the bash request primitive and also leaves the response headers in `/tmp/ws-api.headers`). With several clients it runs once per client: keep it idempotent |
 | `test.sh` | POSIX sh in the client container: configure the client to use `$WAYSTATION_URL/repository/<repo>/` (or `/v2/`), run real installs/pulls, assert, `exit 1` on failure. Source `/harness/lib.sh` for `step`, `fail`, `pass`, `wait_for`, `trust_harness_ca` |
 | `allowed_hosts.txt` | optional: extra public hosts that legitimately appear in this format's upstream content |
@@ -80,7 +80,8 @@ Scrubbed at record time (`harness/upstream_store.py`):
 - Signed-URL query values (`X-Amz-*`, `Signature`, `Expires`, `token`, SAS params, ...) and URL credentials in
   `Location` and in keys are replaced with `harness-redacted`.
 - JSON bodies: string values of keys containing `token`, `secret`, `password`, `credential`, `session`, `cookie`
-  are replaced with `harness-redacted` (upstream bytes are kept untouched when nothing matched).
+  are replaced with `harness-redacted`, and the format's `DROP_JSON_KEYS` are removed (upstream bytes are kept
+  untouched when nothing matched). Only metadata the client does not verify byte-for-byte may be scrubbed this way.
 
 `make clients-check` (also run after every record, and in `make check`) scans `tests/clients/` and
 `tests/fixtures/upstreams/` and fails on: host names outside `allowed_hosts.txt` (+ the format's own list),

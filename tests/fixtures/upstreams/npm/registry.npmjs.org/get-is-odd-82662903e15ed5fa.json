@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.npmjs.org/is-odd"
+  },
+  "response": {
+    "body_sha256": "92a9229f5da327f50324cc71b5d72ce3805ca9518cc16b40823a973366de92f9",
+    "body_size": 6124,
+    "headers": [
+      [
+        "content-type",
+        "application/vnd.npm.install-v1+json"
+      ],
+      [
+        "content-length",
+        "6124"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, max-age=300"
+      ],
+      [
+        "etag",
+        "\"fd4117a66003c707dae5e1c68aba91af\""
+      ],
+      [
+        "last-modified",
+        "Tue, 14 Apr 2026 14:26:12 GMT"
+      ],
+      [
+        "vary",
+        "accept-encoding, accept"
+      ]
+    ],
+    "status": 200
+  }
+}

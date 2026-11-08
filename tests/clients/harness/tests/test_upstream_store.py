@@ -99,3 +99,11 @@ def test_store_bodiless_exchange_removes_stale_body(tmp_path: Path) -> None:
     loaded = store.load(key)
     assert loaded is not None
     assert (loaded.status, loaded.body) == (304, b'')
+
+
+def test_scrub_response_drops_configured_json_keys_at_any_depth() -> None:
+    body = json.dumps(
+        {'name': 'pkg', 'readme': 'see https://example.com', 'versions': {'1.0.0': {'_npmUser': {'email': 'a@b'}}}}
+    ).encode()
+    out = scrub_response(200, [('content-type', 'application/json')], body, frozenset({'readme', '_npmUser'}))
+    assert json.loads(out.body) == {'name': 'pkg', 'versions': {'1.0.0': {}}}
