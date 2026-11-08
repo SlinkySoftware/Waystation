@@ -88,7 +88,8 @@ const props = defineProps<{ repo: Repository }>()
 const suite = useQueryParam('suite')
 const archParam = useQueryParam('arch')
 const nav = useQueryNavigate()
-const search = ref<string | null>(null)
+// Seeded from `?q=` (search results link here with the package name).
+const search = ref<string | null>(useQueryParam('q').value)
 const cachedOnly = ref(false)
 
 const suites = useAsync(() => call(api.GET('/repositories/{name}/apt/suites', { params: { path: { name: props.repo.name } } })))
