@@ -113,6 +113,12 @@ def test_per_format_allowlist(layout: tuple[Path, Path]) -> None:
     assert len(check([fixtures], clients, fixtures)) == 1
     (clients / 'fmt' / 'allowed_hosts.txt').write_text('github' + '.com\n')
     assert check([fixtures], clients, fixtures) == []
+    # The format's own files (its allowlist, test.sh) are scanned with its allowlist too; other formats' are not.
+    assert check([clients], clients, fixtures) == []
+    (clients / 'other').mkdir()
+    (clients / 'other' / 'format.env').write_text('HOSTS="echo.example.com"\n')
+    (clients / 'other' / 'test.sh').write_text('curl https://' + 'github' + '.com/\n')
+    assert len(check([clients], clients, fixtures)) == 1
 
 
 def test_main_exit_codes(layout: tuple[Path, Path], capsys: pytest.CaptureFixture[str]) -> None:

@@ -11,6 +11,7 @@ from waystation_server.formats.apt.descriptor import DESCRIPTOR as APT
 from waystation_server.formats.docker.descriptor import DESCRIPTOR as DOCKER
 from waystation_server.formats.npm.descriptor import DESCRIPTOR as NPM
 from waystation_server.formats.raw.descriptor import DESCRIPTOR as RAW
+from waystation_server.formats.raw.plugin import RawPlugin
 from waystation_server.formats.registry import FormatRegistry
 
 
@@ -18,4 +19,5 @@ def default_registry() -> FormatRegistry:
     registry = FormatRegistry()
     for descriptor in (DOCKER, NPM, APT, RAW):
         registry.register(descriptor)
+    registry.set_plugin(RawPlugin())  # T-P2-RAW
     return registry

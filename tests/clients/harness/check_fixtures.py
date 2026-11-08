@@ -2,8 +2,8 @@
 
 Fails (exit 1) when a scanned file contains:
 - a host name outside the allowlist (``tests/clients/allowed_hosts.txt`` plus, for files under
-  ``tests/fixtures/upstreams/<format>/``, ``tests/clients/<format>/allowed_hosts.txt``), or any host under an
-  internal-only suffix, which no allowlist can permit;
+  ``tests/fixtures/upstreams/<format>/`` or ``tests/clients/<format>/``, ``tests/clients/<format>/allowed_hosts.txt``),
+  or any host under an internal-only suffix, which no allowlist can permit;
 - an IP address outside the documentation ranges (RFC 5737, RFC 3849), loopback and unspecified addresses;
 - private key material or a well-known token shape (GitHub, npm, GitLab, Slack, AWS, JWT);
 - any string from the optional local deny list ``$WAYSTATION_FORBIDDEN_FILE`` (one string per line, kept outside
@@ -200,6 +200,9 @@ def check(paths: Iterable[Path], clients_dir: Path, fixtures_root: Path, deny: I
             data = path.read_bytes()
             fmt = fixture_format(path, fixtures_root)
             allow = base_allow
+            own = fixture_format(path, clients_dir)  # tests/clients/<format>/...: the format's own files
+            if own is not None and (clients_dir / own / 'format.env').is_file():
+                allow = base_allow + read_list(clients_dir / own / 'allowed_hosts.txt')
             if fmt is not None:
                 allow = base_allow + read_list(clients_dir / fmt / 'allowed_hosts.txt')
                 totals[fmt] = totals.get(fmt, 0) + len(data)
