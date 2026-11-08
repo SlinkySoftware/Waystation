@@ -1,0 +1,102 @@
+{
+  "realm": "waystation",
+  "displayName": "Waystation test realm (make test-integration; throwaway accounts, documentation names only)",
+  "enabled": true,
+  "sslRequired": "none",
+  "loginWithEmailAllowed": false,
+  "registrationAllowed": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 300,
+  "groups": [
+    { "name": "developers", "path": "/developers" },
+    { "name": "platform", "path": "/platform", "subGroups": [{ "name": "ops", "path": "/platform/ops" }] }
+  ],
+  "clients": [
+    {
+      "clientId": "waystation",
+      "name": "Waystation",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "waystation-test-client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": ["https://registry.example.com/auth/oidc/*"],
+      "webOrigins": ["https://registry.example.com"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://registry.example.com/ui/sign-in"
+      },
+      "defaultClientScopes": ["web-origins", "profile", "roles", "email", "basic"],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "waystation-public",
+      "name": "Waystation (public client)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["https://registry.example.com/auth/oidc/*"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.com",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Example",
+      "groups": ["/developers", "/platform/ops"],
+      "credentials": [{ "type": "password", "value": "Alice-Passw0rd1", "temporary": false }]
+    },
+    {
+      "username": "carol",
+      "enabled": true,
+      "email": "carol@example.com",
+      "emailVerified": true,
+      "firstName": "Carol",
+      "lastName": "Example",
+      "credentials": [{ "type": "password", "value": "Carol-Passw0rd1", "temporary": false }]
+    },
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@example.com",
+      "emailVerified": true,
+      "firstName": "Realm",
+      "lastName": "Admin",
+      "credentials": [{ "type": "password", "value": "Admin-Passw0rd1", "temporary": false }]
+    },
+    {
+      "username": "dave",
+      "enabled": false,
+      "email": "dave@example.com",
+      "emailVerified": true,
+      "firstName": "Dave",
+      "lastName": "Example",
+      "credentials": [{ "type": "password", "value": "Dave-Passw0rd1", "temporary": false }]
+    }
+  ]
+}

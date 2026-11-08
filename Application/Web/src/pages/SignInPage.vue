@@ -14,6 +14,10 @@
       <q-card class="sign-in__card">
         <h1 class="sign-in__title">{{ t('signIn.title') }}</h1>
         <div v-if="expired" class="sign-in__note" role="status">{{ t('signIn.expired') }}</div>
+        <div v-if="oidcError && !error" class="sign-in__error sign-in__error--top" role="alert">
+          <q-icon :name="iconError" size="18px" />
+          {{ oidcError }}
+        </div>
         <q-form class="sign-in__form" @submit="submit">
           <template v-if="passwordProviders.length > 1">
             <label class="sign-in__label" for="provider">{{ t('signIn.provider') }}</label>
@@ -67,7 +71,7 @@
 
         <template v-if="oidc.length">
           <div class="sign-in__or"><span>{{ t('signIn.or') }}</span></div>
-          <q-btn v-for="p in oidc" :key="p.id" outline no-caps class="sign-in__oidc" :label="t('signIn.continueWith', { name: p.name })" :href="p.login_url" />
+          <q-btn v-for="p in oidc" :key="p.id" outline no-caps class="sign-in__oidc" :label="t('signIn.continueWith', { name: p.name })" :href="oidcHref(p.login_url ?? '')" />
         </template>
       </q-card>
       <div v-if="mock" class="sign-in__mock">{{ t('signIn.mockHint') }}</div>
@@ -102,6 +106,20 @@ const showPassword = ref(false)
 const busy = ref(false)
 const error = ref<string | null>(null)
 const expired = computed(() => route.query.expired === '1' && !error.value)
+
+// The server sends failed OIDC sign-ins back here with `?error=oidc_<reason>` (details are in its log only).
+const OIDC_ERRORS = ['failed', 'cancelled', 'expired', 'unavailable', 'too_many'] as const
+const oidcError = computed(() => {
+  const code = typeof route.query.error === 'string' ? route.query.error.replace(/^oidc_/, '') : ''
+  const known = OIDC_ERRORS.find((e) => e === code)
+  return known ? t(`signIn.oidcError.${known}`) : route.query.error ? t('signIn.oidcError.failed') : null
+})
+
+/** The provider's login URL, asking the server to come back to where the user was going. */
+function oidcHref(loginUrl: string): string {
+  const next = safeNext(route.query.next)
+  return next === '/' ? loginUrl : `${loginUrl}${loginUrl.includes('?') ? '&' : '?'}next=${encodeURIComponent(next)}`
+}
 
 const providers = useAsync<AuthProvider[]>(() => call(api.GET('/auth/providers')))
 const oidc = computed(() => (providers.data.value ?? []).filter((p) => p.kind === 'oidc' && p.login_url))
@@ -203,6 +221,10 @@ async function submit(): Promise<void> {
 .sign-in__error {
   color: var(--cache-error);
   background: var(--cache-error-bg);
+}
+
+.sign-in__error--top {
+  margin: 0 0 12px;
 }
 
 .sign-in__note {

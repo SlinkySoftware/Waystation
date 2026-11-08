@@ -11,9 +11,9 @@ const body = () => toWrite(fromConfig(seeded))
 describe('mock sign-in providers', () => {
   it('seeds one FreeIPA-style directory on example.com only', () => {
     expect(seeded.name).toBe('Corporate directory')
-    expect(seeded.ldap.connection.bind_password_set).toBe(true)
-    for (const s of seeded.ldap.connection.servers) expect(s).toMatch(/\.example\.com$/)
-    expect(seeded.ldap.users.base_dn).toContain('dc=example,dc=com')
+    expect(seeded.ldap!.connection.bind_password_set).toBe(true)
+    for (const s of seeded.ldap!.connection.servers) expect(s).toMatch(/\.example\.com$/)
+    expect(seeded.ldap!.users.base_dn).toContain('dc=example,dc=com')
   })
 
   it('demonstrates failover: the second server does not answer', () => {
@@ -45,25 +45,50 @@ describe('mock sign-in providers', () => {
   it('follows nested groups only when asked', () => {
     const write = body()
     expect(testUser(write, 'bob', null).groups.map((g) => g.name)).not.toContain('platform')
-    write.ldap.groups.nested = true
+    write.ldap!.groups.nested = true
     expect(testUser(write, 'bob', null).groups.map((g) => g.name)).toContain('platform')
   })
 
   it('validates with field paths into the request body', () => {
     const write = body()
     write.name = 'corporate DIRECTORY'
-    write.ldap.connection.servers = ['ldaps://ok.example.com', 'not a host']
-    write.ldap.users.filter = 'objectClass=person'
+    write.ldap!.connection.servers = ['ldaps://ok.example.com', 'not a host']
+    write.ldap!.users.filter = 'objectClass=person'
     write.group_mapping = [{ external_group: 'x', roles: ['wizard'] }]
     const fields = validateProvider(write, [seeded]).map((e) => e.field)
     expect(fields).toEqual(['name', 'ldap.connection.servers.1', 'ldap.users.filter', 'group_mapping.0.roles'])
   })
 
+  it('seeds a Keycloak OIDC provider and tests its discovery', () => {
+    const oidc = seedProviders().find((p) => p.kind === 'oidc')!
+    expect(oidc.oidc!.issuer).toMatch(/^https:\/\/[a-z.]+\.example\.com\//)
+    const write = toWrite(fromConfig(oidc))
+    const result = testConnection(write, oidc)
+    expect(result.ok).toBe(true)
+    expect(result.discovery?.keys).toBeGreaterThan(0)
+    expect(result.servers[0]!.checks.map((c) => c.name)).toContain('client')
+    // a new provider without a secret fails the client check
+    expect(testConnection(write).servers[0]!.checks.find((c) => c.name === 'client')?.ok).toBe(false)
+  })
+
+  it('validates OIDC settings and stores the client secret as a flag only', () => {
+    const write = toWrite(fromConfig(seedProviders().find((p) => p.kind === 'oidc')!))
+    write.oidc!.issuer = 'http://sso.example.com/realms/example'
+    write.oidc!.client_secret = null
+    const fields = validateProvider(write, []).map((e) => e.field)
+    expect(fields).toEqual(['oidc.issuer', 'oidc.client_secret'])
+    write.oidc!.client_secret = 'new-secret'
+    const config = toConfig(write)
+    expect(config.oidc!.client_secret_set).toBe(true)
+    expect(config.ldap).toBeNull()
+    expect(JSON.stringify(config)).not.toContain('new-secret')
+  })
+
   it('stores the password as a flag only', () => {
     const write = body()
-    write.ldap.connection.bind_password = 'new-password'
+    write.ldap!.connection.bind_password = 'new-password'
     const config = toConfig(write, seeded)
-    expect(config.ldap.connection.bind_password_set).toBe(true)
+    expect(config.ldap!.connection.bind_password_set).toBe(true)
     expect(JSON.stringify(config)).not.toContain('new-password')
   })
 })

@@ -70,13 +70,16 @@ async def test_login_me_logout(client: httpx.AsyncClient, services: Services) ->
 
     assert (await client.post('/api/v1/auth/logout')).status_code == 403  # no CSRF header
     out = await client.post('/api/v1/auth/logout', headers={'X-CSRF-Token': body['csrf_token']})
-    assert out.status_code == 204
+    assert out.status_code == 200
+    assert out.json() == {'end_session_url': None}
     assert await services.db[SESSIONS].count_documents({}) == 0
     assert (await client.get('/api/v1/auth/me')).status_code == 401
 
 
 async def test_logout_without_session(client: httpx.AsyncClient) -> None:
-    assert (await client.post('/api/v1/auth/logout')).status_code == 204
+    out = await client.post('/api/v1/auth/logout')
+    assert out.status_code == 200
+    assert out.json() == {'end_session_url': None}
 
 
 @pytest.mark.usefixtures('admin')

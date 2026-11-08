@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { seedProviders } from '@/mocks/fixtures/authProviders'
 
-import { applyPreset, emptyProvider, fromConfig, mappedRoles, serverHost, suffixOf, toWrite } from './providerForm'
+import { applyOidcPreset, applyPreset, emptyProvider, fromConfig, mappedRoles, serverHost, SIGNING_ALGS, suffixOf, toWrite } from './providerForm'
 
 describe('provider form model', () => {
   it('round-trips a stored provider without ever carrying the password', () => {
@@ -13,8 +13,8 @@ describe('provider form model', () => {
     expect(model.write.ldap.connection.bind_password).toBeNull()
     expect('bind_password_set' in model.write.ldap.connection).toBe(false)
     const body = toWrite(model)
-    expect(body.ldap.connection.bind_password).toBeNull()
-    expect(body.ldap.connection.servers).toEqual(stored.ldap.connection.servers)
+    expect(body.ldap!.connection.bind_password).toBeNull()
+    expect(body.ldap!.connection.servers).toEqual(stored.ldap!.connection.servers)
     expect(body.group_mapping).toEqual(stored.group_mapping)
   })
 
@@ -32,11 +32,11 @@ describe('provider form model', () => {
     ]
     const body = toWrite(model)
     expect(body.name).toBe('Directory')
-    expect(body.ldap.connection.servers).toEqual(['ldap1.example.com'])
-    expect(body.ldap.connection.bind_dn).toBeNull()
-    expect(body.ldap.connection.bind_password).toBe(' secret with spaces ')
-    expect(body.ldap.users.base_dn).toBe('dc=example,dc=com')
-    expect(body.ldap.groups.require_group).toBeNull()
+    expect(body.ldap!.connection.servers).toEqual(['ldap1.example.com'])
+    expect(body.ldap!.connection.bind_dn).toBeNull()
+    expect(body.ldap!.connection.bind_password).toBe(' secret with spaces ')
+    expect(body.ldap!.users.base_dn).toBe('dc=example,dc=com')
+    expect(body.ldap!.groups.require_group).toBeNull()
     expect(body.group_mapping).toEqual([{ external_group: 'developers', roles: ['deployer'] }])
   })
 
@@ -44,6 +44,85 @@ describe('provider form model', () => {
     expect(suffixOf('cn=users,cn=accounts,dc=corp,dc=example,dc=com')).toBe('dc=corp,dc=example,dc=com')
     expect(suffixOf('')).toBe('dc=example,dc=com')
     expect(suffixOf('ou=people,o=org')).toBe('dc=example,dc=com')
+  })
+})
+
+describe('OIDC provider form model', () => {
+  const stored = () => seedProviders().find((p) => p.kind === 'oidc')!
+
+  it('round-trips a stored provider without the secret and keeps the redirect URIs out of the body', () => {
+    const config = stored()
+    const model = fromConfig(config)
+    expect(model.write.kind).toBe('oidc')
+    expect(model.clientSecretSet).toBe(true)
+    expect(model.redirectUri).toBe(config.oidc!.redirect_uri)
+    expect(model.postLogoutRedirectUri).toBe(config.oidc!.post_logout_redirect_uri)
+    expect(model.write.oidc.client_secret).toBeNull()
+    const body = toWrite(model)
+    expect(body.kind).toBe('oidc')
+    expect(body.ldap).toBeNull()
+    expect(body.oidc!.client_secret).toBeNull()
+    expect(body.oidc!.issuer).toBe(config.oidc!.issuer)
+    expect(body.oidc).not.toHaveProperty('client_secret_set')
+    expect(body.oidc).not.toHaveProperty('redirect_uri')
+    expect(body.group_mapping).toEqual(config.group_mapping)
+  })
+
+  it('trims, de-duplicates scopes, turns blank optionals into null and sends a typed secret as is', () => {
+    const model = emptyProvider('oidc')
+    model.write.name = ' SSO '
+    model.write.oidc.issuer = ' https://sso.example.com/realms/example '
+    model.write.oidc.client_id = ' waystation '
+    model.write.oidc.client_secret = ' s3cret '
+    model.write.oidc.scopes = ['openid', ' groups ', 'groups', '']
+    model.write.oidc.groups_claim = '  '
+    model.write.oidc.require_group = ''
+    model.write.oidc.signing_algs = ['ES256', 'RS256']
+    const body = toWrite(model)
+    expect(body).toMatchObject({ kind: 'oidc', name: 'SSO', ldap: null })
+    expect(body.oidc).toMatchObject({
+      issuer: 'https://sso.example.com/realms/example',
+      client_id: 'waystation',
+      client_secret: ' s3cret ',
+      scopes: ['openid', 'groups'],
+      groups_claim: null,
+      require_group: null,
+      signing_algs: ['RS256', 'ES256'],
+    })
+  })
+
+  it('never sends a secret for a public client', () => {
+    const model = emptyProvider('oidc')
+    model.write.oidc.client_auth = 'none'
+    model.write.oidc.client_secret = 'left over'
+    expect(toWrite(model).oidc!.client_secret).toBeNull()
+  })
+
+  it('defaults to every asymmetric algorithm and the usual claims', () => {
+    const { oidc } = emptyProvider('oidc').write
+    expect(oidc.signing_algs).toEqual(SIGNING_ALGS)
+    expect(SIGNING_ALGS).not.toContain('none')
+    expect(SIGNING_ALGS.some((a) => a.startsWith('HS'))).toBe(false)
+    expect(oidc).toMatchObject({ username_claim: 'preferred_username', groups_claim: 'groups', auto_provision: true, rp_logout: true, allow_private: false })
+  })
+
+  it('sends only the chosen kind of settings', () => {
+    const model = emptyProvider('ldap')
+    model.write.oidc.issuer = 'https://sso.example.com/realms/example'
+    expect(toWrite(model)).toMatchObject({ kind: 'ldap', oidc: null })
+    model.write.kind = 'oidc'
+    expect(toWrite(model)).toMatchObject({ kind: 'oidc', ldap: null })
+  })
+
+  it('presets fill claims and keep a typed issuer', () => {
+    const model = emptyProvider('oidc')
+    model.write.oidc.username_claim = 'sub'
+    applyOidcPreset(model, 'keycloak')
+    expect(model.write.oidc.username_claim).toBe('preferred_username')
+    expect(model.write.oidc.issuer).toBe('https://sso.example.com/realms/example')
+    model.write.oidc.issuer = 'https://auth.example.com/application/o/ws/'
+    applyOidcPreset(model, 'authentik')
+    expect(model.write.oidc.issuer).toBe('https://auth.example.com/application/o/ws/')
   })
 })
 
