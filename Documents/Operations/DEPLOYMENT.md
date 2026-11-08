@@ -232,6 +232,7 @@ the per-format guides are in [clients/](clients/) (Docker, npm, apt, raw today).
 | `GET /metrics` | through web | Prometheus metrics, only for `WAYSTATION_METRICS_ALLOW_CIDRS` (404 for everyone else) |
 
 `docker compose ps` shows the health of every container. `depends_on` restarts web when the server restarts.
+Prometheus scraping, the Grafana dashboard and the Zabbix template: [MONITORING.md](MONITORING.md).
 
 ## 8. TLS
 
