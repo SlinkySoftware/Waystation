@@ -50,6 +50,9 @@ const MOCK_SHOTS = [
   { name: 'profile-tokens', path: 'profile', full: true },
   { name: 'create-token', path: 'profile', action: createToken },
   { name: 'token-created', path: 'profile', action: tokenCreated },
+  { name: 'audit-log', path: 'admin/audit?range=30d' },
+  { name: 'audit-failures', path: 'admin/audit?range=30d&action=auth.*&outcome=failure' },
+  { name: 'audit-record', path: 'admin/audit?range=30d&action=auth_provider.update', action: openAuditRecord },
 ]
 
 /** The real-server tour: the demo repositories and the content `make e2e-m0` caches. */
@@ -74,6 +77,7 @@ const REAL_SHOTS = [
   { name: 'storage', path: 'storage', settle: 2500, full: true },
   { name: 'repo-settings', path: 'repositories/dockerhub-proxy/settings', full: true },
   { name: 'auth-providers', path: 'admin/auth-providers' },
+  { name: 'audit-log', path: 'admin/audit', settle: 2500, full: true },
   { name: 'profile-tokens', path: 'profile', full: true }, // no token creation: it would put a live secret on screen
 ]
 const SHOTS = REAL ? REAL_SHOTS : MOCK_SHOTS
@@ -89,6 +93,11 @@ async function signIn(page) {
 async function openSetup(page) {
   await page.getByRole('button', { name: /set me up/i }).first().click()
   await page.waitForTimeout(900)
+}
+
+async function openAuditRecord(page) {
+  await page.locator('.ws-table tbody tr, .audit__card').first().click()
+  await page.waitForTimeout(700)
 }
 
 async function createToken(page) {

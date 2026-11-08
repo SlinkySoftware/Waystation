@@ -11,8 +11,10 @@ from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from waystation_common.errors import ValidationFailed
+from waystation_server import audit
 from waystation_server.api.auth import registry_host
 from waystation_server.api.deps import ServicesDep
+from waystation_server.audit import AuditAction
 from waystation_server.formats.base import SetupClient, SetupContext
 from waystation_server.proxy import probe as probe_mod
 from waystation_server.repos import service
@@ -132,6 +134,10 @@ def to_view(svc: Services, repo: RepoConfig, status: str, summary: repo_stats.Re
     )
 
 
+def _target(repo: RepoConfig) -> audit.AuditTarget:
+    return audit.target('repository', repo.id, repo.name)
+
+
 async def _view(svc: Services, repo: RepoConfig) -> Repository:
     status = (await repo_stats.statuses(svc, [repo]))[repo.id]
     summary = (await repo_stats.summaries(svc, [repo]))[repo.id]
@@ -198,6 +204,7 @@ async def create_repository(
 ) -> Repository:
     principal = await authenticate(request)
     repo = await service.create(svc, body, principal)
+    audit.record(AuditAction.REPOSITORY_CREATE, target=_target(repo), changes=audit.diff(None, repo.to_doc()))
     response.headers['Location'] = f'/api/v1/repositories/{repo.name}'
     return await _view(svc, repo)
 
@@ -238,7 +245,7 @@ async def test_upstream(body: UpstreamTestRequest, request: Request, svc: Servic
         allow_private=body.proxy.allow_private_upstream,
         headers=probe_mod.auth_headers(auth.kind.value, auth.username, secret),
     )
-    return UpstreamTestResult(
+    outcome = UpstreamTestResult(
         reachable=result.reachable,
         http_status=result.http_status,
         latency_ms=result.latency_ms,
@@ -246,6 +253,12 @@ async def test_upstream(body: UpstreamTestRequest, request: Request, svc: Servic
         tls=result.tls,
         checks=[UpstreamCheck(name=c.name, ok=c.ok, message=c.message) for c in result.checks],
     )
+    audit.record(
+        AuditAction.REPOSITORY_TEST_UPSTREAM,
+        target=audit.target('repository', existing.id, existing.name) if existing else audit.target('upstream'),
+        details={'format': body.format, 'upstream_url': body.proxy.upstream_url, 'reachable': result.reachable},
+    )
+    return outcome
 
 
 @router.get('/repositories/{name}', response_model=Repository, operation_id='getRepository')
@@ -264,7 +277,11 @@ async def get_repository(name: str, request: Request, svc: ServicesDep) -> Repos
 @access.requires_repo(Action.MANAGE)
 async def update_repository(name: str, body: RepositoryWrite, request: Request, svc: ServicesDep) -> Repository:
     principal = await authenticate(request)
-    repo = await service.update(svc, request.state.repo, body, principal)
+    before: RepoConfig = request.state.repo
+    repo = await service.update(svc, before, body, principal)
+    audit.record(
+        AuditAction.REPOSITORY_UPDATE, target=_target(repo), changes=audit.diff(before.to_doc(), repo.to_doc())
+    )
     return await _view(svc, repo)
 
 
@@ -273,7 +290,9 @@ async def update_repository(name: str, body: RepositoryWrite, request: Request, 
 async def delete_repository(name: str, request: Request, svc: ServicesDep) -> Response:
     principal = await authenticate(request)
     access.require(principal, Action.ADMIN)
-    await service.delete(svc, request.state.repo)
+    repo: RepoConfig = request.state.repo
+    await service.delete(svc, repo)
+    audit.record(AuditAction.REPOSITORY_DELETE, target=_target(repo), changes=audit.diff(repo.to_doc(), None))
     return Response(status_code=204)
 
 

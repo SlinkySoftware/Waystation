@@ -14,8 +14,23 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   running stack, checked in the live event stream, stats, activity, upstream health and browse; creates the demo
   repositories when missing. `Documents/Operations/TRY_IT.md` (fresh host: build images, env file, start, first
   sign-in, the four repositories, clients, stop/reset). `scripts/screenshots.mjs` gains `REAL=1` (signs in, tours
-  real cached content); the M0 tour is now taken against the real server (`Documents/Notes/UI_TOUR_M0.md`, 84 shots
-  including Activity, Storage and Auth providers, pngquant). Feedback log `Documents/Notes/UI_FEEDBACK.md`.
+  real cached content); the M0 tour is now taken against the real server (`Documents/Notes/UI_TOUR_M0.md`, 88 shots
+  including Activity, Storage, Auth providers and Audit log, pngquant). Feedback log `Documents/Notes/UI_FEEDBACK.md`.
+- T-S10: audit service. Catalog of audited actions (`waystation_common.audit.AuditAction`, mapped to every SPEC §4.11
+  phrase), typed records (actor with auth method, provider and API token id; target; outcome and failure reason;
+  client address via the trusted-proxy rules; request id; details; field-level before/after changes with secret
+  values redacted and URL credentials masked) and a non-blocking batched writer (bounded queue, retries, drops
+  counted and logged at ERROR). Recorded: sign-in success and failure (UI; `docker login` with a password at most
+  hourly per user and address), lockout, sign-out, API token create/revoke/use-refused, service account changes,
+  bootstrap and provisioned users, identity linking and group sync, sign-in provider changes and tests, repository
+  create/update/delete/test-upstream. Retention via `WAYSTATION_AUDIT_RETENTION_DAYS` (default 400, MongoDB TTL on
+  `expires_at`; new indexes `principal_name_ts`, `target_name_ts`, `target_id_ts`, `expires_at_ttl`, created by
+  `init`). `GET /api/v1/audit` (time range, actor, action incl. `<category>.*`, target, outcome; cursor paging) and
+  streamed CSV/NDJSON `GET /api/v1/audit/export`, both `audit-read`; capability `audit.read`. Contract, MSW mocks and
+  the Audit log page (filters in the URL, detail drawer with the change diff, export). Acceptance test enumerates the
+  catalog; actions of features not built yet are listed as pending with their task. The real-directory LDAP tests
+  check the sign-in, provisioning, link, group sync and failure-reason (`not_in_group`, `directory_unavailable`)
+  records.
 - T-O06: monitoring. Grafana dashboard `Build/monitoring/grafana/waystation-dashboard.json` (Prometheus data
   source as a variable; job, instance and repository filters; stat tiles for request rate, cache hit ratio, bytes
   served from cache and fetched from upstream, upstream error ratio and transfers in flight; requests by cache state,

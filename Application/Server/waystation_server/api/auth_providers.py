@@ -17,9 +17,12 @@ from typing import Literal
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, Field
 
+from waystation_common.audit import REDACTED, AuditChange
 from waystation_common.errors import Conflict, NotFound
 from waystation_common.ids import new_id
+from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
+from waystation_server.audit import AuditAction
 from waystation_server.db import auth_providers as providers_db
 from waystation_server.db import groups as groups_db
 from waystation_server.problems import FieldError, FieldErrors
@@ -249,6 +252,22 @@ async def _load(svc: Services, provider_id: str) -> ProviderRecord:
     return record
 
 
+def _audit_changes(
+    before: AuthProviderConfig | None, after: AuthProviderConfig | None, body: AuthProviderWrite | None
+) -> list[AuditChange]:
+    """Changes between two views (which never hold the bind password), plus a redacted entry when a new bind
+    password was supplied."""
+    changes = audit.diff(before, after)
+    if body is not None and body.ldap.connection.bind_password:
+        had = before is not None and before.ldap.connection.bind_password_set
+        changes.append(
+            AuditChange(
+                field='ldap.connection.bind_password', before=REDACTED if had else None, after=REDACTED, redacted=True
+            )
+        )
+    return changes
+
+
 def _changed(svc: Services) -> None:
     svc.auth_providers.invalidate()
     svc.groups.invalidate()
@@ -302,7 +321,13 @@ async def create_auth_provider(
     )
     _changed(svc)
     response.headers['Location'] = f'/api/v1/auth-providers/{record.id}'
-    return _view(record, await groups_db.for_provider(svc.db, record.id))
+    view = _view(record, await groups_db.for_provider(svc.db, record.id))
+    audit.record(
+        AuditAction.AUTH_PROVIDER_CREATE,
+        target=audit.target('auth_provider', record.id, record.name),
+        changes=_audit_changes(None, view, body),
+    )
+    return view
 
 
 @router.post(
@@ -314,6 +339,7 @@ async def create_auth_provider(
 @access.requires(Action.SETTINGS_ADMIN)
 async def test_connection(body: AuthProviderTestRequest, svc: ServicesDep) -> AuthProviderConnectionTest:
     directory = await _test_directory(svc, body)
+    _audit_test(body, 'connection')
     try:
         servers = await ldap_mod.run_blocking(directory.config, directory.test_connection)
     except TimeoutError:
@@ -346,6 +372,7 @@ async def test_user(body: AuthProviderTestRequest, svc: ServicesDep) -> AuthProv
         raise FieldErrors([FieldError(field='username', message='a username is needed', code='required')])
     directory = await _test_directory(svc, body)
     username, password = body.username.strip(), body.password or None
+    _audit_test(body, 'user')
     try:
         result = await ldap_mod.run_blocking(directory.config, lambda: directory.test_user(username, password))
     except TimeoutError:
@@ -365,6 +392,20 @@ async def test_user(body: AuthProviderTestRequest, svc: ServicesDep) -> AuthProv
         password=result.bind_outcome,
         roles=mapped_roles(mapping, groups) if result.found else [],
         checks=[ProviderCheck(name=c.name, ok=c.ok, message=c.message) for c in result.checks],
+    )
+
+
+def _audit_test(body: AuthProviderTestRequest, kind: str) -> None:
+    """A user test with a password checks credentials against the directory: audited like the other changes."""
+    audit.record(
+        AuditAction.AUTH_PROVIDER_TEST,
+        target=audit.target('auth_provider', body.id, body.provider.name),
+        details={
+            'test': kind,
+            'servers': body.provider.ldap.connection.servers,
+            'username': (body.username or '').strip()[:256] or None,
+            'with_password': bool(body.password),
+        },
     )
 
 
@@ -405,6 +446,7 @@ async def update_auth_provider(
 ) -> AuthProviderConfig:
     principal = await authenticate(request)
     existing = await _load(svc, id)
+    before = _view(existing, await groups_db.for_provider(svc.db, existing.id))
     if body.kind != existing.kind:
         raise FieldErrors([FieldError(field='kind', message='the kind cannot change', code='immutable')])
     _validate(svc, body, existing)
@@ -433,16 +475,29 @@ async def update_auth_provider(
         now=now,
     )
     _changed(svc)
-    return _view(record, await groups_db.for_provider(svc.db, record.id))
+    view = _view(record, await groups_db.for_provider(svc.db, record.id))
+    audit.record(
+        AuditAction.AUTH_PROVIDER_UPDATE,
+        target=audit.target('auth_provider', record.id, record.name),
+        changes=_audit_changes(before, view, body),
+    )
+    return view
 
 
 @router.delete('/auth-providers/{id}', status_code=204, operation_id='deleteAuthProvider')
 @access.requires(Action.SETTINGS_ADMIN)
 async def delete_auth_provider(id: str, svc: ServicesDep) -> Response:
+    existing = await _load(svc, id)
+    before = _view(existing, await groups_db.for_provider(svc.db, existing.id))
     if not await providers_db.delete(svc.db, id):
         raise NotFound('provider not found')
     await groups_db.delete_for_provider(svc.db, id)
     _changed(svc)
+    audit.record(
+        AuditAction.AUTH_PROVIDER_DELETE,
+        target=audit.target('auth_provider', existing.id, existing.name),
+        changes=_audit_changes(before, None, None),
+    )
     return Response(status_code=204)
 
 

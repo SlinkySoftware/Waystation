@@ -54,7 +54,10 @@ Volume usage, usage by format, largest repositories.
 ## Administration: auth providers
 Local and LDAP sign-in providers, test connection.
 
+## Administration: audit log
+Filters, detail drawer with the change diff, export.
+
 ## Profile and API tokens
 
 ## Placeholders ("soon" items)
-Search, Cleanup, Tasks, and the Administration pages other than auth providers. Note any you want sooner.
+Search, Cleanup, Tasks, and the Administration pages other than auth providers and the audit log. Note any you want sooner.
