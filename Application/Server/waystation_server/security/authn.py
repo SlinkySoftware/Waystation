@@ -41,7 +41,9 @@ def user_principal(
 ) -> Principal:
     """``roles`` = the effective roles (``principal_for``); default: the user's own roles only."""
     granted = tuple(user.roles) if roles is None else roles
-    return Principal(PrincipalKind.USER, user.id, user.username, granted, method, session_id=session_id)
+    return Principal(
+        PrincipalKind.USER, user.id, user.username, granted, method, session_id=session_id, provider=user.source
+    )
 
 
 async def principal_for(

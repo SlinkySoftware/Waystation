@@ -18,6 +18,71 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   guard), low disk space, refused writes, too few workers, no scheduler leader, old waiting jobs, dead letters,
   blocked/failing/offline upstreams, upstream rate limit and API latency. Both re-checked in Grafana 12.2 /
   Prometheus 3.7 and Zabbix 7.0. `Documents/Operations/MONITORING.md` and SPECIFICATION §10 describe the metrics.
+  After merging T-O01/T-O02: the cleanup and blob GC totals (`waystation_cleanup_*_total`, `waystation_gc_*_total`,
+  from Valkey `maintenance:totals`) moved from a collector on the process registry into the cluster figures, so
+  they are also exported with several server processes; new dashboard panels (bytes freed, cleanup/GC activity),
+  Zabbix items (GC runs, bytes freed by GC and removed by cleanup) and a "blob GC has not run for a day" trigger.
+- T-O02: blob garbage collection. Worker job `blob.gc` (`waystation_worker.gc`; built-in schedule `0 */6 * * *`,
+  `grace_s` and `upload_age_s` 24 h): removes orphan upload files, adopts blob files that have no `blobs` document,
+  then marks unreferenced blobs and deletes those unreferenced and unclaimed for the grace period. Writers and GC
+  coordinate through the `blobs` document (`waystation_common.db.blobs`): `BlobStore.commit` claims its blob through
+  the new `BlobStore.guard` (`MongoBlobGuard`, wired in the server's `Services`) before the rename, also when the
+  file is already there; GC deletes only after a compare-and-set to `deleting` and a re-check of references, and a
+  claim during a deletion waits and writes the file again (stale deletions are taken over after 10 min). The claim
+  replaces the separate `record_blob` write after a fill. Referenced blobs without a file are counted and logged
+  (proxies re-fetch them). `GET /api/v1/maintenance/gc`, `POST /api/v1/maintenance/gc/run` (admin) and a Blob GC
+  card on the Cleanup and Storage pages; freed bytes as an activity event and on `/metrics` (`waystation_gc_freed_bytes_total`,
+  `..._freed_blobs_total`, `..._orphan_uploads_removed_total`, `..._runs_total`, plus `waystation_cleanup_*_total`,
+  from the Valkey hash `maintenance:totals`). `BlobStore` gained `prefixes`/`scan`/`existing` and a `keep` set for
+  `sweep_uploads`. Tests: a Hypothesis property test (never deletes a referenced, recently claimed or recently
+  marked blob; always deletes an eligible one) and a real cache fill through the proxy engine racing the sweep in
+  every interleaving (`Application/Worker/tests/test_gc_integration.py`). ARCHITECTURE §5 documents the protocol.
+- T-O01: cleanup policies. `waystation_common.cleanup` holds the criteria (`last_downloaded_older_than_days`,
+  `published_older_than_days`, `keep_latest_n_versions`, name/version include/exclude regexes, `prerelease_only`,
+  docker `untagged_older_than_days`; ANDed), version order per format (semver precedence, dpkg, rpm `rpmvercmp`,
+  natural order otherwise), coordinates from asset paths (npm tarballs, apt pool `.deb`, yum `.rpm`, others by path
+  per folder) and `plan_repository`, which the server's dry run and the worker's run both call. Docker policies
+  select tags and cascade to the manifests only those tags reached and the layers no remaining manifest uses;
+  untagged manifests go by age. Only records are removed (assets, docker tags/manifests), never metadata or blobs.
+  `waystation_common.db.cleanup` (policies, `job_definitions` sync for schedules, attachment, loading, idempotent
+  removal that skips assets changed since planning). Worker job `cleanup.run` (progress and log in `job_runs`,
+  one activity event per repository, totals for `/metrics`). REST (contract + MSW + generated client):
+  `/cleanup-policies` CRUD (admin; readable with `manage` on any repository), `/cleanup-policies/preview` (paged
+  candidates with reasons, per-repository totals, `limit: 0` for counts; capped at 100k assets per repository with
+  `truncated`), `/cleanup-policies/{id}/run` and `/runs`, `/repositories/{name}/cleanup` (attach in run order;
+  format-checked). New collection `cleanup_policies`; `repositories.cleanup_policy_ids` kept across updates;
+  `job_runs` indexes `dedupe_started`, `kind_started`. Downloads are now recorded off the hot path: the proxy engine
+  calls `EventEmitter.asset_downloaded` (Valkey `seen:assets`/`dl:assets`) and `stats.rollup` flushes them to
+  `assets.last_downloaded_at`/`download_count`. UI: the `/cleanup` page (policy table, editor with criteria builder,
+  schedule presets and a live impact panel, paged preview, run history) and a Cleanup tab on the repository page.
+  "Preview equals execution" is tested on npm and docker fixtures for five criteria sets.
+- Tooling: `make test-integration` queues on a machine-wide `flock` (`TEST_LOCK`), so parallel worktrees run one
+  integration container stack at a time instead of exhausting the dev box's memory.
+- T-S10: audit service. Catalog of audited actions (`waystation_common.audit.AuditAction`, mapped to every SPEC §4.11
+  phrase), typed records (actor with auth method, provider and API token id; target; outcome and failure reason;
+  client address via the trusted-proxy rules; request id; details; field-level before/after changes with secret
+  values redacted and URL credentials masked) and a non-blocking batched writer (bounded queue, retries, drops
+  counted and logged at ERROR). Recorded: sign-in success and failure (UI; `docker login` with a password at most
+  hourly per user and address), lockout, sign-out, API token create/revoke/use-refused, service account changes,
+  bootstrap and provisioned users, identity linking and group sync, sign-in provider changes and tests, repository
+  create/update/delete/test-upstream. Retention via `WAYSTATION_AUDIT_RETENTION_DAYS` (default 400, MongoDB TTL on
+  `expires_at`; new indexes `principal_name_ts`, `target_name_ts`, `target_id_ts`, `expires_at_ttl`, created by
+  `init`). `GET /api/v1/audit` (time range, actor, action incl. `<category>.*`, target, outcome; cursor paging) and
+  streamed CSV/NDJSON `GET /api/v1/audit/export`, both `audit-read`; capability `audit.read`. Contract, MSW mocks and
+  the Audit log page (filters in the URL, detail drawer with the change diff, export). Acceptance test enumerates the
+  catalog; actions of features not built yet are listed as pending with their task. The real-directory LDAP tests
+  check the sign-in, provisioning, link, group sync and failure-reason (`not_in_group`, `directory_unavailable`)
+  records.
+- T-U06: global search and the command palette. `GET /api/v1/search` searches the repositories the principal may
+  browse (hidden repositories never leak, not even in facet counts): `<name prefix>[ <version prefix>]` matched
+  case-insensitively on the full name or its last `/` segment across docker tags, npm packages, apt/yum index
+  listings and cached files, or a `sha256:` digest ("where is this blob used?"). Filters by format, repository,
+  kind, repository type and cached-only, with disjunctive facet counts, exact keyset cursor paging and a Browse deep
+  link per hit. New search keys `name_lc`/`base_lc` (written by the format index writers, backfilled by migration
+  `0002_search_keys`) and partial `search_name`/`search_base` indexes; an integration test explains every query the
+  search issues. UI: Search page (facet sidebar, format icons, keyboard navigation, URL state, empty states) and the
+  `Ctrl/⌘ K` command palette (quick search, recent items, repositories, pages, actions; ARIA combobox/listbox,
+  loaded on first use). Contract, generated client and MSW mocks updated.
 - T-O06: monitoring. Grafana dashboard `Build/monitoring/grafana/waystation-dashboard.json` (Prometheus data
   source as a variable; job, instance and repository filters; stat tiles for request rate, cache hit ratio, bytes
   served from cache and fetched from upstream, upstream error ratio and transfers in flight; requests by cache state,

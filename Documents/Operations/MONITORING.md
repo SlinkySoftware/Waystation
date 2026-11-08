@@ -75,6 +75,8 @@ never `sum`.
 | `waystation_blobstore_used_bytes`, `waystation_blobstore_blobs` | none | Bytes held by blobs (each stored once) and their number (MongoDB totals, refreshed at most every 30 s) |
 | `waystation_blobstore_free_bytes`, `waystation_blobstore_size_bytes` | none | Free and total bytes of the filesystem holding the data directory |
 | `waystation_blobstore_min_free_bytes` | none | The free-space guard (`WAYSTATION_MIN_FREE_GB` in bytes) |
+| `waystation_cleanup_removed_items_total`, `waystation_cleanup_removed_bytes_total` | none | Counters: items (assets, docker tags and manifests) and asset bytes removed by cleanup policies (T-O01), all runs |
+| `waystation_gc_runs_total`, `waystation_gc_freed_blobs_total`, `waystation_gc_freed_bytes_total`, `waystation_gc_orphan_uploads_removed_total` | none | Counters: blob GC runs, blobs and bytes it freed, orphan upload files it removed (T-O02). Read from the Valkey hash `maintenance:totals`, so they survive server restarts and need no multi-process merge |
 | `waystation_metrics_source_up` | `source` | 1 when `valkey`, `mongodb` or `filesystem` answered while building the cluster figures, else 0 |
 
 Derived figures used by the dashboard and the template:
@@ -124,7 +126,8 @@ Panels, top to bottom:
 - **Jobs and workers**: workers, scheduler leader, jobs waiting and running, oldest waiting job, dead letters
   (tiles); jobs by queue; oldest waiting job by queue.
 - **Storage**: free space, free space %, blob store used, blobs, writes refused, metric sources down (tiles); the
-  data filesystem (free, guard, used); writes refused per second.
+  data filesystem (free, guard, used); writes refused per second; bytes freed by cleanup policies and blob GC;
+  cleanup and GC activity (items, blobs, orphan uploads, runs).
 - **HTTP**: API latency p95 by route; requests by status class; event-stream clients; a per-route table (requests,
   p95, 5xx).
 
@@ -158,7 +161,8 @@ Items: liveness (`/healthz`), readiness (`/readyz`), the raw `/metrics` master i
 items for requests per second (all, from cache, upstream errors), cache hit and upstream error ratio, bytes per
 second (served from cache, served while fetching, fetched from upstream), transfers in flight, coalesced followers,
 workers, scheduler leaders, jobs waiting and running, oldest waiting job, dead letters, blob store free, size,
-used, guard and blobs, free space %, writes refused per second, event-stream clients, HTTP 5xx per second, API
+used, guard and blobs, free space %, writes refused per second, blob GC runs, bytes freed by blob GC and removed
+by cleanup policies per second, event-stream clients, HTTP 5xx per second, API
 requests per second and average API latency, and whether all metric sources answered. Cluster figures keep no value
 while their source is down (rather than a misleading 0).
 
@@ -194,11 +198,14 @@ Triggers:
 | Waystation: low disk space (below `{$WAYSTATION.DISK.FREE.WARN}`% free for 5 minutes) | Warning, depends on "blob store full" |
 | Waystation: writes refused for lack of disk space (in the last 5 minutes) | Average, depends on "blob store full" |
 | Waystation: API slower than `{$WAYSTATION.API.LATENCY.WARN}`s on average for 10 minutes | Warning |
+| Waystation: blob GC has not run for a day (no `blob.gc` run completed in 24 hours, once a day of data exists) | Warning |
 
 Checked by importing it into Zabbix 7.0 through the API and linking it to a host polling a stand-in serving sample
 output of the real `Metrics` class plus cluster figures: every item and discovered prototype received values, and
 the liveness, readiness, failing-upstream, rate-limit, job-age, refused-writes, low-disk and blob-store-full
-triggers fired on matching sample values.
+triggers fired on matching sample values. The blob GC items, the "blob GC has not run for a day" trigger and the two
+cleanup/GC dashboard panels were added afterwards (with the T-O01/T-O02 counters) and have not been through that
+check yet.
 
 ## 5. Not exported yet
 

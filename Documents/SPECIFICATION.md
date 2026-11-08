@@ -165,6 +165,18 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - Global search across repositories the principal can read: name (prefix and substring), version, format,
   repository, digest/checksum lookup ("where is this sha256 used?"), with facets (format, repo, type).
   Target: results in < 150 ms p95 for 1M assets.
+  Now (T-U06, 2026-11-09): `GET /api/v1/search?q=&format=&repository=&kind=&type=&cached=&cursor=&limit=` searches
+  only the repositories the principal may `browse` (`access.filter_repos`; a hidden repository never appears in a
+  hit, a facet value or a count, and naming it as a filter yields an empty result). `q` is
+  `<name prefix>[ <version prefix>]`, case-insensitive, matched on the full name or its last `/` segment (`nginx`
+  finds `library/nginx`, `node` finds `@types/node`); empty lists everything. Sources: docker tags (kind `image`),
+  npm packages and apt/yum index listings (kind `package`; `cached` says whether the listed file is in the cache),
+  and cached files of every format but docker (kind `file`). `cached=true` leaves out the apt/yum listings. A digest
+  (`sha256:<8-64 hex>` or 64 hex digits) finds every cached file with that blob and the docker tags pointing at it,
+  in any visible repository. Results come straight from per-collection `(name_lc, repo_id, _id)` indexes, merged
+  with exact keyset cursor paging; facet counts (format, repository, kind, repository type) are disjunctive (each
+  ignores its own filter), on the first page only, and lower bounds when `capped`. Every hit carries a Browse deep
+  link. Substring (non-prefix) matching and the 1M-asset p95 measurement are still to do.
 - Component pages show: coordinates, versions/tags, size, digests, created/last downloaded/last modified,
   download count and sparkline, which repos hold it, upstream URL, uploader (hosted), install/pull snippet.
 
@@ -183,13 +195,23 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - Exposed via API, SSE event stream (live), Prometheus `/metrics`.
 
 ### 4.8 Cleanup, retention, garbage collection, quotas
-- **Cleanup policies** (named, reusable, attached to repos): criteria `last_downloaded_older_than`,
-  `published_older_than`, `keep_latest_n_versions` (per component), name/version regex include/exclude,
-  `prerelease_only`, docker `untagged_older_than`. Every policy has a **dry-run preview** (counts, bytes, sample).
-- Policies run on a schedule (cron per policy) in workers; they delete assets/components, never blobs directly.
-- **Blob GC**: mark-and-sweep in workers; a blob is deleted only if unreferenced for a grace period (default 24 h)
-  so in-flight uploads/fetches are never broken.
-- Docker hosted: untagged manifest cleanup; layer GC via blob GC.
+- **Cleanup policies** (named, reusable, attached to repos in run order; a policy is for one format or `*`):
+  criteria `last_downloaded_older_than_days` (never downloaded = since cached), `published_older_than_days`,
+  `keep_latest_n_versions` (per component, in the format's version order: semver for npm, dpkg for apt, rpm for yum;
+  raw: newest cached files per folder), name/version regex include/exclude, `prerelease_only`, docker
+  `untagged_older_than_days`. Every criterion that is set must match. Docker policies select tags (image = name, tag =
+  version, newest by recency); removing a tag also removes the manifests only it reached and the layers no remaining
+  manifest uses. Only content is removed, never metadata (indexes, packuments). Every policy has a **dry-run
+  preview** (counts, bytes, per repository, paged candidates with the reason) computed by the same code a run uses.
+- Policies run on a schedule (cron per policy, or manually) as worker jobs with progress in the job history; they
+  delete asset/tag/manifest records, never blobs. Downloads are recorded in Valkey on the request path and flushed to
+  the assets in bulk (≤ 10 s), feeding "last downloaded" and download counts.
+- **Blob GC**: mark-and-sweep in workers (every 6 h by default, or on demand); a blob is deleted only if unreferenced
+  and unclaimed for a grace period (default 24 h), so in-flight uploads/fetches are never broken: a cache fill claims
+  its blob before putting it in place, and a claim either stops the deletion or waits for it and writes the file
+  again. Orphan upload files older than 24 h are removed; untracked blob files are adopted; referenced blobs whose
+  file is missing are reported (proxies re-fetch them). Freed bytes show in the activity feed and `/metrics`.
+- Docker: untagged manifest cleanup through cleanup policies; layer GC via blob GC.
 - Quotas per repo (§4.2) and a global low-disk guard (refuse new cache writes below a free-space threshold,
   keep serving hits, alert).
 
@@ -284,6 +306,36 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 Append-only audit log of security-relevant actions: sign-in/out/failure, token create/revoke/use-refused,
 user/group/role/provider changes, repo create/update/delete, uploads and deletes on hosted repos, cleanup runs,
 settings changes. Searchable in the UI, exported via API; retention configurable (default 400 days).
+- **Record**: time, action (`<category>.<verb>`, catalog `waystation_common.audit.AuditAction`), outcome
+  (`success`/`failure`) and for failures a reason code (`bad_credentials`, `unknown_user`, `locked`, `disabled`,
+  `not_in_group`, `directory_unavailable`, `link_refused`, `invalid_token`, `too_many_failures`), the actor (user,
+  service account, anonymous or `system`; how it authenticated: session, API token, basic, registry token; its
+  sign-in provider; the API token id when one was used), the target (kind, id, name), the client address (after the
+  trusted-proxy rules of §8.4) and the request id, plain `details`, and field-level `changes` (before/after).
+  **Secret values are never recorded**: a changed secret appears as `***` with `redacted: true`; credentials inside
+  URLs are masked.
+- **Recorded now**: `auth.login` (UI sign-in success and every failure, with the attempted username and `via`
+  `ui`/`docker`; a successful `docker login` with a password at most once an hour per user and client address,
+  because Docker clients re-send the password with every token request; API-token `docker login`s are token use, not
+  sign-ins), `auth.lockout`, `auth.logout`, `token.create`, `token.revoke`, `token.use_refused` (an invalid, expired
+  or revoked token, with its display prefix; not past the failure rate limit), `service_account.create|update|delete`,
+  `user.create` (bootstrap admin, provider provisioning), `user.link` (an external account linked for the first time),
+  `user.groups_sync` (the groups a provider reports changed), `auth_provider.create|update|delete|test`,
+  `repository.create|update|delete|test_upstream`. Not yet (the feature does not exist): password change and session
+  revoke (T-S02), user/group admin (T-U08), custom roles (T-S03), hosted uploads/deletes (Phase 5), cleanup runs
+  (T-O01), settings (T-U08); `PENDING` in the catalog names them and the acceptance test fails when one is emitted
+  without a test.
+- **Writing never fails or slows a request**: records go to a bounded in-process queue (10 000) drained by one task
+  with batched inserts (retried with backoff); on overflow or a lost batch the records are counted and logged at
+  ERROR (`AUDIT RECORDS DROPPED`, at most every 10 s with the running total).
+- **Retention**: each record expires `WAYSTATION_AUDIT_RETENTION_DAYS` (default 400) after it was written (MongoDB
+  TTL); a changed setting applies to records written from then on.
+- **API** (`audit-read`, which `admin` implies): `GET /api/v1/audit` with `from`/`to`, `actor` (name or id), `action`
+  (repeatable, exact or `<category>.*`), `target` (name or id), `outcome`, cursor paging (newest first, ≤ 200 per
+  page); `GET /api/v1/audit/export?format=csv|ndjson` streams the same selection (≤ 100 000 records, then a
+  truncation marker; CSV cells that a spreadsheet would evaluate are prefixed with `'`).
+- **UI**: Administration → Audit log: table (time, actor with sign-in method, action, target, outcome, client
+  address) with the filters in the URL, a detail drawer with the change diff, and CSV/NDJSON export.
 
 ### 4.12 Administration
 - Repository CRUD with format-aware forms and validation, test-upstream button, clone repo, enable/disable.
@@ -470,8 +522,10 @@ See §5.5. `/metrics` on the server exports two kinds of metric (the full list w
   `waystation_upstream_consecutive_failures{repo}`, `waystation_upstream_ratelimit_{limit,remaining,window_seconds,
   updated_timestamp_seconds}{repo}`, `waystation_jobs_{waiting,running,delayed,oldest_waiting_seconds}{queue}`,
   `waystation_jobs_dead_letters`, `waystation_workers`, `waystation_scheduler_leaders`,
-  `waystation_blobstore_{used_bytes,blobs,free_bytes,size_bytes,min_free_bytes}`. Every server process and replica
-  reports the same values (aggregate with `max`).
+  `waystation_blobstore_{used_bytes,blobs,free_bytes,size_bytes,min_free_bytes}`, and the cleanup and blob GC
+  running totals `waystation_cleanup_removed_{items,bytes}_total`, `waystation_gc_{runs,freed_blobs,freed_bytes,
+  orphan_uploads_removed}_total` (counters, from the Valkey hash `maintenance:totals` the workers write). Every server
+  process and replica reports the same values (aggregate with `max`).
 
 The Grafana dashboard (`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) cover all
 of them plus `/healthz` and `/readyz` (low-disk, guard, workers, scheduler, job age, dead letters, upstream state and
@@ -560,9 +614,10 @@ Waystation/
 | Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. No job API/UI yet (Tasks page) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
+| Audit (T-S10) | Done 2026-11-09: audit catalog and records (actor, target, outcome/reason, client address, request id, details, redacted before/after changes), non-blocking batched writer, TTL retention (`WAYSTATION_AUDIT_RETENTION_DAYS`), `GET /api/v1/audit` (filters, cursor paging) and streamed CSV/NDJSON export, Audit log page. Actions whose features are pending (password change, user/group/role admin, hosted content, cleanup, settings) are emitted by those tasks |
 | RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Since 2026-11-09 (T-A01): groups in MongoDB holding roles, effective roles = own ∪ group roles per request, `GET /roles`. Custom roles, group admin and the grant cache pending |
-| API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audit records (T-S10) and the service-account admin UI (T-U08) pending |
-| Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Hosted/group, clone and audit pending |
+| API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audited (T-S10); the service-account admin UI (T-U08) pending |
+| Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Audited since T-S10. Hosted/group and clone pending |
 | Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Formats: `echo` (self-test), `raw`, `npm` and `apt` (Debian 13 + Ubuntu 26.04 clients in one run: `CLIENT` may list several; `lib.sh` falls back to bash `/dev/tcp` where the image has no curl; apt fixture budget 32 MiB); `setup.sh` creates repositories through the API as a per-run bootstrap admin (`ws_login`/`ws_api` in `lib.sh`); nightly live smoke workflow stub |
 | M0 API contract + mocks (T-V01) | Done 2026-11-08: OpenAPI 3.1 contract (`Application/Web/openapi/waystation-m0.yaml`), generated TS types + `openapi-fetch` client, MSW handlers with seeded fixtures (11 proxy repos: Docker Hub, GHCR, Quay, registry.k8s.io, npmjs, Debian, Debian security, Ubuntu, Raspberry Pi OS, two raw) and a live-event generator (bursty docker pulls, npm installs, apt runs, raw downloads, coalescing, failures); `npm run dev:mock` / `make frontend-mock`. Server-side contract test: `Application/Server/tests/test_contract.py` compares the server's generated OpenAPI with it for every implemented operation (T-S05, T-S11) |
 | Web shell (T-F10) | Done 2026-11-08: Quasar 2 / Vue 3 / TS strict SPA under `/ui/` (build output `Application/Web/dist/spa`), light/dark/system themes, self-hosted Inter + JetBrains Mono, SVG Material Symbols (no icon font), collapsible rail, top bar with live indicator, router + auth guard, local sign-in, shared live store (one stream, topic ref-counting, reconnect + Last-Event-ID, 4 Hz flush), `make frontend-build` with bundle budget (initial route 158 kB gzip of 250) |
@@ -583,10 +638,13 @@ Waystation/
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted, group, `_catalog`, referrers and podman/containerd/crane harness runs pending |
 | Deployment docs (T-M03) | 2026-11-09: `Operations/DEPLOYMENT.md` (single-host compose as it works today, env reference, TLS options, scaling status, manual backups, upgrades) and `Operations/REVERSE_PROXIES.md` (nginx, Traefik labels + file provider, Caddy, HAProxy, Synology DSM) with example files checked in containers by `make proxies-check`. `BACKUP.md` waits for T-O07 |
-| Monitoring (T-O06) | 2026-11-09: Grafana dashboard (`Build/monitoring/grafana/waystation-dashboard.json`: request rate, cache hit ratio, bytes served from cache / fetched, upstream errors and latency, coalescing, per-repository table) and Zabbix 7 template (`Build/monitoring/zabbix/waystation_by_http.yaml`: HTTP agent items on `/healthz`, `/readyz`, `/metrics`, repository discovery, down/degraded upstream, error-ratio and availability triggers), both checked by loading them into Grafana 12.2 / Zabbix 7.0; `Operations/MONITORING.md`. 2026-11-09 (gaps): upstream state and consecutive failures, upstream rate limits, job queues (waiting, running, delayed, oldest waiting age), dead letters, live workers and scheduler leaders, blob store used/free/size and the free-space guard (cluster figures read on scrape, 10 s cache), free-space guard refusals, HTTP latency per route template, event-stream clients; multi-process aggregation for `SERVER_WORKERS > 1` (`PROMETHEUS_MULTIPROC_DIR`); dashboard rows and Zabbix items, discovery and triggers (low disk, guard, workers, scheduler, job age, dead letters, upstream state, rate limit, API latency) for all of them, re-validated in Grafana 12.2 / Zabbix 7.0 |
+| Monitoring (T-O06) | 2026-11-09: Grafana dashboard (`Build/monitoring/grafana/waystation-dashboard.json`: request rate, cache hit ratio, bytes served from cache / fetched, upstream errors and latency, coalescing, per-repository table) and Zabbix 7 template (`Build/monitoring/zabbix/waystation_by_http.yaml`: HTTP agent items on `/healthz`, `/readyz`, `/metrics`, repository discovery, down/degraded upstream, error-ratio and availability triggers), both checked by loading them into Grafana 12.2 / Zabbix 7.0; `Operations/MONITORING.md`. 2026-11-09 (gaps): upstream state and consecutive failures, upstream rate limits, job queues (waiting, running, delayed, oldest waiting age), dead letters, live workers and scheduler leaders, blob store used/free/size and the free-space guard (cluster figures read on scrape, 10 s cache), free-space guard refusals, HTTP latency per route template, event-stream clients; multi-process aggregation for `SERVER_WORKERS > 1` (`PROMETHEUS_MULTIPROC_DIR`); dashboard rows and Zabbix items, discovery and triggers (low disk, guard, workers, scheduler, job age, dead letters, upstream state, rate limit, API latency) for all of them, re-validated in Grafana 12.2 / Zabbix 7.0; cleanup and blob GC totals exported as cluster figures (also with several server processes), with dashboard panels, Zabbix items and a GC-not-run trigger |
 | LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
 | Identity linking and group sync (T-A03) | LDAP half 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`); OIDC half waits for T-A02 |
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
+| Cleanup policies (T-O01) | Done 2026-11-09: named policies (criteria per SPEC §4.8, per-format version order, docker tag cascade), dry-run preview API (same planning code as runs), `cleanup.run` worker job with progress, per-policy cron schedules, attachment per repository, REST + UI (`/cleanup` page with live impact count, candidate preview and run history; repository Cleanup tab); downloads recorded off the hot path into `assets.last_downloaded_at`/`download_count`. Audit records pending (T-S10) |
+| Blob GC (T-O02) | Done 2026-11-09: `blob.gc` worker job (every 6 h, 24 h grace): orphan uploads, adoption of untracked files, mark-and-sweep with a claim protocol that makes a racing cache fill safe (property test + real fill-vs-sweep race test), missing referenced blobs reported; GC status/run API and UI card; freed bytes as activity events and Prometheus counters (`waystation_gc_*`, `waystation_cleanup_*`) |
+| Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Left: substring matching, the 1M-asset p95 benchmark |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

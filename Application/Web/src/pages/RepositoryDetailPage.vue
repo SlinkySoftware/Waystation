@@ -32,11 +32,12 @@
       </div>
 
       <q-tabs :model-value="tab" dense no-caps align="left" active-color="primary" indicator-color="primary" class="detail__tabs" narrow-indicator>
-        <q-tab v-for="tb in TABS" :key="tb" :name="tb" :label="t(`detail.tab.${tb}`)" @click="router.push({ name: 'repository', params: { name: repo.name, tab: tb } })" />
+        <q-tab v-for="tb in tabs" :key="tb" :name="tb" :label="t(`detail.tab.${tb}`)" @click="router.push({ name: 'repository', params: { name: repo.name, tab: tb } })" />
       </q-tabs>
 
       <OverviewTab v-if="tab === 'overview'" :repo="repo" />
       <RepoBrowser v-else-if="tab === 'browse'" :repo="repo" />
+      <CleanupTab v-else-if="tab === 'cleanup'" :repo="repo" />
       <SettingsTab v-else :repo="repo" @saved="onSaved" />
 
       <SetupPanel v-model="setupOpen" :repo="repo" />
@@ -70,6 +71,7 @@ import CopyField from '@/components/CopyField.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import CleanupTab from '@/components/repositories/CleanupTab.vue'
 import OverviewTab from '@/components/repositories/OverviewTab.vue'
 import SettingsTab from '@/components/repositories/SettingsTab.vue'
 import SetupPanel from '@/components/repositories/SetupPanel.vue'
@@ -79,6 +81,7 @@ import TimeCell from '@/components/TimeCell.vue'
 import { useAsync } from '@/composables/useAsync'
 import { useLiveTopic } from '@/composables/useLiveTopic'
 import { t } from '@/i18n'
+import { useAuthStore } from '@/stores/auth'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { formatLabel, repoMark, typeMeta } from '@/utils/domain'
 import { formatBytes, formatCount, formatPercent } from '@/utils/format'
@@ -86,7 +89,9 @@ import { iconSetup } from '@/utils/icons'
 
 const route = useRoute()
 const router = useRouter()
-const TABS = ['overview', 'browse', 'settings'] as const
+const auth = useAuthStore()
+// Cleanup needs `manage` on the repository (a hint: the server decides, and the tab handles 403/404 itself).
+const tabs = computed(() => (auth.can('repositories.manage') ? ['overview', 'browse', 'cleanup', 'settings'] : ['overview', 'browse', 'settings']) as readonly ('overview' | 'browse' | 'cleanup' | 'settings')[])
 const repos = useRepositoriesStore()
 const name = computed(() => String(route.params.name))
 const tab = computed(() => (typeof route.params.tab === 'string' && route.params.tab ? route.params.tab : 'overview'))

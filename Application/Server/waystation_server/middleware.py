@@ -1,9 +1,9 @@
 """Pure ASGI middleware (no ``BaseHTTPMiddleware``: it buffers and breaks streaming).
 
-``RequestContextMiddleware``: request id, client address, logging context and one access-log line per request
-(ARCHITECTURE §12), and the ``waystation_http_request_duration_seconds`` observation (route template, method,
-status class; not for the long-lived event stream). Handlers add access-log fields through ``request.state.log`` (a
-dict: ``cache``, ``bytes``, ``repo``...). The request id is echoed in ``X-Request-Id``.
+``RequestContextMiddleware``: request id, client address, logging and audit context (``audit.bind``), one access-log
+line per request (ARCHITECTURE §12) and the ``waystation_http_request_duration_seconds`` observation (route
+template, method, status class; not for the long-lived event stream). Handlers add access-log fields through
+``request.state.log`` (a dict: ``cache``, ``bytes``, ``repo``...). The request id is echoed in ``X-Request-Id``.
 
 ``HeadMiddleware``: answers ``HEAD`` for every non-format route that has a ``GET`` (FastAPI does not add HEAD): the
 request runs as ``GET`` and the body is dropped, headers (including ``Content-Length``) kept. Format routes
@@ -21,6 +21,7 @@ from starlette.routing import replace_params
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from waystation_common.logs import bind_context, reset_context
+from waystation_server import audit
 from waystation_server.clientip import ClientResolver, request_id
 
 log = logging.getLogger('waystation.access')
@@ -61,9 +62,11 @@ class RequestContextMiddleware:
             await send(message)
 
         token = bind_context(request_id=rid)
+        audit_token = audit.bind(state, scope.get('app'))
         try:
             await self.app(scope, receive, send_wrapper)
         finally:
+            audit.reset(audit_token)
             path = scope['path']
             if path not in STREAM_PATHS:
                 _observe(scope, status or 500, time.perf_counter() - started)

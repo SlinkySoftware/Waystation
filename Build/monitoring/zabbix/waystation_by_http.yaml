@@ -17,7 +17,7 @@ zabbix_export:
         scope; otherwise /metrics answers 404.
       vendor:
         name: Waystation
-        version: 7.0-2
+        version: 7.0-3
       groups:
         - name: Templates/Applications
       items:
@@ -655,6 +655,83 @@ zabbix_export:
                 - value
                 - ''
               error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: c32ad2f96e4a42e49fb08cef56197827
+          name: 'Waystation: Blob GC runs'
+          type: DEPENDENT
+          key: waystation.gc.runs
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Blob GC runs completed (running total of the installation, from Valkey maintenance:totals).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_gc_runs_total
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+          triggers:
+            - uuid: 3d78a842236e4d2395526e65c26b3451
+              expression: 'count(/Waystation by HTTP/waystation.gc.runs,1h:now-1d)>0 and (max(/Waystation by HTTP/waystation.gc.runs,1d)-min(/Waystation by HTTP/waystation.gc.runs,1d))<1'
+              name: 'Waystation: blob GC has not run for a day'
+              priority: WARNING
+              description: 'No blob GC run completed in the last 24 hours (the built-in schedule runs it every 6 hours), so deleted and unreferenced blobs are not freed. Check the workers, the scheduler leader and the blob.gc job runs. Disable this trigger if the GC schedule was deliberately set longer than a day.'
+              tags:
+                - tag: scope
+                  value: capacity
+        - uuid: 8460ed00f1394128868701e10b601199
+          name: 'Waystation: Bytes freed by blob GC per second'
+          type: DEPENDENT
+          key: waystation.gc.freed.bytes.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: Bps
+          description: 'Blob bytes deleted by blob GC.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_gc_freed_bytes_total
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: d4f2e32e31bb4aa6ac34a5a442b3a231
+          name: 'Waystation: Bytes removed by cleanup policies per second'
+          type: DEPENDENT
+          key: waystation.cleanup.removed.bytes.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: Bps
+          description: 'Asset bytes removed by cleanup policies (freed on disk once blob GC deletes the unreferenced blobs).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_cleanup_removed_bytes_total
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
           master_item:
             key: waystation.metrics.get
           tags:

@@ -13,7 +13,8 @@ multi-process aggregation:
 - per job queue: waiting, running, delayed jobs and the age of the oldest waiting job; dead letters;
 - live workers (heartbeat within ``WORKER_ALIVE_S``) and scheduler leaders;
 - blob store: bytes held by blobs, blob count (MongoDB), free and total bytes of the data filesystem and the
-  free-space guard threshold.
+  free-space guard threshold;
+- cleanup and blob GC running totals (Valkey ``maintenance:totals``, written by the workers) as counters.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
-from prometheus_client.core import GaugeMetricFamily
+from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 from prometheus_client.metrics_core import Metric
 
 from waystation_common.db import jobs as jobs_db
@@ -42,6 +43,17 @@ CACHE_TTL_S = 10.0
 SOURCE_TIMEOUT_S = 2.0
 WORKER_ALIVE_S = 60.0  # workers heartbeat every 10 s
 STATE_CODES = {'ok': 0, 'degraded': 1, 'blocked': 2, 'offline': 3}
+MAINTENANCE_COUNTERS = {  # field of `maintenance:totals` -> (counter name without _total, help)
+    'cleanup_removed': (
+        'waystation_cleanup_removed_items',
+        'Items removed by cleanup policies (assets, tags, manifests).',
+    ),
+    'cleanup_bytes': ('waystation_cleanup_removed_bytes', 'Bytes of the assets removed by cleanup policies.'),
+    'gc_freed_blobs': ('waystation_gc_freed_blobs', 'Blobs deleted by blob GC.'),
+    'gc_freed_bytes': ('waystation_gc_freed_bytes', 'Bytes freed by blob GC.'),
+    'gc_uploads_removed': ('waystation_gc_orphan_uploads_removed', 'Orphan upload files removed by blob GC.'),
+    'gc_runs': ('waystation_gc_runs', 'Blob GC runs completed.'),
+}
 
 Families = list[Metric]
 
@@ -85,6 +97,7 @@ class ClusterMetrics:
         sources: list[tuple[str, Callable[[], Awaitable[Families]]]] = [
             ('valkey', self._upstreams),
             ('valkey', self._jobs),
+            ('valkey', self._maintenance),
             ('mongodb', self._workers),
             ('mongodb', self._storage),
             ('filesystem', self._disk),
@@ -175,6 +188,19 @@ class ClusterMetrics:
         dead_family = _gauge('waystation_jobs_dead_letters', 'Entries in the dead-letter stream (capped near 10000).')
         dead_family.add_metric([], dead)
         return [waiting, running, delayed, oldest, dead_family]
+
+    async def _maintenance(self) -> Families:
+        raw = await self._svc.valkey.hgetall(event_keys.MAINTENANCE_TOTALS)
+        values: dict[str, int] = {}
+        for key, value in raw.items():
+            name = key.decode() if isinstance(key, bytes) else str(key)
+            text = value.decode() if isinstance(value, bytes) else str(value)
+            if name in MAINTENANCE_COUNTERS and (number := _int(text)) is not None:
+                values[name] = number
+        return [
+            CounterMetricFamily(metric, doc, value=values.get(field, 0))
+            for field, (metric, doc) in MAINTENANCE_COUNTERS.items()
+        ]
 
     async def _workers(self) -> Families:
         since = datetime.fromtimestamp(self._clock(), UTC) - timedelta(seconds=WORKER_ALIVE_S)

@@ -4,7 +4,7 @@ When the database has no users at all, ``init`` creates the local user ``admin``
 Its password comes from ``WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD`` (prefer ``..._FILE``); when that is unset a random
 one-time password is generated, printed once to the ``init`` container's stderr (never logged) and the account is
 flagged ``must_change_password``. Idempotent: once any user exists nothing happens, and a set password is never
-changed by a later run.
+changed by a later run. The creation is audited (``user.create`` by ``system``).
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from waystation_common.audit import SYSTEM, AuditAction, AuditEvent, AuditTarget, diff
+from waystation_common.db import audit as audit_db
 from waystation_common.db.client import Database
 from waystation_common.errors import Conflict
 from waystation_common.ids import new_id
@@ -53,6 +55,17 @@ async def ensure_bootstrap_admin(db: Database, settings: Settings) -> BootstrapR
     except Conflict:  # a concurrent init created it first
         return BootstrapResult(created=False)
     log.info('bootstrap admin created', extra={'username': ADMIN_USERNAME, 'generated': configured is None})
+    event = AuditEvent(
+        action=AuditAction.USER_CREATE.value,
+        actor=SYSTEM,
+        target=AuditTarget(kind='user', id=user.id, name=user.username),
+        details={'bootstrap': True, 'generated_password': configured is None},
+        changes=diff(None, user.model_dump(include={'username', 'display_name', 'source', 'roles'})),
+    )
+    try:  # init has no audit writer: write the record now
+        await audit_db.inserter(db)([event.to_doc(settings.audit_retention_days)])
+    except Exception as exc:  # the admin exists; a missing audit record must not fail init
+        log.error('audit record for the bootstrap admin not written', extra={'error': type(exc).__name__})
     return BootstrapResult(created=True, generated_password=None if configured is not None else password)
 
 
