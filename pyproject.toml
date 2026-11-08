@@ -16,6 +16,8 @@ dev = [
     "pytest-cov>=7.0",
     "hypothesis>=6.140",
     "respx>=0.22",
+    "pyyaml>=6.0",
+    "types-pyyaml>=6.0",
 ]
 
 [tool.uv]
@@ -69,6 +71,7 @@ testpaths = ["Application/Common/tests", "Application/Server/tests", "Applicatio
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers --import-mode=importlib"
+pythonpath = ["Application/Server/tests/support"]
 markers = ["integration: needs MongoDB/Valkey containers (make test-integration)"]
 
 [tool.coverage.run]

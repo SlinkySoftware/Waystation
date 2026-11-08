@@ -111,8 +111,15 @@ Windows containers support for the server.
   `/.well-known/` (Terraform service discovery), `/auth/` (OIDC callbacks, docker token service).
 - The UI lives under `/ui/` (SPA history routes `/ui/...`, hashed assets `/ui/assets/...`); `/` redirects to `/ui/`.
   API at `/api/v1/`.
-- `/metrics` is restricted: allowed source CIDRs (`WAYSTATION_METRICS_ALLOW_CIDRS`, default loopback + the compose
-  network) or a bearer token with the `metrics` scope. `/healthz` and `/readyz` reveal nothing beyond status.
+- `/metrics` is restricted: allowed source CIDRs (`WAYSTATION_METRICS_ALLOW_CIDRS`, default loopback only; add the
+  scraper's network) or a bearer token with the `metrics` scope (T-S04); everyone else gets 404. The client address
+  is the web tier's `X-Real-IP` when the request comes from a container network (loopback, RFC 1918, ULA), extended
+  through `X-Forwarded-For` only when `WAYSTATION_TRUST_FORWARDED` is on and the hop is a `TRUSTED_PROXIES` address.
+  `/healthz` (liveness) and `/readyz` (MongoDB and Valkey answer within 2 s, else 503) reveal nothing beyond status.
+- The server refuses to start against a database with an unknown newer or a pending migration (`check_schema`).
+- Errors: format endpoints answer natively (OCI error JSON under `/v2/` and `/auth/token`, plain text under
+  `/repository/`); everything else uses RFC 9457 problem+json (422 with `errors[]` for invalid fields).
+  `HEAD` is answered for every API `GET`. Each response carries `X-Request-Id` (the web tier's id when present).
 
 ### 4.5 Formats and delivery phases
 Phase 2 = parity with the owner's current Nexus (required for cutover). Detail per format in FORMATS.md.
@@ -421,6 +428,7 @@ Waystation/
 | MongoDB layer (T-F06) | M0 slice 2026-11-08: async client factory, collection registry and indexes for the M0 collections, declarative schema + forward-only migrations run by `init` (idempotent), `make test-integration` against real MongoDB/Valkey |
 | Blob store (T-F07) | M0 slice 2026-11-08: local-filesystem `BlobStore` (streaming sha256, size limits, verified atomic commit, X-Accel paths, orphan sweeper, free-space guard); NFS CI scenario pending |
 | Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once. Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
+| Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

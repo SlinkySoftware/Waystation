@@ -1,29 +1,61 @@
-"""Server application factory.
+"""Server application factory (ARCHITECTURE §4).
 
-Minimal on purpose (T-F05): it exposes only ``/healthz`` and ``/readyz`` so the container stack can run. The full
-factory (routing for ``/repository/``, ``/v2/``, ``/api/v1/``, request context, errors, metrics) is T-S01.
+``create_app(settings)`` builds the FastAPI app; uvicorn calls it with no arguments (``factory=True``). The lifespan
+creates and starts the process ``Services`` (MongoDB, Valkey, event emitter, ...) unless the caller passed its own
+(tests), and stops them on shutdown.
+
+Mounted:
+
+- format endpoints: ``/repository/<repo>/...`` and ``/v2/...`` (``routing``), native errors;
+- the REST API under ``/api/v1/`` (``api``), problem+json errors, OpenAPI at ``/api/v1/openapi.json``;
+- ``/healthz``, ``/readyz``, ``/metrics`` (``health``).
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from waystation_common.settings import Settings, get_settings
+from waystation_server import health, problems, routing
+from waystation_server.clientip import ClientResolver
+from waystation_server.middleware import HeadMiddleware, RequestContextMiddleware
+from waystation_server.services import Services
+
+API_PREFIX = '/api/v1'
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, services: Services | None = None) -> FastAPI:
     settings = settings or get_settings()
-    app = FastAPI(title='Waystation', docs_url=None, redoc_url=None)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        own = services is None
+        svc = services or Services.create(settings)
+        app.state.services = svc
+        await svc.start()
+        try:
+            yield
+        finally:
+            if own:
+                await svc.stop()
+
+    app = FastAPI(
+        title='Waystation API',
+        version='0.1.0',
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=f'{API_PREFIX}/openapi.json',
+        lifespan=lifespan,
+    )
     app.state.settings = settings
-
-    @app.get('/healthz', include_in_schema=False)
-    async def healthz() -> dict[str, str]:
-        """Liveness: the process answers. Reveals nothing else (SPECIFICATION §4.4)."""
-        return {'status': 'ok'}
-
-    @app.get('/readyz', include_in_schema=False)
-    async def readyz() -> dict[str, str]:
-        """Readiness. Dependency checks (MongoDB, Valkey) arrive with T-S01."""
-        return {'status': 'ok'}
-
+    if services is not None:
+        app.state.services = services
+    problems.install(app)
+    app.include_router(health.router)
+    app.include_router(routing.router)
+    app.add_middleware(HeadMiddleware)
+    app.add_middleware(RequestContextMiddleware, resolver=ClientResolver.from_settings(settings))
     return app

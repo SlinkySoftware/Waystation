@@ -59,6 +59,8 @@ SPECS: tuple[CollectionSpec, ...] = (
         REPOSITORIES,
         (
             _ix('name_unique', [('name', ASCENDING)], unique=True),
+            # SPECIFICATION §3: names are unique case-insensitively (stored as given).
+            _ix('name_ci_unique', [('name', ASCENDING)], unique=True, collation=CASE_INSENSITIVE),
             _ix('format_type', [('format', ASCENDING), ('type', ASCENDING)]),
         ),
     ),
