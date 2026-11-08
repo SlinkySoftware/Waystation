@@ -3,6 +3,10 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-F10: web shell. Themes (light/dark/system; first paint from `public/theme-init.js`, no inline script so the CSP
+  needs no `unsafe-inline`), bundled fonts and SVG icons, rail + top bar + live indicator and live drawer, auth guard
+  (no open redirects), sign-in page, `stores/live.ts` (single event stream, topics, reconnect, 4 Hz flush, 5 s / 30 s
+  row retention), i18n `t()` with an English catalogue, `make frontend-build` + bundle budget script.
 - T-V01: contract-first M0 API. OpenAPI 3.1 at `Application/Web/openapi/waystation-m0.yaml` (auth/session with
   double-submit CSRF, repositories, test-upstream, Set me up, stats, live transfers, activity, browse, SSE event
   schemas, problem+json errors); generated types + `openapi-fetch` client in `src/api/`; MSW handlers with seeded
