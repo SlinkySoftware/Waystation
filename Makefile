@@ -218,5 +218,8 @@ clients-test: dev-image ## Real-client format tests: FORMAT=<name|all> MODE=repl
 	tests/clients/run.sh $(FORMAT) $(MODE)
 clients-check: dev-image ## Forbidden-strings + size check on upstream fixtures and the client harness
 	tests/clients/check_fixtures.sh
+.PHONY: proxies-check
+proxies-check: ## Reverse-proxy examples in containers (REVERSE_PROXIES.md; SIZE_MB=1024, SLOW=1 for 60 s timeouts)
+	Build/Containers/examples/reverse-proxies/check/check.sh
 perf: ## k6 performance budgets
 	$(call not_yet,T-P2-PERF)
