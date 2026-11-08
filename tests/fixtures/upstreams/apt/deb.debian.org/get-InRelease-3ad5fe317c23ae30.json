@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://deb.debian.org/debian-security/dists/trixie-security/InRelease"
+  },
+  "response": {
+    "body_sha256": "43f0c7af4acfb2d59c64e15324bf772a991f20856b66fa41a6d54d24d51e9526",
+    "body_size": 43409,
+    "headers": [
+      [
+        "content-length",
+        "43409"
+      ],
+      [
+        "last-modified",
+        "Sun, 08 Nov 2026 00:34:45 GMT"
+      ],
+      [
+        "etag",
+        "\"a991-65fb9030e1580\""
+      ],
+      [
+        "cache-control",
+        "public, max-age=120"
+      ],
+      [
+        "expires",
+        "Sun, 08 Nov 2026 00:37:32 GMT"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

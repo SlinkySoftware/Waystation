@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://deb.debian.org/debian/dists/trixie-updates/main/binary-amd64/by-hash/SHA256/eea860c5dea11680e64299adb2736c2367c4235763a66f2b70ca61ce1b51978a"
+  },
+  "response": {
+    "body_sha256": "eea860c5dea11680e64299adb2736c2367c4235763a66f2b70ca61ce1b51978a",
+    "body_size": 1108,
+    "headers": [
+      [
+        "content-length",
+        "1108"
+      ],
+      [
+        "last-modified",
+        "Thu, 05 Nov 2026 13:57:46 GMT"
+      ],
+      [
+        "etag",
+        "\"454-65f87e15bf472\""
+      ],
+      [
+        "cache-control",
+        "public, max-age=2592000"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

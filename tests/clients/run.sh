@@ -128,10 +128,13 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
     "${compose[@]}" up -d --build --quiet-build --wait --wait-timeout 300 --quiet-pull web server worker
   fi
 
-  local rc=0
-  "${compose[@]}" run --rm --no-deps --quiet-pull "client-$CLIENT" \
-    sh -c 'set -eu; d=/harness/$HARNESS_FORMAT; if [ -f "$d/setup.sh" ]; then sh "$d/setup.sh"; fi; exec sh "$d/test.sh"' \
-    || rc=$?
+  local rc=0 client
+  for client in $CLIENT; do  # several clients (e.g. "debian ubuntu") run one after the other against one stack
+    echo "==> $fmt: client-$client"
+    "${compose[@]}" run --rm --no-deps --quiet-pull -e HARNESS_CLIENT="$client" "client-$client" \
+      sh -c 'set -eu; d=/harness/$HARNESS_FORMAT; if [ -f "$d/setup.sh" ]; then sh "$d/setup.sh"; fi; exec sh "$d/test.sh"' \
+      || { rc=$?; break; }
+  done
 
   if [ -s "$run_dir/state/misses.txt" ]; then
     echo "FAIL $fmt: the fake upstream reported misses/errors:" >&2
