@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl.rockylinux.org/pub/rocky/10/extras/x86_64/os/repodata/1979cb29451b466df37fe670b91695e862fad51b4dcfb61e7d541ada4d7bd575-primary.xml.gz"
+  },
+  "response": {
+    "body_sha256": "1979cb29451b466df37fe670b91695e862fad51b4dcfb61e7d541ada4d7bd575",
+    "body_size": 6214,
+    "headers": [
+      [
+        "content-length",
+        "6214"
+      ],
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "last-modified",
+        "Mon, 05 Oct 2026 07:43:56 GMT"
+      ],
+      [
+        "etag",
+        "\"6ac3553c-1846\""
+      ],
+      [
+        "cache-control",
+        "public, max-age=11059200, immutable"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

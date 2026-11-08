@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl.rockylinux.org/pub/rocky/10/extras/x86_64/os/repodata/repomd.xml"
+  },
+  "response": {
+    "body_sha256": "bc2ab2c85317e189a2d6d33321c479ff1e747266f29d9f95e74ff965172f8ac4",
+    "body_size": 3160,
+    "headers": [
+      [
+        "content-length",
+        "3160"
+      ],
+      [
+        "content-type",
+        "text/xml"
+      ],
+      [
+        "last-modified",
+        "Mon, 05 Oct 2026 07:43:57 GMT"
+      ],
+      [
+        "etag",
+        "\"6ac3553d-c58\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, no-cache"
+      ]
+    ],
+    "status": 200
+  }
+}
