@@ -36,6 +36,7 @@ tags:
   - name: tokens
   - name: repositories
   - name: browse
+  - name: search
   - name: stats
   - name: live
   - name: admin
@@ -758,6 +759,75 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AptPackagePage' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /search:
+    get:
+      tags: [search]
+      operationId: search
+      summary: Search packages, images and files across every repository the principal can browse
+      description: |
+        Name search: `q` is `<name prefix>[ <version prefix>]`, case-insensitive; the name prefix matches a full name
+        or its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`). Sources: docker tags,
+        npm packages, apt and yum index listings, cached files (by file name; not docker layers). Results are ordered
+        by the matched name. An empty `q` lists everything.
+        Digest search: `sha256:<8-64 hex digits>` or 64 hex digits finds every cached file with that blob in any
+        repository and format, and the docker tags pointing at it.
+        Hidden repositories are never searched: they appear in no result, count or facet value.
+        Facets (first page): counts per value with every other filter applied.
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 256, default: '' }
+        - name: format
+          in: query
+          description: Repeat to select several (OR)
+          schema:
+            type: array
+            maxItems: 20
+            items: { $ref: '#/components/schemas/Format' }
+        - name: repository
+          in: query
+          description: Repository names; repeat to select several (OR)
+          schema:
+            type: array
+            maxItems: 50
+            items: { type: string }
+        - name: kind
+          in: query
+          schema:
+            type: array
+            maxItems: 3
+            items: { $ref: '#/components/schemas/SearchKind' }
+        - name: type
+          in: query
+          description: Repository types
+          schema:
+            type: array
+            maxItems: 3
+            items: { $ref: '#/components/schemas/RepositoryType' }
+        - name: cached
+          in: query
+          description: Only what is in the cache (leaves out apt/yum index listings; downloaded packages are still found as files)
+          schema: { type: boolean, default: false }
+        - name: facets
+          in: query
+          description: Facet counts on the first page
+          schema: { type: boolean, default: true }
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: One page of results (and facets on the first page)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchPage' }
+        '400':
+          description: Invalid cursor
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /stats/summary:
     get:
@@ -1728,6 +1798,71 @@ components:
           type: array
           items: { $ref: '#/components/schemas/AptPackage' }
         next_cursor: { type: [string, 'null'] }
+
+    # ---------------------------------------------------------------- search
+    SearchKind:
+      type: string
+      enum: [package, image, file]
+    SearchBrowseLink:
+      type: object
+      required: [repository, query]
+      properties:
+        repository: { type: string }
+        query:
+          type: object
+          description: 'Query of the repository Browse view: `image` + `ref` (docker), `package` (npm), `suite` + `arch` + `q` (apt), `path` (the folder listing of every other format)'
+          additionalProperties: { type: string }
+    SearchHit:
+      type: object
+      required: [kind, format, repository, repository_type, name, version, qualifier, path, size, sha256, updated_at, cached, browse]
+      properties:
+        kind: { $ref: '#/components/schemas/SearchKind' }
+        format: { $ref: '#/components/schemas/Format' }
+        repository: { type: string }
+        repository_type: { $ref: '#/components/schemas/RepositoryType' }
+        name: { type: string, description: 'Package, image or file name' }
+        version: { type: [string, 'null'], description: Version (packages) or tag (images) }
+        qualifier: { type: [string, 'null'], description: 'Where it is listed: suite/component and architecture (apt), arch (yum)' }
+        path: { type: [string, 'null'], description: File path in the repository (files, apt/yum packages) }
+        size: { type: [integer, 'null'] }
+        sha256: { type: [string, 'null'], description: Blob sha256 (files) or manifest digest (images) }
+        updated_at: { type: [string, 'null'], format: date-time }
+        cached: { type: [boolean, 'null'], description: In the cache (a listed apt/yum package may not be); null if unknown }
+        browse: { $ref: '#/components/schemas/SearchBrowseLink' }
+    SearchFacetValue:
+      type: object
+      required: [value, count]
+      properties:
+        value: { type: string }
+        count: { type: integer }
+    SearchFacets:
+      type: object
+      required: [format, repository, kind, type, total, capped]
+      properties:
+        format:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        repository:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        kind:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        type:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        total: { type: integer, description: Matches with every filter applied }
+        capped: { type: boolean, description: 'Counting stopped early: counts are lower bounds' }
+    SearchPage:
+      type: object
+      required: [mode, items, next_cursor, facets]
+      properties:
+        mode: { type: string, enum: [name, digest], description: '`digest` when the query is a sha256 digest (or a prefix of one)' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SearchHit' }
+        next_cursor: { type: [string, 'null'] }
+        facets: { oneOf: [{ $ref: '#/components/schemas/SearchFacets' }, { type: 'null' }], description: 'First page only, unless `facets=false`' }
 
     # ---------------------------------------------------------------- stats
     Sparks:
