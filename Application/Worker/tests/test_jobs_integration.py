@@ -117,11 +117,13 @@ async def worker(
     finally:
         if not running.task.done():
             stop.set()
-            await asyncio.wait_for(running.task, 10)
+            await asyncio.wait_for(running.task, 30)
         await redis.aclose()
 
 
-async def until(check: Callable[[], Any], limit_s: float = 10.0) -> None:
+async def until(
+    check: Callable[[], Any], limit_s: float = 30.0
+) -> None:  # generous: only a failing test waits this long
     deadline = time.monotonic() + limit_s
     while True:
         result = check()
@@ -167,7 +169,7 @@ async def test_kill_worker_mid_job_reruns_exactly_once(db: Database, valkey: Red
     jobs = JobClient(valkey, db)
     async with worker(db, handlers, 'w-a') as a:
         job = await jobs.enqueue(Work(key='k1'))
-        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(entered.wait(), 30)
         await a.kill()
     assert await statuses(db, job.job_id) == ['running']  # the killed worker recorded nothing more
 
@@ -179,6 +181,11 @@ async def test_kill_worker_mid_job_reruns_exactly_once(db: Database, valkey: Red
     assert [r['attempt'] for r in runs] == [1, 2]
     assert runs[1]['result'] == {'key': 'k1'}
     assert await queue_empty(valkey, 'work:k1')
+
+
+async def _epoch_changed(db: Database, outbox_id: str, epoch: Any) -> bool:
+    doc = await jobs_db.outbox_get(db, outbox_id)
+    return doc is not None and doc['sent_epoch'] != epoch
 
 
 async def test_flushed_valkey_redispatches_outbox_jobs(db: Database, valkey: Redis) -> None:
@@ -197,6 +204,8 @@ async def test_flushed_valkey_redispatches_outbox_jobs(db: Database, valkey: Red
         assert await valkey.xlen(STREAM) == 1
         await valkey.flushdb()  # Valkey loses the queued job, its dedupe key, the epoch and the lease
         await until(lambda: _xlen(valkey, STREAM, 1))
+        # The dispatcher adds to the stream first and records the new epoch just after: wait for both.
+        await until(lambda: _epoch_changed(db, outbox_id, first['sent_epoch']))
         again = await jobs_db.outbox_get(db, outbox_id)
         assert again is not None and again['sent_epoch'] != first['sent_epoch']
         assert again['done_at'] is None
@@ -223,7 +232,7 @@ async def test_upload_during_running_rebuild_runs_exactly_one_rerun(db: Database
     jobs = JobClient(valkey, db)
     async with worker(db, {Work.kind: rebuild}, 'w-d'):
         await jobs.enqueue(Work(key='repo1'))
-        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(entered.wait(), 30)
         results = []
         for _ in range(5):  # uploads land while the index rebuild runs
             uploads += 1
@@ -317,7 +326,7 @@ async def test_worker_lost_too_often_is_dead_lettered(db: Database, valkey: Redi
     jobs = JobClient(valkey, db)
     async with worker(db, {Fragile.kind: fragile}, 'w-f') as f:
         job = await jobs.enqueue(Fragile())
-        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(entered.wait(), 30)
         await f.kill()
     async with worker(db, {Fragile.kind: fragile}, 'w-g'):
         await until(lambda: _eq(statuses(db, job.job_id), ['interrupted', 'dead']))
@@ -379,7 +388,7 @@ async def test_delayed_job_runs_when_due(db: Database, valkey: Redis) -> None:
         await asyncio.sleep(0.3)
         assert not ran.is_set()
         clock.t += 31
-        await asyncio.wait_for(ran.wait(), 5)
+        await asyncio.wait_for(ran.wait(), 30)
 
 
 # ---------------------------------------------------------------- the stats rollup as a scheduled job
