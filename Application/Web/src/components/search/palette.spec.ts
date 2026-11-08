@@ -43,7 +43,8 @@ describe('palette items', () => {
     expect(user).toContain('page:search')
     expect(user).toContain('page:repositories')
     expect(user).not.toContain('page:admin-auth')
-    expect(user).not.toContain('page:activity')
+    expect(user).not.toContain('page:cleanup')
+    expect(user).toContain('page:activity')
     expect(pageItems(navigation, () => true).map((i) => i.id)).toContain('page:admin-auth')
   })
 
