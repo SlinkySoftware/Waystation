@@ -8,6 +8,14 @@ from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupC
 from waystation_server.formats.common.setup import TOKEN, path_of, snippet
 from waystation_server.repos.model import RepoType
 
+AUDIT_PATHS = frozenset(
+    {
+        '-/npm/v1/security/advisories/bulk',  # npm 7+
+        '-/npm/v1/security/audits/quick',  # npm 6 (and npm 7+ fallback)
+        '-/npm/v1/security/audits',
+    }
+)
+
 
 class NpmOptions(BaseModel):
     model_config = ConfigDict(extra='forbid', title='NpmOptions')
@@ -62,4 +70,5 @@ DESCRIPTOR = FormatDescriptor(
     ui=UiHints(icon='npm', browse='npm'),
     probe_path=_probe,
     setup_snippets=_snippets,
+    read_posts=AUDIT_PATHS,  # audit POSTs only query advisories: authorised as reads
 )

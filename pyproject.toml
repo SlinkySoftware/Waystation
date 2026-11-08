@@ -105,6 +105,8 @@ ignore_imports = [
     "waystation_server.formats.** -> waystation_server.formats.common.**",
     "waystation_server.formats.** -> waystation_server.formats.base",
     "waystation_server.formats.** -> waystation_server.formats.registry",
+    # the proxy engine names FormatRequest (shared contract) for type checking; every format uses the engine
+    "waystation_server.proxy.engine -> waystation_server.formats.base",
 ]
 unmatched_ignore_imports_alerting = "none"
 

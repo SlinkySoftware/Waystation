@@ -17,8 +17,9 @@ A format is two things:
    (``waystation_server.proxy``): fetch, tee, validate, commit, X-Accel; plugins never stream cached bytes
    themselves.
 
-Repository-level access (``read`` for GET/HEAD) is checked before ``handle`` is called; a plugin that performs other
-actions (``write`` on PUT...) checks them with ``req.require(Action.WRITE)``.
+Repository-level access (``read`` for GET/HEAD and for POST to the descriptor's ``read_posts``) is checked before
+``handle`` is called; a plugin that performs other actions (``write`` on PUT...) checks them with
+``req.require(Action.WRITE)``.
 """
 
 from __future__ import annotations
@@ -99,6 +100,8 @@ class FormatDescriptor:
     probe_path: Callable[[BaseModel], str] = _root_probe
     setup_snippets: Callable[[SetupContext], list[SetupClient]] = _no_snippets
     notes: tuple[str, ...] = ()
+    # Repository-relative paths where POST only queries (npm audit): the router authorises them as ``read``.
+    read_posts: frozenset[str] = frozenset()
 
     def parse_options(self, raw: Mapping[str, Any] | None) -> BaseModel:
         """Validate format options (raises pydantic ``ValidationError``)."""

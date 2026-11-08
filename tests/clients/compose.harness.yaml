@@ -4,8 +4,10 @@
 # with extra_hosts (public upstream names -> fake-upstream) and the SSRF allowance for the fake upstream's address.
 #
 # Variables (set by run.sh): HARNESS_PROJECT, HARNESS_RUN_DIR (per-run dir: ca/, state/), HARNESS_FIXTURES,
-# HARNESS_MODE, HARNESS_FORMAT, HARNESS_HOSTS, HARNESS_ORIGINS, HARNESS_STACK, HARNESS_UID, HARNESS_GID,
-# HARNESS_CLIENTS_DIR (absolute path of tests/clients: relative paths would resolve against Build/Containers).
+# HARNESS_MODE, HARNESS_FORMAT, HARNESS_HOSTS, HARNESS_ORIGINS, HARNESS_DROP_JSON_KEYS, HARNESS_STACK, HARNESS_UID,
+# HARNESS_GID, HARNESS_CLIENTS_DIR (absolute path of tests/clients: relative paths would resolve against
+# Build/Containers), HARNESS_ADMIN_PASSWORD (random per run: the stack's bootstrap admin, for setup.sh scripts that
+# create repos).
 
 x-client: &client
   profiles: [clients]
@@ -20,6 +22,8 @@ x-client: &client
     HARNESS_FORMAT: ${HARNESS_FORMAT}
     HARNESS_STACK: ${HARNESS_STACK:-0}
     WAYSTATION_URL: http://waystation-web:8080
+    HARNESS_ADMIN_USER: admin
+    HARNESS_ADMIN_PASSWORD: ${HARNESS_ADMIN_PASSWORD:-}
 
 x-harness-ca: &harness-ca
   type: bind
@@ -43,6 +47,7 @@ services:
       HARNESS_MODE: ${HARNESS_MODE}
       HARNESS_HOSTS: ${HARNESS_HOSTS}
       HARNESS_ORIGINS: ${HARNESS_ORIGINS:-}
+      HARNESS_DROP_JSON_KEYS: ${HARNESS_DROP_JSON_KEYS:-}
       HARNESS_FIXTURES: /fixtures
       HARNESS_STATE: /state
       HARNESS_CA_DIR: /harness-ca
@@ -122,6 +127,8 @@ services:
       - *harness-ca
   init:
     container_name: ${HARNESS_PROJECT}-init
+    environment:
+      WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD: ${HARNESS_ADMIN_PASSWORD:-}
   mongodb:
     container_name: ${HARNESS_PROJECT}-mongodb
   valkey:
