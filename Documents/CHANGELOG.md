@@ -3,6 +3,17 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-P2-HARNESS (M0 slice): real-client harness in `tests/clients/`. `make clients-test FORMAT=<f|all>
+  MODE=replay|record|live` (default replay) runs each format as its own compose project (own container names, no
+  published port) on top of `compose.yaml` + `compose.dev.yaml`. A stdlib fake upstream impersonates the public
+  upstream hosts (`extra_hosts` + per-run throwaway CA trusted via `WAYSTATION_EXTRA_CA_FILE`), replays fixtures
+  from `tests/fixtures/upstreams/<format>/` and fails the run on any miss; record mode scrubs (response header
+  allowlist, signed-URL query values, JSON credentials; the auth *scheme* only is keyed) and installs fixtures only
+  after the client passed and `make clients-check` is clean. `make clients-check` (now part of `make check`) rejects
+  non-allowlisted hosts, internal suffixes, non-documentation IPs, private keys/tokens, local deny-list strings and
+  oversize fixtures. Pinned client services: curl, node, debian, ubuntu, skopeo, docker (dind). `echo` self-test
+  format with a test-only origin passes in record, replay and live mode (also with the stack up). Nightly
+  `clients-live.yml` workflow stub. Harness Python is linted, type-checked and unit-tested with the workspace.
 - T-F09 (M0 slice): `waystation_common.events`: SPEC §4.7 cache states, `Transfer`/`ActivityEvent`/`LiveMessage`
   models, Valkey key helpers and fixed log-scale latency buckets with query-time percentiles, and a non-blocking
   `EventEmitter` (synchronous O(1) producer calls, bounded queue, one pipeline per 250 ms flush, progress coalesced to

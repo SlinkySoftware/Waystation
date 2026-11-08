@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://echo.example.com/private"
+  },
+  "response": {
+    "body_sha256": "fc547a7c4f95feffe054ebecd32254e5888c80c86715edec5b8cd7d3ea2e857b",
+    "body_size": 13,
+    "headers": [
+      [
+        "content-type",
+        "text/plain"
+      ],
+      [
+        "content-length",
+        "13"
+      ],
+      [
+        "www-authenticate",
+        "Bearer realm=\"https://echo.example.com/token\""
+      ]
+    ],
+    "status": 401
+  }
+}
