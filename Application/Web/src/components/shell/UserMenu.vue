@@ -14,7 +14,7 @@
             <q-item-section avatar><q-icon :name="iconProfile" /></q-item-section>
             <q-item-section>{{ t('shell.profile') }}</q-item-section>
           </q-item>
-          <q-item v-close-popup clickable :to="{ name: 'admin-tokens' }">
+          <q-item v-close-popup clickable :to="{ name: 'profile', hash: '#tokens' }">
             <q-item-section avatar><q-icon :name="iconToken" /></q-item-section>
             <q-item-section>{{ t('shell.myTokens') }}</q-item-section>
           </q-item>

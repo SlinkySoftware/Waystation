@@ -22,3 +22,16 @@ class Action(StrEnum):
 GLOBAL_ACTIONS = frozenset(
     {Action.ADMIN, Action.USER_ADMIN, Action.AUDIT_READ, Action.STATS_READ, Action.SETTINGS_ADMIN}
 )
+
+
+class TokenScope(StrEnum):
+    """What an API token may be used for (SPECIFICATION §4.9). A token only ever narrows its owner's grants:
+    ``security.access`` maps each scope to the actions it allows and intersects them with the owner's RBAC."""
+
+    READ = 'read'  # browse + read (pull, download, install)
+    WRITE = 'write'  # + write (push, upload)
+    DELETE = 'delete'  # + delete
+    MANAGE = 'manage'  # + repository settings
+    STATS_READ = 'stats-read'
+    METRICS = 'metrics'  # the Prometheus endpoint only
+    ADMIN = 'admin'  # everything the owner may do

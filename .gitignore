@@ -44,3 +44,6 @@ tests/clients/.run/
 # Agent worktrees
 .claude/worktrees/
 .cache/
+
+# The original brief stays local only (never committed).
+/appidea.txt

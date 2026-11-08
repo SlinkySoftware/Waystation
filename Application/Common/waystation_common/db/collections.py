@@ -20,6 +20,7 @@ USERS = 'users'
 GROUPS = 'groups'
 ROLES = 'roles'
 API_TOKENS = 'api_tokens'
+SERVICE_ACCOUNTS = 'service_accounts'
 SESSIONS = 'sessions'
 RBAC_STATE = 'rbac_state'
 # --- content metadata
@@ -94,6 +95,7 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('principal_id', [('principal.id', ASCENDING)]),
         ),
     ),
+    CollectionSpec(SERVICE_ACCOUNTS, (_ix('name_unique', [('name', ASCENDING)], unique=True),)),
     CollectionSpec(
         SESSIONS,
         (

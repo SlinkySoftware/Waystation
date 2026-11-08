@@ -89,4 +89,23 @@ ws_api GET '/repositories/docker-hub/docker/tags?image=library/hello-world' | gr
 ws_api GET '/repositories/docker-hub/docker/manifest?image=library/hello-world&reference=latest' \
   | grep -q '"is_index":true' || fail 'docker manifest'
 
+step 'docker login with an API token (token as the password), pull, narrowed token denied, revoked token refused'
+ws_token '["read"]' '["docker-*"]'
+token=$WS_TOKEN token_id=$WS_TOKEN_ID
+printf '%s' "$token" | docker login "$registry" --username ci-bot --password-stdin || fail 'docker login with a token'
+docker rmi -f "$registry/docker-hub/$hub_image" >/dev/null
+docker pull -q --platform "$platform" "$registry/docker-hub/$hub_image" || fail 'docker pull after login with a token'
+ws_token '["read"]' '["npm-*"]'
+printf '%s' "$WS_TOKEN" | docker login "$registry" --username ci-bot --password-stdin || fail 'docker login (narrowed)'
+docker rmi -f "$registry/docker-hub/$hub_image" >/dev/null
+if docker pull -q --platform "$platform" "$registry/docker-hub/$hub_image" > /tmp/narrow.out 2>&1; then
+  fail 'a token limited to npm-* pulled from docker-hub'
+fi
+grep -Eqi 'denied|unauthorized|not found|unknown' /tmp/narrow.out || fail "narrowed token: $(cat /tmp/narrow.out)"
+ws_revoke "$token_id"
+if printf '%s' "$token" | docker login "$registry" --username ci-bot --password-stdin > /tmp/revoked.out 2>&1; then
+  fail 'docker login worked with a revoked token'
+fi
+docker logout "$registry" >/dev/null 2>&1 || true
+
 pass
