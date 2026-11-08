@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://security.ubuntu.com/ubuntu/dists/resolute-security/InRelease"
+  },
+  "response": {
+    "body_sha256": "7f66b756f1b4eb0dee5076fe9cd08c7502510da510a86fa25f888449a131f7fe",
+    "body_size": 137403,
+    "headers": [
+      [
+        "last-modified",
+        "Sun, 08 Nov 2026 00:29:54 GMT"
+      ],
+      [
+        "etag",
+        "\"218bb-65fb8f1c26d9d\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "137403"
+      ],
+      [
+        "cache-control",
+        "max-age=0, proxy-revalidate, s-maxage=3300"
+      ],
+      [
+        "expires",
+        "Sun, 08 Nov 2026 10:21:36 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

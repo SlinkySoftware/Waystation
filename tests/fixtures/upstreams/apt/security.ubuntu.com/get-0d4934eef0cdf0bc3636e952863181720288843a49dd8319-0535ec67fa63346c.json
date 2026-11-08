@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://security.ubuntu.com/ubuntu/dists/resolute-security/main/binary-amd64/by-hash/SHA256/0d4934eef0cdf0bc3636e952863181720288843a49dd831908482279c14e4d5f"
+  },
+  "response": {
+    "body_sha256": "0d4934eef0cdf0bc3636e952863181720288843a49dd831908482279c14e4d5f",
+    "body_size": 655700,
+    "headers": [
+      [
+        "last-modified",
+        "Fri, 06 Nov 2026 14:18:18 GMT"
+      ],
+      [
+        "etag",
+        "\"a0154-65f9c48a80c00\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "655700"
+      ],
+      [
+        "cache-control",
+        "max-age=86400"
+      ]
+    ],
+    "status": 200
+  }
+}
