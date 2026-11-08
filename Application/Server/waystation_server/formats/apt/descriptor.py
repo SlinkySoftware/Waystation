@@ -11,6 +11,9 @@ from waystation_server.formats.common.setup import snippet
 from waystation_server.repos.model import RepoType
 
 SUITE = r'^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$'
+# Signed-By: the distribution's own archive keyring (apt keeps verifying the upstream signature).
+DEBIAN_KEYRING = '/usr/share/keyrings/debian-archive-keyring.gpg'
+UBUNTU_KEYRING = '/usr/share/keyrings/ubuntu-archive-keyring.gpg'
 
 
 class AptOptions(BaseModel):
@@ -35,16 +38,13 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
         deb822 = f'Types: deb\nURIs: {url}\nSuites: ./\nSigned-By: /etc/apt/keyrings/<vendor>.gpg\n'
         one_line = f'deb [signed-by=/etc/apt/keyrings/<vendor>.gpg] {url} ./'
     else:
-        components = (
-            'main'
-            if not re.search(r'ubuntu', ctx.repo.proxy.upstream_url if ctx.repo.proxy else '')
-            else ('main restricted universe multiverse')
-        )
-        deb822 = (
-            f'Types: deb\nURIs: {url}\nSuites: {suite} {suite}-updates\nComponents: {components}\n'
-            f'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg\n'
-        )
-        one_line = f'deb {url} {suite} {components}'
+        ubuntu = bool(re.search(r'ubuntu', ctx.repo.proxy.upstream_url if ctx.repo.proxy else ''))
+        components = 'main restricted universe multiverse' if ubuntu else 'main'
+        keyring = UBUNTU_KEYRING if ubuntu else DEBIAN_KEYRING
+        # A release suite (trixie) usually comes with its -updates suite; security and other suites stand alone.
+        suites = suite if '-' in suite else f'{suite} {suite}-updates'
+        deb822 = f'Types: deb\nURIs: {url}\nSuites: {suites}\nComponents: {components}\nSigned-By: {keyring}\n'
+        one_line = f'deb [signed-by={keyring}] {url} {suite} {components}'
     snippets = [
         snippet(
             'apt-sources',

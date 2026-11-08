@@ -8,6 +8,7 @@ format package exposes ``DESCRIPTOR`` (``<format>.descriptor``) and, once implem
 from __future__ import annotations
 
 from waystation_server.formats.apt.descriptor import DESCRIPTOR as APT
+from waystation_server.formats.apt.plugin import AptPlugin
 from waystation_server.formats.docker.descriptor import DESCRIPTOR as DOCKER
 from waystation_server.formats.npm.descriptor import DESCRIPTOR as NPM
 from waystation_server.formats.raw.descriptor import DESCRIPTOR as RAW
@@ -20,4 +21,5 @@ def default_registry() -> FormatRegistry:
     for descriptor in (DOCKER, NPM, APT, RAW):
         registry.register(descriptor)
     registry.set_plugin(RawPlugin())  # T-P2-RAW
+    registry.set_plugin(AptPlugin())  # T-P2-APT
     return registry

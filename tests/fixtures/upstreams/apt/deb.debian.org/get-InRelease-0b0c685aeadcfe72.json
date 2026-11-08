@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://deb.debian.org/debian/dists/trixie-updates/InRelease"
+  },
+  "response": {
+    "body_sha256": "fae629219bd1c601113a845425bda3a66e508d64a21c4b995d9157e26aa3ae11",
+    "body_size": 47340,
+    "headers": [
+      [
+        "content-length",
+        "47340"
+      ],
+      [
+        "last-modified",
+        "Sun, 08 Nov 2026 08:11:09 GMT"
+      ],
+      [
+        "etag",
+        "\"b8ec-65fbf634de878\""
+      ],
+      [
+        "cache-control",
+        "public, max-age=120"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

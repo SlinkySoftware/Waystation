@@ -3,6 +3,18 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-P2-APT (M0 slice): apt proxy plugin (`formats/apt/plugin.py`, bounded `Release`/`Packages` parsers and
+  decompression in `formats/apt/deb822.py`, `apt_pool_index` access in `db/apt.py`, registered in `plugins.py`):
+  `InRelease`/`Release`/`Release.gpg` passed through untouched as metadata; index files served only by the SHA256 the
+  cached `Release` lists (stored under their `by-hash` key, fetched by-hash when offered, one `Release` revalidation
+  on mismatch, then 502; unlisted indexes 404); `by-hash/SHA256|SHA512` immutable and self-validating; cached
+  `Packages` files indexed in the background into `apt_pool_index`, pool files validated against their listing or
+  served `unverified` and dropped when a later listing disagrees. New `apt_pool_index` index `repo_id,verified`. "Set
+  me up" snippets use the Ubuntu keyring for Ubuntu upstreams and no `-updates` suffix for `-security` suites.
+  Real-client harness format `apt` (Debian 13 + Ubuntu 26.04, four repositories, `*-updates`/`*-security` suites,
+  2.3 MB of fixtures, 32 MiB budget per the owner's fixture decision); `CLIENT` in `format.env` may list several
+  clients (run in turn, `HARNESS_CLIENT` set); `lib.sh`'s `wait_for`/`ws_login`/`ws_api` work without curl (bash
+  `/dev/tcp`). Client guide `Documents/Operations/clients/apt.md`.
 - T-P2-RAW (M0 slice): raw proxy plugin (`formats/raw/plugin.py`, registered in `plugins.py`): `GET`/`HEAD
   /repository/<repo>/<path>` cached by path; `metadata_path_regex` (searched in `/<path>`) selects revalidated
   metadata, everything else is immutable content; Content-Type by extension from Python's built-in table, else the
