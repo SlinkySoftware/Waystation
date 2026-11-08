@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://echo.example.com/hello"
+  },
+  "response": {
+    "body_sha256": "eb36dd77a117656691a27030e3c28c53b38c6442d0cf6cdd824f6fae2b72f68d",
+    "body_size": 27,
+    "headers": [
+      [
+        "content-type",
+        "text/plain"
+      ],
+      [
+        "content-length",
+        "27"
+      ],
+      [
+        "cache-control",
+        "max-age=60"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -141,6 +141,11 @@ every progress tick), full keyboard operation, no information by colour alone.
   handlers generated from the contract-first OpenAPI (TASKS T-V01) with seeded fixtures and a fake live-event
   generator, so every page can be built and reviewed before its server endpoint exists. Keep mock mode working
   after the real server lands (it is the fastest way to iterate on visuals and to take screenshots).
+  Where things live: contract `Application/Web/openapi/waystation-m0.yaml`, generated types `src/api/schema.d.ts`,
+  mocks `src/mocks/` (`handlers.ts`, `world.ts` = live generator, `fixtures/`), live store `src/stores/live.ts`
+  (mock mode swaps its source for the generator), strings `src/i18n/en.ts`. Run it with `make frontend-mock`
+  (http://localhost:9000/ui/, any username/password; password `wrong` shows the error state). A static mock build
+  (`make frontend-build-mock`) serves the same tour. Screenshot tour: `scripts/screenshots.mjs` (Playwright image).
 - `<script setup lang="ts">` only, strict TS, ESLint + vue-tsc in CI; components < 300 lines; composables for
   data (`useCrud`, `useLiveStream(topic)`, `useStats(range)`, `useNotify`, `useCopy`).
 - API only through the generated `openapi-fetch` client in `src/api/`; SSE via one shared `EventSource`

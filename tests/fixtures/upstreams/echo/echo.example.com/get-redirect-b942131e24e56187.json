@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://echo.example.com/redirect"
+  },
+  "response": {
+    "body_sha256": null,
+    "body_size": 0,
+    "headers": [
+      [
+        "content-type",
+        "text/plain"
+      ],
+      [
+        "content-length",
+        "0"
+      ],
+      [
+        "location",
+        "https://echo.example.com/blob/4096?X-Amz-Expires=harness-redacted&X-Amz-Signature=harness-redacted"
+      ]
+    ],
+    "status": 307
+  }
+}

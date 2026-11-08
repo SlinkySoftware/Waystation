@@ -1,0 +1,128 @@
+# Real-client harness stack (tests/clients/README.md). Loaded by tests/clients/run.sh on top of
+# Build/Containers/compose.yaml + compose.dev.yaml, as its own compose project (HARNESS_PROJECT, unique per checkout
+# and format), so it never collides with `make dev-up` or another worktree. run.sh also adds a generated override
+# with extra_hosts (public upstream names -> fake-upstream) and the SSRF allowance for the fake upstream's address.
+#
+# Variables (set by run.sh): HARNESS_PROJECT, HARNESS_RUN_DIR (per-run dir: ca/, state/), HARNESS_FIXTURES,
+# HARNESS_MODE, HARNESS_FORMAT, HARNESS_HOSTS, HARNESS_ORIGINS, HARNESS_STACK, HARNESS_UID, HARNESS_GID,
+# HARNESS_CLIENTS_DIR (absolute path of tests/clients: relative paths would resolve against Build/Containers).
+
+x-client: &client
+  profiles: [clients]
+  working_dir: /harness
+  networks: [frontend]
+  volumes:
+    - {type: bind, source: "${HARNESS_CLIENTS_DIR}", target: /harness, read_only: true}
+    - {type: bind, source: "${HARNESS_RUN_DIR}/ca", target: /harness-ca, read_only: true}
+  environment: &client-env
+    HARNESS_CA: /harness-ca/ca.crt
+    HARNESS_MODE: ${HARNESS_MODE}
+    HARNESS_FORMAT: ${HARNESS_FORMAT}
+    HARNESS_STACK: ${HARNESS_STACK:-0}
+    WAYSTATION_URL: http://waystation-web:8080
+
+x-harness-ca: &harness-ca
+  type: bind
+  source: "${HARNESS_RUN_DIR}/ca"
+  target: /harness-ca
+  read_only: true
+
+services:
+  # ---- record/replay fake upstream (all impersonated public hosts, :80 and :443)
+  fake-upstream:
+    build:
+      context: ${HARNESS_CLIENTS_DIR}/harness
+    image: waystation-harness-upstream:local
+    container_name: ${HARNESS_PROJECT}-fake-upstream
+    user: "${HARNESS_UID}:${HARNESS_GID}"
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      HARNESS_MODE: ${HARNESS_MODE}
+      HARNESS_HOSTS: ${HARNESS_HOSTS}
+      HARNESS_ORIGINS: ${HARNESS_ORIGINS:-}
+      HARNESS_FIXTURES: /fixtures
+      HARNESS_STATE: /state
+      HARNESS_CA_DIR: /harness-ca
+    volumes:
+      - {type: bind, source: "${HARNESS_FIXTURES}", target: /fixtures}
+      - {type: bind, source: "${HARNESS_RUN_DIR}/ca", target: /harness-ca}
+      - {type: bind, source: "${HARNESS_RUN_DIR}/state", target: /state}
+    networks:
+      frontend:
+        aliases: [fake-upstream]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1/__harness/health', timeout=2)"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  # ---- "live upstream" of the echo self-test format (record/live mode only)
+  echo-origin:
+    profiles: [origins]
+    image: waystation-harness-upstream:local
+    container_name: ${HARNESS_PROJECT}-echo-origin
+    user: "${HARNESS_UID}:${HARNESS_GID}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    command: ["python", "/harness/echo_origin.py"]
+    networks:
+      frontend:
+        aliases: [echo-origin]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8080/hello', timeout=2)"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    pull_policy: never  # same image as fake-upstream, built when that service starts
+
+  # ---- client containers (one per client family; pinned tags). A format picks one with CLIENT= in format.env.
+  client-curl:
+    <<: *client
+    image: curlimages/curl:8.17.0
+    user: "0:0"
+    environment:
+      <<: *client-env
+      CURL_CA_BUNDLE: /harness-ca/ca.crt
+  client-node:  # npm (pnpm/yarn via corepack later)
+    <<: *client
+    image: node:24-trixie-slim
+  client-debian:  # apt on Debian 13
+    <<: *client
+    image: debian:13-slim
+  client-ubuntu:  # apt on Ubuntu 26.04
+    <<: *client
+    image: ubuntu:26.04
+  client-skopeo:  # registry API pulls without a daemon (docker format)
+    <<: *client
+    image: quay.io/skopeo/stable:v1.20
+    entrypoint: []
+  client-docker:  # docker CLI + daemon (docker format: pull via alias, prefix and registry-mirrors)
+    <<: *client
+    image: docker:29-dind
+    privileged: true
+
+  # ---- Waystation stack under test: own container names, no published port, trusts the harness CA.
+  web:
+    container_name: ${HARNESS_PROJECT}-web
+    ports: !reset []
+  server:
+    container_name: ${HARNESS_PROJECT}-server
+    environment:
+      WAYSTATION_EXTRA_CA_FILE: /harness-ca/ca.crt
+    volumes:
+      - *harness-ca
+  worker:
+    container_name: ${HARNESS_PROJECT}-worker
+    environment:
+      WAYSTATION_EXTRA_CA_FILE: /harness-ca/ca.crt
+    volumes:
+      - *harness-ca
+  init:
+    container_name: ${HARNESS_PROJECT}-init
+  mongodb:
+    container_name: ${HARNESS_PROJECT}-mongodb
+  valkey:
+    container_name: ${HARNESS_PROJECT}-valkey

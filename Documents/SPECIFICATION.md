@@ -292,8 +292,21 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
   The UI uses only this API. Pagination by opaque cursor; filtering and sorting params documented.
 - **Event stream**: `GET /api/v1/events/stream` (Server-Sent Events) with topic filters (`transfers`, `stats`,
   `repo:<name>`, `tasks`, `workers`); RBAC-filtered per subscriber; heartbeat 15 s; resumable with `Last-Event-ID`.
-- Auth: session cookie (UI) or `Authorization: Bearer <api-token>`.
+- Auth: session cookie (UI) or `Authorization: Bearer <api-token>`. CSRF for cookie sessions is a double-submit
+  token: `POST /auth/login` and `GET /auth/me` return `csrf_token` (also set in the readable `ws_csrf` cookie);
+  unsafe methods must echo it in `X-CSRF-Token`. Bearer requests are exempt.
 - Versioned: breaking changes only in `/api/v2/`.
+- **Contract (M0)**: the API the UI depends on is written contract-first in
+  `Application/Web/openapi/waystation-m0.yaml` (OpenAPI 3.1): config, auth/session, repositories (CRUD for proxy
+  repos with format options, test-upstream, Set me up snippets), stats (summary with sparklines, traffic series by
+  range `15m|1h|24h|7d|30d` split hit/upstream or by format, storage, upstream health incl. Docker Hub rate limit),
+  live transfers, activity, browse (generic folder listing, docker images/tags/manifest, npm packages/versions, apt
+  suites/packages) and the SSE event schemas (`LiveEvent`: `transfers.snapshot`, `transfer.started|progress|finished|failed`,
+  `stats.tick`, `upstream.state`, `activity`). Errors are RFC 9457 problem+json with field-level `errors[]`.
+  `make gen-api` regenerates the UI's TypeScript types (`src/api/schema.d.ts`); CI fails if they are stale. Once
+  the server generates its own document, a contract test keeps it compatible with this file.
+- EventSource cannot set headers, so a client that reopens the stream itself passes `last_event_id` as a query
+  parameter (same meaning as `Last-Event-ID`). On (re)connect the server first sends `transfers.snapshot`.
 
 ## 8. Deployment
 
@@ -381,7 +394,9 @@ See §5.5. Metric names: `waystation_requests_total{repo,format,status,cache}`, 
 - **Real-client tests** (`tests/clients/<format>/`): containers run the actual clients (docker/podman/skopeo/crane,
   npm/pnpm/yarn, pip/uv/twine, mvn/gradle, apt, dnf, go, helm, terraform/tofu, ansible-galaxy, swift, dotnet nuget,
   cargo, gem, composer, conda) against a Waystation stack with **recorded upstream fixtures** (an offline fake
-  upstream replays captured responses; a nightly job runs against live upstreams).
+  upstream replays captured responses; a nightly job runs against live upstreams). `make clients-test
+  FORMAT=<f> MODE=replay|record|live`; fixtures are scrubbed and pass `make clients-check` (forbidden strings,
+  size budget). How a format plugs in: `tests/clients/README.md`.
 - **OCI distribution-spec conformance suite** must pass for docker hosted repos.
 - Integration tests against real MongoDB and Valkey containers.
 - Playwright E2E for the UI (login with each provider type, dashboard live updates, repo CRUD, set-me-up).
@@ -448,6 +463,13 @@ Waystation/
 | Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
 | RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Custom roles, groups and the grant cache pending |
 | Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Hosted/group, clone and audit pending |
+| Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Only the `echo` self-test format exists so far; nightly live smoke workflow stub |
+| M0 API contract + mocks (T-V01) | Done 2026-11-08: OpenAPI 3.1 contract (`Application/Web/openapi/waystation-m0.yaml`), generated TS types + `openapi-fetch` client, MSW handlers with seeded fixtures (11 proxy repos: Docker Hub, GHCR, Quay, registry.k8s.io, npmjs, Debian, Debian security, Ubuntu, Raspberry Pi OS, two raw) and a live-event generator (bursty docker pulls, npm installs, apt runs, raw downloads, coalescing, failures); `npm run dev:mock` / `make frontend-mock`. Server-side contract test pending (server lane) |
+| Web shell (T-F10) | Done 2026-11-08: Quasar 2 / Vue 3 / TS strict SPA under `/ui/` (build output `Application/Web/dist/spa`), light/dark/system themes, self-hosted Inter + JetBrains Mono, SVG Material Symbols (no icon font), collapsible rail, top bar with live indicator, router + auth guard, local sign-in, shared live store (one stream, topic ref-counting, reconnect + Last-Event-ID, 4 Hz flush), `make frontend-build` with bundle budget (initial route 158 kB gzip of 250) |
+| Design system (T-U01 min) | M0 slice 2026-11-08: tokens, themes, format icon sprite, base components, SVG charts. Density toggle and showcase route still to do |
+| Dashboard (T-U03 min) | M0 slice 2026-11-08 on mocks: KPIs, live transfers, traffic chart, storage donut, upstream health, activity feed, all live from the event stream. Top artifacts / recently added still to do |
+| Repositories UI (T-U04 min) | M0 slice 2026-11-08 on mocks: list + filters, create/edit/delete docker/npm/apt/raw proxies with test upstream and field errors, detail page (Overview, Browse, Settings), Set me up panel. Snippets shown with a `<your-api-token>` placeholder (tokens are shown once at creation, T-S04) |
+| Browse UI (T-U05 min) | M0 slice 2026-11-08 on mocks: docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour (both themes, desktop + mobile) in `Documents/Notes/screenshots/m0/` |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

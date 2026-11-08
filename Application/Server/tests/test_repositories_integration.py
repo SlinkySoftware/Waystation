@@ -4,8 +4,8 @@ from typing import Any
 
 import httpx
 import pytest
-from fake_upstream import FakeUpstream
 from pydantic import SecretStr
+from ws_fake_upstream import FakeUpstream
 from ws_testing import asgi_client
 
 from waystation_common.db.collections import REPOSITORIES
