@@ -3,6 +3,18 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S07 (M0 slice): proxy engine `waystation_server.proxy.engine`. Formats describe files as `AssetSpec` (kind,
+  upstream path/URL/headers, `Expected` digests incl. npm SRI, stored/response headers, size and age limits,
+  `validate`/`transform` hooks run in a thread, `on_stored`, pluggable `UpstreamAuthenticator`) and call
+  `serve`/`ensure`/`read`. Hits go out by X-Accel; content misses are teed to the client and the blob store with the
+  last chunk held until verified and committed; metadata is fetched bounded, verified, transformed and committed.
+  Conditional revalidation (`REVALIDATED`), stale-on-error (`STALE`), offline mode and a Valkey negative cache.
+  Redirects followed manually with the SSRF guard on every hop and credentials only for the upstream origin.
+  Records `assets`/`blobs`, live transfers (new `Transfer` fields `artifact`, `component`, `client_agent`, `error`),
+  activity (`cache.hit`, transfers), per-minute counters (new `upstream_requests`, `upstream_errors`), the upstream
+  health hash and Prometheus metrics. Fault-injection integration tests (timeouts, slow body, reset, 5xx, digest
+  and size mismatch, validation failure, SSRF on redirect, credential stripping) and a dev-stack run against a
+  public Debian mirror.
 - T-S06: data plane `waystation_server.dataplane.xaccel.serve_blob`: `If-None-Match`/`If-Modified-Since` → 304 by
   the server, HEAD answered by the server, GET → empty response with `X-Accel-Redirect` to `/_blobs/...`, digest
   ETag and `X-Ws-*` headers, format headers replayed. nginx `/_blobs/` also re-adds `Docker-Distribution-API-Version`,

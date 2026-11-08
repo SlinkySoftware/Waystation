@@ -26,6 +26,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ValidationError
 
 from waystation_common.errors import Conflict
+from waystation_common.events import keys as event_keys
 from waystation_common.ids import new_id
 from waystation_server.db import repositories as repos_db
 from waystation_server.problems import FieldError, FieldErrors, validation_errors
@@ -35,6 +36,7 @@ from waystation_server.repos.model import (
     RepoType,
     StoredProxy,
     StoredUpstreamAuth,
+    secret_aad,
 )
 from waystation_server.repos.schemas import ProxyConfig, RepositoryWrite
 from waystation_server.security.principal import Principal
@@ -43,10 +45,6 @@ from waystation_server.services import Services
 log = logging.getLogger('waystation.repos')
 
 RESERVED_NAMES = frozenset({'api', 'ui', 'v2', 'auth', 'repository', 'healthz', 'readyz', 'metrics'})
-
-
-def secret_aad(repo_id: str) -> bytes:
-    return f'repo:{repo_id}'.encode()
 
 
 def _check_url(proxy: ProxyConfig, errors: list[FieldError]) -> None:
@@ -244,6 +242,12 @@ async def update(services: Services, existing: RepoConfig, body: RepositoryWrite
 async def delete(services: Services, repo: RepoConfig) -> None:
     await repos_db.delete(services.db, repo.id)
     services.catalog.invalidate()
+    try:
+        await services.valkey.delete(
+            event_keys.upstream_health_key(repo.id), event_keys.upstream_ratelimit_key(repo.id)
+        )
+    except Exception as exc:  # live state only; it would expire with the repository anyway
+        log.warning('could not clear upstream state', extra={'error': type(exc).__name__})
     log.info('repository deleted', extra={'repo': repo.name})
 
 

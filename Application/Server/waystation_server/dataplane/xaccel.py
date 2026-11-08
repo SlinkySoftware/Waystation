@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from email.utils import format_datetime, parsedate_to_datetime
 
 from starlette.requests import Request
@@ -84,7 +84,7 @@ def blob_headers(blob: ServedBlob, *, cache: str | None) -> dict[str, str]:
     if cache:
         headers['X-Ws-Cache'] = cache
     if blob.last_modified is not None:
-        headers['Last-Modified'] = format_datetime(blob.last_modified, usegmt=True)
+        headers['Last-Modified'] = format_datetime(blob.last_modified.astimezone(UTC), usegmt=True)
     headers.update(blob.headers)
     return headers
 

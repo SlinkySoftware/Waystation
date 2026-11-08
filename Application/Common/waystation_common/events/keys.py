@@ -28,6 +28,16 @@ def lat_key(minute: int, repo_id: str) -> str:
     return f'lat:{minute}:{repo_id}'
 
 
+def upstream_health_key(repo_id: str) -> str:
+    """Hash: ``last_ok_at``, ``last_error``, ``last_error_at``, ``consecutive_failures``, ``last_latency_ms``."""
+    return f'upstream:{repo_id}:health'
+
+
+def upstream_ratelimit_key(repo_id: str) -> str:
+    """Hash: ``limit``, ``remaining``, ``window_s``, ``reset_at``, ``source``, ``seen_at`` (DATA_MODEL §2)."""
+    return f'upstream:{repo_id}:ratelimit'
+
+
 def pending_member(minute: int, repo_id: str) -> str:
     return f'{minute}:{repo_id}'
 
@@ -49,6 +59,8 @@ COUNTERS: Final = (
     'bytes_out_upstream',
     'bytes_in_upstream',
     'bytes_in_upload',
+    'upstream_requests',  # requests sent to the upstream (fetches, revalidations, HEAD pass-through)
+    'upstream_errors',  # of which failed (connect/timeout/5xx/validation)
 )
 
 # Fixed log-scale latency buckets (upper bounds, ms). Field name 'le_<bound>', last bucket 'le_inf'.

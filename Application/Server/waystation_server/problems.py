@@ -57,6 +57,11 @@ OCI_CODES = {
 }
 
 
+class ResponseAborted(Exception):  # noqa: N818 - reads as an event
+    """Raised inside a streaming body after the headers went out: the connection is cut so the client sees an
+    incomplete transfer (it was already logged by whoever raised it)."""
+
+
 class FieldError(BaseModel):
     field: str
     message: str
@@ -182,5 +187,6 @@ def install(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> Response:
-        log.error('unhandled error', exc_info=exc)
+        if not isinstance(exc, ResponseAborted):
+            log.error('unhandled error', exc_info=exc)
         return error_response(request, 500, 'internal error')

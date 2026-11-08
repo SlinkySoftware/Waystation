@@ -16,6 +16,11 @@ DEFAULT_METADATA_MAX_AGE_S = 1800
 DEFAULT_NEGATIVE_TTL_S = 600
 
 
+def secret_aad(repo_id: str) -> bytes:
+    """Associated data binding an encrypted upstream secret to its repository."""
+    return f'repo:{repo_id}'.encode()
+
+
 class RepoType(StrEnum):
     PROXY = 'proxy'
     HOSTED = 'hosted'
