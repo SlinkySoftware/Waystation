@@ -100,7 +100,9 @@ def route_template(scope: Scope) -> str:
     if not isinstance(template, str):
         return UNMATCHED
     try:
-        rendered, _ = replace_params(template, route.param_convertors, dict(scope.get('path_params') or {}))
+        rendered, _ = replace_params(
+            template, getattr(route, 'param_convertors', {}), dict(scope.get('path_params') or {})
+        )
     except Exception:
         return template
     path: str = scope.get('path', '')
