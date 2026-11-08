@@ -1,0 +1,1408 @@
+openapi: 3.1.0
+info:
+  title: Waystation API (M0 contract)
+  version: 0.1.0-m0
+  summary: Contract-first REST + SSE API for the M0 feedback build.
+  description: |
+    Contract-first description of the Waystation REST API used by the web UI for milestone M0 (TASKS T-V01).
+    The UI is built against MSW mocks generated from this file; the server lane implements the same schema and a
+    contract test keeps them in step. Once the server generates its own OpenAPI document (SPEC §7), that document
+    must remain compatible with this one.
+
+    Conventions:
+    - Everything lives under `/api/v1/`. JSON request and response bodies, UTF-8.
+    - **Errors** are RFC 9457 `application/problem+json` (`Problem`). Validation errors carry field-level detail
+      in `errors[]`, keyed by a dotted path into the request body (`proxy.upstream_url`).
+    - **Authentication**: the UI uses the session cookie set by `POST /auth/login` (HttpOnly, Secure, SameSite=Lax).
+      Scripts use `Authorization: Bearer <api-token>`.
+    - **CSRF** (session-cookie requests only): double-submit token. Login and `GET /auth/me` return `csrf_token`;
+      the server also sets it in the readable cookie `ws_csrf`. Every unsafe method (POST, PUT, PATCH, DELETE)
+      sent with a session cookie must carry the same value in `X-CSRF-Token`, otherwise 403. Bearer requests are
+      exempt.
+    - **Authorization**: every route is checked by the RBAC engine. Objects the principal may not see return 404,
+      never 403.
+    - **Pagination**: opaque `cursor` + `limit`; responses carry `next_cursor` (null on the last page).
+    - **Sizes** are bytes (integers), **rates** bytes or requests per second, **times** RFC 3339 UTC.
+    - **Cache states** use one vocabulary everywhere (SPEC §4.7): `HIT`, `FETCHING`, `COALESCED`, `STALE`,
+      `REVALIDATED`, `ERROR`.
+  license:
+    name: GPL-3.0-or-later
+    identifier: GPL-3.0-or-later
+servers:
+  - url: /api/v1
+tags:
+  - name: auth
+  - name: config
+  - name: repositories
+  - name: browse
+  - name: stats
+  - name: live
+security:
+  - session: []
+  - bearer: []
+
+paths:
+  /config:
+    get:
+      tags: [config]
+      operationId: getUiConfig
+      summary: Public instance settings the UI needs before and after sign-in
+      security: []
+      responses:
+        '200':
+          description: Instance configuration
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UiConfig' }
+
+  /auth/providers:
+    get:
+      tags: [auth]
+      operationId: listAuthProviders
+      summary: Sign-in options shown on the sign-in page
+      security: []
+      responses:
+        '200':
+          description: Providers in display order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuthProvider' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Local (and LDAP) username/password sign-in; sets the session cookie
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Signed in. `Set-Cookie` carries the session and `ws_csrf` cookies.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401':
+          description: Bad credentials (generic message; never says which part was wrong)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: Too many attempts; `Retry-After` header set
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: End the current session
+      responses:
+        '204': { description: Signed out (also when no session existed) }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getMe
+      summary: The signed-in principal, its UI capabilities and a fresh CSRF token
+      responses:
+        '200':
+          description: Current session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/me/preferences:
+    put:
+      tags: [auth]
+      operationId: updatePreferences
+      summary: Save UI preferences (theme, density) for the current user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Preferences' }
+      responses:
+        '200':
+          description: Saved preferences
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /repositories:
+    get:
+      tags: [repositories]
+      operationId: listRepositories
+      summary: Repositories the principal can browse, with 24 h summary stats
+      parameters:
+        - { name: format, in: query, schema: { $ref: '#/components/schemas/Format' } }
+        - { name: type, in: query, schema: { $ref: '#/components/schemas/RepositoryType' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/RepositoryStatus' } }
+        - name: q
+          in: query
+          description: Case-insensitive substring match on name and description
+          schema: { type: string, maxLength: 100 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: One page of repositories, sorted by name
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RepositoryPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [repositories]
+      operationId: createRepository
+      summary: Create a repository (M0 supports proxy repositories of docker, npm, apt and raw)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RepositoryWrite' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { schema: { type: string }, description: URL of the new repository resource }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Repository' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /repositories/test-upstream:
+    post:
+      tags: [repositories]
+      operationId: testUpstream
+      summary: Check an upstream before saving (reachability, authentication, sample latency)
+      description: The URL passes the SSRF guard first; private targets fail unless `allow_private_upstream` is set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpstreamTestRequest' }
+      responses:
+        '200':
+          description: Result of the probe (a failing upstream is still a 200 with `reachable=false`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpstreamTestResult' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /repositories/{name}:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [repositories]
+      operationId: getRepository
+      summary: One repository with configuration and summary stats
+      responses:
+        '200':
+          description: Repository
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Repository' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [repositories]
+      operationId: updateRepository
+      summary: Replace a repository's configuration (format and type are immutable; name may not change)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RepositoryWrite' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Repository' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [repositories]
+      operationId: deleteRepository
+      summary: Delete a repository (its blobs are reclaimed later by GC)
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/setup:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [repositories]
+      operationId: getSetupGuide
+      summary: '"Set me up" snippets per client for this repository'
+      description: |
+        Snippets are generated by the format plugin (`setup_snippets(repo, user)`) from `WAYSTATION_BASE_URL`.
+        Credentials are never included: `{{TOKEN}}` and `{{USERNAME}}` placeholders mark where the user's own
+        API token and username go (the UI masks and can fill them).
+      responses:
+        '200':
+          description: Setup guide
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetupGuide' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/stats/traffic:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+      - $ref: '#/components/parameters/Range'
+      - $ref: '#/components/parameters/TrafficMetric'
+    get:
+      tags: [stats]
+      operationId: getRepositoryTraffic
+      summary: Traffic for one repository, split hit vs upstream
+      responses:
+        '200':
+          description: Time series
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimeSeries' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/browse:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: browsePath
+      summary: Generic folder listing of a repository's assets (raw repos, and the tree view of every format)
+      parameters:
+        - name: path
+          in: query
+          description: Folder path relative to the repository root, without leading slash; empty = root
+          schema: { type: string, default: '', maxLength: 1024 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Folder entries, folders first then files, each sorted by name
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FolderListing' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/docker/images:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listDockerImages
+      summary: Images cached or stored in a docker repository
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Images
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DockerImagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/docker/tags:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listDockerTags
+      summary: Tags of one image
+      parameters:
+        - $ref: '#/components/parameters/DockerImage'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Tags, most recently updated first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DockerTagPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/docker/manifest:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: getDockerManifest
+      summary: Manifest (or index) for a tag or digest, with platforms and layers
+      parameters:
+        - $ref: '#/components/parameters/DockerImage'
+        - name: reference
+          in: query
+          required: true
+          description: Tag or `sha256:` digest
+          schema: { type: string, maxLength: 200 }
+        - name: platform
+          in: query
+          description: For an index, select one platform (`os/arch[/variant]`); default is the first
+          schema: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: Manifest detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DockerManifest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/npm/packages:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listNpmPackages
+      summary: Packages cached or stored in an npm repository
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 214 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NpmPackagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/npm/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listNpmVersions
+      summary: One package and its versions (newest first)
+      parameters:
+        - name: package
+          in: query
+          required: true
+          description: Package name, scoped names as `@scope/name`
+          schema: { type: string, maxLength: 214 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NpmVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/apt/suites:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listAptSuites
+      summary: Suites seen through an apt repository, with components and architectures
+      responses:
+        '200':
+          description: Suites
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AptSuite' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/apt/packages:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listAptPackages
+      summary: Packages listed by a cached index (suite/component/arch), with cache state per package
+      parameters:
+        - { name: suite, in: query, required: true, schema: { type: string, maxLength: 100 } }
+        - { name: component, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: arch, in: query, schema: { type: string, maxLength: 32 } }
+        - name: cached
+          in: query
+          description: Only packages whose `.deb` is in the cache
+          schema: { type: boolean }
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AptPackagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /stats/summary:
+    get:
+      tags: [stats]
+      operationId: getStatsSummary
+      summary: Dashboard KPIs with a sparkline per KPI over the range
+      parameters:
+        - $ref: '#/components/parameters/Range'
+      responses:
+        '200':
+          description: KPI summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatsSummary' }
+
+  /stats/traffic:
+    get:
+      tags: [stats]
+      operationId: getTraffic
+      summary: Traffic over time, split by cache (hit vs upstream) or by format
+      parameters:
+        - $ref: '#/components/parameters/Range'
+        - $ref: '#/components/parameters/TrafficMetric'
+        - name: split
+          in: query
+          schema: { type: string, enum: [cache, format], default: cache }
+        - name: repo
+          in: query
+          description: Restrict to one repository
+          schema: { type: string }
+      responses:
+        '200':
+          description: Time series
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimeSeries' }
+
+  /stats/storage:
+    get:
+      tags: [stats]
+      operationId: getStorage
+      summary: Data directory usage and stored bytes by format and repository
+      responses:
+        '200':
+          description: Storage summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageSummary' }
+
+  /stats/upstreams:
+    get:
+      tags: [stats]
+      operationId: listUpstreamHealth
+      summary: Health of every proxy repository's upstream (incl. Docker Hub rate limit)
+      responses:
+        '200':
+          description: One entry per proxy repository
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/UpstreamHealth' }
+
+  /transfers:
+    get:
+      tags: [live]
+      operationId: listTransfers
+      summary: Current in-flight transfers (the state a client loads before following the event stream)
+      parameters:
+        - { name: repo, in: query, schema: { type: string } }
+        - { name: format, in: query, schema: { $ref: '#/components/schemas/Format' } }
+      responses:
+        '200':
+          description: Active transfers
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransferList' }
+
+  /activity:
+    get:
+      tags: [live]
+      operationId: listActivity
+      summary: Recent activity, newest first
+      parameters:
+        - { name: repo, in: query, schema: { type: string } }
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/ActivityKind' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Activity page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityPage' }
+
+  /events/stream:
+    get:
+      tags: [live]
+      operationId: streamEvents
+      summary: Server-Sent Events stream (live transfers, stats ticks, activity)
+      description: |
+        One long-lived `text/event-stream` per browser tab. Topics (comma-separated `topics` query parameter):
+        `transfers` (live transfer state), `stats` (1 Hz KPI ticks), `activity` (durable events),
+        `repo:<name>` (all of the above restricted to one repository). Every topic is RBAC-filtered per subscriber.
+
+        Framing: each message has `event: <LiveEvent.type>` and `data: <JSON LiveEvent>`. Only events from the
+        durable activity stream carry an `id:`; send it back as `Last-Event-ID` on reconnect to resume. Live
+        transfer state is not replayed: on (re)connect the server first sends one `transfers.snapshot` event with the
+        current state of every in-flight transfer. `transfer.progress` is coalesced to at most 4 Hz per transfer.
+        A comment line (`: hb`) is sent every 15 s as a heartbeat. The server suggests `retry: 3000`.
+      parameters:
+        - name: topics
+          in: query
+          required: true
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { type: string, pattern: '^(transfers|stats|activity|repo:[A-Za-z0-9][A-Za-z0-9._-]{1,62})$' }
+        - name: Last-Event-ID
+          in: header
+          description: Sent by the browser on automatic reconnects
+          schema: { type: string }
+        - name: last_event_id
+          in: query
+          description: Same as the header, for clients that reopen the stream themselves (EventSource cannot set headers)
+          schema: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: Event stream. The payload of each `data:` line is a `LiveEvent`.
+          content:
+            text/event-stream:
+              schema: { $ref: '#/components/schemas/LiveEvent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: ws_session
+      description: Session cookie set by `POST /auth/login`; unsafe methods also need `X-CSRF-Token`.
+    bearer:
+      type: http
+      scheme: bearer
+      description: API token
+
+  parameters:
+    RepoName:
+      name: name
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/RepositoryName' }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from a previous page's `next_cursor`
+      schema: { type: string, maxLength: 512 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+    Range:
+      name: range
+      in: query
+      schema: { $ref: '#/components/schemas/StatsRange' }
+    TrafficMetric:
+      name: metric
+      in: query
+      schema: { type: string, enum: [bytes, requests], default: bytes }
+    DockerImage:
+      name: image
+      in: query
+      required: true
+      description: Image name within the repository, e.g. `library/nginx`
+      schema: { type: string, maxLength: 255 }
+
+  responses:
+    Unauthorized:
+      description: Not signed in
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Signed in but not allowed (only for objects the principal can see)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Does not exist or is not visible to the principal
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Conflicts with an existing object (e.g. repository name taken, case-insensitively)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ValidationFailed:
+      description: Request body failed validation; `errors[]` has field-level detail
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    # ---------------------------------------------------------------- common
+    Problem:
+      type: object
+      description: RFC 9457 problem details
+      required: [type, title, status]
+      properties:
+        type: { type: string, description: 'URI reference identifying the problem type; `about:blank` when generic' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/FieldError' }
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string, description: 'Dotted path into the request body, e.g. `proxy.upstream_url`' }
+        message: { type: string }
+        code: { type: string, description: 'Machine-readable reason, e.g. `required`, `pattern`, `taken`' }
+    Format:
+      type: string
+      description: Package format. M0 implements docker, npm, apt and raw; the rest are reserved.
+      enum: [docker, npm, apt, raw, yum, pypi, maven, go, helm, terraform, galaxy, swift, nuget, cargo, rubygems, composer, conda, apk, huggingface]
+    RepositoryType:
+      type: string
+      enum: [proxy, hosted, group]
+    RepositoryStatus:
+      type: string
+      description: '`ok`, `degraded` (serving stale / errors), `blocked` (auto-blocked upstream), `offline` (offline mode or disabled)'
+      enum: [ok, degraded, blocked, offline]
+    CacheState:
+      type: string
+      enum: [HIT, FETCHING, COALESCED, STALE, REVALIDATED, ERROR]
+    StatsRange:
+      type: string
+      enum: [15m, 1h, 24h, 7d, 30d]
+      default: 24h
+    RepositoryName:
+      type: string
+      pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$'
+    Timestamp:
+      type: string
+      format: date-time
+
+    # ---------------------------------------------------------------- config & auth
+    UiConfig:
+      type: object
+      required: [instance_name, base_url, version, docker]
+      properties:
+        instance_name: { type: string, description: Shown in the top bar and the sign-in page }
+        base_url: { type: string, format: uri, description: '`WAYSTATION_BASE_URL`, used to build client URLs' }
+        version: { type: string }
+        docker:
+          type: object
+          required: [registry_host, default_repo]
+          properties:
+            registry_host: { type: string, description: 'Host (and port) docker clients use, e.g. `registry.example.com`' }
+            default_repo: { type: [string, 'null'], description: Repository receiving unprefixed names and mirror-mode pulls }
+    AuthProvider:
+      type: object
+      required: [id, kind, name]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [local, ldap, oidc] }
+        name: { type: string, description: 'Display name ("Continue with <name>" for OIDC)' }
+        login_url: { type: string, description: OIDC only; the browser navigates here }
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 256 }
+        password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+        provider: { type: string, description: 'Provider id when several password providers exist; default: resolved automatically' }
+    Preferences:
+      type: object
+      required: [theme, density]
+      properties:
+        theme: { type: string, enum: [light, dark, system] }
+        density: { type: string, enum: [comfortable, compact] }
+    User:
+      type: object
+      required: [id, username, display_name, source]
+      properties:
+        id: { type: string }
+        username: { type: string }
+        display_name: { type: string }
+        email: { type: [string, 'null'] }
+        source: { type: string, description: '`local`, `ldap:<provider>` or `oidc:<provider>`' }
+    Session:
+      type: object
+      required: [user, csrf_token, capabilities, preferences, expires_at]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        csrf_token: { type: string, description: Echo in `X-CSRF-Token` on unsafe methods }
+        capabilities:
+          type: array
+          description: |
+            Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
+            replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`,
+            `admin`.
+          items: { type: string }
+        preferences: { $ref: '#/components/schemas/Preferences' }
+        expires_at: { $ref: '#/components/schemas/Timestamp' }
+
+    # ---------------------------------------------------------------- repositories
+    UpstreamAuth:
+      type: object
+      required: [kind]
+      description: Upstream credentials. Secrets are write-only; reads return `secret_set` instead.
+      properties:
+        kind: { type: string, enum: [none, basic, bearer] }
+        username: { type: [string, 'null'], maxLength: 256 }
+        secret: { type: [string, 'null'], writeOnly: true, maxLength: 4096, description: 'Password or token. Omit or null on update to keep the stored secret.' }
+        secret_set: { type: boolean, readOnly: true }
+    ProxyConfig:
+      type: object
+      required: [upstream_url]
+      properties:
+        upstream_url: { type: string, format: uri, maxLength: 2048 }
+        auth: { $ref: '#/components/schemas/UpstreamAuth' }
+        metadata_max_age_s: { type: integer, minimum: 0, default: 1800 }
+        content_max_age_s: { type: [integer, 'null'], minimum: 0, description: 'null = forever (immutable content)' }
+        negative_ttl_s: { type: integer, minimum: 0, default: 600 }
+        stale_on_error: { type: boolean, default: true }
+        offline: { type: boolean, default: false }
+        allow_private_upstream: { type: boolean, default: false }
+    DockerOptions:
+      type: object
+      properties:
+        aliases:
+          type: array
+          description: 'Upstream aliases routed to this repo, e.g. `docker.io`, `ghcr.io` (SPEC §4.4)'
+          items: { type: string, maxLength: 253 }
+        docker_hub: { type: boolean, description: 'Upstream is Docker Hub: token auth, `library/` prefix, rate-limit tracking', default: false }
+        default_repo: { type: boolean, description: 'Make this the default docker repository (mirror mode, unprefixed names)', default: false }
+    NpmOptions:
+      type: object
+      properties:
+        audit_passthrough: { type: boolean, default: true, description: Proxy npm audit requests to the upstream }
+    AptOptions:
+      type: object
+      required: [distribution]
+      properties:
+        distribution: { type: string, maxLength: 100, description: 'Informational default suite, e.g. `trixie`' }
+        flat: { type: boolean, default: false, description: Flat repository layout (no `dists/`) }
+    RawOptions:
+      type: object
+      properties:
+        metadata_path_regex: { type: [string, 'null'], maxLength: 512, description: 'Paths matching this regex are mutable metadata (revalidated)' }
+        content_disposition: { type: string, enum: [inline, attachment], default: attachment }
+    FormatOptions:
+      description: Format-specific options; the shape follows the repository's `format`
+      oneOf:
+        - $ref: '#/components/schemas/DockerOptions'
+        - $ref: '#/components/schemas/NpmOptions'
+        - $ref: '#/components/schemas/AptOptions'
+        - $ref: '#/components/schemas/RawOptions'
+    RepositoryWrite:
+      type: object
+      required: [name, format, type, online]
+      properties:
+        name: { $ref: '#/components/schemas/RepositoryName' }
+        format: { $ref: '#/components/schemas/Format' }
+        type: { $ref: '#/components/schemas/RepositoryType' }
+        online: { type: boolean, description: Accepts requests }
+        description: { type: string, maxLength: 500 }
+        proxy: { $ref: '#/components/schemas/ProxyConfig' }
+        format_options: { $ref: '#/components/schemas/FormatOptions' }
+    RepositorySummaryStats:
+      type: object
+      required: [size_bytes, artifact_count, hit_ratio_24h, requests_24h, bytes_served_24h, requests_spark_24h, last_activity_at]
+      properties:
+        size_bytes: { type: integer }
+        artifact_count: { type: integer }
+        hit_ratio_24h: { type: [number, 'null'], minimum: 0, maximum: 1, description: null when there were no requests }
+        requests_24h: { type: integer }
+        bytes_served_24h: { type: integer }
+        bytes_saved_24h: { type: integer }
+        requests_spark_24h:
+          type: array
+          description: Requests per hour, oldest first (24 values)
+          items: { type: integer }
+        last_activity_at: { type: [string, 'null'], format: date-time }
+    Repository:
+      type: object
+      required: [name, format, type, online, status, url, created_at, updated_at, stats]
+      properties:
+        name: { $ref: '#/components/schemas/RepositoryName' }
+        format: { $ref: '#/components/schemas/Format' }
+        type: { $ref: '#/components/schemas/RepositoryType' }
+        online: { type: boolean }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/RepositoryStatus' }
+        url: { type: string, format: uri, description: 'Client URL, `<base>/repository/<name>/`' }
+        proxy: { $ref: '#/components/schemas/ProxyConfig' }
+        format_options: { $ref: '#/components/schemas/FormatOptions' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        stats: { $ref: '#/components/schemas/RepositorySummaryStats' }
+    RepositoryPage:
+      type: object
+      required: [items, next_cursor, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Repository' }
+        next_cursor: { type: [string, 'null'] }
+        total: { type: integer, description: Matching repositories across all pages }
+    UpstreamTestRequest:
+      type: object
+      required: [format, proxy]
+      properties:
+        format: { $ref: '#/components/schemas/Format' }
+        repository: { type: string, description: 'Existing repository name: reuse its stored secret when `proxy.auth.secret` is omitted' }
+        proxy: { $ref: '#/components/schemas/ProxyConfig' }
+        format_options: { $ref: '#/components/schemas/FormatOptions' }
+    UpstreamTestResult:
+      type: object
+      required: [reachable, latency_ms, checks]
+      properties:
+        reachable: { type: boolean }
+        http_status: { type: [integer, 'null'] }
+        latency_ms: { type: [number, 'null'] }
+        auth: { type: string, enum: [anonymous, authenticated, failed, not_required] }
+        tls: { type: [string, 'null'], description: 'Negotiated protocol and certificate subject, e.g. `TLSv1.3, CN=registry-1.docker.io`' }
+        checks:
+          type: array
+          items:
+            type: object
+            required: [name, ok, message]
+            properties:
+              name: { type: string, description: 'e.g. `dns`, `ssrf`, `tls`, `http`, `auth`, `protocol`' }
+              ok: { type: boolean }
+              message: { type: string }
+        rate_limit: { oneOf: [{ $ref: '#/components/schemas/RateLimit' }, { type: 'null' }] }
+    SetupSnippet:
+      type: object
+      required: [id, title, language, content]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        language: { type: string, description: 'Highlighting hint: `shell`, `json`, `ini`, `toml`, `yaml`, `text`' }
+        filename: { type: [string, 'null'], description: 'Where the snippet goes, e.g. `/etc/docker/daemon.json`' }
+        os: { type: [string, 'null'], enum: [linux, macos, windows, null] }
+        content: { type: string, description: 'May contain `{{TOKEN}}` / `{{USERNAME}}` placeholders' }
+    SetupClient:
+      type: object
+      required: [id, label, snippets]
+      properties:
+        id: { type: string, description: 'e.g. `docker`, `podman`, `containerd`, `npm`, `pnpm`, `yarn`, `apt`, `curl`' }
+        label: { type: string }
+        snippets:
+          type: array
+          items: { $ref: '#/components/schemas/SetupSnippet' }
+    SetupGuide:
+      type: object
+      required: [repository, format, clients]
+      properties:
+        repository: { type: string }
+        format: { $ref: '#/components/schemas/Format' }
+        clients:
+          type: array
+          items: { $ref: '#/components/schemas/SetupClient' }
+        notes:
+          type: array
+          items: { type: string }
+
+    # ---------------------------------------------------------------- browse
+    FolderEntry:
+      type: object
+      required: [name, path, kind]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        kind: { type: string, enum: [folder, file] }
+        size: { type: [integer, 'null'] }
+        content_type: { type: [string, 'null'] }
+        sha256: { type: [string, 'null'] }
+        last_modified: { type: [string, 'null'], format: date-time }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        download_count: { type: [integer, 'null'] }
+        child_count: { type: [integer, 'null'], description: Folders only }
+    FolderListing:
+      type: object
+      required: [path, entries, next_cursor]
+      properties:
+        path: { type: string }
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/FolderEntry' }
+        next_cursor: { type: [string, 'null'] }
+    Platform:
+      type: object
+      required: [os, architecture]
+      properties:
+        os: { type: string }
+        architecture: { type: string }
+        variant: { type: [string, 'null'] }
+    DockerImage:
+      type: object
+      required: [name, tag_count, size_bytes]
+      properties:
+        name: { type: string }
+        tag_count: { type: integer }
+        size_bytes: { type: integer, description: Unique bytes stored for this image }
+        last_pulled_at: { type: [string, 'null'], format: date-time }
+        pulls: { type: integer }
+    DockerImagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DockerImage' }
+        next_cursor: { type: [string, 'null'] }
+    DockerTag:
+      type: object
+      required: [tag, digest, media_type, platforms, size_bytes, updated_at]
+      properties:
+        tag: { type: string }
+        digest: { type: string }
+        media_type: { type: string }
+        platforms:
+          type: array
+          items: { $ref: '#/components/schemas/Platform' }
+        size_bytes: { type: integer }
+        created_at: { type: [string, 'null'], format: date-time, description: Image config `created` }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        last_pulled_at: { type: [string, 'null'], format: date-time }
+        pulls: { type: integer }
+    DockerTagPage:
+      type: object
+      required: [image, items, next_cursor]
+      properties:
+        image: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DockerTag' }
+        next_cursor: { type: [string, 'null'] }
+    DockerLayer:
+      type: object
+      required: [digest, size, media_type]
+      properties:
+        digest: { type: string }
+        size: { type: integer }
+        media_type: { type: string }
+        cached: { type: boolean, description: Blob present in the blob store }
+        created_by: { type: [string, 'null'], description: 'History entry (`created_by`) for this layer' }
+    DockerPlatformManifest:
+      type: object
+      required: [platform, digest, size]
+      properties:
+        platform: { $ref: '#/components/schemas/Platform' }
+        digest: { type: string }
+        size: { type: integer }
+    DockerManifest:
+      type: object
+      required: [image, reference, digest, media_type, is_index, manifests, layers, total_size]
+      properties:
+        image: { type: string }
+        reference: { type: string }
+        digest: { type: string, description: Digest of the requested reference (index digest for multi-arch) }
+        media_type: { type: string }
+        is_index: { type: boolean }
+        manifests:
+          type: array
+          description: Index entries (empty for a single-platform manifest)
+          items: { $ref: '#/components/schemas/DockerPlatformManifest' }
+        platform: { oneOf: [{ $ref: '#/components/schemas/Platform' }, { type: 'null' }], description: Platform whose layers are listed }
+        platform_digest: { type: [string, 'null'] }
+        config_digest: { type: [string, 'null'] }
+        created_at: { type: [string, 'null'], format: date-time }
+        layers:
+          type: array
+          items: { $ref: '#/components/schemas/DockerLayer' }
+        total_size: { type: integer, description: Sum of layer sizes for the selected platform }
+        labels:
+          type: object
+          additionalProperties: { type: string }
+        pull_by_tag: { type: string }
+        pull_by_digest: { type: string }
+    NpmPackage:
+      type: object
+      required: [name, latest, version_count, cached_versions, size_bytes]
+      properties:
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        latest: { type: string }
+        version_count: { type: integer, description: Versions in the upstream packument }
+        cached_versions: { type: integer, description: Versions whose tarball is cached }
+        size_bytes: { type: integer }
+        license: { type: [string, 'null'] }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer }
+    NpmPackagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/NpmPackage' }
+        next_cursor: { type: [string, 'null'] }
+    NpmVersion:
+      type: object
+      required: [version, published_at, cached]
+      properties:
+        version: { type: string }
+        published_at: { $ref: '#/components/schemas/Timestamp' }
+        size_bytes: { type: [integer, 'null'], description: Tarball size }
+        unpacked_size: { type: [integer, 'null'] }
+        cached: { type: boolean }
+        downloads: { type: integer }
+        deprecated: { type: [string, 'null'], description: Deprecation message }
+        integrity: { type: [string, 'null'] }
+        dist_tags:
+          type: array
+          items: { type: string }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+    NpmVersionPage:
+      type: object
+      required: [package, items, next_cursor]
+      properties:
+        package: { $ref: '#/components/schemas/NpmPackage' }
+        dist_tags:
+          type: object
+          additionalProperties: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/NpmVersion' }
+        next_cursor: { type: [string, 'null'] }
+    AptSuite:
+      type: object
+      required: [suite, components, architectures]
+      properties:
+        suite: { type: string }
+        origin: { type: [string, 'null'] }
+        codename: { type: [string, 'null'] }
+        components:
+          type: array
+          items: { type: string }
+        architectures:
+          type: array
+          items: { type: string }
+        release_date: { type: [string, 'null'], format: date-time }
+        last_refreshed_at: { type: [string, 'null'], format: date-time }
+        package_count: { type: integer }
+        cached_package_count: { type: integer }
+    AptPackage:
+      type: object
+      required: [name, version, architecture, component, filename, cached]
+      properties:
+        name: { type: string }
+        version: { type: string }
+        architecture: { type: string }
+        component: { type: string }
+        section: { type: [string, 'null'] }
+        size: { type: [integer, 'null'] }
+        filename: { type: string, description: 'Path under the repository, `pool/...`' }
+        sha256: { type: [string, 'null'] }
+        cached: { type: boolean }
+        verified: { type: [boolean, 'null'], description: Cached file matched the index hash; null if not cached }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer }
+    AptPackagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AptPackage' }
+        next_cursor: { type: [string, 'null'] }
+
+    # ---------------------------------------------------------------- stats
+    Sparks:
+      type: object
+      description: Sparkline values per KPI over the range, oldest first, equally spaced (`step_s`)
+      required: [requests_per_s, hit_ratio, bytes_served, bytes_saved, storage_used, artifacts, active_transfers]
+      properties:
+        requests_per_s: { type: array, items: { type: number } }
+        hit_ratio: { type: array, items: { type: [number, 'null'] } }
+        bytes_served: { type: array, items: { type: number } }
+        bytes_saved: { type: array, items: { type: number } }
+        storage_used: { type: array, items: { type: number } }
+        artifacts: { type: array, items: { type: number } }
+        active_transfers: { type: array, items: { type: number } }
+    StatsSummary:
+      type: object
+      required: [range, step_s, generated_at, requests_per_s, requests, hit_ratio, bytes_served, bytes_saved, bytes_upstream, storage, artifacts_cached, active_transfers, sparks]
+      properties:
+        range: { $ref: '#/components/schemas/StatsRange' }
+        step_s: { type: integer }
+        generated_at: { $ref: '#/components/schemas/Timestamp' }
+        requests_per_s: { type: number, description: Current rate (last 10 s) }
+        requests: { type: integer, description: Requests in the range }
+        hit_ratio: { type: [number, 'null'], description: Hits / (hits + misses) in the range }
+        bytes_served: { type: integer, description: Bytes sent to clients in the range }
+        bytes_saved: { type: integer, description: Bytes served from cache in the range (upstream traffic avoided) }
+        bytes_upstream: { type: integer, description: Bytes fetched from upstreams in the range }
+        storage:
+          type: object
+          required: [used_bytes, free_bytes, total_bytes]
+          properties:
+            used_bytes: { type: integer, description: Bytes held by blobs }
+            free_bytes: { type: integer, description: Free space on the data directory filesystem }
+            total_bytes: { type: integer }
+        artifacts_cached: { type: integer }
+        active_transfers: { type: integer }
+        sparks: { $ref: '#/components/schemas/Sparks' }
+    TimeSeries:
+      type: object
+      required: [range, step_s, unit, timestamps, series]
+      properties:
+        range: { $ref: '#/components/schemas/StatsRange' }
+        step_s: { type: integer, description: 'Bucket width: 15m→10 s, 1h→1 min, 24h→10 min, 7d→1 h, 30d→6 h' }
+        unit: { type: string, enum: [bytes, requests] }
+        timestamps:
+          type: array
+          description: Bucket start times, oldest first
+          items: { $ref: '#/components/schemas/Timestamp' }
+        series:
+          type: array
+          items:
+            type: object
+            required: [key, label, values]
+            properties:
+              key: { type: string, description: '`hit`/`upstream` (split=cache) or a format name (split=format)' }
+              label: { type: string }
+              values: { type: array, items: { type: number } }
+    StorageSummary:
+      type: object
+      required: [used_bytes, free_bytes, total_bytes, blob_count, dedup_saved_bytes, by_format, by_repository]
+      properties:
+        used_bytes: { type: integer }
+        free_bytes: { type: integer }
+        total_bytes: { type: integer }
+        blob_count: { type: integer }
+        dedup_saved_bytes: { type: integer }
+        by_format:
+          type: array
+          items:
+            type: object
+            required: [format, bytes, artifacts]
+            properties:
+              format: { $ref: '#/components/schemas/Format' }
+              bytes: { type: integer }
+              artifacts: { type: integer }
+        by_repository:
+          type: array
+          items:
+            type: object
+            required: [repository, format, bytes, artifacts]
+            properties:
+              repository: { type: string }
+              format: { $ref: '#/components/schemas/Format' }
+              bytes: { type: integer }
+              artifacts: { type: integer }
+    RateLimit:
+      type: object
+      required: [limit, remaining]
+      properties:
+        limit: { type: integer }
+        remaining: { type: integer }
+        window_s: { type: [integer, 'null'] }
+        reset_at: { type: [string, 'null'], format: date-time }
+        source: { type: string, description: 'e.g. `docker-hub`' }
+    UpstreamHealth:
+      type: object
+      required: [repository, format, upstream_url, status, error_rate, requests_1h]
+      properties:
+        repository: { type: string }
+        format: { $ref: '#/components/schemas/Format' }
+        upstream_url: { type: string }
+        status: { $ref: '#/components/schemas/RepositoryStatus' }
+        error_rate: { type: number, minimum: 0, maximum: 1, description: Upstream errors / upstream requests, last hour }
+        requests_1h: { type: integer, description: Upstream requests in the last hour }
+        p95_latency_ms: { type: [number, 'null'] }
+        last_error: { type: [string, 'null'] }
+        last_error_at: { type: [string, 'null'], format: date-time }
+        blocked_until: { type: [string, 'null'], format: date-time, description: Auto-block ends (status `blocked`) }
+        rate_limit: { oneOf: [{ $ref: '#/components/schemas/RateLimit' }, { type: 'null' }] }
+
+    # ---------------------------------------------------------------- live
+    Transfer:
+      type: object
+      description: One in-flight (or just finished) transfer
+      required: [id, repository, format, direction, artifact, client, cache, bytes_done, bytes_total, rate_bps, started_at, updated_at, state]
+      properties:
+        id: { type: string }
+        repository: { type: string }
+        format: { $ref: '#/components/schemas/Format' }
+        direction: { type: string, enum: [download, upload] }
+        artifact: { type: string, description: 'Display name, e.g. `library/nginx@sha256:…` layer, `lodash-4.17.21.tgz`, `pool/main/c/curl/curl_8.14.1-2_amd64.deb`' }
+        path: { type: string, description: Asset path within the repository }
+        component: { type: [string, 'null'], description: 'Component coordinates when known, e.g. `nginx:1.27`' }
+        client:
+          type: object
+          required: [ip]
+          properties:
+            ip: { type: string }
+            user: { type: [string, 'null'] }
+            agent: { type: [string, 'null'], description: 'Client product, e.g. `docker/27.3`, `npm/11.6`, `apt/3.0`' }
+        cache: { $ref: '#/components/schemas/CacheState' }
+        followers: { type: integer, description: 'FETCHING: requests coalesced onto this fetch. COALESCED: 0', default: 0 }
+        bytes_done: { type: integer }
+        bytes_total: { type: [integer, 'null'], description: null when the upstream sends no length }
+        rate_bps: { type: number, description: Bytes per second (smoothed) }
+        upstream_latency_ms: { type: [number, 'null'], description: Time to first byte from the upstream (misses only) }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        state: { type: string, enum: [active, finished, failed] }
+        error: { type: [string, 'null'] }
+    TransferList:
+      type: object
+      required: [items, as_of]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Transfer' }
+        as_of: { $ref: '#/components/schemas/Timestamp' }
+    ActivityKind:
+      type: string
+      enum: [download, upload, delete, cache_miss, upstream_state, repository, cleanup, auth, error]
+    ActivityEvent:
+      type: object
+      required: [id, ts, kind, summary, outcome]
+      properties:
+        id: { type: string, description: Stream id; also the SSE `id:` }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        kind: { $ref: '#/components/schemas/ActivityKind' }
+        summary: { type: string, description: Plain-text one-liner (never rendered as HTML) }
+        outcome: { type: string, enum: [success, failure, info] }
+        repository: { type: [string, 'null'] }
+        format: { oneOf: [{ $ref: '#/components/schemas/Format' }, { type: 'null' }] }
+        artifact: { type: [string, 'null'] }
+        principal: { type: [string, 'null'], description: 'Username, `anonymous`, or a client IP' }
+        cache: { oneOf: [{ $ref: '#/components/schemas/CacheState' }, { type: 'null' }] }
+        bytes: { type: [integer, 'null'] }
+        duration_ms: { type: [number, 'null'] }
+    ActivityPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityEvent' }
+        next_cursor: { type: [string, 'null'] }
+
+    # ---------------------------------------------------------------- SSE events (ARCH §8)
+    LiveEvent:
+      description: One SSE message; `type` equals the SSE `event:` field.
+      oneOf:
+        - $ref: '#/components/schemas/TransfersSnapshotEvent'
+        - $ref: '#/components/schemas/TransferStartedEvent'
+        - $ref: '#/components/schemas/TransferProgressEvent'
+        - $ref: '#/components/schemas/TransferFinishedEvent'
+        - $ref: '#/components/schemas/TransferFailedEvent'
+        - $ref: '#/components/schemas/StatsTickEvent'
+        - $ref: '#/components/schemas/UpstreamStateEvent'
+        - $ref: '#/components/schemas/ActivityStreamEvent'
+      discriminator:
+        propertyName: type
+        mapping:
+          transfers.snapshot: '#/components/schemas/TransfersSnapshotEvent'
+          transfer.started: '#/components/schemas/TransferStartedEvent'
+          transfer.progress: '#/components/schemas/TransferProgressEvent'
+          transfer.finished: '#/components/schemas/TransferFinishedEvent'
+          transfer.failed: '#/components/schemas/TransferFailedEvent'
+          stats.tick: '#/components/schemas/StatsTickEvent'
+          upstream.state: '#/components/schemas/UpstreamStateEvent'
+          activity: '#/components/schemas/ActivityStreamEvent'
+    TransfersSnapshotEvent:
+      type: object
+      required: [type, ts, transfers]
+      properties:
+        type: { type: string, const: transfers.snapshot }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        transfers:
+          type: array
+          items: { $ref: '#/components/schemas/Transfer' }
+    TransferStartedEvent:
+      type: object
+      required: [type, ts, transfer]
+      properties:
+        type: { type: string, const: transfer.started }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        transfer: { $ref: '#/components/schemas/Transfer' }
+    TransferProgressEvent:
+      type: object
+      description: Coalesced to ≤ 4 Hz per transfer. Carries only the fields that change.
+      required: [type, ts, id, bytes_done, rate_bps]
+      properties:
+        type: { type: string, const: transfer.progress }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        id: { type: string }
+        bytes_done: { type: integer }
+        bytes_total: { type: [integer, 'null'] }
+        rate_bps: { type: number }
+        cache: { $ref: '#/components/schemas/CacheState' }
+        followers: { type: integer }
+        upstream_latency_ms: { type: [number, 'null'] }
+    TransferFinishedEvent:
+      type: object
+      required: [type, ts, id, bytes_done, duration_ms]
+      properties:
+        type: { type: string, const: transfer.finished }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        id: { type: string }
+        bytes_done: { type: integer }
+        duration_ms: { type: number }
+        cache: { $ref: '#/components/schemas/CacheState' }
+    TransferFailedEvent:
+      type: object
+      required: [type, ts, id, error]
+      properties:
+        type: { type: string, const: transfer.failed }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        id: { type: string }
+        bytes_done: { type: integer }
+        error: { type: string }
+    StatsTickEvent:
+      type: object
+      description: 1 Hz rolling counters for the KPI tiles (last 10 s window for rates)
+      required: [type, ts, requests_per_s, bytes_out_per_s, bytes_upstream_per_s, hit_ratio_1m, active_transfers]
+      properties:
+        type: { type: string, const: stats.tick }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        requests_per_s: { type: number }
+        bytes_out_per_s: { type: number, description: Bytes per second sent to clients }
+        bytes_upstream_per_s: { type: number, description: Bytes per second fetched from upstreams }
+        bytes_saved_per_s: { type: number, description: Bytes per second served from cache }
+        hit_ratio_1m: { type: [number, 'null'] }
+        active_transfers: { type: integer }
+        storage_used_bytes: { type: integer }
+        artifacts_cached: { type: integer }
+    UpstreamStateEvent:
+      type: object
+      required: [type, ts, health]
+      properties:
+        type: { type: string, const: upstream.state }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        health: { $ref: '#/components/schemas/UpstreamHealth' }
+    ActivityStreamEvent:
+      type: object
+      description: A durable activity event (SSE `id:` = `event.id`, resumable with `Last-Event-ID`)
+      required: [type, ts, event]
+      properties:
+        type: { type: string, const: activity }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        event: { $ref: '#/components/schemas/ActivityEvent' }
