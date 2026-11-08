@@ -2,6 +2,19 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-09
+- T-U02: brand. An original mark (a waypoint marker with a hexagonal head holding a stack: slab and two layers) and a
+  monoline geometric "waystation" wordmark, both defined once in `Application/Web/src/assets/brand/geometry.ts`.
+  `BrandMark` draws from it (theme colours, `mono` variant with the glyph cut out, a 16 px-tuned glyph below 20 px,
+  optional accessible label). `make brand` (`scripts/gen-brand.mjs`, `@resvg/resvg-js` dev dependency, runs in the dev
+  image) writes the master SVGs (mark light/dark/mono/small, wordmark, lockups, app tile) and the favicon set in
+  `public/` (theme-following `favicon.svg`, PNG 16/32/48, `favicon.ico`, `apple-touch-icon.png`, `icon-192/512.png`,
+  `icon-maskable-512.png`, `manifest.webmanifest`), wired into `index.html` with `theme-color`; `make brand-check` runs
+  in `make frontend-check`. Empty-state illustrations (`EmptyIllustration.vue`: repositories, cache, search,
+  activity, error, notFound, soon), painted only through theme variables, replace the icon tiles in every
+  `EmptyState` use; the repository page distinguishes a load failure (error illustration, retry) from a missing
+  repository. `Application/Web/branding/` is gone (UI_DESIGN §8 now names `src/assets/brand/`).
+
 ## 2026-11-08
 - T-F08: job system on Valkey Streams (ARCHITECTURE §10). `waystation_common.jobs`: typed payloads (`JobPayload`
   with `kind`, `queue`, `max_attempts`, `dedupe_key()`, `routine`; `JOB_TYPES` registry), `JobEnvelope`, the queue

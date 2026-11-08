@@ -6,7 +6,7 @@
   <NpmBrowser v-else-if="repo.format === 'npm'" :repo="repo" />
   <AptBrowser v-else-if="repo.format === 'apt'" :repo="repo" />
   <PageCard v-else-if="repo.format === 'yum'">
-    <EmptyState :icon="iconPackage" :title="t('browse.yum.soonTitle')" :text="t('browse.yum.soonText')" />
+    <EmptyState illustration="soon" :title="t('browse.yum.soonTitle')" :text="t('browse.yum.soonText')" />
   </PageCard>
   <FolderBrowser v-else :repo="repo" />
 </template>
@@ -16,7 +16,6 @@ import type { Repository } from '@/api/types'
 import EmptyState from '@/components/EmptyState.vue'
 import PageCard from '@/components/PageCard.vue'
 import { t } from '@/i18n'
-import { iconPackage } from '@/utils/icons'
 
 import AptBrowser from './AptBrowser.vue'
 import DockerBrowser from './DockerBrowser.vue'

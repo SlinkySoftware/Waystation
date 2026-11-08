@@ -339,6 +339,8 @@ export const en = {
   detail: {
     notFound: 'Repository not found',
     notFoundText: 'There is no repository called "{name}", or you do not have access to it.',
+    loadFailed: 'Could not load this repository',
+    retry: 'Try again',
     liveCaption: 'Transfers in flight for this repository',
     tab: {
       overview: 'Overview',
