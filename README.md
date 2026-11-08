@@ -26,6 +26,15 @@ clients ──► web (nginx) ──► server (FastAPI, async) ──► upstre
 
 One directory holds every cached and hosted file (`WAYSTATION_DATA_DIR`); mount it from local disk or a NAS.
 
+## Development
+
+Everything runs in Docker; you need only `docker` and `make`. `make help` lists the targets.
+
+```bash
+make check   # format check, lint + architecture contracts, mypy strict, tests
+make hooks   # install the pre-commit hook
+```
+
 ## Licence
 
 GPL-3.0-or-later. See `LICENSE`.
