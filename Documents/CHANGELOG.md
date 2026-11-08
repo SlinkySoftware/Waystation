@@ -3,6 +3,18 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-U07: Activity and Storage pages. Activity (`/activity`): the live event log, following the `activity` SSE topic
+  (applied in 4 Hz batches; holds new events while paused or scrolled down, with an "N new events" pill), filters for
+  event kind, repository, format, user or address, cache state, outcome and time (presets or a custom window), all in
+  the URL; a virtualised list that pages back through history; a detail drawer (every field, copy path/id, narrow the
+  log to this repository/user/kind or to the 10 minutes around the event); CSV export of the current filter. Server:
+  `GET /activity` gains `format`, `principal`, `cache`, `outcome`, `since`, `until` (time windows are stream-id
+  ranges) and `ActivityEvent.path`; new `GET /activity/export` streams CSV (≤ 100,000 rows, formula-looking cells
+  prefixed `'`, `stats-read`, visible repositories only). Storage (`/storage`): stored/free/de-duplication/blob KPIs
+  (stored bytes live from stats ticks), data volume bar, storage by format, largest repositories (new `BarList`
+  chart), a sortable, filterable repository table (sort and filter in the URL), and a placeholder for growth until
+  storage snapshots exist. Contract, generated client and MSW mocks updated (mock activity: stream-id cursors, the
+  same filters, a day of seeded history, CSV export).
 - T-P2-YUM (proxy min): yum/dnf proxy repositories (`formats/yum`: descriptor, `repodata.py` parsers, plugin;
   `db/yum.py`; registered in `plugins.py`). The upstream layout is kept, so one repository serves every `repodata/`
   directory below its upstream URL. `repomd.xml` is metadata, passed through untouched after a defused parse (expat
