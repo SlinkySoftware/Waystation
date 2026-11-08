@@ -23,6 +23,8 @@ from waystation_common.jobs import JobClient
 from waystation_common.settings import Settings
 from waystation_common.storage import BlobStore
 from waystation_common.valkey import create_valkey
+from waystation_server.db import auth_providers as auth_providers_db
+from waystation_server.db import groups as groups_db
 from waystation_server.db import repositories as repos_db
 from waystation_server.formats.registry import FormatRegistry
 from waystation_server.metrics import Metrics
@@ -30,7 +32,10 @@ from waystation_server.proxy.engine import ProxyEngine
 from waystation_server.proxy.http import UpstreamClients
 from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import RepoConfig
+from waystation_server.security.groups import GroupDirectory
+from waystation_server.security.ldap import LdapAuthenticator
 from waystation_server.security.principal import Principal
+from waystation_server.security.providers import ProviderCatalog
 from waystation_server.security.registry_token import SignerHolder
 from waystation_server.security.sessions import SessionManager
 from waystation_server.sse.hub import Hub
@@ -57,6 +62,9 @@ class Services:
     storage: StorageStats
     hub: Hub
     registry_signer: SignerHolder
+    auth_providers: ProviderCatalog  # external sign-in providers (security.providers)
+    groups: GroupDirectory  # group → roles (security.groups)
+    ldap: LdapAuthenticator  # LDAP thread pool front end + bind cache (security.ldap)
     jobs: JobClient  # enqueue worker jobs (durable via the outbox inside a transaction, or best effort; ARCH §10)
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
@@ -117,6 +125,9 @@ class Services:
             storage=storage,
             hub=Hub(redis, visible, figures),
             registry_signer=SignerHolder(settings.data_dir, keyring),
+            auth_providers=ProviderCatalog(lambda: auth_providers_db.list_all(db)),
+            groups=GroupDirectory(lambda: groups_db.list_all(db)),
+            ldap=LdapAuthenticator(),
             jobs=JobClient(redis, db),
             proxy=ProxyEngine(
                 settings=settings,

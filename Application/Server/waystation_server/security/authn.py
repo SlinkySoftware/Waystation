@@ -17,8 +17,20 @@ from waystation_server.security.sessions import SESSION_COOKIE
 from waystation_server.services import Services
 
 
-def user_principal(user: UserRecord, method: AuthMethod, *, session_id: str | None = None) -> Principal:
-    return Principal(PrincipalKind.USER, user.id, user.username, tuple(user.roles), method, session_id=session_id)
+def user_principal(
+    user: UserRecord, method: AuthMethod, *, session_id: str | None = None, roles: tuple[str, ...] | None = None
+) -> Principal:
+    """``roles`` = the effective roles (``principal_for``); default: the user's own roles only."""
+    granted = tuple(user.roles) if roles is None else roles
+    return Principal(PrincipalKind.USER, user.id, user.username, granted, method, session_id=session_id)
+
+
+async def principal_for(
+    services: Services, user: UserRecord, method: AuthMethod, *, session_id: str | None = None
+) -> Principal:
+    """The user's principal with its effective roles: its own plus those of its groups (``security.groups``)."""
+    roles = await services.groups.roles_for(user)
+    return user_principal(user, method, session_id=session_id, roles=roles)
 
 
 async def _from_session(services: Services, request: Request) -> Principal | None:
@@ -34,7 +46,7 @@ async def _from_session(services: Services, request: Request) -> Principal | Non
         return None
     request.state.session = record
     request.state.user = user
-    return user_principal(user, AuthMethod.SESSION, session_id=record.id)
+    return await principal_for(services, user, AuthMethod.SESSION, session_id=record.id)
 
 
 async def authenticate(request: Request) -> Principal:

@@ -32,7 +32,7 @@ from waystation_server.db import users as users_db
 from waystation_server.problems import oci_error
 from waystation_server.security import access
 from waystation_server.security.access import Action
-from waystation_server.security.authn import user_principal
+from waystation_server.security.authn import principal_for
 from waystation_server.security.identity import UserRecord
 from waystation_server.security.login import verify_login
 from waystation_server.security.principal import ANONYMOUS, AuthMethod, Principal
@@ -137,14 +137,12 @@ async def token(
     credentials = _basic(request)
     if credentials is not None:
         user = await verify_login(
-            services.db,
-            services.valkey,
-            services.settings,
+            services,
             username=credentials[0],
             password=credentials[1],
             client_ip=str(getattr(request.state, 'client_ip', '') or 'unknown'),
         )
-        principal = user_principal(user, AuthMethod.BASIC)
+        principal = await principal_for(services, user, AuthMethod.BASIC)
     scopes = parse_scopes(scope or [])[:20]
     granted = [await _grant(services, principal, s) for s in scopes]
     signer = await services.registry_signer.get()
@@ -194,7 +192,7 @@ async def authenticate_bearer(request: Request, token: str) -> Principal | None:
         user = await _users.get(services, claims.subject)
         if user is None or user.disabled:
             return None
-        base = user_principal(user, AuthMethod.REGISTRY_TOKEN)
+        base = await principal_for(services, user, AuthMethod.REGISTRY_TOKEN)
     from waystation_server.routing import resolve_docker
 
     grants: dict[str, set[str]] = {}
