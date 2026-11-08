@@ -181,9 +181,9 @@ class Download:
         return digest.hexdigest()
 
 
-async def eventually(check: Callable[[], Awaitable[bool]], timeout: float = 60.0) -> None:
+async def eventually(check: Callable[[], Awaitable[bool]], within: float = 60.0) -> None:
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
+    deadline = loop.time() + within
     while not await check():
         if loop.time() > deadline:
             raise AssertionError('condition not reached in time')
