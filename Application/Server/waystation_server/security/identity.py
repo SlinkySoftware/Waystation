@@ -15,6 +15,27 @@ class Preferences(BaseModel):
     density: Literal['comfortable', 'compact'] = 'comfortable'
 
 
+class ExternalGroupRef(BaseModel):
+    """A group an external provider reported at the user's last sign-in through it (``users.external_groups``)."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    provider: str  # provider source, ``ldap:<id>`` / ``oidc:<id>``
+    id: str  # LDAP group DN, OIDC claim value
+    name: str
+
+
+class LinkedIdentity(BaseModel):
+    """An external account linked to the user (``users.identities``): same username, SPECIFICATION §4.9."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    provider: str  # provider source, ``ldap:<id>`` / ``oidc:<id>``
+    subject: str  # LDAP entry DN, OIDC ``sub``
+    linked_at: datetime
+    last_login: datetime | None = None
+
+
 class UserRecord(BaseModel):
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
@@ -22,11 +43,13 @@ class UserRecord(BaseModel):
     username: str  # lower-case
     display_name: str
     email: str | None = None
-    source: str = 'local'
+    source: str = 'local'  # ``local`` or the provider that created the user (``ldap:<id>``, ``oidc:<id>``)
     password_hash: str | None = None
     disabled: bool = False
     roles: list[str] = Field(default_factory=list)
-    groups: list[str] = Field(default_factory=list)
+    groups: list[str] = Field(default_factory=list)  # local group ids
+    external_groups: list[ExternalGroupRef] = Field(default_factory=list)
+    identities: list[LinkedIdentity] = Field(default_factory=list)
     preferences: Preferences = Field(default_factory=Preferences)
     must_change_password: bool = False
     failed_logins: int = 0

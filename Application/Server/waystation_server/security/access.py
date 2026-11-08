@@ -82,6 +82,20 @@ BUILTIN_ROLES: dict[str, tuple[Permission, ...]] = {
 }
 
 
+ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    'admin': ('Administrator', 'Everything, including users, providers and settings'),
+    'reader': ('Reader', 'Browse and download from every repository'),
+    'deployer': ('Deployer', 'Browse, download and upload to every repository'),
+    'viewer': ('Viewer', 'Browse every repository and read statistics'),
+}
+
+
+def roles() -> list[tuple[str, str, str]]:
+    """Grantable roles as ``(id, name, description)`` (built-in only until custom roles land; ``anonymous`` is the
+    anonymous principal's own role and cannot be granted)."""
+    return [(role, *ROLE_DESCRIPTIONS.get(role, (role, ''))) for role in BUILTIN_ROLES if is_role(role)]
+
+
 @dataclass(frozen=True)
 class Grants:
     is_admin: bool

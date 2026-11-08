@@ -62,7 +62,7 @@
       <TransitionGroup name="xfer">
         <TransferRow v-for="item in visible" :key="item.id" :transfer="item" :compact="compact" />
       </TransitionGroup>
-      <EmptyState v-if="!filtered.length" compact :icon="iconSpeed" :title="t('live.emptyTitle')" :text="status === 'open' ? t('live.emptyText') : t('live.connecting')" />
+      <EmptyState v-if="!filtered.length" compact illustration="activity" :title="t('live.emptyTitle')" :text="status === 'open' ? t('live.emptyText') : t('live.connecting')" />
     </div>
     <div v-if="hidden > 0" class="live-xfers__more">{{ t('live.more', { count: hidden }) }}</div>
   </div>
@@ -77,7 +77,7 @@ import { t } from '@/i18n'
 import { type LiveTransfer, useLiveStore } from '@/stores/live'
 import { formatLabel, LISTED_FORMATS } from '@/utils/domain'
 import { formatRate } from '@/utils/format'
-import { iconPause, iconPlay, iconSpeed } from '@/utils/icons'
+import { iconPause, iconPlay } from '@/utils/icons'
 
 import TransferRow from './TransferRow.vue'
 

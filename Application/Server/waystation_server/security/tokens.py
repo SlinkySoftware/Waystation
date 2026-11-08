@@ -37,6 +37,7 @@ import logging
 import re
 import secrets
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -52,7 +53,7 @@ from waystation_server.db import service_accounts as accounts_db
 from waystation_server.db import tokens as tokens_db
 from waystation_server.db import users as users_db
 from waystation_server.security import ratelimit
-from waystation_server.security.identity import ApiTokenRecord, TokenOwner
+from waystation_server.security.identity import ApiTokenRecord, TokenOwner, UserRecord
 from waystation_server.security.principal import AuthMethod, Principal, PrincipalKind, TokenLimits
 
 log = logging.getLogger('waystation.tokens')
@@ -122,7 +123,15 @@ def token_limits(record: ApiTokenRecord) -> TokenLimits:
 
 
 class TokenService:
-    def __init__(self, db: Database, valkey: Redis, settings: Settings) -> None:
+    def __init__(
+        self,
+        db: Database,
+        valkey: Redis,
+        settings: Settings,
+        *,
+        roles_for: Callable[[UserRecord], Awaitable[tuple[str, ...]]] | None = None,
+    ) -> None:
+        self._roles_for = roles_for  # effective roles of a token owner (own + groups, security.groups)
         self._db = db
         self._valkey = valkey
         self._settings = settings
@@ -196,9 +205,8 @@ class TokenService:
             user = await users_db.get(self._db, record.principal.id)
             if user is None or user.disabled:
                 return None
-            return Principal(
-                PrincipalKind.USER, user.id, user.username, tuple(user.roles), AuthMethod.API_TOKEN, token=limits
-            )
+            roles = await self._roles_for(user) if self._roles_for is not None else tuple(user.roles)
+            return Principal(PrincipalKind.USER, user.id, user.username, roles, AuthMethod.API_TOKEN, token=limits)
         account = await accounts_db.get(self._db, record.principal.id)
         if account is None or account.disabled:
             return None

@@ -79,9 +79,11 @@ COMPOSE_TEST  = docker compose -p $(TEST_PROJECT) -f Build/Containers/compose.te
 .PHONY: test-integration
 test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
   -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
-  -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0'
-test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey containers
-	$(COMPOSE_TEST) up -d --wait --quiet-pull || { $(COMPOSE_TEST) logs --no-color --tail 80; \
+  -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0' \
+  -v $(TEST_PROJECT)_ldap-tls:/ldap-tls:ro -e WAYSTATION_TEST_LDAP_CA=/ldap-tls/ca.crt \
+  -e WAYSTATION_TEST_OPENLDAP_HOST=ldap1.example.com -e WAYSTATION_TEST_SAMBA_HOST=dc1.example.com
+test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey/OpenLDAP/Samba AD containers
+	$(COMPOSE_TEST) up -d --wait --build --quiet-pull || { $(COMPOSE_TEST) logs --no-color --tail 80; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }
 	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
@@ -122,7 +124,7 @@ WEB_RUN      = $(DEV_RUN) sh -c
 WEB_SERVE    = docker run --rm -i $(TTY) --init --user $(UID):$(GID) -v $(CURDIR):/src -w /src/$(WEB_DIR) \
                -p $(WEB_PORT):9000 $(DEV_ENV) $(DEV_IMAGE)
 
-.PHONY: frontend-install frontend-dev frontend-mock frontend-lint frontend-test frontend-build frontend-build-mock gen-api gen-api-check
+.PHONY: frontend-install frontend-dev frontend-mock frontend-lint frontend-test frontend-build frontend-build-mock gen-api gen-api-check brand brand-check
 $(WEB_DIR)/node_modules/.installed: $(WEB_DIR)/package.json $(WEB_DIR)/package-lock.json | dev-image
 	$(WEB_RUN) 'cd $(WEB_DIR) && npm ci --no-audit --no-fund'
 	@touch $@
@@ -153,8 +155,14 @@ gen-api: frontend-install ## Regenerate src/api/schema.d.ts from openapi/waystat
 gen-api-check: frontend-install ## Fail if the generated API types are stale (CI)
 	$(WEB_RUN) 'cd $(WEB_DIR) && npm run gen-api:check'
 
+brand: frontend-install ## Regenerate the brand masters and favicon set from src/assets/brand/geometry.ts (UI_DESIGN §8)
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm run brand'
+
+brand-check: frontend-install ## Fail if the committed brand SVGs or web manifest are stale (CI)
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm run brand:check'
+
 .PHONY: frontend-check
-frontend-check: gen-api-check frontend-lint frontend-test frontend-build ## Everything CI runs for the SPA
+frontend-check: gen-api-check brand-check frontend-lint frontend-test frontend-build ## Everything CI runs for the SPA
 
 ##@ Stack
 COMPOSE_DIR    := Build/Containers

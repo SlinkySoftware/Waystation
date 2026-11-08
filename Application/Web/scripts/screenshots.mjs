@@ -36,6 +36,9 @@ const SHOTS = [
   { name: 'browse-yum', path: 'repositories/rocky/browse' },
   { name: 'browse-raw', path: 'repositories/raw-releases/browse?path=docker%2Fcompose%2Freleases%2Fdownload%2Fv2.40.3', full: true },
   { name: 'repo-settings', path: 'repositories/ghcr-proxy/settings', full: true },
+  { name: 'auth-providers', path: 'admin/auth-providers' },
+  { name: 'auth-provider-edit', path: 'admin/auth-providers', action: editProvider },
+  { name: 'auth-provider-tests', path: 'admin/auth-providers', action: testProvider },
   { name: 'profile-tokens', path: 'profile', full: true },
   { name: 'create-token', path: 'profile', action: createToken },
   { name: 'token-created', path: 'profile', action: tokenCreated },
@@ -69,6 +72,20 @@ async function createFlow(page) {
   await page.waitForTimeout(300)
   await page.getByText('Google (gcr.io)', { exact: true }).first().click()
   await page.waitForTimeout(300)
+}
+
+async function editProvider(page) {
+  await page.getByText('Corporate directory', { exact: true }).first().click()
+  await page.waitForTimeout(700)
+}
+
+async function testProvider(page) {
+  await editProvider(page)
+  await page.getByRole('button', { name: /test connection/i }).first().click()
+  await page.getByLabel('Username', { exact: true }).first().fill('alice')
+  await page.getByRole('button', { name: /look up/i }).first().click()
+  await page.waitForTimeout(1400)
+  await page.getByRole('button', { name: /look up/i }).first().scrollIntoViewIfNeeded()
 }
 
 mkdirSync(OUT, { recursive: true })

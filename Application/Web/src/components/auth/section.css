@@ -1,0 +1,76 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Shared layout of the LDAP provider form sections. */
+.ldap-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ldap-section h3 {
+  margin: 0;
+}
+
+.ldap-section__label {
+  font-size: var(--fs-13);
+  font-weight: 550;
+  color: var(--text-secondary);
+}
+
+.ldap-section__row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.ldap-section__row > .col {
+  min-width: 180px;
+}
+
+.ldap-section__server {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ldap-section__index {
+  width: 22px;
+  margin-top: 9px;
+  text-align: center;
+  font-size: var(--fs-12);
+  color: var(--text-tertiary);
+}
+
+.ldap-section__under {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: -6px;
+}
+
+.ldap-section__warning,
+.ldap-section__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-13);
+}
+
+.ldap-section__warning {
+  color: var(--status-degraded);
+  background: var(--status-degraded-bg);
+}
+
+.ldap-section__error {
+  color: var(--cache-error);
+  background: var(--cache-error-bg);
+}
+
+.mono-input :deep(input),
+.mono-input :deep(textarea) {
+  font-family: var(--font-mono);
+  font-size: var(--fs-13);
+}

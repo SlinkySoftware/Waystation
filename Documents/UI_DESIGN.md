@@ -45,8 +45,8 @@ and patterns carry over.
   indicator (pulsing dot + active transfer count; click opens the live drawer), theme toggle, help, user menu
   (profile, my API tokens, sign out).
 - **Command palette**: jump to any repo, component, page or action ("create docker proxy", "copy npm config").
-- **Breadcrumbs** on detail pages. **Toasts** for results (`useNotify`). **Empty states** with an illustration,
-  one sentence and the primary action.
+- **Breadcrumbs** on detail pages. **Toasts** for results (`useNotify`). **Empty states** with an illustration
+  (§8), one sentence and the primary action.
 
 ## 4. Pages
 
@@ -167,6 +167,24 @@ every progress tick), full keyboard operation, no information by colour alone.
 - Visual regression: Playwright screenshots of key pages in both themes at 3 widths (CI artifact, reviewed on change).
 
 ## 8. Brand
-Name: **Waystation**. Mark: a stylised waypoint/station marker containing a stacked-package glyph; works as a
-16 px favicon and in monochrome. Deliver SVG master + PNG sizes in `Application/Web/branding/` (task T-U02).
-Tagline: "Every package, one stop."
+Name: **Waystation**. Tagline: "Every package, one stop."
+- **Mark**: a waypoint marker whose head is a hexagon (a package seen end-on) holding a stack: a top slab and two
+  layers. Deep teal marker (`--brand-500`) with the glyph in `--text-on-brand`, so it follows light and dark; a
+  **mono** variant paints the marker in `currentColor` with the glyph cut out (use it on the brand teal or on photos);
+  below 20 px a 16 px-tuned glyph (slab + one layer, pixel-aligned) replaces the full one.
+- **Wordmark**: "waystation" in a monoline geometric lowercase drawn for the mark (round caps, one stroke weight,
+  16-unit bowls). The lockup is the mark centred on the x-height band, then the wordmark. In the app the top bar and
+  sign-in page show the mark next to the instance name (configurable), so the wordmark is for docs, the README and
+  external material.
+- **Source of truth**: `Application/Web/src/assets/brand/geometry.ts` holds the paths and colours. `BrandMark.vue`
+  draws from it; `make brand` (`scripts/gen-brand.mjs`, resvg in the dev image) regenerates the master SVGs next to
+  it (`mark`, `mark-dark`, `mark-mono`, `mark-small`, `wordmark`, `lockup`, `lockup-dark`, `app-tile`) and the web
+  set in `public/`: `favicon.svg` (switches to the dark-theme colours with `prefers-color-scheme`), `favicon-16/32/48.png`,
+  `favicon.ico`, `apple-touch-icon.png` (180, opaque tile), `icon-192/512.png`, `icon-maskable-512.png` (mark inside
+  the 80% safe zone) and `manifest.webmanifest`. Outputs are committed; `make brand-check` (part of
+  `make frontend-check`) fails when the committed SVGs or manifest drift from the geometry.
+- **Empty-state illustrations** (`EmptyIllustration.vue`, used through `EmptyState`'s `illustration` prop): one line
+  weight, a brand-tinted backdrop, one accent, painted only through theme variables (no hard-coded colours, no
+  requests). Set: `repositories` (no repositories yet), `cache` (nothing cached yet), `search` (no results / no
+  match), `activity` (no activity or transfers), `error` (failed to load), `notFound` (404 and hidden objects),
+  `soon` (planned page or renderer).
