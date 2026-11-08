@@ -1,0 +1,29 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://echo.example.com/token"
+  },
+  "response": {
+    "body_sha256": "d0d146c8d275f3eb8073b3685e9adec285ab644de2dbc532acb55f8fb9637e94",
+    "body_size": 79,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "79"
+      ]
+    ],
+    "status": 200
+  }
+}
