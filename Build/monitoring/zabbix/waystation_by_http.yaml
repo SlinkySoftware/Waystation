@@ -11,9 +11,10 @@ zabbix_export:
         Waystation artifact repository, monitored with HTTP agent items against /healthz, /readyz and the
         Prometheus /metrics endpoint (Documents/Operations/MONITORING.md).
 
-        Setup: set {$WAYSTATION.URL} to the base URL (e.g. https://registry.example.com) and add the Zabbix
-        server's or proxy's address (as the Waystation web container sees it) to WAYSTATION_METRICS_ALLOW_CIDRS,
-        otherwise /metrics answers 404. Run the server with WAYSTATION_SERVER_WORKERS=1 (the default): with more
+        Setup: set {$WAYSTATION.URL} to the base URL (e.g. https://registry.example.com). For /metrics either add
+        the Zabbix server's or proxy's address (as the Waystation web container sees it) to
+        WAYSTATION_METRICS_ALLOW_CIDRS, or set {$WAYSTATION.METRICS.TOKEN} to an API token with the "metrics"
+        scope; otherwise /metrics answers 404. Run the server with WAYSTATION_SERVER_WORKERS=1 (the default): with more
         processes each scrape reaches one process and the rates jump.
       vendor:
         name: Waystation
@@ -104,6 +105,9 @@ zabbix_export:
           description: 'Raw Prometheus text from /metrics (master item; not stored).'
           timeout: 10s
           url: '{$WAYSTATION.URL}/metrics'
+          headers:
+            - name: Authorization
+              value: 'Bearer {$WAYSTATION.METRICS.TOKEN}'
           tags:
             - tag: component
               value: raw
@@ -644,6 +648,9 @@ zabbix_export:
         - macro: '{$WAYSTATION.URL}'
           value: 'https://registry.example.com'
           description: 'Waystation base URL (WAYSTATION_BASE_URL), no trailing slash.'
+        - macro: '{$WAYSTATION.METRICS.TOKEN}'
+          type: SECRET_TEXT
+          description: 'API token with the "metrics" scope (owner holds stats-read). Leave empty when this Zabbix server or proxy is in WAYSTATION_METRICS_ALLOW_CIDRS.'
         - macro: '{$WAYSTATION.METRICS.INTERVAL}'
           value: 1m
           description: 'How often /metrics is scraped and the ratios are computed.'
