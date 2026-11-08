@@ -281,10 +281,15 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
 | `server` | `waystation-server` | All format protocols + REST API + SSE + docker token service; decides every request | 1..N |
 | `worker` | `waystation-worker` | Background jobs: index generation/signing, cleanup, GC, stats rollups, prefetch, import | 1..N (queues per job class) |
 | `mongodb` | `mongo:8` (official) | Metadata, users, stats (time series), audit, jobs history | single-node replica set (or external) |
-| `valkey` | `valkey/valkey:8` | Coalescing locks, live counters, pub/sub, job streams, grant cache. Runs with `maxmemory-policy noeviction` and AOF (`appendfsync everysec`) so job streams and locks are never evicted | 1 |
+| `valkey` | `valkey/valkey:8-alpine` | Coalescing locks, live counters, pub/sub, job streams, grant cache. Runs with `maxmemory-policy noeviction` and AOF (`appendfsync everysec`) so job streams and locks are never evicted | 1 |
 | `init` | `waystation-server` (one-shot) | Mongo replica set init, migrations, first admin bootstrap | run-to-completion |
 
-Only `web` publishes ports. All share one project network; MongoDB and Valkey sit on a private backend network.
+Only `web` publishes ports (`WAYSTATION_HTTP_PORT`, default 8080). `web`, `server` and `worker` share the
+`frontend` project network (server and worker reach upstreams through it); MongoDB and Valkey sit on the
+`backend` network (`internal: true`, no egress) shared with `server`, `worker` and `init`. Long-running containers
+run as non-root users with read-only root filesystems (except MongoDB's) and `cap_drop: [ALL]`; `init` alone starts
+as root with `CHOWN`, `FOWNER`, `DAC_OVERRIDE`, `SETUID`, `SETGID` to fix data-dir ownership, then drops to
+`WAYSTATION_UID:GID` before touching MongoDB.
 
 ### 8.2 Storage
 - `WAYSTATION_DATA_DIR` (host path or volume) is mounted at `/var/lib/waystation` in `server` and `worker` (rw)
@@ -309,8 +314,12 @@ Only `web` publishes ports. All share one project network; MongoDB and Valkey si
 - Healthchecks on every service; `depends_on` with `condition: service_healthy`; web restarts with server.
 - Reverse-proxy integration (Traefik labels, extra networks, TLS) lives in a site override file **outside** the
   repo; the repo ships `Build/Containers/examples/traefik.override.example.yaml` with `example.com` names.
-- Explicit subnet for the project network is configurable (`WAYSTATION_SUBNET`), because Docker's default pools
-  can collide with routed networks.
+- Explicit subnet for the project network is configurable (`WAYSTATION_SUBNET`, and `WAYSTATION_BACKEND_SUBNET`
+  for the backend network), because Docker's default pools can collide with routed networks. Unset = Docker picks.
+- Dev stack (`make dev-up`): `compose.yaml` + `compose.dev.yaml` as project `waystation-dev` (containers
+  `waystation-dev-*`), images built locally, Python source bind-mounted read-only with hot reload, throwaway secrets
+  generated once into the gitignored `.dev-data/dev.env`; `compose.dev-spa.yaml` is added automatically to serve a
+  locally built SPA (`Application/Web/dist/spa`), otherwise the image's copy (or a placeholder page) is served.
 
 ### 8.4 TLS and reverse proxies
 Either `web` terminates TLS (cert/key paths, HTTP→HTTPS redirect, HTTP/2) or it runs plain HTTP behind a trusted
@@ -329,7 +338,7 @@ Forward-only migrations run by `init`; `server` refuses to start on an unknown n
 breaking changes. Zero-downtime for patch releases with ≥2 server replicas.
 
 ## 9. Configuration reference (environment)
-All variables are `WAYSTATION_*`; every secret also accepts `<NAME>_FILE`. The authoritative list is
+All variables are `WAYSTATION_*`; every secret also accepts `<NAME>_FILE` (setting both is an error; empty values mean "use the default"). The authoritative list is
 `.env.example` (generated from `waystation_common.settings` by `make env-example`; CI checks it is current).
 Key ones: `BASE_URL`, `DATA_DIR`, `MONGO_URI`, `MONGO_DB`, `VALKEY_URL`, `SECRET_KEYS` (comma list, first is
 active), `SESSION_SECRET`, `TRUST_FORWARDED`, `TRUSTED_PROXIES`, `LOG_LEVEL`, `LOG_FORMAT`, `SERVER_WORKERS`,
@@ -407,6 +416,11 @@ Waystation/
 | Plan and documents | Drafted 2026-11-08 |
 | Repository bootstrap (T-F01) | Done 2026-11-08: skeleton, LICENSE (GPL-3.0-or-later), VERSION 0.1.0; pushed to both remotes |
 | Dev tooling (T-F02) | Done 2026-11-08: dev image (Python 3.14, uv, Node 26 LTS), Makefile, uv workspace (`waystation_common`, `waystation_server`, `waystation_worker`), ruff, mypy strict, import-linter contracts (ARCH §3), pre-commit hook |
+| Common core (T-F04) | Done 2026-11-08: `waystation_common.settings` (env `WAYSTATION_*`, `<NAME>_FILE` for secrets, generated `.env.example`), `logs` (JSON lines + contextvars request context, redaction), `ids` (ULID), `errors`, `paths.normalise`, `crypto` (AES-256-GCM keyring, rotation) |
+| Containers and compose (T-F05) | M0 slice 2026-11-08: server/worker/web images, `compose.yaml` + dev override, `make dev-up` brings web, server, worker, mongodb (rs0), valkey and init up healthy; server answers only `/healthz` and `/readyz`; web serves a placeholder page until the SPA is built. Standalone compose files and TLS pending |
+| MongoDB layer (T-F06) | M0 slice 2026-11-08: async client factory, collection registry and indexes for the M0 collections, declarative schema + forward-only migrations run by `init` (idempotent), `make test-integration` against real MongoDB/Valkey |
+| Blob store (T-F07) | M0 slice 2026-11-08: local-filesystem `BlobStore` (streaming sha256, size limits, verified atomic commit, X-Accel paths, orphan sweeper, free-space guard); NFS CI scenario pending |
+| Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once. Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)
