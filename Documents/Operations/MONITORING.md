@@ -17,13 +17,16 @@ All of them are reached through the web container at the base URL (`https://regi
 |---|---|---|
 | `GET /healthz` | anyone | `200 {"status":"ok"}` while the server process runs |
 | `GET /readyz` | anyone | `200 {"status":"ok"}` when MongoDB and Valkey both answered within 2 s, else `503 {"status":"unavailable"}` |
-| `GET /metrics` | client address in `WAYSTATION_METRICS_ALLOW_CIDRS` (default loopback only) | Prometheus text format; everyone else gets `404` |
+| `GET /metrics` | client address in `WAYSTATION_METRICS_ALLOW_CIDRS` (default loopback only), or `Authorization: Bearer <API token>` with the `metrics` scope whose owner holds `stats-read` | Prometheus text format; everyone else gets `404` |
 
-Add your Prometheus server's or Zabbix server's (or proxy's) address, as the web container sees it, to
-`WAYSTATION_METRICS_ALLOW_CIDRS`, for example `WAYSTATION_METRICS_ALLOW_CIDRS=127.0.0.0/8,::1/128,192.0.2.30/32`.
-Behind a reverse proxy the address is resolved through `X-Forwarded-For` only when the proxy is trusted
-(REVERSE_PROXIES.md section 2). Scraping with a bearer token (an API token with the `metrics` scope) is planned with
-API tokens (T-S04).
+Two ways to let a scraper in:
+
+- **By address**: add your Prometheus server's or Zabbix server's (or proxy's) address, as the web container sees
+  it, to `WAYSTATION_METRICS_ALLOW_CIDRS`, e.g. `WAYSTATION_METRICS_ALLOW_CIDRS=127.0.0.0/8,::1/128,192.0.2.30/32`.
+  Behind a reverse proxy the address is resolved through `X-Forwarded-For` only when the proxy is trusted
+  (REVERSE_PROXIES.md section 2).
+- **By token**: create an API token with only the `metrics` scope for a user (or service account) holding
+  `stats-read` (the built-in `viewer` role has it), and send it as a bearer token. The token works from any address.
 
 The worker has no HTTP listener: its liveness is the container healthcheck (a heartbeat file the job loop renews;
 `docker inspect --format '{{.State.Health.Status}}' waystation-worker`). Monitor it with your container monitoring
@@ -67,6 +70,9 @@ scrape_configs:
     scheme: https
     metrics_path: /metrics
     scrape_interval: 30s
+    # Only when scraping by token instead of by address:
+    # authorization:
+    #   credentials_file: /etc/prometheus/waystation-metrics.token
     static_configs:
       - targets: ['registry.example.com']
 ```
@@ -89,6 +95,7 @@ later), link "Waystation by HTTP" to a host (no agent or interface needed) and s
 | Macro | Default | Meaning |
 |---|---|---|
 | `{$WAYSTATION.URL}` | `https://registry.example.com` | Base URL, no trailing slash |
+| `{$WAYSTATION.METRICS.TOKEN}` | empty (secret) | API token with the `metrics` scope, when Zabbix is not in `WAYSTATION_METRICS_ALLOW_CIDRS` |
 | `{$WAYSTATION.METRICS.INTERVAL}` | `1m` | Scrape interval of `/metrics` and of the calculated ratios |
 | `{$WAYSTATION.ERROR.RATIO.WARN}` | `5` | Overall upstream error ratio (%) that raises a trigger after 10 minutes |
 | `{$WAYSTATION.UPSTREAM.ERROR.WARN}` | `10` | Per-repository error ratio (%): "upstream degraded" after 5 minutes |
