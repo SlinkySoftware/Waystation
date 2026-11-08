@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from pymongo import AsyncMongoClient
+from pymongo.asynchronous.client_session import AsyncClientSession
 from pymongo.asynchronous.database import AsyncDatabase
 
 from waystation_common.settings import Settings
@@ -22,6 +23,7 @@ from waystation_common.settings import Settings
 Document = dict[str, Any]
 Client = AsyncMongoClient[Document]
 Database = AsyncDatabase[Document]
+Session = AsyncClientSession  # a transaction's session, passed through to writes that must join it
 
 
 def create_client(settings: Settings, *, app_name: str = 'waystation', **overrides: Any) -> Client:
