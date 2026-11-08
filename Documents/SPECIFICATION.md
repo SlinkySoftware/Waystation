@@ -71,7 +71,10 @@ Windows containers support for the server.
   protocol allows to avoid consuming quota.
 - Content validation: verify digests/checksums the protocol provides (OCI digests, npm `integrity`, PyPI
   `#sha256=`, Maven `.sha1/.sha256`, apt `Packages` hashes, yum `primary.xml` checksums, Go sumdb) before an asset
-  is committed to the cache. Mismatch = not cached, client gets 502, event logged.
+  is committed to the cache. Mismatch = not cached, client gets 502, event logged. Content streamed to the client
+  during the fetch (tee) has its status already sent: the last chunk is held back until the bytes are verified and a
+  mismatch cuts the connection, so the client never receives a complete wrong file (an incomplete transfer instead
+  of a 502). A `HEAD` for content that is not cached is answered from an upstream `HEAD` without downloading.
 - Rewrite URLs inside metadata so clients fetch content through Waystation (npm `dist.tarball`, PyPI file links,
   Helm `index.yaml` URLs, Terraform download URLs).
 - SSRF guard: upstream URLs and redirects may not resolve to loopback/link-local/private ranges unless the repo
@@ -471,6 +474,7 @@ Waystation/
 | Repositories UI (T-U04 min) | M0 slice 2026-11-08 on mocks: list + filters, create/edit/delete docker/npm/apt/raw proxies with test upstream and field errors, detail page (Overview, Browse, Settings), Set me up panel. Snippets shown with a `<your-api-token>` placeholder (tokens are shown once at creation, T-S04) |
 | Browse UI (T-U05 min) | M0 slice 2026-11-08 on mocks: docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour (both themes, desktop + mobile) in `Documents/Notes/screenshots/m0/` |
 | Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
+| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block, per-repo CA/proxy and coalescing (T-S08) pending; no format plugin uses it yet (Formats lane) |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

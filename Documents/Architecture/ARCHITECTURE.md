@@ -197,6 +197,12 @@ and any format-specific roots such as `/v2/`), `resolve(request, repo) -> Resolu
 `ui_descriptor` (icon, labels, browse renderer hints). Shared helpers for metadata rewriting, checksum
 validation and URL building live in `formats/common/`.
 
+As implemented (M0): a format is a `FormatDescriptor` (name, supported types, `options_model` = `config_schema`,
+probe path, "Set me up" snippets, UI hints) plus a plugin with `handle(req: FormatRequest) -> Response`, registered in
+`waystation_server.plugins`. The router has already resolved the repository, normalised the path and authorised the
+request. Proxy formats describe each file as a `proxy.engine.AssetSpec` and return `await req.proxy.serve(req, spec)`
+(`ensure`/`read` give them cached metadata to parse); the engine implements §5, §6.1, §6.2 and §6.4 for them.
+
 ## 12. Errors and logging
 Format endpoints return the format's native error shape (OCI JSON errors, npm JSON errors, plain 404 for file
 formats). REST API errors use RFC 9457 problem+json. Logs are JSON lines with `request_id`, `principal`,

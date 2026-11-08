@@ -32,7 +32,7 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 | Collection | Key fields | Indexes |
 |---|---|---|
 | `components` | `_id`, `repo_id`, `format`, `namespace` (scope/group/org; may be empty), `name`, `version` (or tag set for docker), `version_sort` (format-normalised sortable key), `attributes{...}` (format-specific: platforms, license, description...), `size_bytes` (sum of assets), `created_at`, `last_downloaded_at`, `download_count`, `uploaded_by` (hosted) | `repo_id,namespace,name,version_sort` unique-ish; `format,name` (search, collation case-insensitive); `last_downloaded_at`; text index on `name, attributes.description` |
-| `assets` | `_id`, `repo_id`, `path` (normalised, unique per repo), `kind` (`content`/`metadata`), `component_id?`, `blob_sha256`, `size`, `content_type`, `checksums{sha1, sha256, sha512, md5}` (as provided/computed), `upstream{url, etag, last_modified, fetched_at, status}`, `created_at`, `last_downloaded_at`, `download_count` | `repo_id,path` unique; `blob_sha256` (GC + "where used"); `component_id`; `repo_id,last_downloaded_at` |
+| `assets` | `_id`, `repo_id`, `path` (normalised, unique per repo), `kind` (`content`/`metadata`), `component_id?`, `blob_sha256`, `size`, `content_type`, `checksums{sha1, sha256, sha512, md5}` (as provided/computed), `headers{}` (format headers replayed on every response, e.g. `Docker-Content-Digest`), `upstream{url (final, after redirects), etag, last_modified (verbatim header), fetched_at (last confirmed by the upstream: fetch or 304), status}`, `created_at`, `updated_at`, `last_downloaded_at`, `download_count` | `repo_id,path` unique; `blob_sha256` (GC + "where used"); `component_id`; `repo_id,last_downloaded_at` |
 | `docker_tags` | `repo_id`, `image` (name), `tag`, `manifest_digest`, `updated_at`, `pushed_by` | `repo_id,image,tag` unique; `repo_id,manifest_digest` |
 | `docker_manifests` | `repo_id`, `image`, `digest`, `media_type`, `subject_digest?` (referrers), `artifact_type?`, `platforms[]`, `layers[{digest,size,media_type}]`, `config_digest`, `size_total` | `repo_id,image,digest` unique; `repo_id,subject_digest` |
 | `apt_pool_index` | `repo_id`, `filename` (pool path), `sha256`, `size`, `suite`, `component`, `arch`, `verified`, `updated_at` (FORMATS apt: `Filename → (SHA256, Size)` from cached `Packages` files) | `repo_id,filename` unique; `repo_id,suite,component` |
@@ -65,7 +65,7 @@ Notes:
 | `fill:<repo_id>:<asset_key>` | string (JSON: upload id, owner replica, progress, total) | single-flight lock + progress for coalescing (lease, renewed) |
 | `neg:<repo_id>:<asset_key>` | string | negative cache (404) |
 | `meta:<repo_id>:<asset_key>` | string/bytes | hot metadata response cache (rewritten/merged docs), short TTL |
-| `cnt:<minute>:<repo_id>` | hash | per-minute counters (`requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_*`) + `format`; `<minute>` = epoch minute (`ts // 60`); rolled up by the worker after the minute closes; TTL 3 h safety net |
+| `cnt:<minute>:<repo_id>` | hash | per-minute counters (`requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_*`, `upstream_requests`, `upstream_errors`) + `format`; `<minute>` = epoch minute (`ts // 60`); rolled up by the worker after the minute closes; TTL 3 h safety net |
 | `lat:<minute>:<repo_id>` | hash of bucket → count | latency histogram, fixed log-scale buckets `le_1`, `le_2`, `le_5` ... `le_60000`, `le_inf` (ms upper bounds, `waystation_common.events.keys`) |
 | `stats:pending` | set (no TTL) | `<minute>:<repo_id>` pairs with counters awaiting rollup (lets the rollup find keys without SCAN) |
 | `transfers` | hash `<transfer_id>` → JSON (state, bytes, rate, updated_at); stale entries swept by the rollup job | live transfers: current state |
@@ -78,6 +78,7 @@ Notes:
 | `lease:scheduler`, `lease:<name>` | string | leader election |
 | `grants:<principal>:<grant_version>` | bytes | cached effective permissions |
 | `rl:<scope>:<id>` | string counters | rate limiting (logins, token use) |
+| `upstream:<repo_id>:health` | hash (no TTL; one per proxy repo, removed with the repo) | `last_ok_at`, `last_error`, `last_error_at`, `consecutive_failures`, `last_latency_ms`: written by the proxy engine through the emitter; read by upstream health / repository status |
 | `upstream:<repo_id>:ratelimit` | hash | last seen upstream rate-limit headers |
 
 ## 3. Blob store (`WAYSTATION_DATA_DIR`)

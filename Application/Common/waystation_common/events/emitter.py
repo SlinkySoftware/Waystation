@@ -121,6 +121,10 @@ class EventEmitter:
         self._ops.append(op)
 
     # ------------------------------------------------------------------ ops
+    def call(self, op: Op) -> None:
+        """Queue one small Valkey write (``op(pipe)``) for the next flush: fire-and-forget, never raises."""
+        self._enqueue(op)
+
     @staticmethod
     def _live_ops(kind: EventType, transfer: Transfer) -> Op:
         state = transfer.model_dump_json()
@@ -187,6 +191,50 @@ class EventEmitter:
             pipe.expire(cnt, keys.COUNTER_TTL_S)
             pipe.expire(lat, keys.COUNTER_TTL_S)
             pipe.sadd(keys.STATS_PENDING, keys.pending_member(minute, repo_id))
+
+        self._enqueue(op)
+
+    def upstream(
+        self,
+        *,
+        repo_id: str,
+        format: str,
+        ok: bool,
+        count_request: bool = True,
+        error: str | None = None,
+        latency_ms: float | None = None,
+        ts: float | None = None,
+    ) -> None:
+        """Count one request sent to an upstream (``upstream_requests``; failures also ``upstream_errors``) and
+        update the repository's upstream health hash (``upstream:<repo_id>:health``)."""
+        now = self._clock() if ts is None else ts
+        minute = keys.minute_of(now)
+        cnt = keys.cnt_key(minute, repo_id)
+        health = keys.upstream_health_key(repo_id)
+        stamp = _dt(now).isoformat()
+
+        def op(pipe: Pipeline) -> None:
+            if count_request:
+                pipe.hincrby(cnt, 'upstream_requests', 1)
+            if not ok:
+                pipe.hincrby(cnt, 'upstream_errors', 1)
+            pipe.hsetnx(cnt, 'format', format)
+            pipe.expire(cnt, keys.COUNTER_TTL_S)
+            pipe.sadd(keys.STATS_PENDING, keys.pending_member(minute, repo_id))
+            if ok:
+                fields: dict[Any, Any] = {'last_ok_at': stamp, 'consecutive_failures': '0'}
+                if latency_ms is not None:
+                    fields['last_latency_ms'] = f'{latency_ms:.1f}'
+                pipe.hset(health, mapping=fields)
+            else:
+                pipe.hset(
+                    health,
+                    mapping={
+                        'last_error': (error or 'error')[:300],
+                        'last_error_at': stamp,
+                    },
+                )
+                pipe.hincrby(health, 'consecutive_failures', 1)
 
         self._enqueue(op)
 
@@ -257,7 +305,7 @@ class EventEmitter:
         t = live.transfer
         done = t.bytes_done if bytes_done is None else bytes_done
         final_cache = CacheState.ERROR if error else (cache or t.cache)
-        t = t.model_copy(update={'bytes_done': done, 'cache': final_cache, 'updated_at': _dt(now)})
+        t = t.model_copy(update={'bytes_done': done, 'cache': final_cache, 'updated_at': _dt(now), 'error': error})
         kind = EventType.TRANSFER_FAILED if error else EventType.TRANSFER_FINISHED
         duration_ms = (now - t.started_at.timestamp()) * 1000
         self._enqueue(self._live_ops(kind, t))

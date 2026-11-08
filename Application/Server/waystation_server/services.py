@@ -49,7 +49,7 @@ class Services:
     metrics: Metrics
     sessions: SessionManager
     upstream: UpstreamClients
-    proxy: ProxyEngine = field(default_factory=ProxyEngine)
+    proxy: ProxyEngine
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
@@ -81,17 +81,29 @@ class Services:
         async def load() -> list[RepoConfig]:
             return await repos_db.list_all(db)
 
+        blobs = BlobStore.from_settings(settings)
+        upstream = UpstreamClients(settings)
         return cls(
             settings=settings,
             db=db,
             valkey=redis,
             emitter=emitter,
-            blobs=BlobStore.from_settings(settings),
+            blobs=blobs,
             catalog=RepoCatalog(load),
             formats=formats,
             metrics=metrics,
             sessions=SessionManager(db, redis, settings),
-            upstream=UpstreamClients(settings),
+            upstream=upstream,
+            proxy=ProxyEngine(
+                settings=settings,
+                db=db,
+                valkey=redis,
+                blobs=blobs,
+                emitter=emitter,
+                clients=upstream,
+                metrics=metrics,
+                keyring=keyring,
+            ),
             keyring=keyring,
             mongo_client=client,
             check_schema_on_start=check_schema_on_start,
