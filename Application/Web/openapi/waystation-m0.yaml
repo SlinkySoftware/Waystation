@@ -448,6 +448,67 @@ paths:
                 items: { $ref: '#/components/schemas/Role' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /audit:
+    get:
+      tags: [admin]
+      operationId: listAudit
+      summary: Audit log, newest first (needs `audit-read`; `admin` implies it)
+      description: |
+        Append-only record of security-relevant actions (SPEC §4.11). Filters combine with AND; `action` may be
+        repeated (OR) and accepts a category wildcard such as `token.*`. Cursor paging, newest first.
+      parameters:
+        - $ref: '#/components/parameters/AuditFrom'
+        - $ref: '#/components/parameters/AuditTo'
+        - $ref: '#/components/parameters/AuditActor'
+        - $ref: '#/components/parameters/AuditAction'
+        - $ref: '#/components/parameters/AuditTarget'
+        - $ref: '#/components/parameters/AuditOutcome'
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Audit page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /audit/export:
+    get:
+      tags: [admin]
+      operationId: exportAudit
+      summary: Export the matching audit records (streamed CSV or NDJSON, newest first, at most 100 000 records)
+      description: |
+        Same filters as `GET /audit`. NDJSON lines are `AuditRecord` objects. CSV has one row per record with
+        `changes` and `details` as JSON text; cells a spreadsheet would treat as a formula are prefixed with `'`.
+        The response is an attachment. When the limit is reached the export stops and says so: the last NDJSON line
+        is `{"truncated": true}`, the last CSV row starts with `# truncated`.
+      parameters:
+        - $ref: '#/components/parameters/AuditFrom'
+        - $ref: '#/components/parameters/AuditTo'
+        - $ref: '#/components/parameters/AuditActor'
+        - $ref: '#/components/parameters/AuditAction'
+        - $ref: '#/components/parameters/AuditTarget'
+        - $ref: '#/components/parameters/AuditOutcome'
+        - name: format
+          in: query
+          schema: { type: string, enum: [csv, ndjson], default: csv }
+      responses:
+        '200':
+          description: The export file
+          content:
+            text/csv:
+              schema: { type: string }
+            application/x-ndjson:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /repositories:
     get:
       tags: [repositories]
@@ -952,6 +1013,41 @@ components:
       description: Image name within the repository, e.g. `library/nginx`
       schema: { type: string, maxLength: 255 }
 
+    AuditFrom:
+      name: from
+      in: query
+      description: Records at or after this time (RFC 3339)
+      schema: { type: string, format: date-time }
+    AuditTo:
+      name: to
+      in: query
+      description: Records before this time (RFC 3339)
+      schema: { type: string, format: date-time }
+    AuditActor:
+      name: actor
+      in: query
+      description: Who acted, by name (`admin`, `ci-bot`, `anonymous`) or id
+      schema: { type: string, maxLength: 256 }
+    AuditAction:
+      name: action
+      in: query
+      description: An action (`token.create`) or a category wildcard (`token.*`); repeat for several
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 20
+        items: { type: string, maxLength: 64 }
+    AuditTarget:
+      name: target
+      in: query
+      description: The object acted on, by name (`dockerhub-proxy`) or id
+      schema: { type: string, maxLength: 256 }
+    AuditOutcome:
+      name: outcome
+      in: query
+      schema: { $ref: '#/components/schemas/AuditOutcome' }
+
   responses:
     Unauthorized:
       description: Not signed in
@@ -1080,7 +1176,7 @@ components:
           type: array
           description: |
             Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
-            replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`,
+            replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
             `admin`.
           items: { type: string }
         preferences: { $ref: '#/components/schemas/Preferences' }
@@ -2006,3 +2102,68 @@ components:
         type: { type: string, const: activity }
         ts: { $ref: '#/components/schemas/Timestamp' }
         event: { $ref: '#/components/schemas/ActivityEvent' }
+
+    # ---------------------------------------------------------------- audit (SPEC §4.11, T-S10)
+    AuditOutcome:
+      type: string
+      enum: [success, failure]
+    AuditActor:
+      type: object
+      description: Who acted. `system` = the server or a worker job acting on its own.
+      required: [kind, id, name, auth, provider, token_id]
+      properties:
+        kind: { type: string, enum: [user, service_account, anonymous, system] }
+        id: { type: [string, 'null'] }
+        name: { type: string, description: 'Username, service account name, `anonymous` or `system`' }
+        auth:
+          type: string
+          description: How the request was authenticated
+          enum: [session, api_token, basic, registry_token, none, system]
+        provider: { type: [string, 'null'], description: 'Sign-in source of the user (`local`, `ldap:<id>`, `oidc:<id>`)' }
+        token_id: { type: [string, 'null'], description: The API token used, when there was one }
+    AuditTarget:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind:
+          type: string
+          description: '`user`, `service_account`, `api_token`, `auth_provider`, `repository`, `session`, `settings`...'
+        id: { type: [string, 'null'] }
+        name: { type: [string, 'null'] }
+    AuditChange:
+      type: object
+      description: One changed field. Secret values are never recorded; `redacted` marks a secret that changed.
+      required: [field, before, after, redacted]
+      properties:
+        field: { type: string, description: 'Dotted path, e.g. `proxy.upstream_url`' }
+        before: { description: Previous value (JSON); null when absent }
+        after: { description: New value (JSON); null when removed }
+        redacted: { type: boolean }
+    AuditRecord:
+      type: object
+      required: [id, ts, action, outcome, actor, target, client_ip, request_id, reason, details, changes]
+      properties:
+        id: { type: string }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        action: { type: string, description: '`<category>.<verb>`, e.g. `auth.login`, `repository.update`' }
+        outcome: { $ref: '#/components/schemas/AuditOutcome' }
+        actor: { $ref: '#/components/schemas/AuditActor' }
+        target: { oneOf: [{ $ref: '#/components/schemas/AuditTarget' }, { type: 'null' }] }
+        client_ip: { type: [string, 'null'] }
+        request_id: { type: [string, 'null'] }
+        reason: { type: [string, 'null'], description: 'Why it failed (`bad_credentials`, `locked`...); null on success' }
+        details:
+          type: object
+          description: Action-specific facts (plain values; never secrets)
+          additionalProperties: true
+        changes:
+          type: array
+          items: { $ref: '#/components/schemas/AuditChange' }
+    AuditPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditRecord' }
+        next_cursor: { type: [string, 'null'] }

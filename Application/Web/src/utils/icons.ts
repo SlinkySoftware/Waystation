@@ -19,6 +19,7 @@ export {
   symOutlinedEdit as iconEdit,
   symOutlinedDeleteSweep as iconCleanup,
   symOutlinedDescription as iconFile,
+  symOutlinedDownload as iconDownload,
   symOutlinedError as iconError,
   symOutlinedFolder as iconFolder,
   symOutlinedFolderOpen as iconBrowse,

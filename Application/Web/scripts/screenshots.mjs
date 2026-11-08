@@ -42,11 +42,19 @@ const SHOTS = [
   { name: 'profile-tokens', path: 'profile', full: true },
   { name: 'create-token', path: 'profile', action: createToken },
   { name: 'token-created', path: 'profile', action: tokenCreated },
+  { name: 'audit-log', path: 'admin/audit?range=30d' },
+  { name: 'audit-failures', path: 'admin/audit?range=30d&action=auth.*&outcome=failure' },
+  { name: 'audit-record', path: 'admin/audit?range=30d&action=auth_provider.update', action: openAuditRecord },
 ]
 
 async function openSetup(page) {
   await page.getByRole('button', { name: /set me up/i }).first().click()
   await page.waitForTimeout(900)
+}
+
+async function openAuditRecord(page) {
+  await page.locator('.ws-table tbody tr, .audit__card').first().click()
+  await page.waitForTimeout(700)
 }
 
 async function createToken(page) {

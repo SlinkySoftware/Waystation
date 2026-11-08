@@ -7,6 +7,7 @@ import { delay, http, HttpResponse } from 'msw'
 import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, Preferences, Problem, Repository, RepositoryWrite, Session, StatsRange } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
+import { auditHandlers, recordAudit } from './audit'
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
@@ -38,7 +39,7 @@ function session(username: string): Session {
   return {
     user: { id: '01JC0000000000000000000ADM', username, display_name: username === 'admin' ? 'Administrator' : username, email: `${username}@example.com`, source: 'local' },
     csrf_token: CSRF,
-    capabilities: ['admin', 'repositories.create', 'repositories.manage', 'stats.read'],
+    capabilities: ['admin', 'repositories.create', 'repositories.manage', 'stats.read', 'audit.read'],
     preferences,
     expires_at: new Date(Date.now() + 12 * 3_600_000).toISOString(),
   }
@@ -168,8 +169,12 @@ export const handlers = [
     await delay(350)
     const body = (await request.json()) as { username?: string; password?: string; provider?: string }
     const knownProvider = !body.provider || body.provider === 'local' || providers.some((p) => p.id === body.provider && p.enabled)
-    if (!body.username || !body.password || body.password === 'wrong' || !knownProvider) return problem(401, 'Unauthorized', 'Invalid username or password.')
+    if (!body.username || !body.password || body.password === 'wrong' || !knownProvider) {
+      recordAudit({ action: 'auth.login', outcome: 'failure', reason: 'bad_credentials', actor: { kind: 'anonymous', id: null, name: 'anonymous', auth: 'none', provider: null, token_id: null }, target: { kind: 'user', id: null, name: body.username ?? null }, details: { username: body.username ?? '', via: 'ui' } })
+      return problem(401, 'Unauthorized', 'Invalid username or password.')
+    }
     localStorage.setItem(SESSION_KEY, body.username)
+    recordAudit({ action: 'auth.login', outcome: 'success', actor: { kind: 'user', id: session(body.username).user.id, name: body.username, auth: 'session', provider: 'local', token_id: null }, target: { kind: 'user', id: session(body.username).user.id, name: body.username }, details: { username: body.username, via: 'ui' } })
     world.addActivity({ kind: 'auth', summary: `${body.username} signed in`, outcome: 'info', repository: null, format: null, artifact: null, principal: body.username, cache: null, bytes: null, duration_ms: null })
     return HttpResponse.json(session(body.username))
   }),
@@ -191,6 +196,9 @@ export const handlers = [
 
   // ---------------------------------------------------------------- API tokens and service accounts
   ...tokenHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
+
+  // ---------------------------------------------------------------- audit log (T-S10)
+  ...auditHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
   // ---------------------------------------------------------------- repositories
   http.get(`${API}/repositories`, async ({ request }) => {
