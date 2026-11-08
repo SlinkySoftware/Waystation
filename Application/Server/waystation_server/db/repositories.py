@@ -14,12 +14,13 @@ from waystation_common.db.collections import (
     DOCKER_TAGS,
     NPM_PACKAGES,
     REPOSITORIES,
+    YUM_PACKAGES,
 )
 from waystation_common.errors import Conflict
 from waystation_server.repos.model import RepoConfig
 
 # Per-repository content records dropped with the repository (blobs are reclaimed later by GC).
-CONTENT_COLLECTIONS = (ASSETS, APT_POOL_INDEX, APT_PACKAGES, NPM_PACKAGES, DOCKER_TAGS, DOCKER_MANIFESTS)
+CONTENT_COLLECTIONS = (ASSETS, APT_POOL_INDEX, APT_PACKAGES, NPM_PACKAGES, DOCKER_TAGS, DOCKER_MANIFESTS, YUM_PACKAGES)
 
 
 async def list_all(db: Database) -> list[RepoConfig]:

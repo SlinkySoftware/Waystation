@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, DockerOptions, Format, M0Format, NpmOptions, RawOptions, Repository, RepositoryWrite } from '@/api/types'
+import type { AptOptions, DockerOptions, Format, M0Format, NpmOptions, RawOptions, Repository, RepositoryWrite, YumOptions } from '@/api/types'
 
-/** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (no options yet). */
+/** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (options carried through). */
 export type FormFormat = M0Format | 'yum'
 
 export interface RepoFormModel {
@@ -35,6 +35,9 @@ export interface RepoFormModel {
   // raw
   metadataRegex: string
   contentDisposition: 'inline' | 'attachment'
+  // yum: not edited in this form yet; carried through so saving keeps them
+  repoPath: string
+  gpgKey: string | null
 }
 
 export interface Preset {
@@ -85,13 +88,15 @@ export function emptyModel(format: FormFormat): RepoFormModel {
     flat: false,
     metadataRegex: '',
     contentDisposition: 'attachment',
+    repoPath: '',
+    gpgKey: null,
   }
 }
 
 export function modelFromRepository(repo: Repository): RepoFormModel {
   const m = emptyModel(repo.format as FormFormat)
   const p = repo.proxy
-  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions
+  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions
   return {
     ...m,
     name: repo.name,
@@ -115,6 +120,8 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     flat: o.flat ?? false,
     metadataRegex: o.metadata_path_regex ?? '',
     contentDisposition: o.content_disposition ?? 'attachment',
+    repoPath: o.repo_path ?? '',
+    gpgKey: o.gpg_key ?? null,
   }
 }
 
@@ -127,7 +134,7 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
     case 'apt':
       return { distribution: m.distribution.trim(), flat: m.flat }
     case 'yum':
-      return undefined
+      return { repo_path: m.repoPath, gpg_key: m.gpgKey }
     case 'raw':
     default:
       return { metadata_path_regex: m.metadataRegex.trim() || null, content_disposition: m.contentDisposition }
@@ -156,7 +163,7 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
       offline: m.offline,
       allow_private_upstream: m.allowPrivate,
     },
-    ...(m.format === 'yum' ? {} : { format_options: formatOptions(m) }),
+    format_options: formatOptions(m),
   }
 }
 
