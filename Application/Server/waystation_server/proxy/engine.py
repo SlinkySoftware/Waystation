@@ -30,17 +30,29 @@ and revalidations only, never on hits.
 
 ``relay`` forwards a request that must not be cached (npm audit POSTs) and answers with the upstream's bounded body.
 
-Not yet (later tasks): request coalescing (T-S08), auto-block (T-S07 full), download counters (T-S09).
+**Coalescing** (ARCHITECTURE §6.3, ``proxy.coalesce``): before contacting the upstream for a missing or stale asset
+the engine claims the asset's single-flight lease in Valkey. The owner fetches as above (its live transfer shows the
+follower count); followers of a streaming content fill tail the owner's upload file as it grows (``COALESCED``; last
+piece held back until the owner committed), or wait for the commit and are served by X-Accel (metadata, ``HEAD``,
+``WAYSTATION_COALESCE_TAIL=wait``, another host or a network filesystem). A failed or mismatched fetch fails its
+followers too (nothing unverified is ever completed); an owner that goes away (its client left, it died: lease
+expiry) is replaced by one of its followers, which continue after the bytes they already sent once those are
+confirmed identical. Valkey being down only disables coalescing.
+
+Not yet (later tasks): auto-block (T-S07 full), download counters (T-S09).
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import logging
+import os
+import re
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
@@ -64,11 +76,12 @@ from waystation_common.events import FROM_CACHE, ActivityEvent, CacheState, Even
 from waystation_common.events import keys as event_keys
 from waystation_common.ids import new_id
 from waystation_common.settings import Settings
-from waystation_common.storage import BlobRef, BlobStore
+from waystation_common.storage import BlobRef, BlobStore, BlobWriter
 from waystation_server.dataplane.xaccel import ServedBlob, serve_blob
 from waystation_server.db import assets as assets_db
 from waystation_server.metrics import Metrics
 from waystation_server.problems import ResponseAborted
+from waystation_server.proxy.coalesce import Coalescer, FillState, Follower, Lease, Status
 from waystation_server.proxy.http import UpstreamClients
 from waystation_server.proxy.records import AssetKind, StoredAsset, UpstreamMeta
 from waystation_server.repos.model import AuthKind, RepoConfig, StoredProxy, secret_aad
@@ -99,6 +112,11 @@ REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 GONE_CODES = frozenset({404, 410})
 DEFAULT_TYPE = 'application/octet-stream'
 HASHES = ('sha1', 'sha256', 'sha512', 'md5')
+MAX_ROUNDS = 4  # claims per request when owners keep going away (ARCHITECTURE §6.3)
+WAIT_S = 1.0  # a follower re-checks at least this often (stall detection); state changes wake it at once
+TAIL_READ = 1024 * 1024
+STALE_CODES = frozenset({'upstream', 'timeout', 'mismatch'})  # followers may serve a stale copy on these
+_UPLOAD_ID = re.compile(r'^[0-9a-f]{32}$')
 
 
 class UpstreamTimeout(UpstreamError):  # noqa: N818 - reads as a state, like UpstreamError
@@ -246,6 +264,86 @@ def _verify(expected: Expected | None, data: bytes) -> dict[str, str]:
     return computed
 
 
+class _Abandoned(Exception):  # noqa: N818 - control flow: the followed owner went away
+    pass
+
+
+@dataclass
+class _Fill:
+    """A streaming fill in progress (owner side)."""
+
+    writer: BlobWriter
+    total: int | None
+    content_type: str
+    stored: dict[str, str]
+    extra: dict[str, Any]  # hashlib objects for expected digests other than sha256
+    done: int = 0
+
+
+class _Source:
+    """A follower's read-only descriptor on the followed fill's file (``uploads/<id>``, or the blob once committed:
+    the same inode, renamed)."""
+
+    def __init__(self) -> None:
+        self.fd: int | None = None
+        self.fill: str | None = None  # owner token of the fill the descriptor belongs to
+
+    async def open(self, blobs: BlobStore, state: FillState) -> bool:
+        if state.status is Status.DONE and state.sha256:
+            path = blobs.blob_path(state.sha256)
+        elif state.upload and _UPLOAD_ID.fullmatch(state.upload):
+            path = blobs.uploads_dir / state.upload
+        else:
+            return False
+        try:
+            fd = await asyncio.to_thread(os.open, path, os.O_RDONLY | os.O_CLOEXEC)
+        except FileNotFoundError:
+            return False
+        self.close()
+        self.fd, self.fill = fd, state.owner
+        return True
+
+    def close(self) -> None:
+        if self.fd is not None:
+            fd, self.fd, self.fill = self.fd, None, None
+            with contextlib.suppress(OSError):
+                os.close(fd)
+
+
+def _hash_prefix(fd: int, length: int) -> str:
+    """sha256 of the first ``length`` bytes of ``fd`` (blocking: call in a thread)."""
+    digest = hashlib.sha256()
+    pos = 0
+    while pos < length:
+        data = os.pread(fd, min(TAIL_READ, length - pos), pos)
+        if not data:
+            break
+        digest.update(data)
+        pos += len(data)
+    return digest.hexdigest()
+
+
+def _failure(state: FillState) -> WaystationError:
+    """The error a follower answers with when the fetch it followed failed."""
+    detail = state.error or 'upstream transfer failed'
+    if state.error_code == 'not_found':
+        return NotFound('Not Found')
+    if state.error_code == 'mismatch':
+        return DigestMismatch(detail)
+    if state.error_code == 'timeout':
+        return UpstreamTimeout(detail)
+    return UpstreamError(detail)
+
+
+def _as_error(exc: BaseException) -> BaseException:
+    """Upstream transport errors as the errors followers should see."""
+    if isinstance(exc, httpx.TimeoutException):
+        return UpstreamTimeout('upstream timed out')
+    if isinstance(exc, httpx.HTTPError):
+        return UpstreamError('upstream transfer failed')
+    return exc
+
+
 class ProxyEngine:
     def __init__(
         self,
@@ -258,6 +356,7 @@ class ProxyEngine:
         clients: UpstreamClients,
         metrics: Metrics,
         keyring: Keyring | None,
+        coalescer: Coalescer | None = None,
     ) -> None:
         self.settings = settings
         self.db = db
@@ -267,6 +366,19 @@ class ProxyEngine:
         self.clients = clients
         self.metrics = metrics
         self.keyring = keyring
+        self.coalescer = coalescer or Coalescer(
+            valkey,
+            data_dir=settings.data_dir,
+            mode=settings.coalesce_tail,
+            lease_s=settings.coalesce_lease_s,
+            stall_s=self._stall_s,
+        )
+
+    def _stall_s(self) -> float:
+        """How long a fill may show no progress before it counts as abandoned: the owner's upstream timeouts (one
+        connect retry, a read) plus a lease."""
+        timeouts = self.clients.timeouts
+        return 2 * timeouts.connect + timeouts.read + self.settings.coalesce_lease_s
 
     # ------------------------------------------------------------------ public API
     async def serve(self, req: FormatRequest, spec: AssetSpec) -> Response:
@@ -274,63 +386,26 @@ class ProxyEngine:
         started = time.perf_counter()
         proxy = self._proxy(req.repo)
         asset = await self._cached(req.repo, spec)
-        if asset is not None:
-            if proxy.offline or self._fresh(asset, spec, proxy):
-                return self._hit(req, asset, CacheState.HIT, started, spec.artifact)
-            if await self._unchanged_by_head(req, spec, proxy, asset):
-                return self._hit(req, asset, CacheState.REVALIDATED, started, spec.artifact)
-            try:
-                spec = await self._expect(spec)
-                response, info = await self._open(req, spec, proxy, conditional=asset)
-            except (UpstreamError, DigestMismatch) as exc:
-                if proxy.stale_on_error:
-                    log.info('serving stale copy', extra={'path': spec.path, 'error': exc.detail})
-                    return self._hit(req, asset, CacheState.STALE, started, spec.artifact)
-                self._account_error(req, started)
-                raise
-            if info.status == 304:
-                await response.aclose()
-                await self._revalidated(asset, info)
-                return self._hit(req, asset, CacheState.REVALIDATED, started, spec.artifact)
-            if info.status != 200:
-                await response.aclose()
-                if proxy.stale_on_error:
-                    return self._hit(req, asset, CacheState.STALE, started, spec.artifact)
-                self._account_error(req, started)
-                raise UpstreamError(f'upstream answered {info.status}')
-            return await self._fill(req, spec, proxy, response, info, started)
-
-        if proxy.offline:
-            self._account(req, CacheState.HIT, 404, 0, started)
-            raise NotFound('Not Found')
-        if await self._negative(req.repo, spec):
-            self._account(req, CacheState.HIT, 404, 0, started)
-            raise NotFound('Not Found')
-        head_passthrough = (
-            spec.head_passthrough if spec.head_passthrough is not None else spec.kind is AssetKind.CONTENT
-        )
-        method = 'HEAD' if req.is_head and head_passthrough else 'GET'
-        try:
-            if method == 'GET':
-                spec = await self._expect(spec)
-            response, info = await self._open(req, spec, proxy, method=method)
-        except UpstreamError, DigestMismatch:
-            self._account_error(req, started)
-            raise
-        if info.status in GONE_CODES:
-            await response.aclose()
-            await self._remember_missing(req.repo, spec, proxy)
-            self._account(req, CacheState.FETCHING, 404, 0, started)
-            raise NotFound('Not Found')
-        if info.status != 200:
-            await response.aclose()
-            self._account_error(req, started)
-            raise UpstreamError(f'upstream answered {info.status}')
-        if method == 'HEAD':
-            await response.aclose()
-            self._account(req, CacheState.FETCHING, 200, 0, started)
-            return self._head_response(spec, info)
-        return await self._fill(req, spec, proxy, response, info, started)
+        if asset is not None and (proxy.offline or self._fresh(asset, spec, proxy)):
+            return self._hit(req, asset, CacheState.HIT, started, spec.artifact)
+        if asset is None:
+            if proxy.offline or await self._negative(req.repo, spec):
+                self._account(req, CacheState.HIT, 404, 0, started)
+                raise NotFound('Not Found')
+            if req.is_head and self._head_passthrough(spec):
+                return await self._head_miss(req, spec, proxy, started)
+        for _ in range(MAX_ROUNDS):
+            flight = await self.coalescer.claim(req.repo.id, spec.path)
+            if isinstance(flight, Lease):
+                return await self._serve_owner(req, spec, proxy, asset, flight, started)
+            response = await self._serve_follower(req, spec, proxy, flight, started)
+            if response is not None:
+                return response
+            asset = await self._cached(req.repo, spec)  # the owner went away: maybe it got that far
+            if asset is not None and self._fresh(asset, spec, proxy):
+                return self._hit(req, asset, CacheState.COALESCED, started, spec.artifact)
+        self._account_error(req, started)
+        raise UpstreamError('the upstream fetch was abandoned repeatedly')
 
     async def ensure(self, req: FormatRequest, spec: AssetSpec) -> StoredAsset:
         """Make sure a fresh copy of a metadata asset is cached (fetch or revalidate as needed) and return it,
@@ -341,14 +416,48 @@ class ProxyEngine:
             return asset
         if asset is None and proxy.offline:
             raise NotFound('Not Found')
+        for _ in range(MAX_ROUNDS):
+            flight = await self.coalescer.claim(req.repo.id, spec.path)
+            if isinstance(flight, Lease):
+                try:
+                    if flight.replaced:
+                        asset = await self._cached(req.repo, spec)
+                        if asset is not None and self._fresh(asset, spec, proxy):
+                            await flight.finish(outcome=CacheState.HIT.value)
+                            return asset
+                    asset = await self._ensure_owned(req, spec, proxy, asset, flight)
+                except BaseException as exc:
+                    with anyio.CancelScope(shield=True):
+                        await flight.fail(exc)
+                    raise
+                await flight.finish()
+                return asset
+            try:
+                state = await self._await_outcome(flight, stream_ok=False)
+            finally:
+                await flight.leave()
+            if state is not None and state.status is Status.FAILED:
+                cached = await self._cached(req.repo, spec)
+                if cached is not None and proxy.stale_on_error and state.error_code in STALE_CODES:
+                    return cached
+                raise _failure(state)
+            asset = await self._cached(req.repo, spec)
+            if asset is not None and (state is not None or self._fresh(asset, spec, proxy)):
+                return asset
+        raise UpstreamError('the upstream fetch was abandoned repeatedly')
+
+    async def _ensure_owned(
+        self, req: FormatRequest, spec: AssetSpec, proxy: StoredProxy, asset: StoredAsset | None, lease: Lease
+    ) -> StoredAsset:
         if asset is not None and await self._unchanged_by_head(req, spec, proxy, asset):
             return asset
         started = time.perf_counter()
         try:
             spec = await self._expect(spec)
             response, info = await self._open(req, spec, proxy, conditional=asset)
-        except UpstreamError, DigestMismatch:
+        except (UpstreamError, DigestMismatch) as exc:
             if asset is not None and proxy.stale_on_error:
+                await lease.fail(exc)
                 return asset
             raise
         if info.status == 304 and asset is not None:
@@ -357,13 +466,15 @@ class ProxyEngine:
             return asset
         if info.status != 200:
             await response.aclose()
+            error = UpstreamError(f'upstream answered {info.status}')
             if asset is not None and proxy.stale_on_error:
+                await lease.fail(error)
                 return asset
             if info.status in GONE_CODES:
                 await self._remember_missing(req.repo, spec, proxy)
                 raise NotFound('Not Found')
-            raise UpstreamError(f'upstream answered {info.status}')
-        return await self._fill_buffered(req, spec, response, info, started)
+            raise error
+        return await self._fill_buffered(req, spec, response, info, started, lease)
 
     async def read(self, asset: StoredAsset, *, max_bytes: int = METADATA_MAX_BYTES) -> bytes:
         """The bytes of a cached (metadata) asset, read in a thread. Bounded: larger assets raise."""
@@ -658,6 +769,349 @@ class ProxyEngine:
             repo_id=req.repo.id, format=req.repo.format, ok=False, error=error, count_request=not after_response
         )
 
+    # ------------------------------------------------------------------ coalescing: the owner
+    async def _serve_owner(
+        self,
+        req: FormatRequest,
+        spec: AssetSpec,
+        proxy: StoredProxy,
+        asset: StoredAsset | None,
+        lease: Lease,
+        started: float,
+    ) -> Response:
+        self.metrics.coalesce(repo=req.repo.name, event='solo' if lease.solo else 'owner')
+        try:
+            if lease.replaced:  # a fill just finished: it may have cached what we need
+                asset = await self._cached(req.repo, spec)
+                if asset is not None and self._fresh(asset, spec, proxy):
+                    await lease.finish(outcome=CacheState.HIT.value)
+                    return self._hit(req, asset, CacheState.HIT, started, spec.artifact)
+            response = await self._fetch(req, spec, proxy, asset, lease, started)
+        except BaseException as exc:
+            with anyio.CancelScope(shield=True):
+                await lease.fail(exc)
+            raise
+        if not lease.handed_off:
+            await lease.finish()
+        return response
+
+    async def _fetch(
+        self,
+        req: FormatRequest,
+        spec: AssetSpec,
+        proxy: StoredProxy,
+        asset: StoredAsset | None,
+        lease: Lease,
+        started: float,
+    ) -> Response:
+        if asset is not None:
+            if await self._unchanged_by_head(req, spec, proxy, asset):
+                await lease.finish(outcome=CacheState.REVALIDATED.value)
+                return self._hit(req, asset, CacheState.REVALIDATED, started, spec.artifact)
+            try:
+                spec = await self._expect(spec)
+                response, info = await self._open(req, spec, proxy, conditional=asset)
+            except (UpstreamError, DigestMismatch) as exc:
+                if proxy.stale_on_error:
+                    log.info('serving stale copy', extra={'path': spec.path, 'error': exc.detail})
+                    await lease.fail(exc)
+                    return self._hit(req, asset, CacheState.STALE, started, spec.artifact)
+                self._account_error(req, started)
+                raise
+            if info.status == 304:
+                await response.aclose()
+                await self._revalidated(asset, info)
+                await lease.finish(outcome=CacheState.REVALIDATED.value)
+                return self._hit(req, asset, CacheState.REVALIDATED, started, spec.artifact)
+            if info.status != 200:
+                await response.aclose()
+                error = UpstreamError(f'upstream answered {info.status}')
+                if proxy.stale_on_error:
+                    await lease.fail(error)
+                    return self._hit(req, asset, CacheState.STALE, started, spec.artifact)
+                self._account_error(req, started)
+                raise error
+            return await self._fill(req, spec, proxy, response, info, started, lease)
+
+        try:
+            spec = await self._expect(spec)
+            response, info = await self._open(req, spec, proxy)
+        except UpstreamError, DigestMismatch:
+            self._account_error(req, started)
+            raise
+        if info.status in GONE_CODES:
+            await response.aclose()
+            await self._remember_missing(req.repo, spec, proxy)
+            self._account(req, CacheState.FETCHING, 404, 0, started)
+            raise NotFound('Not Found')
+        if info.status != 200:
+            await response.aclose()
+            self._account_error(req, started)
+            raise UpstreamError(f'upstream answered {info.status}')
+        return await self._fill(req, spec, proxy, response, info, started, lease)
+
+    @staticmethod
+    def _head_passthrough(spec: AssetSpec) -> bool:
+        return spec.head_passthrough if spec.head_passthrough is not None else spec.kind is AssetKind.CONTENT
+
+    async def _head_miss(self, req: FormatRequest, spec: AssetSpec, proxy: StoredProxy, started: float) -> Response:
+        """``HEAD`` for content that is not cached: an upstream ``HEAD`` (nothing downloaded, nothing coalesced)."""
+        try:
+            response, info = await self._open(req, spec, proxy, method='HEAD')
+        except UpstreamError, DigestMismatch:
+            self._account_error(req, started)
+            raise
+        await response.aclose()
+        if info.status in GONE_CODES:
+            await self._remember_missing(req.repo, spec, proxy)
+            self._account(req, CacheState.FETCHING, 404, 0, started)
+            raise NotFound('Not Found')
+        if info.status != 200:
+            self._account_error(req, started)
+            raise UpstreamError(f'upstream answered {info.status}')
+        self._account(req, CacheState.FETCHING, 200, 0, started)
+        return self._head_response(spec, info)
+
+    # ------------------------------------------------------------------ coalescing: followers
+    async def _await_outcome(self, follower: Follower, *, stream_ok: bool) -> FillState | None:
+        """Wait until the followed fill is finished (or, with ``stream_ok``, streaming and tailable here). None: the
+        owner went away (aborted, lease expired, stalled) and the caller should claim again."""
+        while True:
+            state = follower.state()
+            if state is None or not follower.mine(state) or state.status is Status.ABORTED or follower.stalled():
+                return None
+            if state.status in (Status.DONE, Status.FAILED):
+                return state
+            if stream_ok and state.status is Status.STREAMING and self.coalescer.tail_ok(state):
+                return state
+            await follower.wait(WAIT_S)
+
+    async def _serve_follower(
+        self, req: FormatRequest, spec: AssetSpec, proxy: StoredProxy, follower: Follower, started: float
+    ) -> Response | None:
+        """Answer from another request's fetch: tail its upload file, or wait for the commit and serve the blob.
+        None: the owner went away; the caller claims again (one of the followers becomes the owner)."""
+        tail = spec.kind is AssetKind.CONTENT and not req.is_head
+        handed_off = False
+        try:
+            state = await self._await_outcome(follower, stream_ok=tail)
+            if state is None:
+                self.metrics.coalesce(repo=req.repo.name, event='takeover')
+                return None
+            if state.status is Status.STREAMING:
+                handed_off = True
+                self.metrics.coalesce(repo=req.repo.name, event='tail')
+                return self._tail_response(req, spec, proxy, follower, state)
+            if state.status is Status.FAILED:
+                cached = await self._cached(req.repo, spec)
+                if cached is not None and proxy.stale_on_error and state.error_code in STALE_CODES:
+                    return self._hit(req, cached, CacheState.STALE, started, spec.artifact)
+                error = _failure(state)
+                if isinstance(error, NotFound):
+                    self._account(req, CacheState.COALESCED, 404, 0, started)
+                else:
+                    self._account_error(req, started)
+                raise error
+            asset = await self._cached(req.repo, spec)
+            if asset is None:
+                return None
+            self.metrics.coalesce(repo=req.repo.name, event='wait')
+            if state.outcome in (CacheState.REVALIDATED.value, CacheState.HIT.value):
+                return self._hit(req, asset, CacheState(state.outcome), started, spec.artifact)
+            return self._hit(req, asset, CacheState.COALESCED, started, spec.artifact)
+        finally:
+            if not handed_off:
+                with anyio.CancelScope(shield=True):
+                    await follower.leave()
+
+    def _tail_response(
+        self, req: FormatRequest, spec: AssetSpec, proxy: StoredProxy, follower: Follower, state: FillState
+    ) -> Response:
+        headers: dict[str, str] = {
+            'Content-Type': state.content_type or DEFAULT_TYPE,
+            'X-Ws-Cache': CacheState.COALESCED.value,
+        }
+        headers.update(state.headers)
+        headers.update(spec.response_headers)
+        if state.total is not None:
+            headers['Content-Length'] = str(state.total)
+        tid = self._start_transfer(req, spec, state.total, None, cache=CacheState.COALESCED)
+        req.log(cache=CacheState.COALESCED.value)
+        body = self._tail_body(req, spec, proxy, follower, state.total, tid)
+        return StreamingResponse(body, status_code=200, headers=headers)
+
+    async def _tail_body(
+        self,
+        req: FormatRequest,
+        spec: AssetSpec,
+        proxy: StoredProxy,
+        follower: Follower,
+        total: int | None,
+        tid: str,
+    ) -> AsyncGenerator[bytes]:
+        """A follower's response body: the owner's bytes as they land (last piece held back until the owner has
+        verified and committed them). If the owner goes away, claim again: either follow the new owner or fetch
+        upstream ourselves, in both cases checking that the bytes already sent are a prefix of the new fill."""
+        flight: Follower | Lease = follower
+        source = _Source()
+        sent = 0
+        prefix: str | None = None
+        cache = CacheState.COALESCED
+        try:
+            for _ in range(MAX_ROUNDS):
+                held: bytes | None = None
+                try:
+                    if isinstance(flight, Follower):
+                        chunks = self._read_fill(flight, source, sent, prefix, total)
+                    else:
+                        cache = CacheState.FETCHING
+                        self.emitter.transfer_progress(tid, sent, cache=cache)
+                        chunks = self._takeover(req, spec, proxy, flight, sent, prefix, total)
+                    async with contextlib.aclosing(chunks):
+                        async for chunk in chunks:
+                            if held is not None:
+                                yield held
+                                sent += len(held)
+                                self.emitter.transfer_progress(tid, sent, bytes_total=total)
+                            held = chunk
+                    if held is not None:
+                        yield held
+                        sent += len(held)
+                    break
+                except _Abandoned:
+                    self.metrics.coalesce(repo=req.repo.name, event='takeover')
+                if isinstance(flight, Follower):
+                    await flight.leave()
+                prefix = None
+                if sent:
+                    if source.fd is None:
+                        raise UpstreamError('cannot resume the transfer')
+                    prefix = await asyncio.to_thread(_hash_prefix, source.fd, sent)
+                source.close()
+                log.info('coalesced fill abandoned by its owner; claiming it', extra={'path': spec.path})
+                flight = await self.coalescer.claim(req.repo.id, spec.path)
+            else:
+                raise UpstreamError('the upstream fetch was abandoned repeatedly')
+        except BaseException as exc:
+            error = _describe(exc)
+            self.emitter.transfer_finished(tid, status=502, bytes_done=sent, error=error)
+            self.metrics.request(repo=req.repo.name, format=req.repo.format, status=502, cache='ERROR')
+            if isinstance(exc, Exception):
+                log.warning('coalesced transfer aborted', extra={'path': spec.path, 'error': error, 'bytes': sent})
+                raise ResponseAborted(error) from exc
+            raise
+        finally:
+            source.close()
+            if isinstance(flight, Follower):
+                with anyio.CancelScope(shield=True):
+                    await flight.leave()
+        self.emitter.transfer_finished(tid, status=200, bytes_done=sent)
+        self.metrics.request(repo=req.repo.name, format=req.repo.format, status=200, cache=cache.value)
+        self.metrics.add_bytes(repo=req.repo.name, direction='out_upstream', count=sent)
+
+    async def _read_fill(
+        self, follower: Follower, source: _Source, start: int, prefix: str | None, total: int | None
+    ) -> AsyncGenerator[bytes]:
+        """The followed fill's bytes from ``start``, as they become readable; returns once the owner committed.
+        Raises ``_Abandoned`` when the owner went away, the owner's error when the fetch failed."""
+        pos = start
+        checked = prefix is None
+        while True:
+            state = follower.state()
+            if state is None or not follower.mine(state) or state.status is Status.ABORTED or follower.stalled():
+                raise _Abandoned
+            if state.status is Status.FAILED:
+                raise _failure(state)
+            if state.status is Status.PENDING or (
+                state.status is Status.STREAMING and not self.coalescer.tail_ok(state)
+            ):
+                await follower.wait(WAIT_S)
+                continue
+            done = state.status is Status.DONE
+            if done and (state.sha256 is None or state.size is None):
+                raise UpstreamError('the fill finished without content')
+            if total is not None and state.total is not None and state.total != total:
+                raise UpstreamError('the upstream size changed during the transfer')
+            if source.fill != state.owner and not await source.open(self.blobs, state):
+                if done:
+                    raise UpstreamError('the cached file disappeared')
+                await follower.wait(WAIT_S)  # renamed into place or aborted: the state will say which
+                continue
+            fd = source.fd
+            assert fd is not None
+            readable = self.coalescer.readable(state)
+            if not checked:
+                if readable < start and not done:
+                    await follower.wait(WAIT_S)
+                    continue
+                if readable < start or await asyncio.to_thread(_hash_prefix, fd, start) != prefix:
+                    raise DigestMismatch('the upstream content changed during the transfer')
+                checked = True
+            if pos < readable:
+                data = await asyncio.to_thread(os.pread, fd, min(TAIL_READ, readable - pos), pos)
+                if not data:
+                    if done:
+                        raise UpstreamError('the cached file is shorter than recorded')
+                    await follower.wait(WAIT_S)
+                    continue
+                pos += len(data)
+                yield data
+                continue
+            if done:
+                return
+            await follower.wait(WAIT_S)
+
+    async def _takeover(
+        self,
+        req: FormatRequest,
+        spec: AssetSpec,
+        proxy: StoredProxy,
+        lease: Lease,
+        skip: int,
+        prefix: str | None,
+        total: int | None,
+    ) -> AsyncGenerator[bytes]:
+        """A follower that became the owner mid-response: fetch upstream into the cache (a normal tee, with followers
+        of its own) and continue its client's response after the ``skip`` bytes it already sent, once those are
+        confirmed identical (``prefix``: their sha256)."""
+        self.metrics.coalesce(repo=req.repo.name, event='solo' if lease.solo else 'owner')
+        try:
+            spec = await self._expect(spec)
+            response, info = await self._open(req, spec, proxy)
+            if info.status != 200:
+                await response.aclose()
+                if info.status in GONE_CODES:
+                    raise NotFound('Not Found')
+                raise UpstreamError(f'upstream answered {info.status}')
+            fill = await self._open_fill(spec, response, info)
+            if total is not None and fill.total is not None and fill.total != total:
+                with anyio.CancelScope(shield=True):
+                    await response.aclose()
+                    await fill.writer.abort()
+                raise UpstreamError('the upstream size changed during the transfer')
+        except BaseException as exc:
+            with anyio.CancelScope(shield=True):
+                await lease.fail(exc)
+            raise
+        self._streaming(lease, fill, None)
+        hasher = hashlib.sha256()
+        skipped = 0
+        tee = self._tee(req, spec, response, info, fill, lease, None)
+        async with contextlib.aclosing(tee):
+            async for chunk in tee:
+                if skipped < skip:
+                    take = min(len(chunk), skip - skipped)
+                    await asyncio.to_thread(hasher.update, memoryview(chunk)[:take])
+                    skipped += take
+                    if skipped == skip and hasher.hexdigest() != prefix:
+                        raise DigestMismatch('the upstream content changed during the transfer')
+                    chunk = chunk[take:]
+                    if not chunk:
+                        continue
+                yield chunk
+        if skipped < skip:
+            raise DigestMismatch('the upstream content changed during the transfer')
+
     # ------------------------------------------------------------------ fills
     async def _fill(
         self,
@@ -667,11 +1121,12 @@ class ProxyEngine:
         response: httpx.Response,
         info: UpstreamInfo,
         started: float,
+        lease: Lease,
     ) -> Response:
         if spec.kind is AssetKind.METADATA or req.is_head:
-            asset = await self._fill_buffered(req, spec, response, info, started)
+            asset = await self._fill_buffered(req, spec, response, info, started, lease)
             return self._serve(req, asset, CacheState.FETCHING)
-        return await self._fill_stream(req, spec, response, info)
+        return await self._fill_stream(req, spec, response, info, lease)
 
     def _length(self, spec: AssetSpec, info: UpstreamInfo, max_size: int) -> int | None:
         raw = info.headers.get('content-length')
@@ -683,7 +1138,15 @@ class ProxyEngine:
             raise UpstreamError('upstream file exceeds the size limit')
         return total
 
-    def _start_transfer(self, req: FormatRequest, spec: AssetSpec, total: int | None, latency: float) -> str:
+    def _start_transfer(
+        self,
+        req: FormatRequest,
+        spec: AssetSpec,
+        total: int | None,
+        latency: float | None,
+        *,
+        cache: CacheState = CacheState.FETCHING,
+    ) -> str:
         now = datetime.now(UTC)
         tid = new_id()
         self.emitter.transfer_started(
@@ -693,7 +1156,7 @@ class ProxyEngine:
                 repo=req.repo.name,
                 format=req.repo.format,
                 path=spec.path,
-                cache=CacheState.FETCHING,
+                cache=cache,
                 principal=req.principal.display,
                 client_ip=req.client_ip or None,
                 client_agent=(req.request.headers.get('user-agent') or '')[:120] or None,
@@ -745,8 +1208,22 @@ class ProxyEngine:
     def _stored_headers(self, spec: AssetSpec, info: UpstreamInfo) -> dict[str, str]:
         return {name: info.headers[name.lower()] for name in spec.store_headers if name.lower() in info.headers}
 
+    def _followed(self, lease: Lease, tid: str) -> None:
+        """Show the lease's follower count on the owner's live transfer."""
+
+        def update(followers: int) -> None:
+            self.emitter.transfer_followers(tid, followers)
+
+        lease.on_followers = update
+
     async def _fill_buffered(
-        self, req: FormatRequest, spec: AssetSpec, response: httpx.Response, info: UpstreamInfo, started: float
+        self,
+        req: FormatRequest,
+        spec: AssetSpec,
+        response: httpx.Response,
+        info: UpstreamInfo,
+        started: float,
+        lease: Lease,
     ) -> StoredAsset:
         max_size = spec.max_size or (
             METADATA_MAX_BYTES if spec.kind is AssetKind.METADATA else self.settings.max_upload_bytes
@@ -756,6 +1233,7 @@ class ProxyEngine:
         try:
             total = self._length(spec, info, max_size)
             tid = self._start_transfer(req, spec, total, info.latency_ms)
+            self._followed(lease, tid)
             chunks: list[bytes] = []
             async for chunk in response.aiter_bytes(CHUNK):
                 done += len(chunk)
@@ -775,6 +1253,7 @@ class ProxyEngine:
                 checksums = {'sha256': ref.sha256}
             content_type = spec.content_type or info.headers.get('content-type') or DEFAULT_TYPE
             asset = await self._record(req, spec, ref, content_type, self._stored_headers(spec, info), info, checksums)
+            await lease.finish(sha256=ref.sha256, size=ref.size)
             if spec.on_stored is not None:
                 await spec.on_stored(asset, data)
         except BaseException as exc:
@@ -799,9 +1278,9 @@ class ProxyEngine:
         req.log(cache=CacheState.FETCHING.value, bytes=asset.size)
         return asset
 
-    async def _fill_stream(
-        self, req: FormatRequest, spec: AssetSpec, response: httpx.Response, info: UpstreamInfo
-    ) -> Response:
+    async def _open_fill(self, spec: AssetSpec, response: httpx.Response, info: UpstreamInfo) -> _Fill:
+        """Check the announced length and open the ``BlobWriter`` of a streaming fill (closes ``response`` when
+        that fails)."""
         max_size = spec.max_size or self.settings.max_upload_bytes
         expected = spec.expected
         try:
@@ -815,65 +1294,116 @@ class ProxyEngine:
             with anyio.CancelScope(shield=True):
                 await response.aclose()
             raise
-        extra = {alg: hashlib.new(alg) for alg in (expected.digests() if expected else {}) if alg != 'sha256'}
-        tid = self._start_transfer(req, spec, total, info.latency_ms)
-        content_type = spec.content_type or info.headers.get('content-type') or DEFAULT_TYPE
-        stored = self._stored_headers(spec, info)
-        headers: dict[str, str] = {'Content-Type': content_type, 'X-Ws-Cache': CacheState.FETCHING.value}
-        headers.update(stored)
+        return _Fill(
+            writer=writer,
+            total=total,
+            content_type=spec.content_type or info.headers.get('content-type') or DEFAULT_TYPE,
+            stored=self._stored_headers(spec, info),
+            extra={alg: hashlib.new(alg) for alg in (expected.digests() if expected else {}) if alg != 'sha256'},
+        )
+
+    def _streaming(self, lease: Lease, fill: _Fill, tid: str | None) -> None:
+        """Publish the fill to followers; from here on the response body finishes the lease."""
+        lease.streaming(
+            upload=fill.writer.upload_id,
+            total=fill.total,
+            content_type=fill.content_type,
+            headers=fill.stored,
+            fd=fill.writer.fileno(),
+        )
+        lease.handed_off = True
+        if tid is not None:
+            self._followed(lease, tid)
+
+    async def _fill_stream(
+        self, req: FormatRequest, spec: AssetSpec, response: httpx.Response, info: UpstreamInfo, lease: Lease
+    ) -> Response:
+        fill = await self._open_fill(spec, response, info)
+        tid = self._start_transfer(req, spec, fill.total, info.latency_ms)
+        self._streaming(lease, fill, tid)
+        headers: dict[str, str] = {'Content-Type': fill.content_type, 'X-Ws-Cache': CacheState.FETCHING.value}
+        headers.update(fill.stored)
         headers.update(spec.response_headers)
-        if total is not None:
-            headers['Content-Length'] = str(total)
+        if fill.total is not None:
+            headers['Content-Length'] = str(fill.total)
         req.log(cache=CacheState.FETCHING.value)
         engine = self
 
         async def body() -> AsyncIterator[bytes]:
-            done = 0
-            held: bytes | None = None
-            committed = False
             try:
-                async for chunk in response.aiter_bytes(CHUNK):
-                    for hasher in extra.values():
-                        hasher.update(chunk)
-                    await writer.write(chunk)
-                    done += len(chunk)
-                    engine.emitter.transfer_progress(tid, done, bytes_total=total)
-                    if held is not None:
-                        yield held
-                    held = chunk
-                if expected is not None:
-                    for alg, hasher in extra.items():
-                        if hasher.hexdigest() != expected.digests()[alg]:
-                            raise DigestMismatch(f'{alg} does not match the expected digest')
-                ref = await engine.blobs.commit(writer)
-                committed = True
-                checksums = {'sha256': ref.sha256, **{alg: h.hexdigest() for alg, h in extra.items()}}
-                asset = await engine._record(req, spec, ref, content_type, stored, info, checksums)
-                if spec.on_stored is not None:
-                    await spec.on_stored(asset, None)
-                if held is not None:
-                    yield held
+                async with contextlib.aclosing(engine._tee(req, spec, response, info, fill, lease, tid)) as tee:
+                    async for chunk in tee:
+                        yield chunk
             except BaseException as exc:
                 error = _describe(exc)
-                engine.emitter.transfer_finished(tid, status=502, bytes_done=done, error=error)
+                engine.emitter.transfer_finished(tid, status=502, bytes_done=fill.done, error=error)
                 engine.metrics.request(repo=req.repo.name, format=req.repo.format, status=502, cache='ERROR')
-                if isinstance(exc, DigestMismatch | httpx.HTTPError):
-                    engine._upstream_failed(req, error, after_response=True)
-                log.warning('cache fill aborted', extra={'path': spec.path, 'error': error, 'bytes': done})
                 if isinstance(exc, Exception):
                     raise ResponseAborted(error) from exc
                 raise
-            finally:
-                with anyio.CancelScope(shield=True):
-                    await response.aclose()
-                    if not committed:
-                        await writer.abort()
-            engine.emitter.transfer_finished(tid, status=200, bytes_done=done)
+            engine.emitter.transfer_finished(tid, status=200, bytes_done=fill.done)
             engine.metrics.request(repo=req.repo.name, format=req.repo.format, status=200, cache='FETCHING')
-            engine.metrics.add_bytes(repo=req.repo.name, direction='out_upstream', count=done)
-            engine.metrics.add_bytes(repo=req.repo.name, direction='in_upstream', count=done)
+            engine.metrics.add_bytes(repo=req.repo.name, direction='out_upstream', count=fill.done)
 
         return StreamingResponse(body(), status_code=200, headers=headers)
+
+    async def _tee(
+        self,
+        req: FormatRequest,
+        spec: AssetSpec,
+        response: httpx.Response,
+        info: UpstreamInfo,
+        fill: _Fill,
+        lease: Lease,
+        tid: str | None,
+    ) -> AsyncGenerator[bytes]:
+        """Upstream → ``BlobWriter`` and → the caller at once (256 KiB chunks). The last chunk is held back until the
+        size and every expected digest are verified and the blob committed, so a mismatch (or a reset) leaves the
+        client with an incomplete transfer, never a complete wrong file, and nothing is cached. Followers see every
+        flushed byte (``lease.advance``, O(1)) and the outcome (``finish`` / ``fail``)."""
+        writer = fill.writer
+        expected = spec.expected
+        held: bytes | None = None
+        committed = False
+        try:
+            async for chunk in response.aiter_bytes(CHUNK):
+                for hasher in fill.extra.values():
+                    hasher.update(chunk)
+                await writer.write(chunk)
+                fill.done += len(chunk)
+                lease.advance(writer.flushed)
+                if tid is not None:
+                    self.emitter.transfer_progress(tid, fill.done, bytes_total=fill.total)
+                if held is not None:
+                    yield held
+                held = chunk
+            if expected is not None:
+                for alg, hasher in fill.extra.items():
+                    if hasher.hexdigest() != expected.digests()[alg]:
+                        raise DigestMismatch(f'{alg} does not match the expected digest')
+            ref = await self.blobs.commit(writer)
+            committed = True
+            checksums = {'sha256': ref.sha256, **{alg: h.hexdigest() for alg, h in fill.extra.items()}}
+            asset = await self._record(req, spec, ref, fill.content_type, fill.stored, info, checksums)
+            await lease.finish(sha256=ref.sha256, size=ref.size)
+            if spec.on_stored is not None:
+                await spec.on_stored(asset, None)
+            if held is not None:
+                yield held
+        except BaseException as exc:
+            error = _describe(exc)
+            if isinstance(exc, DigestMismatch | httpx.HTTPError):
+                self._upstream_failed(req, error, after_response=True)
+            log.warning('cache fill aborted', extra={'path': spec.path, 'error': error, 'bytes': fill.done})
+            with anyio.CancelScope(shield=True):
+                await lease.fail(_as_error(exc))
+            raise
+        finally:
+            with anyio.CancelScope(shield=True):
+                await response.aclose()
+                if not committed:
+                    await writer.abort()
+        self.metrics.add_bytes(repo=req.repo.name, direction='in_upstream', count=fill.done)
 
     # ------------------------------------------------------------------ responses and accounting
     async def _revalidated(self, asset: StoredAsset, info: UpstreamInfo) -> None:

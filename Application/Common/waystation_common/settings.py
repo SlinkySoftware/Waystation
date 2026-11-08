@@ -117,6 +117,12 @@ class Settings(BaseSettings):
     coalesce_tail: CoalesceTail = Field(
         CoalesceTail.AUTO, description='Coalescing followers: auto, local (always tail) or wait (ARCHITECTURE §6.3).'
     )
+    coalesce_lease_s: float = Field(
+        15.0,
+        gt=0.5,
+        le=300,
+        description='Coalescing lease, in seconds: a fill whose owner stops renewing it is taken over after this long.',
+    )
 
     # --- MongoDB and Valkey (URIs may embed credentials, so they are secrets)
     mongo_uri: SecretStr = Field(

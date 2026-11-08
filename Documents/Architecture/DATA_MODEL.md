@@ -44,11 +44,11 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 ### Operations, stats, audit
 | Collection | Key fields | Indexes |
 |---|---|---|
-| `job_definitions` | `_id`, `kind`, `params`, `schedule`, `enabled`, `queue` | – |
-| `job_runs` | `_id`, `definition_id?`, `kind`, `queue`, `status`, `progress{done,total,message}`, `started_at`, `finished_at`, `worker_id`, `log[]` (capped 500 lines), `result{...}` | `started_at` desc; TTL 90 d |
-| `workers` | `_id` = worker id, `hostname`, `version`, `queues[]`, `started_at`, `heartbeat_at`, `running_jobs[]` | TTL on `heartbeat_at` (+5 min) |
+| `job_definitions` | `_id` (slug, e.g. `stats.rollup`), `kind`, `params` (the payload), `schedule` (5-field UTC cron, `@daily`-style macro or `@every <n>s\|m\|h`), `enabled`, `queue?` (overrides the kind's queue), `next_run_at` (advanced by compare-and-set: one fire is enqueued once), `last_fired_at`. Built-ins are seeded by the worker if missing | – |
+| `job_runs` | one per attempt: `_id`, `job_id` (envelope id; same across retries), `definition_id?`, `kind`, `queue`, `dedupe_key`, `attempt`, `status` (`running`, `succeeded`, `failed` (will retry), `dead`, `interrupted` (worker lost)), `progress{done,total,message}`, `started_at`, `finished_at`, `worker_id`, `log[]` (capped 500 lines), `result{...}`, `error?`, `expires_at` (90 d; 1 d for routine jobs such as the 10 s stats rollup) | `started_at` desc; `job_id,started_at`; `definition_id,started_at`; TTL `expires_at` |
+| `workers` | `_id` = worker id (`<hostname>-<pid>-<suffix>`, also its consumer name), `hostname`, `version`, `queues[]`, `started_at`, `heartbeat_at` (every 10 s), `leader` (holds `lease:scheduler`), `running_jobs[]{job_id,kind,queue}`; removed on graceful stop | TTL on `heartbeat_at` (+5 min) |
 | `stats_minute` | **time-series** (`timeField: ts`, `metaField: m{repo_id, format}`, granularity minutes), one document per closed minute per repo (written once; time-series collections can't upsert): (the rollup checks for an existing (repo, minute) document before inserting, so a crashed rollup never duplicates) `requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_out_cache`, `bytes_out_upstream`, `bytes_in_upstream`, `bytes_in_upload`, `lat_hist` (fixed log-scale bucket counts; percentiles computed at query time) | expireAfterSeconds 7 d |
-| `job_outbox` | `_id`, `job` (payload), `queue`, `dedupe_key`, `created_at`, `sent_at?`, `done_at?` (written in the same transaction as the triggering change; ARCH §10) | `sent_at`; `done_at` TTL 7 d |
+| `job_outbox` | `_id`, `job` (`JobEnvelope`), `queue`, `dedupe_key`, `created_at`, `sent_at` (null until dispatched), `sent_epoch` (the `jobs:epoch` it was dispatched under), `done_at` (set by the worker whose run covered it, or when it was dead-lettered). Written in the same transaction as the triggering change (ARCH §10); in-flight entries (sent, not done) are re-dispatched when the epoch changes or after 1 h | `sent_at`; `done_at` TTL 7 d |
 | `stats_hour` / `stats_day` | same shape, time-series, rolled up | 90 d / 2 y |
 | `storage_snapshots` | time-series per repo: `bytes`, `assets`, `components` (hourly) | 2 y |
 | `downloads_daily` | `component_id`, `day`, `count`, `bytes` | `component_id,day` unique; TTL 400 d |
@@ -64,7 +64,7 @@ Notes:
 ## 2. Valkey keys (all with TTLs unless noted)
 | Key | Type | Purpose |
 |---|---|---|
-| `fill:<repo_id>:<asset_key>` | string (JSON: upload id, owner replica, progress, total) | single-flight lock + progress for coalescing (lease, renewed) |
+| `fill:<repo_id>:<sha1(asset_key)>` | hash: `owner` (token), `status` (`pending`/`streaming`/`done`/`failed`/`aborted`), `host` (owner's boot id), `upload` (upload file id), `written`, `synced`, `total`, `content_type`, `headers` (JSON), `sha256`, `size`, `outcome`, `error`, `error_code`, `followers` | single-flight lock + progress for coalescing (ARCH §6.3); TTL = the lease (`WAYSTATION_COALESCE_LEASE_S`), renewed by the owner; finished fills linger 10 s |
 | `neg:<repo_id>:<asset_key>` | string | negative cache (404) |
 | `meta:<repo_id>:<asset_key>` | string/bytes | hot metadata response cache (rewritten/merged docs), short TTL |
 | `cnt:<minute>:<repo_id>` | hash | per-minute counters (`requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_*`, `upstream_requests`, `upstream_errors`) + `format`; `<minute>` = epoch minute (`ts // 60`); rolled up by the worker after the minute closes; TTL 3 h safety net |
@@ -75,9 +75,12 @@ Notes:
 | `activity` | stream (MAXLEN ~200000) | durable-ish activity events for SSE resume, Activity page, dashboard feed |
 | `revocations` | set + pub/sub channel | revoked token/session ids (ARCH §7) |
 | `seen:sessions`, `seen:tokens` | hashes id → timestamp | batched `last_seen_at` / `last_used_at`, flushed to MongoDB by the rollup job |
-| `jobs:<queue>` / `jobs:dead` | streams + consumer groups (no TTL) | job queue |
-| `job:dedupe:<key>` | string | enqueue de-duplication |
-| `lease:scheduler`, `lease:<name>` | string | leader election |
+| `jobs:<queue>` | stream (no TTL), consumer group `workers`, field `job` = `JobEnvelope` JSON; entries are deleted when acked | job queue (`index`, `maintenance`, `stats`, `prefetch`, `import`) |
+| `jobs:<queue>:delayed` | sorted set (no TTL): envelope JSON scored by due time (ms) | `run_after` jobs and retry backoff; promoted into the stream by the scheduler leader |
+| `jobs:dead` | stream (MAXLEN ~10000): `job` (envelope, `attempt` = attempts made), `error`, `ts` | dead letters |
+| `jobs:epoch` | string (no TTL) | random token; when it is missing or changes, Valkey lost its data and in-flight outbox entries are re-dispatched |
+| `job:dedupe:<key>` | hash (TTL 24 h, refreshed on every transition): `state` (`pending`/`running`), `job` (envelope id), `owner`, `outbox`, `rerun` (envelope JSON), `rerun_outbox` | dirty-flag dedupe (ARCH §10); key = the payload's `dedupe_key()`, `def:<definition>` for scheduled jobs without one, else `id:<job id>` |
+| `lease:scheduler`, `lease:<name>` | string (owner id, PX TTL) | leader election: `lease:scheduler` (15 s, outbox dispatcher + scheduler), `lease:rollup` (30 s, held for one stats rollup run) |
 | `grants:<principal>:<grant_version>` | bytes | cached effective permissions |
 | `rl:<scope>:<id>` | string counters | rate limiting (logins, token use) |
 | `upstream:<repo_id>:health` | hash (no TTL; one per proxy repo, removed with the repo) | `last_ok_at`, `last_error`, `last_error_at`, `consecutive_failures`, `last_latency_ms`: written by the proxy engine through the emitter; read by upstream health / repository status |
