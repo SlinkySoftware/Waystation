@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://deb.debian.org/debian/README.mirrors.txt"
+  },
+  "response": {
+    "body_sha256": "a840ef8a0cd218d6c8d8256c3c11001ec7e241670611c1f272dc01828fce01ed",
+    "body_size": 86,
+    "headers": [
+      [
+        "content-length",
+        "86"
+      ],
+      [
+        "last-modified",
+        "Sat, 04 Mar 2017 20:08:51 GMT"
+      ],
+      [
+        "etag",
+        "\"56-549ed3b25abfb\""
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ]
+    ],
+    "status": 200
+  }
+}
