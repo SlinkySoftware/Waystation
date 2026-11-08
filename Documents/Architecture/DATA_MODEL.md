@@ -20,12 +20,12 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 ### Identity and access
 | Collection | Key fields | Indexes |
 |---|---|---|
-| `users` | `_id`, `username` (unique, lower-case), `display_name`, `email`, `source` (`local`/`ldap:<provider>`/`oidc:<provider>`), `password_hash` (local only), `totp_enc`, `disabled`, `roles[]`, `groups[]` (local) + `external_groups[]` (last sync), `last_login`, `failed_logins`, `locked_until` | `username` unique; `source` |
+| `users` | `_id`, `username` (unique, lower-case), `display_name`, `email`, `source` (`local`/`ldap:<provider>`/`oidc:<provider>`), `password_hash` (local only), `totp_enc`, `disabled`, `roles[]`, `groups[]` (local) + `external_groups[]` (last sync), `last_login`, `failed_logins`, `locked_until`, `preferences{theme, density}`, `must_change_password` (bootstrap one-time password), `created_at` | `username` unique; `source` |
 | `service_accounts` | `_id`, `name` unique, `description`, `roles[]`, `owner_user_id` | `name` |
 | `groups` | `_id`, `name` unique, `source` (`local`/`ldap`/`oidc`), `external_id`, `roles[]` | `name`; `source,external_id` |
 | `roles` | `_id` (slug), `name`, `builtin`, `permissions[{action, scope}]` | – |
 | `api_tokens` | `_id`, `principal{kind, id}`, `name`, `prefix` (first 8 chars, display), `hash` (sha256), `scopes[]`, `repo_globs[]`, `expires_at`, `last_used_at`, `last_used_ip`, `created_at`, `revoked_at` | `hash` unique; `principal.id` |
-| `sessions` | `_id` (random), `user_id`, `created_at`, `last_seen_at`, `expires_at`, `ip`, `user_agent` | TTL on `expires_at`; `user_id` |
+| `sessions` | `_id` (sha256 hex of the random cookie token; the token itself is never stored), `user_id`, `csrf` (double-submit token), `created_at`, `last_seen_at`, `expires_at`, `ip`, `user_agent` | TTL on `expires_at`; `user_id` |
 | `rbac_state` | singleton `grant_version` counter | – |
 
 ### Content metadata

@@ -37,3 +37,10 @@ async def authorize_repo(request: Request, repo: RepoConfig, action: Action) -> 
 
 def require_repo(principal: Principal, action: Action, repo: RepoConfig) -> None:
     return None
+
+
+def capabilities(principal: Principal) -> list[str]:
+    """UI hints (OpenAPI ``Session.capabilities``); never a substitute for server-side checks."""
+    if 'admin' in principal.roles:
+        return ['admin', 'repositories.create', 'repositories.manage', 'stats.read']
+    return []

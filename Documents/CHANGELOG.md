@@ -3,6 +3,14 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S02 (M0 slice): local authentication. argon2id passwords (hashing in a thread; unknown users cost the same),
+  `init` creates the first `admin` (configured or one-time password printed once, idempotent), sessions
+  (`ws_session` cookie, sha256-hashed ids, fixation-safe, idle and absolute timeouts, last-seen kept in Valkey),
+  double-submit CSRF, per-address login rate limit (429 + `Retry-After`) and account lockout. REST:
+  `GET /api/v1/config`, `GET /auth/providers`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`,
+  `PUT /auth/me/preferences` (contract shapes). New settings: `INSTANCE_NAME`, `SESSION_IDLE_MINUTES`,
+  `SESSION_MAX_HOURS`, `LOGIN_RATE_LIMIT`, `LOGIN_LOCKOUT_FAILURES`, `LOGIN_LOCKOUT_MINUTES`. The integration-test
+  MongoDB gets a higher open-files limit (every test creates a database).
 - T-S01: server app factory. `Services` (MongoDB, Valkey, event emitter, blob store, keyring, repository catalog,
   format registry, metrics) created and started in the lifespan; start-up refuses an unknown or unmigrated schema.
   Routing for `/repository/<repo>/<path>` and `/v2/<name>/...` (SPEC §4.4 name resolution) hands requests to format
