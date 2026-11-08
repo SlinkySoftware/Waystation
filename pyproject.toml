@@ -1,0 +1,137 @@
+[project]
+name = "waystation"
+version = "0.1.0"
+description = "Waystation workspace root (not a package)."
+requires-python = ">=3.14"
+license = "GPL-3.0-or-later"
+dependencies = ["waystation-common", "waystation-server", "waystation-worker"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14",
+    "mypy>=1.18",
+    "import-linter>=2.5",
+    "pytest>=8.4",
+    "pytest-asyncio>=1.2",
+    "pytest-cov>=7.0",
+    "hypothesis>=6.140",
+    "respx>=0.22",
+]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]
+
+[tool.uv.workspace]
+members = ["Application/Common", "Application/Server", "Application/Worker"]
+
+[tool.uv.sources]
+waystation-common = { workspace = true }
+waystation-server = { workspace = true }
+waystation-worker = { workspace = true }
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+src = ["Application/Common", "Application/Server", "Application/Worker"]
+extend-exclude = ["Application/Web"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF", "PT", "C4", "PIE", "RET", "PTH", "N", "T20"]
+ignore = ["S101"]  # asserts are fine; tests use them and mypy narrowing relies on them
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S", "PT011"]
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "single"
+
+[tool.ruff.lint.isort]
+known-first-party = ["waystation_common", "waystation_server", "waystation_worker"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+mypy_path = ["Application/Common", "Application/Server", "Application/Worker"]
+explicit_package_bases = true
+plugins = ["pydantic.mypy"]
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["Application/Common/tests", "Application/Server/tests", "Application/Worker/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers --import-mode=importlib"
+markers = ["integration: needs MongoDB/Valkey containers (make test-integration)"]
+
+[tool.coverage.run]
+branch = true
+source = ["waystation_common", "waystation_server", "waystation_worker"]
+
+# ---------------------------------------------------------------- import-linter (ARCHITECTURE §3)
+[tool.importlinter]
+root_packages = ["waystation_common", "waystation_server", "waystation_worker"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "ARCH §3: server and worker never import each other"
+type = "independence"
+modules = ["waystation_server", "waystation_worker"]
+
+[[tool.importlinter.contracts]]
+name = "ARCH §3: common imports nothing from server/worker and no web framework"
+type = "forbidden"
+source_modules = ["waystation_common"]
+forbidden_modules = ["waystation_server", "waystation_worker", "fastapi", "starlette", "uvicorn"]
+
+[[tool.importlinter.contracts]]
+name = "ARCH §3: formats never import each other"
+type = "independence"
+modules = ["waystation_server.formats.*"]
+ignore_imports = [
+    "waystation_server.formats.** -> waystation_server.formats.common",
+    "waystation_server.formats.** -> waystation_server.formats.common.**",
+    "waystation_server.formats.** -> waystation_server.formats.base",
+    "waystation_server.formats.** -> waystation_server.formats.registry",
+]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "ARCH §3: formats never import the REST API"
+type = "forbidden"
+source_modules = ["waystation_server.formats"]
+forbidden_modules = ["waystation_server.api"]
+
+[[tool.importlinter.contracts]]
+name = "ARCH §3: REST API uses only format descriptors (base, registry), never format internals"
+type = "forbidden"
+source_modules = ["waystation_server.api"]
+forbidden_modules = ["waystation_server.formats.*"]
+ignore_imports = [
+    "waystation_server.api.** -> waystation_server.formats.base",
+    "waystation_server.api.** -> waystation_server.formats.registry",
+]
+unmatched_ignore_imports_alerting = "none"
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "ARCH §3: only *.db modules touch MongoDB"
+type = "forbidden"
+source_modules = [
+    "waystation_server.api",
+    "waystation_server.formats",
+    "waystation_server.proxy",
+    "waystation_server.dataplane",
+    "waystation_server.security",
+    "waystation_server.stats",
+    "waystation_server.sse",
+    "waystation_worker.jobs",
+]
+forbidden_modules = ["pymongo", "bson"]
+allow_indirect_imports = true

@@ -391,7 +391,8 @@ Waystation/
     Web/      Quasar SPA (src/api, components, composables, layouts, pages, stores, router, css, mocks/),
               branding/ (logo masters; public/ holds web-sized copies)
   Build/
-    Containers/  compose*.yaml, web/ (Dockerfile, nginx.conf.template), server/, worker/, examples/
+    Containers/  compose*.yaml, web/ (Dockerfile, nginx.conf.template), server/, worker/, dev/ (dev image), examples/
+    githooks/    pre-commit hook (`make hooks`)
     ci/          budgets.json, scripts used by workflows
     monitoring/  zabbix template, grafana dashboard (Phase 6)
   tests/  clients/<format>/  fixtures/upstreams/<format>/  perf/  security/  e2e/
@@ -405,6 +406,7 @@ Waystation/
 |---|---|
 | Plan and documents | Drafted 2026-11-08 |
 | Repository bootstrap (T-F01) | Done 2026-11-08: skeleton, LICENSE (GPL-3.0-or-later), VERSION 0.1.0; not yet pushed |
+| Dev tooling (T-F02) | Done 2026-11-08: dev image (Python 3.14, uv, Node 26 LTS), Makefile, uv workspace (`waystation_common`, `waystation_server`, `waystation_worker`), ruff, mypy strict, import-linter contracts (ARCH §3), pre-commit hook |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)
