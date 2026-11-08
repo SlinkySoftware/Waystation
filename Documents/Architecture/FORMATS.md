@@ -150,6 +150,28 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
 - Hosted: upload RPMs; worker builds `repodata` (createrepo-equivalent: primary/filelists/other, zstd), signs
   `repomd.xml` (`repomd.xml.asc`), atomic swap. Optional package signing is out of scope.
 - Clients: dnf 4/5, yum, zypper (smoke only).
+- Built (T-P2-YUM min, proxy): `formats/yum/plugin.py`, defused bounded parsers in `repodata.py`, `yum_packages`
+  access in `db/yum.py`. A *repository directory* is any directory holding `repodata/`; one Waystation repository
+  serves every directory under its upstream URL. `repodata/repomd.xml` is metadata (revalidated, passed through,
+  refused with 502 unless it parses); `repomd.xml.asc`/`.key` are small metadata and a newly stored `repomd.xml`
+  drops the cached `.asc`. Files the currently cached `repomd.xml` lists are served only by its checksum
+  (SHA-1/256/512) and size, buffered and verified before the first byte; by-checksum names are cached forever under
+  their own path, plain names (`comps.xml`) under `repodata/<hex>-<name>`; on a mismatch `repomd.xml` is revalidated
+  once, then 502. Unlisted by-checksum names (a client with an older `repomd.xml`) are self-validating by the hex
+  length of their prefix; other unlisted files 404. Other checksum types (sha224/384, md5) are not served. XML is
+  parsed with expat refusing any DTD, entity or notation declaration (no entity expansion, no external entities),
+  text values bounded to 1 KiB, `repomd.xml` to 8 MiB / 1000 entries. A listed `primary` is decompressed in 1 MiB
+  chunks (`.gz`, `.xz`, `.zst`, `.bz2`, plain; at most 2 GiB decompressed, 1 M packages) and parsed in a thread in
+  the background into `yum_packages` (entries with unsafe `href`s or an `xml:base` are skipped; a new generation of
+  a directory's `primary` replaces the old one). Packages (`*.rpm`, `*.drpm`) are validated against their entry; a
+  package with no entry looks up the closest enclosing directory with a cached `repomd.xml`, ensures and indexes its
+  `primary` (waiting for it), then validates; otherwise it is served and recorded `unverified` and dropped if a later
+  listing disagrees (or uses another algorithm). Other paths (`.treeinfo`, keys) are metadata by path, so files
+  over 128 MiB outside `repodata/` and packages (installer images) are not supported. Real clients: dnf 4 on Rocky
+  Linux 10 and AlmaLinux 10 against their `extras` repositories (`tests/clients/yum/`). Browse: the generic folder
+  tree only (no yum package view yet). Not yet: hosted, group, Oracle Linux 9 / EPEL / Fedora / zypper in the
+  harness, dnf 5, the `components` collection, a worker-side refresh of `primary` and re-verification of unverified
+  packages.
 
 ## PyPI — Phase 5
 Specs: PEP 503 (simple HTML), PEP 691 (JSON simple API, `application/vnd.pypi.simple.v1+json`), PEP 658/714
