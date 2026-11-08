@@ -205,6 +205,19 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   `prefetch`, `import`. `WORKER_QUEUES` selects which a worker consumes.
 - Job runs, progress and logs are recorded in MongoDB (`job_runs`) and streamed to the UI via events.
 
+As implemented (T-F08): job types are frozen pydantic models subclassing `waystation_common.jobs.JobPayload`
+(`kind`, `queue`, `max_attempts`, `dedupe_key()`); the server enqueues through `JobClient` (`Services.jobs`):
+`enqueue_durable(payload, session=s)` writes the outbox inside its transaction, `enqueue(payload)` goes straight to
+Valkey. Every queue transition (enqueue/merge/rerun, start, finish/retry/dead, heartbeat) is one Lua script in
+`waystation_common.jobs.queue`. The worker (`waystation_worker.jobs.JobSystem`) runs a consumer (`XREADGROUP`,
+heartbeat via `XCLAIM JUSTID` every visibility/3, `XAUTOCLAIM` of entries idle > 60 s; attempt = failed attempts +
+delivery count, so a lost worker counts; backoff retries via `jobs:<queue>:delayed`) and competes for
+`lease:scheduler`, whose holder dispatches the outbox, fires `job_definitions` (`next_run_at` compare-and-set, so a
+fire is enqueued once even if two leaders overlap) and promotes delayed jobs. Valkey data loss is detected with the
+`jobs:epoch` token. Handlers (`@handles(Payload)`) get a `JobContext` (`progress`, `log`, db, valkey). The stats
+rollup (§8) runs as the scheduled job `stats.rollup` (`@every 10s`, queue `stats`). Graceful stop lets running jobs
+finish for 8 s; abandoned jobs are reclaimed. Liveness: the heartbeat file is withheld when the consumer loop stalls.
+
 ## 11. Format plugin contract
 `waystation_server.formats.base.Format` (protocol) with: `name`, `routes()` (mounted under `/repository/<repo>/`
 and any format-specific roots such as `/v2/`), `resolve(request, repo) -> Resolution`, `proxy_fetch(...)`,
