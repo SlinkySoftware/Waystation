@@ -7,6 +7,7 @@ import { delay, http, HttpResponse } from 'msw'
 import type { FieldError, Format, Preferences, Problem, Repository, RepositoryWrite, Session, StatsRange } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
+import { activityCsv, activityPage, activityQuery } from './activity'
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
@@ -430,9 +431,17 @@ export const handlers = [
     if (denied) return denied
     await latency()
     const url = new URL(request.url)
-    const repo = url.searchParams.get('repo')
-    const kind = url.searchParams.get('kind')
-    const items = world.activity.filter((a) => (!repo || a.repository === repo) && (!kind || a.kind === kind))
-    return HttpResponse.json(paginate(items, url))
+    const query = activityQuery(url)
+    if (query.since && query.until && Date.parse(query.since) > Date.parse(query.until)) return problem(400, 'Validation failed', 'since must not be after until')
+    return HttpResponse.json(activityPage(world.activity, url))
+  }),
+  http.get(`${API}/activity/export`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await delay(400)
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15)
+    return new HttpResponse(activityCsv(world.activity, new URL(request.url)), {
+      headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="waystation-activity-${stamp}.csv"` },
+    })
   }),
 ]

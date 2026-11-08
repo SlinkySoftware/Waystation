@@ -4,6 +4,7 @@
 // upstream bandwidth, coalescing, and occasional failures. Emits the same LiveEvents the server will send (ARCH §8)
 // and keeps the counters the mock REST handlers read.
 import type { ActivityEvent, LiveEvent, Repository, Transfer } from '@/api/types'
+import { compareIdsDesc } from '@/utils/activity'
 
 import { seedRepositories } from './fixtures/repositories'
 import { aptRun, dnfRun, dockerPull, type JobPlan, npmInstall, rawDownload, type Spec, trickle } from './scenarios'
@@ -13,6 +14,8 @@ export const TICK_MS = 250
 const LAN_BPS = 117e6 // ~1 GbE to clients
 const WAN_BPS = 58e6 // ~500 Mbit/s internet uplink for upstream fetches
 const HISTORY_BUCKET_S = 10
+/** Activity entries the mock keeps (the server's stream keeps ~200k). */
+const ACTIVITY_KEEP = 3000
 
 interface Sim {
   t: Transfer
@@ -103,7 +106,7 @@ export class MockWorld {
   addActivity(entry: Omit<ActivityEvent, 'id' | 'ts'>): void {
     const event: ActivityEvent = { id: this.nextId(), ts: new Date().toISOString(), ...entry }
     this.activity.unshift(event)
-    this.activity.length = Math.min(this.activity.length, 300)
+    this.activity.length = Math.min(this.activity.length, ACTIVITY_KEEP)
     this.emit({ type: 'activity', ts: event.ts, event }, event.id)
   }
 
@@ -292,10 +295,10 @@ export class MockWorld {
         repo.stats.artifact_count++
       }
       if (t.bytes_done > 2 * MiB || Math.random() < 0.15) {
-        this.addActivity({ kind: 'cache_miss', summary: `Cached ${t.component ?? t.artifact} from upstream`, outcome: 'success', repository: t.repository, format: t.format, artifact: t.path ?? t.artifact, principal: t.client.user ?? t.client.ip, cache: 'FETCHING', bytes: t.bytes_done, duration_ms: duration })
+        this.addActivity({ kind: 'cache_miss', summary: `Cached ${t.component ?? t.artifact} from upstream`, outcome: 'success', repository: t.repository, format: t.format, artifact: t.artifact, path: t.path, principal: t.client.user ?? t.client.ip, cache: 'FETCHING', bytes: t.bytes_done, duration_ms: duration })
       }
-    } else if (t.bytes_done > 300 * MiB) {
-      this.addActivity({ kind: 'download', summary: `Downloaded ${t.artifact}`, outcome: 'success', repository: t.repository, format: t.format, artifact: t.path ?? t.artifact, principal: t.client.user ?? t.client.ip, cache: t.cache, bytes: t.bytes_done, duration_ms: duration })
+    } else if (t.bytes_done > 50 * MiB || Math.random() < 0.08) {
+      this.addActivity({ kind: 'download', summary: `${t.client.user ?? t.client.ip} downloaded ${t.artifact}`, outcome: 'success', repository: t.repository, format: t.format, artifact: t.artifact, path: t.path, principal: t.client.user ?? t.client.ip, cache: t.cache, bytes: t.bytes_done, duration_ms: duration })
     }
   }
 
@@ -307,7 +310,7 @@ export class MockWorld {
     this.record(false, 0, 0)
     this.emit({ type: 'transfer.failed', ts: new Date().toISOString(), id: t.id, bytes_done: Math.round(t.bytes_done), error })
     if (!sim.owner) {
-      this.addActivity({ kind: 'error', summary: `${t.component ?? t.artifact}: ${error}`, outcome: 'failure', repository: t.repository, format: t.format, artifact: t.path ?? t.artifact, principal: t.client.user ?? t.client.ip, cache: 'ERROR', bytes: Math.round(t.bytes_done), duration_ms: Date.now() - Date.parse(t.started_at) })
+      this.addActivity({ kind: 'error', summary: `${t.component ?? t.artifact}: ${error}`, outcome: 'failure', repository: t.repository, format: t.format, artifact: t.artifact, path: t.path, principal: t.client.user ?? t.client.ip, cache: 'ERROR', bytes: Math.round(t.bytes_done), duration_ms: Date.now() - Date.parse(t.started_at) })
     }
   }
 
@@ -384,8 +387,38 @@ export class MockWorld {
       { ts: new Date(now - 48 * 60_000).toISOString(), kind: 'repository', summary: 'Repository raspberrypi created', outcome: 'info', repository: 'raspberrypi', format: 'apt', artifact: null, principal: 'admin', cache: null, bytes: null, duration_ms: null },
       { ts: new Date(now - 64 * 60_000).toISOString(), kind: 'auth', summary: 'admin signed in', outcome: 'info', repository: null, format: null, artifact: null, principal: 'admin', cache: null, bytes: null, duration_ms: null },
     ]
-    for (const e of seed) this.activity.push({ id: `${Date.parse(e.ts)}-0`, ...e })
+    const events: ActivityEvent[] = seed.map((e) => ({ id: `${Date.parse(e.ts)}-0`, ...e }))
+    events.push(...historicActivity(now, 900))
+    events.sort((a, b) => compareIdsDesc(a.id, b.id))
+    this.activity.push(...events.slice(0, ACTIVITY_KEEP))
   }
+}
+
+/** A day of plausible history: client runs replayed into past activity events (denser in recent hours). */
+function historicActivity(now: number, count: number): ActivityEvent[] {
+  const plans: (() => JobPlan)[] = [() => dockerPull(Math.random() < 0.3), npmInstall, aptRun, () => dnfRun(), rawDownload, trickle]
+  const out: ActivityEvent[] = []
+  let seq = 1
+  while (out.length < count) {
+    const age = 90_000 + Math.random() ** 1.6 * 86_400_000
+    let at = now - age
+    const plan = pick(plans)()
+    const who = plan.client.user ?? plan.client.ip
+    for (const spec of plan.specs.slice(0, Math.ceil(between(1, 4)))) {
+      at += between(80, 2400)
+      const failed = spec.cache === 'ERROR' || Boolean(spec.error)
+      const fetched = spec.cache === 'FETCHING' || spec.cache === 'COALESCED'
+      const rate = fetched ? between(8, 45) * MiB : between(60, 110) * MiB
+      const duration = Math.round(80 + (spec.size / rate) * 1000)
+      const base = { repository: spec.repository, format: spec.format, artifact: spec.artifact, path: spec.path, principal: who, duration_ms: duration }
+      const ts = new Date(at).toISOString()
+      const id = `${Math.floor(at)}-${seq++}`
+      if (failed) out.push({ id, ts, kind: 'error', summary: `${spec.component ?? spec.artifact}: ${spec.error ?? 'upstream answered 503'}`, outcome: 'failure', cache: 'ERROR', bytes: 0, ...base })
+      else if (fetched) out.push({ id, ts, kind: 'cache_miss', summary: `Cached ${spec.component ?? spec.artifact} from upstream`, outcome: 'success', cache: 'FETCHING', bytes: spec.size, ...base })
+      else out.push({ id, ts, kind: 'download', summary: `${who} downloaded ${spec.artifact}`, outcome: 'success', cache: spec.cache, bytes: spec.size, ...base })
+    }
+  }
+  return out
 }
 
 /** Upstream health per proxy repo, derived from the world (used by REST and upstream.state events). */
