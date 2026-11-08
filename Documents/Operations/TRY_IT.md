@@ -3,7 +3,7 @@
 This guide gets the M0 feedback build running on one Docker host in about ten minutes. You sign in, create proxy
 repositories for Docker Hub, npm, Debian and GitHub releases, point real clients at them, and watch the traffic on
 the dashboard. It is a try-out build: one admin account, no TLS in the web tier, local and anonymous access only.
-Production deployment is covered in SPECIFICATION §8.
+Production deployment is covered in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 The examples use `registry.example.com` for the Docker host and port 8080. Replace both with your own values.
 To try it on your own machine, use `localhost`.
@@ -144,13 +144,14 @@ After `down -v` the next start is a fresh install with a new one-time admin pass
 
 ## Known limits of the M0 build
 
-- One local admin account. Users, groups, roles and LDAP/OIDC come in later milestones. You can create personal API
-  tokens on your profile page (avatar menu > Profile). Format clients that send credentials (basic or bearer auth on
-  `/repository/...`) must use a token, not your password. The proxies in this guide allow anonymous reads, so the
-  examples need no credentials.
-- Proxy repositories only, for Docker, npm, apt, yum/dnf and raw (yum arrived after the tour was taken). Hosted and group repositories, and the other formats,
-  come later.
-- No TLS in the web tier. Put a reverse proxy in front for HTTPS (SPECIFICATION §8).
+- One local admin account to start with. You can add an LDAP sign-in provider (Administration > Auth providers).
+  User, group and role management pages, and OIDC, come later.
+- Personal API tokens are on your profile page (avatar menu > Profile). Format clients that send credentials (basic
+  or bearer auth on `/repository/...`) must use a token, not your password. The proxies in this guide allow anonymous
+  reads, so the examples need no credentials.
+- Proxy repositories only, for Docker, npm, apt, yum/dnf and raw. Hosted and group repositories, and the other
+  formats, come later.
+- No TLS in the web tier. Put a reverse proxy in front for HTTPS ([REVERSE_PROXIES.md](REVERSE_PROXIES.md)).
 - Menu items marked "soon" are placeholders.
 
 Send feedback in `Documents/Notes/UI_FEEDBACK.md`.
