@@ -67,6 +67,7 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/docker/images', 'get'),
     ('/repositories/{name}/docker/tags', 'get'),
     ('/repositories/{name}/docker/manifest', 'get'),
+    ('/search', 'get'),
     ('/stats/summary', 'get'),
     ('/stats/traffic', 'get'),
     ('/stats/storage', 'get'),
