@@ -15,6 +15,27 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   chart), a sortable, filterable repository table (sort and filter in the URL), and a placeholder for growth until
   storage snapshots exist. Contract, generated client and MSW mocks updated (mock activity: stream-id cursors, the
   same filters, a day of seeded history, CSV export).
+- T-A01: LDAP sign-in provider. `security.ldap` (ldap3 in a dedicated thread pool, connect/response timeouts and an
+  overall ceiling): ordered server list with failover (unreachable or TLS-failing servers skipped for 30 s), LDAPS,
+  StartTLS or clear text, custom CA with host-name verification by Python `ssl`, service bind with a write-only
+  encrypted password, user search (base + filter, escaped username), user bind on its own connection (empty passwords
+  refused), attribute mapping, groups by `memberOf` or group search with optional nested walk, require-group gate,
+  and a bind cache (HMAC of provider, config version, username, password; per-process key) used by `docker login`.
+  `security.login.verify_login` now takes the services and an optional provider: local accounts with a password are
+  only checked locally; everyone else goes to the enabled LDAP providers in order. Admin API `/api/v1/auth-providers`
+  (CRUD with 422 field errors and 409 on a taken name, test-connection per server, test-user with groups, gate and
+  mapped roles; `settings-admin`) and `GET /api/v1/roles`; `/auth/providers` lists enabled providers. New collection
+  `auth_providers`. UI: "Authentication providers" admin page (FreeIPA / AD / OpenLDAP presets, connection, users,
+  groups, caching sections, test buttons, group-mapping table) with MSW mocks, and a provider select on the sign-in
+  page. `make test-integration` now also builds and starts an OpenLDAP server with a FreeIPA-style tree and a Samba
+  AD DC with a throwaway CA (`Build/Containers/test/`); integration tests cover TLS modes, wrong CA/host name,
+  failover, wrong password, locked/disabled accounts, require-group, nested groups, group sync, the same-username
+  rules, the docker token service with an LDAP password and the admin API. New dependencies: `ldap3`, `types-ldap3`.
+- T-A03 (LDAP half): provider-neutral identity linking and group sync (`security.external.link_identity`):
+  provisioning, same-username rules (never link to an account with a local password; password-less local accounts
+  and other providers' users are linked; `users.identities[]`), `users.external_groups[]` replaced per provider at each
+  sign-in. T-S03 groups: `groups` documents hold roles; a provider's group mapping is stored as groups; effective roles
+  (own ∪ local groups ∪ mapped external groups) resolved per request by `security.groups.GroupDirectory`, also for API tokens of users.
 - T-P2-YUM (proxy min): yum/dnf proxy repositories (`formats/yum`: descriptor, `repodata.py` parsers, plugin;
   `db/yum.py`; registered in `plugins.py`). The upstream layout is kept, so one repository serves every `repodata/`
   directory below its upstream URL. `repomd.xml` is metadata, passed through untouched after a defused parse (expat
@@ -32,6 +53,17 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   AlmaLinux 10 against their `extras` repositories with `repo_gpgcheck=1` (makecache, install, cache hit + `rpm -K`,
   reinstall from an empty dnf cache, browse API), 52 KB of fixtures. `Documents/Operations/clients/yum.md`.
   `linux.duke.edu` (the repodata XML namespace) added to the host allowlist.
+- T-U02: brand. An original mark (a waypoint marker with a hexagonal head holding a stack: slab and two layers) and a
+  monoline geometric "waystation" wordmark, both defined once in `Application/Web/src/assets/brand/geometry.ts`.
+  `BrandMark` draws from it (theme colours, `mono` variant with the glyph cut out, a 16 px-tuned glyph below 20 px,
+  optional accessible label). `make brand` (`scripts/gen-brand.mjs`, `@resvg/resvg-js` dev dependency, runs in the dev
+  image) writes the master SVGs (mark light/dark/mono/small, wordmark, lockups, app tile) and the favicon set in
+  `public/` (theme-following `favicon.svg`, PNG 16/32/48, `favicon.ico`, `apple-touch-icon.png`, `icon-192/512.png`,
+  `icon-maskable-512.png`, `manifest.webmanifest`), wired into `index.html` with `theme-color`; `make brand-check` runs
+  in `make frontend-check`. Empty-state illustrations (`EmptyIllustration.vue`: repositories, cache, search,
+  activity, error, notFound, soon), painted only through theme variables, replace the icon tiles in every
+  `EmptyState` use; the repository page distinguishes a load failure (error illustration, retry) from a missing
+  repository. `Application/Web/branding/` is gone (UI_DESIGN §8 now names `src/assets/brand/`).
 
 ## 2026-11-08
 - T-S04: API tokens and service accounts. `security.tokens.TokenService`: `wst_` tokens shown once, stored as

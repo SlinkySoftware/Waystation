@@ -6,7 +6,7 @@
       <q-btn flat dense no-caps :label="t('dashboard.activity.all')" :to="{ name: 'activity' }" />
     </template>
     <q-skeleton v-if="!items.length && loading" height="200px" class="q-ma-md" />
-    <EmptyState v-else-if="!items.length" compact :title="t('dashboard.activity.empty')" />
+    <EmptyState v-else-if="!items.length" compact illustration="activity" :title="t('dashboard.activity.empty')" />
     <TransitionGroup v-else tag="ul" name="feed" class="feed">
       <li v-for="e in items" :key="e.id" class="feed__item">
         <span class="feed__icon" :class="tone(e)"><q-icon :name="icon(e)" size="16px" /></span>
