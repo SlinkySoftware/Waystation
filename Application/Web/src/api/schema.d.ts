@@ -104,6 +104,161 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/me/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's API tokens (newest first; secrets are never returned) and the scopes it may grant */
+        get: operations["listMyTokens"];
+        put?: never;
+        /**
+         * Create an API token (needs a signed-in session; the secret is in this response only)
+         * @description Scopes may only be ones the owner holds (`available_scopes`); a token only ever narrows the owner's grants.
+         *     `repositories` limits it further to matching repositories (names, globs, `format:<f>`, `type:<t>`).
+         */
+        post: operations["createMyToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: components["parameters"]["TokenId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke one of the caller's tokens (refused on every replica within a second) */
+        delete: operations["revokeMyToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every API token (newest first, up to 500); needs `user-admin` */
+        get: operations["listAllTokens"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: components["parameters"]["TokenId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke any token; needs `user-admin` */
+        delete: operations["revokeToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Service accounts (non-human principals that authenticate with API tokens); needs `user-admin` */
+        get: operations["listServiceAccounts"];
+        put?: never;
+        /** Create a service account */
+        post: operations["createServiceAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-accounts/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a service account and revoke its tokens */
+        delete: operations["deleteServiceAccount"];
+        options?: never;
+        head?: never;
+        /** Change a service account's description, roles or disabled flag (effective at once) */
+        patch: operations["updateServiceAccount"];
+        trace?: never;
+    };
+    "/service-accounts/{account_id}/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        /** A service account's tokens and the scopes it may grant */
+        get: operations["listServiceAccountTokens"];
+        put?: never;
+        /** Create a token for a service account (the secret is in this response only) */
+        post: operations["createServiceAccountToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service-accounts/{account_id}/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+                token_id: components["parameters"]["TokenId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a service account's token */
+        delete: operations["revokeServiceAccountToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories": {
         parameters: {
             query?: never;
@@ -592,6 +747,88 @@ export interface components {
             preferences: components["schemas"]["Preferences"];
             expires_at: components["schemas"]["Timestamp"];
         };
+        /**
+         * @description What a token may be used for; it never exceeds the owner's own grants. `read`: browse, pull, download,
+         *     install. `write`: + push/upload. `delete`: + delete. `manage`: + repository settings. `stats-read`:
+         *     dashboards and stats API. `metrics`: the Prometheus `/metrics` endpoint. `admin`: everything the owner may do.
+         * @enum {string}
+         */
+        TokenScope: "read" | "write" | "delete" | "manage" | "stats-read" | "metrics" | "admin";
+        TokenOwnerRef: {
+            /** @enum {string} */
+            kind: "user" | "service_account";
+            id: string;
+            name: string;
+        };
+        ApiToken: {
+            id: string;
+            name: string;
+            /** @description The first characters of the token, for recognising it (`wst_` + 8) */
+            prefix: string;
+            owner: components["schemas"]["TokenOwnerRef"];
+            scopes: components["schemas"]["TokenScope"][];
+            /** @description Repository patterns the token is limited to; empty = all */
+            repositories: string[];
+            /** @enum {string} */
+            status: "active" | "expired" | "revoked";
+            /**
+             * Format: date-time
+             * @description null = never expires
+             */
+            expires_at: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            /**
+             * Format: date-time
+             * @description Recorded at most once a minute
+             */
+            last_used_at: string | null;
+            last_used_ip: string | null;
+            /** Format: date-time */
+            revoked_at: string | null;
+        };
+        ApiTokenList: {
+            items: components["schemas"]["ApiToken"][];
+            /** @description Scopes the owner may put on a new token */
+            available_scopes: components["schemas"]["TokenScope"][];
+        };
+        ApiTokenCreate: {
+            /** @description What the token is for, e.g. `CI pipeline` */
+            name: string;
+            scopes: components["schemas"]["TokenScope"][];
+            /** @description Limit the token to these repositories: names, globs (`docker-*`), `format:<f>`, `type:<t>` */
+            repositories?: string[];
+            /**
+             * Format: date-time
+             * @description null = never expires
+             */
+            expires_at?: string | null;
+        };
+        ApiTokenCreated: {
+            token: components["schemas"]["ApiToken"];
+            /** @description The token. Shown only in this response; store it now */
+            secret: string;
+        };
+        ServiceAccount: {
+            id: string;
+            name: string;
+            description: string;
+            roles: string[];
+            disabled: boolean;
+            active_tokens: number;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        ServiceAccountCreate: {
+            /** @description Lower case letters, digits, `.`, `_`, `-` */
+            name: string;
+            /** @default  */
+            description: string;
+            roles?: string[];
+        };
+        ServiceAccountUpdate: {
+            description?: string | null;
+            roles?: string[] | null;
+            disabled?: boolean | null;
+        };
         /** @description Upstream credentials. Secrets are write-only; reads return `secret_set` instead. */
         UpstreamAuth: {
             /** @enum {string} */
@@ -657,8 +894,17 @@ export interface components {
              */
             content_disposition: "inline" | "attachment";
         };
+        YumOptions: {
+            /**
+             * @description Path of the yum repository (the directory holding `repodata/`) below the upstream URL, e.g. `$releasever/BaseOS/$basearch/os/`. Empty: derived for well-known upstreams, else the repository root. Only used by "Set me up" and "test upstream"
+             * @default
+             */
+            repo_path: string;
+            /** @description `gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams */
+            gpg_key?: string | null;
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"];
         RepositoryWrite: {
             name: components["schemas"]["RepositoryName"];
             format: components["schemas"]["Format"];
@@ -1245,6 +1491,8 @@ export interface components {
         Limit: number;
         Range: components["schemas"]["StatsRange"];
         TrafficMetric: "bytes" | "requests";
+        TokenId: string;
+        AccountId: string;
         /** @description Image name within the repository, e.g. `library/nginx` */
         DockerImage: string;
     };
@@ -1398,6 +1646,287 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listMyTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tokens, including expired and revoked ones */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createMyToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiTokenCreate"];
+            };
+        };
+        responses: {
+            /** @description Created. Show `secret` once; it cannot be retrieved again. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenCreated"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    revokeMyToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: components["parameters"]["TokenId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked (also when it was already revoked) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listAllTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tokens of all users and service accounts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiToken"][];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    revokeToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: components["parameters"]["TokenId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listServiceAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Service accounts by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAccount"][];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createServiceAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceAccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAccount"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteServiceAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateServiceAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceAccountUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAccount"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listServiceAccountTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tokens */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenList"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    createServiceAccountToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApiTokenCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiTokenCreated"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    revokeServiceAccountToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+                token_id: components["parameters"]["TokenId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listRepositories: {

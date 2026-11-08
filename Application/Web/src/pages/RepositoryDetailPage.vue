@@ -43,8 +43,12 @@
     </template>
 
     <q-card v-else-if="state.error.value">
-      <EmptyState :icon="iconRepositories" :title="t('detail.notFound')" :text="t('detail.notFoundText', { name })">
+      <EmptyState v-if="missing" illustration="notFound" :title="t('detail.notFound')" :text="t('detail.notFoundText', { name })">
         <q-btn unelevated no-caps color="primary" :label="t('nav.repositories')" :to="{ name: 'repositories' }" />
+      </EmptyState>
+      <EmptyState v-else illustration="error" :title="t('detail.loadFailed')" :text="errorMessage(state.error.value)">
+        <q-btn unelevated no-caps color="primary" :label="t('detail.retry')" :loading="state.loading.value" @click="state.reload()" />
+        <q-btn flat no-caps :label="t('nav.repositories')" :to="{ name: 'repositories' }" />
       </EmptyState>
     </q-card>
     <template v-else>
@@ -59,7 +63,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { api, call } from '@/api/client'
+import { api, ApiError, call, errorMessage } from '@/api/client'
 import type { Repository } from '@/api/types'
 import RepoBrowser from '@/components/browse/RepoBrowser.vue'
 import CopyField from '@/components/CopyField.vue'
@@ -78,7 +82,7 @@ import { t } from '@/i18n'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { formatLabel, repoMark, typeMeta } from '@/utils/domain'
 import { formatBytes, formatCount, formatPercent } from '@/utils/format'
-import { iconRepositories, iconSetup } from '@/utils/icons'
+import { iconSetup } from '@/utils/icons'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,6 +94,8 @@ const setupOpen = ref(route.query.setup === '1')
 
 const state = useAsync(() => call(api.GET('/repositories/{name}', { params: { path: { name: name.value } } })), [name])
 const override = ref<Repository | null>(null)
+// Missing and hidden repositories are both 404; anything else is a load failure worth retrying.
+const missing = computed(() => state.error.value instanceof ApiError && state.error.value.status === 404)
 const repo = computed(() => override.value ?? state.data.value)
 
 useLiveTopic(() => [`repo:${name.value}`])

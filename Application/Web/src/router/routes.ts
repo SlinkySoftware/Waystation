@@ -49,7 +49,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/audit', name: 'admin-audit', component: placeholder, meta: { title: 'nav.audit', planned: 'T-U08' } },
       { path: 'admin/settings', name: 'admin-settings', component: placeholder, meta: { title: 'nav.settings', planned: 'T-U08' } },
       { path: 'admin/system', name: 'admin-system', component: placeholder, meta: { title: 'nav.system', planned: 'T-U08' } },
-      { path: 'profile', name: 'profile', component: placeholder, meta: { title: 'nav.profile', planned: 'T-U09' } },
+      { path: 'profile', name: 'profile', component: () => import('@/pages/ProfilePage.vue'), meta: { title: 'nav.profile' } },
       { path: ':catchAll(.*)*', name: 'not-found', component: () => import('@/pages/NotFoundPage.vue'), meta: { title: 'notFound.title' } },
     ],
   },
