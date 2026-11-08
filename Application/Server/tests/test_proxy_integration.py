@@ -8,15 +8,13 @@ from typing import Any
 
 import httpx
 import pytest
-from starlette.responses import Response
 from ws_fake_upstream import FakeUpstream, Respond, Seen
-from ws_testing import asgi_client
+from ws_testing import FilesPlugin, add_repo, asgi_client
 
 from waystation_common.db.collections import ASSETS, BLOBS, REPOSITORIES
 from waystation_common.errors import DigestMismatch
 from waystation_common.events import keys
 from waystation_common.settings import Settings
-from waystation_server.formats.base import FormatRequest
 from waystation_server.problems import ResponseAborted
 from waystation_server.proxy.engine import AssetKind, AssetSpec, Expected, UpstreamInfo
 from waystation_server.proxy.http import Timeouts
@@ -27,19 +25,6 @@ pytestmark = pytest.mark.integration
 
 DATA = bytes(range(256)) * 3000  # 768000 bytes: several 256 KiB chunks
 SHA = hashlib.sha256(DATA).hexdigest()
-
-
-class FilesPlugin:
-    """A minimal raw-like plugin: the request path is the asset; ``make_spec`` lets each test shape it."""
-
-    def __init__(self, services: Services) -> None:
-        descriptor = services.formats.descriptor('raw')
-        assert descriptor is not None
-        self.descriptor = descriptor
-        self.make_spec: Callable[[str], AssetSpec] = lambda path: AssetSpec(path=path)
-
-    async def handle(self, req: FormatRequest) -> Response:
-        return await req.proxy.serve(req, self.make_spec(req.path))
 
 
 @pytest.fixture
@@ -59,26 +44,6 @@ def plugin(services: Services) -> FilesPlugin:
     services.formats.set_plugin(plugin)  # type: ignore[arg-type]
     services.upstream.timeouts = Timeouts(connect=2.0, read=1.0)
     return plugin
-
-
-async def add_repo(services: Services, url: str, *, name: str = 'files', **proxy: Any) -> str:
-    repo_id = f'repo-{name}'
-    now = datetime.now(UTC)
-    await services.db[REPOSITORIES].insert_one(
-        {
-            '_id': repo_id,
-            'name': name,
-            'format': 'raw',
-            'type': 'proxy',
-            'online': True,
-            'proxy': {'upstream_url': url, **proxy},
-            'format_options': {},
-            'created_at': now,
-            'updated_at': now,
-        }
-    )
-    services.catalog.invalidate()
-    return repo_id
 
 
 @pytest.fixture

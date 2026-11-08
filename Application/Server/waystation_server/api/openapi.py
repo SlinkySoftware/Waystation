@@ -12,8 +12,11 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
+from waystation_server.api.live import LIVE_EVENT_MODELS
 from waystation_server.formats.registry import FormatRegistry
 from waystation_server.problems import Problem
+
+API_PREFIX = '/api/v1'
 
 REF = '#/components/schemas/{model}'
 
@@ -47,7 +50,30 @@ def build(app: FastAPI, registry: FormatRegistry) -> dict[str, Any]:
         props = schema.get('properties', {})
         if 'format_options' in props:
             props['format_options'] = {'$ref': REF.format(model='FormatOptions')}
+    _document_event_stream(doc, schemas)
     return doc
+
+
+def _document_event_stream(doc: dict[str, Any], schemas: dict[str, Any]) -> None:
+    """The SSE payloads (``LiveEvent``, discriminated by ``type``) as the ``text/event-stream`` response schema."""
+    mapping = {}
+    for model in LIVE_EVENT_MODELS:
+        schema = model.model_json_schema(ref_template=REF, mode='serialization')
+        _add_model(schemas, schema)
+        schemas[model.__name__] = schema
+        event_type = schema['properties']['type'].get('const')
+        mapping[event_type] = REF.format(model=model.__name__)
+    schemas['LiveEvent'] = {
+        'description': 'One SSE message; `type` equals the SSE `event:` field.',
+        'oneOf': [{'$ref': ref} for ref in mapping.values()],
+        'discriminator': {'propertyName': 'type', 'mapping': mapping},
+    }
+    operation = doc.get('paths', {}).get(f'{API_PREFIX}/events/stream', {}).get('get')
+    if operation is not None:
+        operation['responses']['200'] = {
+            'description': 'Event stream. The payload of each `data:` line is a `LiveEvent`.',
+            'content': {'text/event-stream': {'schema': {'$ref': REF.format(model='LiveEvent')}}},
+        }
 
 
 def install(app: FastAPI, registry: FormatRegistry) -> None:

@@ -1,0 +1,245 @@
+"""Live transfers and the activity feed in the API's shapes (OpenAPI ``Transfer``, ``ActivityEvent`` and the SSE
+``LiveEvent`` variants), built from the emitter's Valkey state (``transfers`` hash, ``live`` channel, ``activity``
+stream; ``waystation_common.events``)."""
+
+from __future__ import annotations
+
+import json
+import logging
+from datetime import UTC, datetime
+from typing import Any
+
+from pydantic import ValidationError
+from redis.asyncio import Redis
+
+from waystation_common.events import ActivityEvent, CacheState, EventType, LiveMessage, Transfer, keys
+
+log = logging.getLogger('waystation.live')
+
+ACTIVITY_KINDS = (
+    'download',
+    'upload',
+    'delete',
+    'cache_miss',
+    'upstream_state',
+    'repository',
+    'cleanup',
+    'auth',
+    'error',
+)
+
+
+Entry = tuple[str, dict[str, str]]
+
+
+def _s(value: Any) -> str:
+    return value.decode() if isinstance(value, bytes) else str(value)
+
+
+def _entries(raw: Any) -> list[Entry]:
+    return [(_s(stream_id), {_s(k): _s(v) for k, v in (fields or {}).items()}) for stream_id, fields in raw or []]
+
+
+async def xrange(valkey: Redis, *, after: str, count: int) -> list[Entry]:
+    """``activity`` entries strictly after ``after``, oldest first."""
+    return _entries(await valkey.xrange(keys.ACTIVITY, min=f'({after}', max='+', count=count))
+
+
+async def xrevrange(valkey: Redis, *, before: str | None, count: int) -> list[Entry]:
+    """``activity`` entries strictly before ``before`` (or the newest), newest first."""
+    upper = f'({before}' if before else '+'
+    return _entries(await valkey.xrevrange(keys.ACTIVITY, max=upper, min='-', count=count))
+
+
+async def xread(valkey: Redis, *, after: str, block_ms: int, count: int) -> list[Entry]:
+    raw: Any = await valkey.xread({keys.ACTIVITY: after}, block=block_ms, count=count)
+    out: list[Entry] = []
+    for _stream, entries in raw or []:
+        out.extend(_entries(entries))
+    return out
+
+
+def _iso(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace('+00:00', 'Z')
+
+
+def artifact_of(transfer: Transfer) -> str:
+    return transfer.artifact or transfer.path.rsplit('/', 1)[-1] or transfer.path
+
+
+def transfer_view(t: Transfer, *, state: str = 'active') -> dict[str, Any]:
+    return {
+        'id': t.id,
+        'repository': t.repo,
+        'format': t.format,
+        'direction': t.direction.value,
+        'artifact': artifact_of(t),
+        'path': t.path,
+        'component': t.component,
+        'client': {'ip': t.client_ip or 'unknown', 'user': t.principal, 'agent': t.client_agent},
+        'cache': t.cache.value,
+        'followers': 0,
+        'bytes_done': t.bytes_done,
+        'bytes_total': t.bytes_total,
+        'rate_bps': round(t.rate_bps, 1),
+        'upstream_latency_ms': t.upstream_latency_ms,
+        'started_at': _iso(t.started_at),
+        'updated_at': _iso(t.updated_at),
+        'state': state,
+        'error': t.error,
+    }
+
+
+async def current_transfers(valkey: Redis) -> list[Transfer]:
+    raw = await valkey.hgetall(keys.TRANSFERS)
+    out = []
+    for value in raw.values():
+        try:
+            out.append(Transfer.model_validate_json(value))
+        except ValidationError:
+            continue
+    out.sort(key=lambda t: t.started_at)
+    return out
+
+
+def live_event(message: LiveMessage) -> dict[str, Any] | None:
+    """A ``live`` pub/sub message as the SSE event the contract defines (None: not forwarded)."""
+    t = message.transfer
+    ts = _iso(t.updated_at)
+    if message.type is EventType.TRANSFER_STARTED:
+        return {'type': 'transfer.started', 'ts': ts, 'transfer': transfer_view(t)}
+    if message.type is EventType.TRANSFER_PROGRESS:
+        return {
+            'type': 'transfer.progress',
+            'ts': ts,
+            'id': t.id,
+            'bytes_done': t.bytes_done,
+            'bytes_total': t.bytes_total,
+            'rate_bps': round(t.rate_bps, 1),
+            'cache': t.cache.value,
+            'followers': 0,
+            'upstream_latency_ms': t.upstream_latency_ms,
+        }
+    if message.type is EventType.TRANSFER_FINISHED:
+        duration = (t.updated_at - t.started_at).total_seconds() * 1000
+        return {
+            'type': 'transfer.finished',
+            'ts': ts,
+            'id': t.id,
+            'bytes_done': t.bytes_done,
+            'duration_ms': round(duration, 1),
+            'cache': t.cache.value,
+        }
+    if message.type is EventType.TRANSFER_FAILED:
+        return {
+            'type': 'transfer.failed',
+            'ts': ts,
+            'id': t.id,
+            'bytes_done': t.bytes_done,
+            'error': t.error or 'failed',
+        }
+    return None
+
+
+def _who(event: ActivityEvent) -> str | None:
+    if event.principal and event.principal != 'anonymous':
+        return event.principal
+    return event.client_ip or event.principal
+
+
+def activity_view(stream_id: str, event: ActivityEvent) -> dict[str, Any] | None:
+    """An ``activity`` stream entry in the API shape; None for entries the feed does not show (transfer starts)."""
+    artifact = (event.path or '').rsplit('/', 1)[-1] or event.path
+    who = _who(event) or 'someone'
+    repo = event.repo or '?'
+    kind: str
+    outcome = 'success'
+    match event.type:
+        case EventType.TRANSFER_FINISHED:
+            kind = 'download'
+            verb = 'fetched' if event.cache is CacheState.FETCHING else 'downloaded'
+            summary = f'{who} {verb} {artifact} from {repo}'
+        case EventType.CACHE_HIT | EventType.CACHE_STALE:
+            kind = 'download'
+            stale = ' (stale copy)' if event.type is EventType.CACHE_STALE else ''
+            summary = f'{who} downloaded {artifact} from {repo}{stale}'
+        case EventType.TRANSFER_FAILED:
+            kind, outcome = 'error', 'failure'
+            reason = event.detail.get('error') or 'failed'
+            summary = f'Fetching {artifact} into {repo} failed: {reason}'
+        case EventType.CACHE_MISS:
+            kind, outcome = 'cache_miss', 'info'
+            summary = f'{artifact} was not cached in {repo}'
+        case EventType.UPSTREAM_STATE:
+            kind, outcome = 'upstream_state', 'info'
+            summary = f'Upstream of {repo} is {event.detail.get("state", "changed")}'
+        case EventType.ASSET_CREATED:
+            kind = 'upload'
+            summary = f'{who} uploaded {artifact} to {repo}'
+        case EventType.ASSET_DELETED:
+            kind = 'delete'
+            summary = f'{artifact} was deleted from {repo}'
+        case EventType.JOB_STARTED | EventType.JOB_FINISHED | EventType.JOB_FAILED:
+            kind = 'cleanup'
+            outcome = 'failure' if event.type is EventType.JOB_FAILED else 'info'
+            summary = str(event.detail.get('summary') or event.type.value)
+        case _:
+            return None
+    return {
+        'id': stream_id,
+        'ts': _iso(event.ts),
+        'kind': kind,
+        'summary': summary,
+        'outcome': outcome,
+        'repository': event.repo,
+        'format': event.format,
+        'artifact': artifact,
+        'principal': _who(event),
+        'cache': event.cache.value if event.cache else None,
+        'bytes': event.bytes,
+        'duration_ms': event.duration_ms,
+    }
+
+
+def parse_activity(fields: dict[str, str]) -> ActivityEvent | None:
+    try:
+        return ActivityEvent.model_validate_json(fields.get('data', ''))
+    except ValidationError, json.JSONDecodeError:
+        return None
+
+
+async def activity_page(
+    valkey: Redis,
+    *,
+    visible: set[str],
+    repo: str | None,
+    kind: str | None,
+    cursor: str | None,
+    limit: int,
+    scan_cap: int = 5000,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Newest first. ``visible`` = repository names the principal may see; entries of other repositories are skipped."""
+    items: list[dict[str, Any]] = []
+    before = cursor
+    scanned = 0
+    last_id: str | None = None
+    while len(items) < limit and scanned < scan_cap:
+        batch = await xrevrange(valkey, before=before, count=min(500, max(limit * 2, 50)))
+        if not batch:
+            return items, None
+        for stream_id, fields in batch:
+            scanned += 1
+            last_id = stream_id
+            event = parse_activity(fields)
+            if event is None or (event.repo and event.repo not in visible):
+                continue
+            if repo and event.repo != repo:
+                continue
+            view = activity_view(stream_id, event)
+            if view is None or (kind and view['kind'] != kind):
+                continue
+            items.append(view)
+            if len(items) >= limit:
+                return items, stream_id
+        before = last_id
+    return items, last_id if scanned >= scan_cap else None
