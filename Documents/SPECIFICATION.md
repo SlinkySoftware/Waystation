@@ -198,11 +198,31 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - **LDAP / LDAPS / StartTLS**: multiple servers with failover, service bind, user search base + filter, attribute
   mapping (uid, name, email), group discovery (memberOf or group search), nested groups optional,
   "require group" gate, custom CA file. Tested against FreeIPA and Active Directory schemas.
+  Now: providers are configured under Administration → Authentication providers (`/api/v1/auth-providers`, needs
+  `settings-admin`), several allowed, tried in `order`. Servers are `host[:port]` or `ldap(s)://` URLs, tried in
+  order; one that cannot be reached or fails TLS is skipped for 30 s. Security `ldaps`, `starttls` or `none` (clear
+  text, testing only); certificates and host names are always verified (custom CA bundle in PEM, else the system
+  store). The service-bind password is write-only and encrypted (`bind_password_set` on reads). The user is found
+  with `(&<filter>(<username attribute>=<escaped name>))` under the user base (exactly one entry), then bound as
+  itself on a separate connection (empty passwords refused); the directory's own lock/disable decides (or the user
+  filter). Groups come from `memberOf` (any attribute name) or a group search (`member`/`uniqueMember` by DN, or
+  `memberUid` by username), optionally nested (walked breadth first, ≤ 500 groups, ≤ 10 levels); "require group"
+  matches a group DN or name, case-insensitively. "Test connection" checks every server (connect, TLS, bind, search
+  bases); "Test user" shows the entry, groups, the gate and the mapped roles, and checks a password when given. All
+  LDAP I/O runs in a thread pool with connect/response timeouts. LDAP passwords work wherever local passwords do:
+  the UI sign-in (the sign-in page shows a provider choice when there is more than one) and `docker login`; other
+  format clients use API tokens. Successful checks are reused for `cache_ttl_s` (default 60 s; never for the UI
+  sign-in) under an HMAC of provider, configuration version, username and password (the password is never stored).
 - **OIDC**: authorization code + PKCE, discovery URL, client secret, scopes, claim mapping (username, email,
   groups), group claim → Waystation groups, auto-provision on first login (configurable), RP-initiated logout.
   Multiple providers allowed; login page shows a button per provider.
 - Identity linking: one Waystation user per username across providers (never link to an account that has a
-  usable local password).
+  usable local password). Now: a local account with a password is checked only against that password, whatever
+  provider the client picks; a successful external sign-in creates the user when there is none (`source`
+  `ldap:<provider>`; OIDC per its auto-provision toggle), links a password-less local account (which takes the
+  provider as source) or a user of another provider (`identities[]` lists every linked external account), and
+  refuses disabled users. Group sync: the groups the provider reported replace that provider's entries in
+  `external_groups` on every sign-in through it.
 - **API tokens**: per user and per service account. A token is `wst_` + 43 random characters, shown once at
   creation; only a keyed hash (HMAC-SHA256 under a key derived from `SECRET_KEYS`, every configured key tried on
   lookup) and a display prefix (`wst_` + 8) are stored. Scopes `read`, `write`, `delete`, `manage`, `stats-read`,
@@ -220,7 +240,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   (incident response).
 - **API token transport** for format clients on `/repository/*` and the API: `Authorization: Bearer <token>`,
   `Authorization: Token <token>`, or HTTP basic with the token as the password (any username). Basic credentials
-  whose password is not an API token are refused: local passwords are accepted only by the UI sign-in and
+  whose password is not an API token are refused: account passwords (local or LDAP) are accepted only by the UI sign-in and
   `docker login`.
 - **Format client auth**: docker (Bearer token service at `/auth/token` per Docker token spec; `docker login` with
   username + local password or an API token as the password, any username; a registry token issued for an API token
@@ -253,6 +273,10 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   `viewer` (browse + stats), `anonymous` (browse + read on `type:proxy`). Custom roles via UI/API (not yet: M0 has
   the built-in roles only, assigned on the user record).
 - **Groups** (local, or mapped from LDAP groups / OIDC claims) hold roles; users hold roles directly or via groups.
+  Now: a provider's group mapping (external group DN or name → roles) is stored as one group per row; a user gets
+  the roles of the mapped groups among those reported at its last sign-in through that provider. Mapping changes
+  apply to signed-in users within seconds; membership changes on the next sign-in. `GET /roles` lists the grantable
+  (built-in) roles. Local group membership exists in the data model; its admin UI comes with T-U08.
 - Effective permissions are computed per request from a cached, versioned grant table (ARCHITECTURE §7) and
   checked in one place. Content listings and search are filtered, never just hidden.
 
@@ -436,7 +460,9 @@ See §5.5. Metric names: `waystation_requests_total{repo,format,status,cache}`, 
   FORMAT=<f> MODE=replay|record|live`; fixtures are scrubbed and pass `make clients-check` (forbidden strings,
   size budget). How a format plugs in: `tests/clients/README.md`.
 - **OCI distribution-spec conformance suite** must pass for docker hosted repos.
-- Integration tests against real MongoDB and Valkey containers.
+- Integration tests against real MongoDB and Valkey containers, and against real directories for LDAP (`make
+  test-integration` builds an OpenLDAP server with a FreeIPA-style tree and a Samba AD domain controller with a
+  throwaway CA, `Build/Containers/test/`).
 - Playwright E2E for the UI (login with each provider type, dashboard live updates, repo CRUD, set-me-up).
 - Load/perf tests (k6) enforcing §5.1 budgets; bundle-size budget for the SPA.
 - Security tests: path traversal corpus, SSRF corpus, auth bypass matrix (every route × principal type).
@@ -507,8 +533,8 @@ Waystation/
 | Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. No job API/UI yet (Tasks page) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
+| RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Since 2026-11-09 (T-A01): groups in MongoDB holding roles, effective roles = own ∪ group roles per request, `GET /roles`. Custom roles, group admin and the grant cache pending |
 | API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audit records (T-S10) and the service-account admin UI (T-U08) pending |
-| RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Custom roles, groups and the grant cache pending |
 | Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Hosted/group, clone and audit pending |
 | Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Formats: `echo` (self-test), `raw`, `npm` and `apt` (Debian 13 + Ubuntu 26.04 clients in one run: `CLIENT` may list several; `lib.sh` falls back to bash `/dev/tcp` where the image has no curl; apt fixture budget 32 MiB); `setup.sh` creates repositories through the API as a per-run bootstrap admin (`ws_login`/`ws_api` in `lib.sh`); nightly live smoke workflow stub |
 | M0 API contract + mocks (T-V01) | Done 2026-11-08: OpenAPI 3.1 contract (`Application/Web/openapi/waystation-m0.yaml`), generated TS types + `openapi-fetch` client, MSW handlers with seeded fixtures (11 proxy repos: Docker Hub, GHCR, Quay, registry.k8s.io, npmjs, Debian, Debian security, Ubuntu, Raspberry Pi OS, two raw) and a live-event generator (bursty docker pulls, npm installs, apt runs, raw downloads, coalescing, failures); `npm run dev:mock` / `make frontend-mock`. Server-side contract test: `Application/Server/tests/test_contract.py` compares the server's generated OpenAPI with it for every implemented operation (T-S05, T-S11) |
@@ -528,6 +554,8 @@ Waystation/
 | apt format (T-P2-APT) | M0 slice 2026-11-08: apt proxy repositories pass `InRelease`/`Release` through untouched, serve index files only by the SHA256 the cached `Release` lists (by-hash fetch, one `Release` revalidation on mismatch, then 502), accept self-validating `by-hash` paths, index cached `Packages` files into `apt_pool_index` and validate pool files against it (or record them `unverified`); several suites per repository. apt on Debian 13 and Ubuntu 26.04 passes the real-client harness in replay (`*-updates` and `*-security` suites). Hosted, Raspberry Pi OS / arm64 clients and worker-side re-verification pending |
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted, group, `_catalog`, referrers and podman/containerd/crane harness runs pending |
+| LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
+| Identity linking and group sync (T-A03) | LDAP half 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`); OIDC half waits for T-A02 |
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
 | Everything else | Not started |
 

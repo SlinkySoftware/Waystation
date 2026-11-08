@@ -14,15 +14,15 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 | `repositories` | `_id`, `name` (unique), `format`, `type` (`proxy`/`hosted`/`group`), `online`, `description`, `storage{quota_bytes, quota_mode}`, `proxy{upstream_url, auth{kind (`none`/`basic`/`bearer`), username, secret_enc}, metadata_max_age_s, content_max_age_s, negative_ttl_s, stale_on_error, offline, allow_private_upstream, ca_pem, http_proxy, auto_block{failures, state, until}}`, `hosted{write_policy, immutable_tag_patterns[], signing_key_id}`, `group{members[], writable_member}`, `format_options{...}` (validated by the format's `config_schema`; docker: `aliases[]` (upstream aliases, lower-case), `docker_hub`, `default_repo` (at most one docker repo has it)), `cleanup_policy_ids[]`, `created_at/by`, `updated_at/by`, `config_version` | `name` unique; `name` unique case-insensitive (`name_ci_unique`, collation strength 2); `format,type` |
 | `cleanup_policies` | `name` unique, `format` or `*`, `criteria{...}`, `schedule` (cron), `enabled`, `last_run` | `name` |
 | `settings` | singleton docs by `_id` (`general`, `docker_routing`, `security`, `stats`, `ui`) | – |
-| `auth_providers` | `_id`, `kind` (`ldap`/`oidc`), `name`, `enabled`, `order`, `config{...}` (secrets encrypted), `group_mapping[]` | `order` |
+| `auth_providers` | `_id`, `kind` (`ldap`; `oidc` with T-A02), `name` (unique case-insensitively, checked by the API), `enabled`, `order`, `ldap{connection{servers[], security (`ldaps`/`starttls`/`none`), ca_pem, bind_dn, bind_password_enc (AES-GCM, associated data `auth_provider:<id>`), connect_timeout_s, timeout_s}, users{base_dn, filter, username_attribute, display_name_attribute, email_attribute}, groups{mode (`none`/`member_of`/`search`), base_dn, filter, member_attribute, member_value (`dn`/`username`), name_attribute, member_of_attribute, nested, require_group}, cache_ttl_s}`, `config_version` (bumped on every update; part of the bind-cache key), `created_at/by`, `updated_at/by`. The group mapping is stored as `groups` documents (`provider_id`) | `order` |
 | `signing_keys` | `_id`, `repo_id`, `algorithm`, `fingerprint`, `public_armored`, `private_enc_path` (under `keys/`), `created_at` | `repo_id` |
 
 ### Identity and access
 | Collection | Key fields | Indexes |
 |---|---|---|
-| `users` | `_id`, `username` (unique, lower-case), `display_name`, `email`, `source` (`local`/`ldap:<provider>`/`oidc:<provider>`), `password_hash` (local only), `totp_enc`, `disabled`, `roles[]`, `groups[]` (local) + `external_groups[]` (last sync), `last_login`, `failed_logins`, `locked_until`, `preferences{theme, density}`, `must_change_password` (bootstrap one-time password), `created_at` | `username` unique; `source` |
+| `users` | `_id`, `username` (unique, lower-case), `display_name`, `email`, `source` (`local`/`ldap:<provider>`/`oidc:<provider>`), `password_hash` (local only), `totp_enc`, `disabled`, `roles[]`, `groups[]` (local group ids) + `external_groups[{provider (`ldap:<id>`), id (group DN / claim value), name}]` (replaced per provider at each sign-in through it, ≤ 500), `identities[{provider, subject (entry DN / `sub`), linked_at, last_login}]` (linked external accounts, ≤ 20), `last_login`, `failed_logins`, `locked_until`, `preferences{theme, density}`, `must_change_password` (bootstrap one-time password), `created_at` | `username` unique; `source` |
+| `groups` | `_id`, `name` unique (mapped groups: `<kind>:<provider name>:<external group>`), `source` (`local`/`ldap`/`oidc`), `provider_id` (mapped groups), `external_id` (normalised group DN or name: lower case, no spaces around `,` `=` `+`), `external_group` (as entered), `position` (order in the provider's mapping), `roles[]`, `created_at`, `updated_at`. A user gets a mapped group's roles when one of its `external_groups` of that provider has a matching id or name | `name`; `source,external_id`; `provider_id` |
 | `service_accounts` | `_id`, `name` unique (lower-case), `description`, `roles[]`, `disabled`, `owner_user_id`, `created_at`, `updated_at` | `name` unique |
-| `groups` | `_id`, `name` unique, `source` (`local`/`ldap`/`oidc`), `external_id`, `roles[]` | `name`; `source,external_id` |
 | `roles` | `_id` (slug), `name`, `builtin`, `permissions[{action, scope}]` | – |
 | `api_tokens` | `_id`, `principal{kind: user\|service_account, id}`, `name`, `prefix` (`wst_` + 8 chars, display), `hash` (HMAC-SHA256 hex under a `SECRET_KEYS`-derived key; ARCH §7), `scopes[]`, `repo_globs[]` (RBAC scope syntax), `expires_at`, `last_used_at`, `last_used_ip`, `created_at`, `created_by`, `revoked_at`, `revoked_by` (revoked tokens are kept for the record) | `hash` unique; `principal.id` |
 | `sessions` | `_id` (sha256 hex of the random cookie token; the token itself is never stored), `user_id`, `csrf` (double-submit token), `created_at`, `last_seen_at`, `expires_at`, `ip`, `user_agent` | TTL on `expires_at`; `user_id` |
@@ -61,6 +61,8 @@ Notes:
   dpkg order, RPM EVR, Go semver) so "latest N" and sorting are index-backed.
 - Large lists (docker layers, file lists) stay in their own documents; no unbounded arrays in hot documents.
 - Change streams on `repositories`, `settings`, `rbac_state`, `auth_providers` invalidate replica caches.
+  Today the repository catalog, the provider catalog and the group directory are refreshed every 5 s instead (and
+  at once on the replica that made the change).
 
 ## 2. Valkey keys (all with TTLs unless noted)
 | Key | Type | Purpose |

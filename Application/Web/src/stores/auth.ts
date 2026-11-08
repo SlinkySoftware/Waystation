@@ -40,8 +40,8 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function login(username: string, password: string): Promise<void> {
-    adopt(await call(api.POST('/auth/login', { body: { username, password } })))
+  async function login(username: string, password: string, provider?: string): Promise<void> {
+    adopt(await call(api.POST('/auth/login', { body: { username, password, ...(provider ? { provider } : {}) } })))
     checked.value = true
   }
 
