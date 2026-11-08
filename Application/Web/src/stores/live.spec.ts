@@ -12,7 +12,7 @@ const ts = () => new Date().toISOString()
 function transfer(id: string, extra: Partial<Transfer> = {}): Transfer {
   return {
     id,
-    repository: 'docker-hub',
+    repository: 'dockerhub-proxy',
     format: 'docker',
     direction: 'download',
     artifact: `library/nginx@sha256:${id}`,

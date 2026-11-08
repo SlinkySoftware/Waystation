@@ -125,7 +125,7 @@ import { useCopy } from '@/composables/useNotify'
 import { t } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useRepositoriesStore } from '@/stores/repositories'
-import { formatLabel, repoMark, statusMeta, typeMeta } from '@/utils/domain'
+import { formatLabel, LISTED_FORMATS, repoMark, statusMeta, typeMeta } from '@/utils/domain'
 import { formatCount, formatPercent } from '@/utils/format'
 import { iconAdd, iconLink, iconRepositories, iconSearch } from '@/utils/icons'
 
@@ -161,7 +161,7 @@ const rows = computed(() => list.data.value?.items ?? [])
 const filtered = computed(() => Boolean(q.value || format.value || type.value || status.value))
 const caption = computed(() => (list.data.value ? t('repos.caption', { count: list.data.value.total }) : t('common.loading')))
 
-const formatOptions = (['docker', 'npm', 'apt', 'raw'] as Format[]).map((f) => ({ label: formatLabel(f), value: f }))
+const formatOptions = LISTED_FORMATS.map((f) => ({ label: formatLabel(f), value: f }))
 const typeOptions = (['proxy', 'hosted', 'group'] as RepositoryType[]).map((ty) => ({ label: typeMeta(ty).label, value: ty }))
 const statusOptions = (['ok', 'degraded', 'blocked', 'offline'] as RepositoryStatus[]).map((s) => ({ label: statusMeta(s).label, value: s }))
 

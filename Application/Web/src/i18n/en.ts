@@ -305,6 +305,7 @@ export const en = {
       docker: 'Docker',
       npm: 'npm',
       apt: 'apt',
+      yum: 'yum',
       raw: 'Files',
     },
     aliases: 'Upstream aliases',
@@ -448,6 +449,10 @@ export const en = {
       section: 'Section',
       unverified: 'unverified',
       unverifiedHelp: 'Fetched before any index listing it was cached; verified on the next index refresh.',
+    },
+    yum: {
+      soonTitle: 'Package browsing for yum is coming',
+      soonText: 'A repodata and package view for yum/dnf repositories ships with T-P2-YUM. Until then, use Set me up to point dnf at this repository.',
     },
   },
   placeholder: {

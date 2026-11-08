@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The mock "world": a fake live-event generator that plays out realistic, bursty client activity (docker pulls of
-// tens to hundreds of MiB, npm install bursts, apt update + install runs, raw downloads) with shared LAN and
+// tens to hundreds of MiB, npm install bursts, apt and dnf runs, raw downloads) with shared LAN and
 // upstream bandwidth, coalescing, and occasional failures. Emits the same LiveEvents the server will send (ARCH §8)
 // and keeps the counters the mock REST handlers read.
 import type { ActivityEvent, LiveEvent, Repository, Transfer } from '@/api/types'
 
 import { seedRepositories } from './fixtures/repositories'
-import { aptRun, dockerPull, type JobPlan, npmInstall, rawDownload, type Spec, trickle } from './scenarios'
+import { aptRun, dnfRun, dockerPull, type JobPlan, npmInstall, rawDownload, type Spec, trickle } from './scenarios'
 import { between, GiB, MiB, pick } from './rng'
 
 export const TICK_MS = 250
@@ -43,6 +43,7 @@ export class MockWorld {
   artifacts = this.repos.reduce((a, r) => a + r.stats.artifact_count, 0)
   readonly storageTotal = 2 * 1024 * GiB
   rateLimit = { limit: 200, remaining: 142, resetAt: Date.now() + 3.2 * 3_600_000 }
+  private epelRetryAt = Date.now() + 4 * 60_000 + 12_000
   readonly activity: ActivityEvent[] = []
   /** 10 s buckets of [hitBytes, upstreamBytes] for the last 15 minutes, oldest first. */
   readonly history: { ts: number; hit: number; upstream: number }[] = []
@@ -54,7 +55,7 @@ export class MockWorld {
   private timer: ReturnType<typeof setInterval> | null = null
   private seq = 0
   private sinceTick = 0
-  private countdown = { docker: 400, npm: 2500, apt: 5000, raw: 9000, trickle: 800, misc: 20000 }
+  private countdown = { docker: 400, npm: 2500, apt: 5000, yum: 3500, raw: 9000, trickle: 800, misc: 20000 }
 
   constructor() {
     const now = Date.now()
@@ -76,9 +77,9 @@ export class MockWorld {
   start(): void {
     if (this.timer) return
     this.timer = setInterval(() => this.tick(TICK_MS), TICK_MS)
-    // Open on a busy moment: a cold multi-hundred-MiB pull, an ISO download and an npm install in flight.
-    this.spawn(dockerPull(true, 'ghcr'))
-    this.spawn(rawDownload('raw-isos'))
+    // Open on a busy moment: a cold multi-hundred-MiB pull, a dnf run and an npm install in flight.
+    this.spawn(dockerPull(true, 'ghcr-proxy'))
+    this.spawn(dnfRun('rocky'))
     this.spawn(npmInstall())
   }
 
@@ -133,6 +134,10 @@ export class MockWorld {
     if (c.apt <= 0) {
       this.spawn(aptRun())
       c.apt = between(14000, 35000)
+    }
+    if (c.yum <= 0) {
+      this.spawn(dnfRun())
+      c.yum = between(16000, 40000)
     }
     if (c.raw <= 0) {
       this.spawn(rawDownload())
@@ -198,14 +203,14 @@ export class MockWorld {
       error: null,
     }
     const upstream = cache === 'FETCHING' || cache === 'REVALIDATED' || cache === 'ERROR' || cache === 'STALE'
-    const ttfb = cache === 'HIT' ? between(1, 6) : upstream ? between(60, cache === 'ERROR' ? 1500 : 420) : 0
+    const ttfb = cache === 'HIT' ? between(1, 6) : upstream ? between(60, cache === 'ERROR' ? 1500 : 420) + (spec.slowMs ?? 0) : 0
     if (upstream && cache !== 'STALE') t.upstream_latency_ms = Math.round(ttfb)
     const sim: Sim = { t, spec, ttfbMs: ttfb, owner: owner?.t.id ?? null, failAt: spec.error && cache === 'FETCHING' ? spec.size * between(0.15, 0.8) : null }
     this.sims.set(id, sim)
-    if (cache === 'REVALIDATED' && spec.repository === 'docker-hub' && this.rateLimit.remaining > 0 && Math.random() < 0.15) this.rateLimit.remaining--
-    if (cache === 'FETCHING' && spec.repository === 'docker-hub' && spec.path.includes('/manifests/') && this.rateLimit.remaining > 0) {
+    if (cache === 'REVALIDATED' && spec.repository === 'dockerhub-proxy' && this.rateLimit.remaining > 0 && Math.random() < 0.15) this.rateLimit.remaining--
+    if (cache === 'FETCHING' && spec.repository === 'dockerhub-proxy' && spec.path.includes('/manifests/') && this.rateLimit.remaining > 0) {
       this.rateLimit.remaining--
-      this.emitUpstream('docker-hub')
+      this.emitUpstream('dockerhub-proxy')
     }
     this.emit({ type: 'transfer.started', ts: now, transfer: { ...t, client: { ...t.client } } })
     return id
@@ -349,22 +354,33 @@ export class MockWorld {
     if (health) this.emit({ type: 'upstream.state', ts: new Date().toISOString(), health })
   }
 
+  /** When the auto-blocked upstream (epel) is next retried; each failed retry blocks it for another 10 min. */
+  blockedUntil(): number {
+    const now = Date.now()
+    while (this.epelRetryAt <= now) this.epelRetryAt += 10 * 60_000
+    return this.epelRetryAt
+  }
+
   private miscActivity(): void {
     const roll = Math.random()
-    if (roll < 0.3) this.addActivity({ kind: 'auth', summary: `${pick(['alice', 'bob', 'admin'])} signed in`, outcome: 'info', repository: null, format: null, artifact: null, principal: pick(['alice', 'bob', 'admin']), cache: null, bytes: null, duration_ms: null })
-    else if (roll < 0.55) this.addActivity({ kind: 'cleanup', summary: `Cleanup policy "npm-unused-90d" removed ${Math.floor(between(40, 900))} assets`, outcome: 'success', repository: 'npm-proxy', format: 'npm', artifact: null, principal: 'scheduler', cache: null, bytes: Math.round(between(0.2, 4) * GiB), duration_ms: Math.round(between(4000, 60000)) })
-    else if (roll < 0.8) this.addActivity({ kind: 'upstream_state', summary: 'quay.io responding slowly (p95 2.4 s); serving stale metadata', outcome: 'failure', repository: 'quay', format: 'docker', artifact: null, principal: null, cache: 'STALE', bytes: null, duration_ms: null })
-    else this.addActivity({ kind: 'repository', summary: 'Repository ghcr updated (metadata max age 30 min)', outcome: 'info', repository: 'ghcr', format: 'docker', artifact: null, principal: 'admin', cache: null, bytes: null, duration_ms: null })
+    const who = pick(['alice', 'bob', 'admin'])
+    if (roll < 0.25) this.addActivity({ kind: 'auth', summary: `${who} signed in`, outcome: 'info', repository: null, format: null, artifact: null, principal: who, cache: null, bytes: null, duration_ms: null })
+    else if (roll < 0.45) this.addActivity({ kind: 'cleanup', summary: `Cleanup policy "npm-unused-90d" removed ${Math.floor(between(40, 900))} assets`, outcome: 'success', repository: 'npm', format: 'npm', artifact: null, principal: 'scheduler', cache: null, bytes: Math.round(between(0.2, 4) * GiB), duration_ms: Math.round(between(4000, 60000)) })
+    else if (roll < 0.7) this.addActivity({ kind: 'upstream_state', summary: `yum.oracle.com responding slowly (p95 ${between(2.1, 3.4).toFixed(1)} s); serving stale repomd.xml`, outcome: 'failure', repository: 'oracle', format: 'yum', artifact: null, principal: null, cache: 'STALE', bytes: null, duration_ms: null })
+    else if (roll < 0.85) this.addActivity({ kind: 'upstream_state', summary: 'dl.fedoraproject.org still unreachable (connect timeout after 10 s); epel stays blocked for 10 min', outcome: 'failure', repository: 'epel', format: 'yum', artifact: null, principal: null, cache: null, bytes: null, duration_ms: null })
+    else this.addActivity({ kind: 'repository', summary: 'Repository ghcr-proxy updated (metadata max age 6 h)', outcome: 'info', repository: 'ghcr-proxy', format: 'docker', artifact: null, principal: 'admin', cache: null, bytes: null, duration_ms: null })
   }
 
   private seedActivity(): void {
     const now = Date.now()
     const seed: Omit<ActivityEvent, 'id'>[] = [
-      { ts: new Date(now - 42_000).toISOString(), kind: 'cache_miss', summary: 'Cached postgres:18.1 from upstream', outcome: 'success', repository: 'docker-hub', format: 'docker', artifact: 'v2/library/postgres/manifests/18.1', principal: '192.0.2.41', cache: 'FETCHING', bytes: 151 * MiB, duration_ms: 6120 },
-      { ts: new Date(now - 3 * 60_000).toISOString(), kind: 'error', summary: 'keycloak/keycloak:26.4: 503 Service Unavailable from quay.io', outcome: 'failure', repository: 'quay', format: 'docker', artifact: 'v2/keycloak/keycloak/manifests/26.4', principal: '198.51.100.23', cache: 'ERROR', bytes: 0, duration_ms: 1480 },
-      { ts: new Date(now - 7 * 60_000).toISOString(), kind: 'upstream_state', summary: 'registry.k8s.io auto-blocked after 5 consecutive failures (retry in 8 min)', outcome: 'failure', repository: 'k8s-registry', format: 'docker', artifact: null, principal: null, cache: null, bytes: null, duration_ms: null },
-      { ts: new Date(now - 11 * 60_000).toISOString(), kind: 'download', summary: 'Downloaded debian-13.1.0-amd64-netinst.iso', outcome: 'success', repository: 'raw-isos', format: 'raw', artifact: 'debian-cd/13.1.0/amd64/iso-cd/debian-13.1.0-amd64-netinst.iso', principal: '203.0.113.7', cache: 'HIT', bytes: 754 * MiB, duration_ms: 7010 },
-      { ts: new Date(now - 26 * 60_000).toISOString(), kind: 'cleanup', summary: 'Cleanup policy "docker-untagged-14d" removed 312 assets', outcome: 'success', repository: 'docker-hub', format: 'docker', artifact: null, principal: 'scheduler', cache: null, bytes: Math.round(7.4 * GiB), duration_ms: 48_200 },
+      { ts: new Date(now - 42_000).toISOString(), kind: 'cache_miss', summary: 'Cached postgres:18.1 from upstream', outcome: 'success', repository: 'dockerhub-proxy', format: 'docker', artifact: 'v2/library/postgres/manifests/18.1', principal: '192.0.2.41', cache: 'FETCHING', bytes: 151 * MiB, duration_ms: 6120 },
+      { ts: new Date(now - 2 * 60_000).toISOString(), kind: 'cache_miss', summary: 'Cached ghcr.io/immich-app/immich-server:v2.2.3 from upstream', outcome: 'success', repository: 'ghcr-proxy', format: 'docker', artifact: 'v2/immich-app/immich-server/manifests/v2.2.3', principal: '198.51.100.14', cache: 'FETCHING', bytes: 735 * MiB, duration_ms: 41_870 },
+      { ts: new Date(now - 3 * 60_000).toISOString(), kind: 'error', summary: 'podman-5.4.0-13.0.1.el9_6: 503 Service Unavailable from yum.oracle.com', outcome: 'failure', repository: 'oracle', format: 'yum', artifact: 'repo/OracleLinux/OL9/appstream/x86_64/getPackage/podman-5.4.0-13.0.1.el9_6.x86_64.rpm', principal: '198.51.100.23', cache: 'ERROR', bytes: 0, duration_ms: 2480 },
+      { ts: new Date(now - 7 * 60_000).toISOString(), kind: 'upstream_state', summary: 'dl.fedoraproject.org auto-blocked after 5 consecutive failures (retry in 10 min)', outcome: 'failure', repository: 'epel', format: 'yum', artifact: null, principal: null, cache: null, bytes: null, duration_ms: null },
+      { ts: new Date(now - 11 * 60_000).toISOString(), kind: 'cache_miss', summary: 'Cached kernel-core-6.12.0-124.8.1.el10_1 from upstream', outcome: 'success', repository: 'rocky', format: 'yum', artifact: '10/BaseOS/x86_64/os/Packages/k/kernel-core-6.12.0-124.8.1.el10_1.x86_64.rpm', principal: '203.0.113.7', cache: 'FETCHING', bytes: 18 * MiB, duration_ms: 2310 },
+      { ts: new Date(now - 19 * 60_000).toISOString(), kind: 'cache_miss', summary: 'Cached linux-image-6.17.0-9-generic 6.17.0-9.9 from upstream', outcome: 'success', repository: 'ubuntu-security', format: 'apt', artifact: 'pool/main/l/linux-image-6.17.0-9-generic/linux-image-6.17.0-9-generic_6.17.0-9.9_amd64.deb', principal: '192.0.2.88', cache: 'FETCHING', bytes: 16 * MiB, duration_ms: 1870 },
+      { ts: new Date(now - 26 * 60_000).toISOString(), kind: 'cleanup', summary: 'Cleanup policy "docker-untagged-14d" removed 312 assets', outcome: 'success', repository: 'dockerhub-proxy', format: 'docker', artifact: null, principal: 'scheduler', cache: null, bytes: Math.round(7.4 * GiB), duration_ms: 48_200 },
       { ts: new Date(now - 48 * 60_000).toISOString(), kind: 'repository', summary: 'Repository raspberrypi created', outcome: 'info', repository: 'raspberrypi', format: 'apt', artifact: null, principal: 'admin', cache: null, bytes: null, duration_ms: null },
       { ts: new Date(now - 64 * 60_000).toISOString(), kind: 'auth', summary: 'admin signed in', outcome: 'info', repository: null, format: null, artifact: null, principal: 'admin', cache: null, bytes: null, duration_ms: null },
     ]
@@ -379,15 +395,16 @@ export function upstreamHealth(world: MockWorld) {
     .filter((r) => r.type === 'proxy')
     .map((r) => {
       const base = { repository: r.name, format: r.format, upstream_url: r.proxy?.upstream_url ?? '', status: r.status, rate_limit: null as null | { limit: number; remaining: number; window_s: number; reset_at: string; source: string } }
-      if (r.name === 'docker-hub') {
-        return { ...base, error_rate: 0.004, requests_1h: 412, p95_latency_ms: 238, last_error: '429 Too Many Requests (anonymous pull limit)', last_error_at: new Date(now - 26 * 3_600_000).toISOString(), blocked_until: null, rate_limit: { limit: world.rateLimit.limit, remaining: world.rateLimit.remaining, window_s: 21600, reset_at: new Date(world.rateLimit.resetAt).toISOString(), source: 'docker-hub' } }
+      if (r.name === 'dockerhub-proxy') {
+        return { ...base, error_rate: 0.004, requests_1h: 412, p95_latency_ms: 238, last_error: '429 Too Many Requests (pull rate limit)', last_error_at: new Date(now - 26 * 3_600_000).toISOString(), blocked_until: null, rate_limit: { limit: world.rateLimit.limit, remaining: world.rateLimit.remaining, window_s: 21600, reset_at: new Date(world.rateLimit.resetAt).toISOString(), source: 'docker-hub' } }
       }
-      if (r.status === 'degraded') return { ...base, error_rate: 0.183, requests_1h: 96, p95_latency_ms: 2410, last_error: '503 Service Unavailable', last_error_at: new Date(now - 3 * 60_000).toISOString(), blocked_until: null }
-      if (r.status === 'blocked') return { ...base, error_rate: 1, requests_1h: 5, p95_latency_ms: null, last_error: 'connect timeout after 10 s', last_error_at: new Date(now - 7 * 60_000).toISOString(), blocked_until: new Date(now + 4 * 60_000 + 12_000).toISOString() }
+      if (r.status === 'degraded') return { ...base, error_rate: 0.183, requests_1h: 164, p95_latency_ms: 2870, last_error: '503 Service Unavailable', last_error_at: new Date(now - 3 * 60_000).toISOString(), blocked_until: null }
+      if (r.status === 'blocked') return { ...base, error_rate: 1, requests_1h: 5, p95_latency_ms: null, last_error: 'connect timeout after 10 s', last_error_at: new Date(now - 7 * 60_000).toISOString(), blocked_until: new Date(world.blockedUntil()).toISOString() }
       if (r.status === 'offline') return { ...base, error_rate: 0, requests_1h: 0, p95_latency_ms: null, last_error: null, last_error_at: null, blocked_until: null }
-      const p95: Record<string, number> = { npm: 182, apt: 96, raw: 341, docker: 205 }
+      const p95: Record<string, number> = { npm: 182, apt: 96, yum: 121, raw: 341, docker: 205 }
       return { ...base, error_rate: Math.round(Math.random() * 40) / 10000, requests_1h: Math.round(r.stats.requests_24h / 24 / 6), p95_latency_ms: p95[r.format] ?? 150, last_error: null, last_error_at: null, blocked_until: null }
     })
 }
+
 
 export const world = new MockWorld()
