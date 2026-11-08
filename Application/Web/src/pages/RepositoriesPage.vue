@@ -93,7 +93,7 @@
         </template>
 
         <template #no-data>
-          <EmptyState class="full-width" :icon="iconRepositories" :title="filtered ? t('repos.noMatch') : t('repos.emptyTitle')" :text="filtered ? t('repos.noMatchText') : t('repos.emptyText')">
+          <EmptyState class="full-width" :illustration="filtered ? 'search' : 'repositories'" :title="filtered ? t('repos.noMatch') : t('repos.emptyTitle')" :text="filtered ? t('repos.noMatchText') : t('repos.emptyText')">
             <q-btn v-if="filtered" flat no-caps :label="t('repos.clearFilters')" @click="clearFilters" />
             <q-btn v-else unelevated no-caps color="primary" :label="t('repos.create')" @click="creating = true" />
           </EmptyState>
@@ -127,7 +127,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { formatLabel, LISTED_FORMATS, repoMark, statusMeta, typeMeta } from '@/utils/domain'
 import { formatCount, formatPercent } from '@/utils/format'
-import { iconAdd, iconLink, iconRepositories, iconSearch } from '@/utils/icons'
+import { iconAdd, iconLink, iconSearch } from '@/utils/icons'
 
 const auth = useAuthStore()
 const route = useRoute()
