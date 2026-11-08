@@ -11,6 +11,7 @@ from waystation_common.db import jobs as jobs_db
 from waystation_common.db.client import Database
 from waystation_common.db.schema import ensure_schema
 from waystation_common.jobs import JobClient, JobEnvelope, JobPayload, JobQueue, Queue, keys
+from waystation_common.jobs.queue import QueueStats
 
 pytestmark = pytest.mark.integration
 
@@ -151,3 +152,35 @@ async def test_job_client_durable_outbox_in_transaction(valkey: Redis, mongo_db:
     doc = await jobs_db.outbox_get(mongo_db, outbox_id)
     assert doc is not None and doc['sent_at'] is None and doc['dedupe_key'] == 'rebuild:t1'
     assert (await jobs.enqueue(Rebuild(repo_id='t1'))).status == 'enqueued'
+
+
+async def test_queue_stats_and_dead_count(valkey: Redis) -> None:
+    q = JobQueue(valkey)
+    assert await q.stats(['index', 'maintenance']) == {'index': QueueStats(), 'maintenance': QueueStats()}
+    assert await q.dead_count() == 0
+    await q.ensure_groups(['index'])
+    for i in range(3):
+        await q.enqueue(JobEnvelope.for_payload(Rebuild(repo_id=f's{i}')))
+    later = datetime.now(UTC) + timedelta(hours=1)
+    await q.enqueue(JobEnvelope.for_payload(Rebuild(repo_id='later'), run_after=later))
+    (first,) = await q.read('c1', ['index'], count=1, block_ms=10)
+    oldest = int(first.entry_id.split('-')[0])  # the next waiting entry is younger than or as old as this one
+    now = oldest / 1000 + 5
+    stats = await q.stats(['index'], now=now)
+    assert stats['index'].waiting == 2
+    assert stats['index'].running == 1
+    assert stats['index'].delayed == 1
+    assert 0 < stats['index'].oldest_waiting_age_s <= 5
+    await q.start(first, 'c1')
+    assert first.envelope is not None
+    await q.finish(first, 'dead', envelope=first.envelope, error='boom')
+    assert await q.dead_count() == 1
+    assert (await q.stats(['index'], now=now))['index'].running == 0
+
+
+async def test_worker_presence(mongo_db: Database) -> None:
+    now = datetime.now(UTC)
+    await jobs_db.worker_heartbeat(mongo_db, 'w1', {'leader': True}, now=now)
+    await jobs_db.worker_heartbeat(mongo_db, 'w2', {'leader': False}, now=now - timedelta(minutes=3))
+    assert await jobs_db.worker_presence(mongo_db, alive_since=now - timedelta(seconds=60)) == (1, 1)
+    assert await jobs_db.worker_presence(mongo_db, alive_since=now + timedelta(seconds=1)) == (0, 0)
