@@ -42,3 +42,4 @@ tests/**/recordings-tmp/
 
 # Agent worktrees
 .claude/worktrees/
+.cache/
