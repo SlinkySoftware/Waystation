@@ -1,0 +1,29 @@
+{
+  "request": {
+    "auth": "bearer",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://echo.example.com/private"
+  },
+  "response": {
+    "body_sha256": "1c54ccf9aab6085c44e4e863edf5b21c43b9aa2dce753e40d6231cc1054477a4",
+    "body_size": 16,
+    "headers": [
+      [
+        "content-type",
+        "text/plain"
+      ],
+      [
+        "content-length",
+        "16"
+      ]
+    ],
+    "status": 200
+  }
+}
