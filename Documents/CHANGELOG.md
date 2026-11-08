@@ -3,6 +3,9 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-U05 (min): browse renderers (docker images → tags → manifest with platforms and layers, npm packages →
+  versions, apt suites → packages, raw folder listing), Browse page, and the M0 screenshot tour
+  (`scripts/screenshots.mjs`, PNGs in `Documents/Notes/screenshots/m0/`).
 - T-U04 (min): repositories. List with URL-backed filters, create flow (format tiles → type → form with upstream
   presets and "Test upstream"), problem+json field errors on the form, detail page with KPI strip and Overview /
   Browse / Settings tabs, delete with typed confirmation, Set me up side panel (docker, containerd, podman, npm,
