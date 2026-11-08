@@ -253,7 +253,7 @@ this for Traefik.
 | Topology | Status |
 |---|---|
 | All-in-one on one host (`compose.yaml`) | **Supported** |
-| More server processes on that host | **Supported**: `WAYSTATION_SERVER_WORKERS=N` (uvicorn processes in one container). Prometheus metrics are then per process (MONITORING.md) |
+| More server processes on that host | **Supported**: `WAYSTATION_SERVER_WORKERS=N` (uvicorn processes in one container). `/metrics` merges every process's values (MONITORING.md) |
 | More worker concurrency or queue split | **Supported** within one worker container (`WAYSTATION_WORKER_CONCURRENCY`, `WAYSTATION_WORKER_QUEUES`). Extra worker containers need an override with a different `container_name` |
 | External MongoDB (replica set) | **Supported**: set `WAYSTATION_MONGO_URI` to the replica set, `WAYSTATION_MONGO_REPLSET_INIT=false`, and either leave the bundled `mongodb` service running unused or replace the `depends_on` of server, worker and init in an override (`depends_on: !reset {...}`). Server and worker reach it through the `frontend` network, but `init` is only on the `internal` backend network, so the override must also attach `init` to `frontend` |
 | External Valkey | **Supported** if it runs with `maxmemory-policy noeviction` and AOF enabled (job streams and locks must never be evicted) |

@@ -506,13 +506,30 @@ configured in the UI/API (stored in MongoDB). Planned (Phase 6, T-O09): optional
 a YAML file (`WAYSTATION_PROVISION_FILE`, applied idempotently at start; GitOps-friendly).
 
 ## 10. Observability
-See §5.5. Exported today by the server (per process): `waystation_requests_total{repo,format,status,cache}`,
-`waystation_bytes_total{repo,direction}`, `waystation_upstream_latency_seconds{repo}` (histogram),
-`waystation_inflight_transfers`, `waystation_coalesce_total{repo,event}`; `waystation_upstream_state{repo}` is declared
-but not set yet. Planned: `waystation_storage_bytes{repo}`, `waystation_jobs_total{queue,status}`, queue depth, Docker
-Hub rate limit, free space (the full gap list is in `Documents/Operations/MONITORING.md`). The Grafana dashboard
-(`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) use only the exported metrics
-plus `/healthz` and `/readyz`.
+See §5.5. `/metrics` on the server exports two kinds of metric (the full list with labels and meanings is in
+`Documents/Operations/MONITORING.md`):
+- **Process metrics**, updated where things happen (O(1) per update): `waystation_requests_total{repo,format,status,
+  cache}`, `waystation_bytes_total{repo,direction}`, `waystation_upstream_latency_seconds{repo}` (histogram),
+  `waystation_coalesce_total{repo,event}`, `waystation_http_request_duration_seconds{route,method,status}` (histogram
+  of every HTTP request except the event stream; `route` is the matched route template, `status` the class `2xx`...),
+  `waystation_storage_refusals_total` (writes refused by the free-space guard), and the gauges
+  `waystation_inflight_transfers` and `waystation_sse_clients`. With `WAYSTATION_SERVER_WORKERS > 1` the processes
+  share them through `PROMETHEUS_MULTIPROC_DIR` (a fresh directory on the server's tmpfs) and every scrape returns
+  the sum over all processes.
+- **Cluster figures**, read from Valkey, MongoDB and the data filesystem when `/metrics` is scraped (cached 10 s, each
+  source bounded to 2 s; a source that fails is reported by `waystation_metrics_source_up{source}` = 0 and its
+  metrics are left out): `waystation_upstream_state{repo}` (0 ok, 1 degraded, 2 blocked, 3 offline: the UI's rule),
+  `waystation_upstream_consecutive_failures{repo}`, `waystation_upstream_ratelimit_{limit,remaining,window_seconds,
+  updated_timestamp_seconds}{repo}`, `waystation_jobs_{waiting,running,delayed,oldest_waiting_seconds}{queue}`,
+  `waystation_jobs_dead_letters`, `waystation_workers`, `waystation_scheduler_leaders`,
+  `waystation_blobstore_{used_bytes,blobs,free_bytes,size_bytes,min_free_bytes}`, and the cleanup and blob GC
+  running totals `waystation_cleanup_removed_{items,bytes}_total`, `waystation_gc_{runs,freed_blobs,freed_bytes,
+  orphan_uploads_removed}_total` (counters, from the Valkey hash `maintenance:totals` the workers write). Every server
+  process and replica reports the same values (aggregate with `max`).
+
+The Grafana dashboard (`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) cover all
+of them plus `/healthz` and `/readyz` (low-disk, guard, workers, scheduler, job age, dead letters, upstream state and
+rate limit, API latency triggers). Not exported yet: process CPU/memory, sign-in failures, quota hits.
 
 ## 11. Testing strategy
 - Unit tests next to code (pytest, Vitest). Property-based tests (hypothesis) for path normalisation, version
@@ -621,7 +638,7 @@ Waystation/
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted, group, `_catalog`, referrers and podman/containerd/crane harness runs pending |
 | Deployment docs (T-M03) | 2026-11-09: `Operations/DEPLOYMENT.md` (single-host compose as it works today, env reference, TLS options, scaling status, manual backups, upgrades) and `Operations/REVERSE_PROXIES.md` (nginx, Traefik labels + file provider, Caddy, HAProxy, Synology DSM) with example files checked in containers by `make proxies-check`. `BACKUP.md` waits for T-O07 |
-| Monitoring (T-O06) | 2026-11-09: Grafana dashboard (`Build/monitoring/grafana/waystation-dashboard.json`: request rate, cache hit ratio, bytes served from cache / fetched, upstream errors and latency, coalescing, per-repository table) and Zabbix 7 template (`Build/monitoring/zabbix/waystation_by_http.yaml`: HTTP agent items on `/healthz`, `/readyz`, `/metrics`, repository discovery, down/degraded upstream, error-ratio and availability triggers), both checked by loading them into Grafana 12.2 / Zabbix 7.0; `Operations/MONITORING.md`. Upstream state, Docker Hub rate limit, job queues, worker health and disk space are not exported as metrics yet |
+| Monitoring (T-O06) | 2026-11-09: Grafana dashboard (`Build/monitoring/grafana/waystation-dashboard.json`: request rate, cache hit ratio, bytes served from cache / fetched, upstream errors and latency, coalescing, per-repository table) and Zabbix 7 template (`Build/monitoring/zabbix/waystation_by_http.yaml`: HTTP agent items on `/healthz`, `/readyz`, `/metrics`, repository discovery, down/degraded upstream, error-ratio and availability triggers), both checked by loading them into Grafana 12.2 / Zabbix 7.0; `Operations/MONITORING.md`. 2026-11-09 (gaps): upstream state and consecutive failures, upstream rate limits, job queues (waiting, running, delayed, oldest waiting age), dead letters, live workers and scheduler leaders, blob store used/free/size and the free-space guard (cluster figures read on scrape, 10 s cache), free-space guard refusals, HTTP latency per route template, event-stream clients; multi-process aggregation for `SERVER_WORKERS > 1` (`PROMETHEUS_MULTIPROC_DIR`); dashboard rows and Zabbix items, discovery and triggers (low disk, guard, workers, scheduler, job age, dead letters, upstream state, rate limit, API latency) for all of them, re-validated in Grafana 12.2 / Zabbix 7.0; cleanup and blob GC totals exported as cluster figures (also with several server processes), with dashboard panels, Zabbix items and a GC-not-run trigger |
 | LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
 | Identity linking and group sync (T-A03) | LDAP half 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`); OIDC half waits for T-A02 |
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |

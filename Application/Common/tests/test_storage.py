@@ -96,8 +96,11 @@ async def test_free_space_guard(store: BlobStore) -> None:
     free = await store.free_bytes()
     assert free > 0
     greedy = BlobStore(store.root, min_free_bytes=free * 2)
+    refused: list[int] = []
+    greedy.on_refused = lambda: refused.append(1)
     with pytest.raises(InsufficientStorage):
         await greedy.open_writer()
+    assert refused == [1]  # counted (waystation_storage_refusals_total)
     with pytest.raises(InsufficientStorage):
         await store.open_writer(expected_size=free * 2)
 
