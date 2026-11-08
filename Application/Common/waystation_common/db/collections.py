@@ -219,6 +219,11 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('ts_desc', [('ts', DESCENDING)]),
             _ix('principal_ts', [('principal.id', ASCENDING), ('ts', DESCENDING)]),
             _ix('action_ts', [('action', ASCENDING), ('ts', DESCENDING)]),
+            _ix('principal_name_ts', [('principal.name', ASCENDING), ('ts', DESCENDING)]),
+            _ix('target_name_ts', [('target.name', ASCENDING), ('ts', DESCENDING)]),
+            _ix('target_id_ts', [('target.id', ASCENDING), ('ts', DESCENDING)]),
+            # Retention: each record carries ts + WAYSTATION_AUDIT_RETENTION_DAYS (SPEC §4.11).
+            _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
         ),
     ),
     CollectionSpec(

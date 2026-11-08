@@ -139,7 +139,8 @@ viewer (live), workers list (host, version, queues, current jobs, heartbeat), de
 Users (source badge local/LDAP/OIDC, roles, last login, disable, reset password for local), Groups (source,
 mapped roles), Roles (permission matrix editor: actions × scope rows), Auth providers (LDAP form with "Test
 connection" and "Test user lookup"; OIDC form with discovery "Fetch" and "Test login"), API tokens (all tokens,
-revoke), Audit log (filterable, export), Settings (general, docker routing, security, stats retention, UI),
+revoke), Audit log (filters in the URL: time range, actor, action, target, outcome; detail drawer with the
+change diff, secrets shown only as "changed"; CSV/NDJSON export), Settings (general, docker routing, security, stats retention, UI),
 System (versions, Mongo/Valkey health, storage path, support bundle).
 
 ### 4.11 Profile
