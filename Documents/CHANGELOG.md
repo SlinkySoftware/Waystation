@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- Tooling: `make test-integration` queues on a machine-wide `flock` (`TEST_LOCK`), so parallel worktrees run one
+  integration container stack at a time instead of exhausting the dev box's memory.
 - T-S10: audit service. Catalog of audited actions (`waystation_common.audit.AuditAction`, mapped to every SPEC §4.11
   phrase), typed records (actor with auth method, provider and API token id; target; outcome and failure reason;
   client address via the trusted-proxy rules; request id; details; field-level before/after changes with secret
