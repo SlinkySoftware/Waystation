@@ -2,6 +2,25 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-09
+- T-P2-YUM (proxy min): yum/dnf proxy repositories (`formats/yum`: descriptor, `repodata.py` parsers, plugin;
+  `db/yum.py`; registered in `plugins.py`). The upstream layout is kept, so one repository serves every `repodata/`
+  directory below its upstream URL. `repomd.xml` is metadata, passed through untouched after a defused parse (expat
+  with no DTD, entity or notation declarations; bounded sizes, entries and text) and refused with 502 when invalid;
+  a newly stored `repomd.xml` drops the cached `repomd.xml.asc`. Files `repomd.xml` lists are served only by its
+  SHA-1/256/512 checksum and size (by-checksum names cached forever, plain names keyed by checksum), with one
+  `repomd.xml` revalidation on a mismatch, then 502; unlisted by-checksum names are self-validating, other unlisted
+  files 404. Cached `primary` files are decompressed in bounded chunks and parsed in a thread into the new
+  `yum_packages` collection; packages are validated against their entry (a package requested before its `primary`
+  makes Waystation fetch and index the enclosing directory's `primary` first), else served `unverified` and dropped
+  when a later listing disagrees. Options `repo_path`/`gpg_key` (`YumOptions` in the contract and generated client;
+  the repository form keeps them on save); "Set me up" `.repo` files for Rocky Linux, AlmaLinux, Oracle Linux, EPEL,
+  Fedora and generic upstreams. Mirrorlist/metalink upstreams are not proxied. Browse uses the generic folder tree
+  (the UI's "coming" card for yum is gone). Real-client harness `tests/clients/yum/`: dnf on Rocky Linux 10 and
+  AlmaLinux 10 against their `extras` repositories with `repo_gpgcheck=1` (makecache, install, cache hit + `rpm -K`,
+  reinstall from an empty dnf cache, browse API), 52 KB of fixtures. `Documents/Operations/clients/yum.md`.
+  `linux.duke.edu` (the repodata XML namespace) added to the host allowlist.
+
 ## 2026-11-08
 - T-F08: job system on Valkey Streams (ARCHITECTURE §10). `waystation_common.jobs`: typed payloads (`JobPayload`
   with `kind`, `queue`, `max_attempts`, `dedupe_key()`, `routine`; `JOB_TYPES` registry), `JobEnvelope`, the queue
