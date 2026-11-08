@@ -3,6 +3,19 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-O06: monitoring. Grafana dashboard `Build/monitoring/grafana/waystation-dashboard.json` (Prometheus data
+  source as a variable; job, instance and repository filters; stat tiles for request rate, cache hit ratio, bytes
+  served from cache and fetched from upstream, upstream error ratio and transfers in flight; requests by cache state,
+  throughput by direction, hit ratio and upstream errors per repository, upstream latency p95, coalescing, and a
+  per-repository table). Zabbix 7.0 template `Build/monitoring/zabbix/waystation_by_http.yaml` ("Waystation by
+  HTTP": HTTP agent items on `/healthz`, `/readyz` and `/metrics`, dependent Prometheus-pattern items, repository
+  discovery with per-repository rates, ratios and average upstream latency; triggers for server down, unreachable,
+  MongoDB/Valkey unavailable, no metrics, overall upstream error ratio and per-repository upstream down/degraded).
+  Both use only metrics the server exports today; the dashboard was loaded into Grafana 12.2 against Prometheus 3.7
+  scraping real `Metrics` output, and the template imported into Zabbix 7.0 with its items and triggers exercised.
+  `Documents/Operations/MONITORING.md` lists every exported metric and the useful ones still missing (upstream
+  state, Docker Hub rate limit, job queues, worker health, disk space). SPECIFICATION §10 now lists the metrics as
+  exported.
 - T-M03: deployment and reverse-proxy guides. `Documents/Operations/DEPLOYMENT.md` describes the single-host
   `compose.yaml` as it works today: containers and networks, requirements (Waystation owns the root of its host
   name), sizing, images, host layout and storage, the env file (with a compose override for `*_FILE` secrets), the

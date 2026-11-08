@@ -1,0 +1,658 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: db8944dd23b24e89a316782c21c174d0
+      name: Templates/Applications
+  templates:
+    - uuid: 5194c4f3bc274cfb9358c328b57e7ab7
+      template: 'Waystation by HTTP'
+      name: 'Waystation by HTTP'
+      description: |
+        Waystation artifact repository, monitored with HTTP agent items against /healthz, /readyz and the
+        Prometheus /metrics endpoint (Documents/Operations/MONITORING.md).
+
+        Setup: set {$WAYSTATION.URL} to the base URL (e.g. https://registry.example.com) and add the Zabbix
+        server's or proxy's address (as the Waystation web container sees it) to WAYSTATION_METRICS_ALLOW_CIDRS,
+        otherwise /metrics answers 404. Run the server with WAYSTATION_SERVER_WORKERS=1 (the default): with more
+        processes each scrape reaches one process and the rates jump.
+      vendor:
+        name: Waystation
+        version: 7.0-1
+      groups:
+        - name: Templates/Applications
+      items:
+        - uuid: 2ecc2dd6bbd7415394bb2f1056e1b088
+          name: 'Waystation: Liveness'
+          type: HTTP_AGENT
+          key: waystation.healthz
+          delay: 1m
+          history: 7d
+          value_type: CHAR
+          trends: '0'
+          description: 'GET /healthz: the server process answers. "ok" when alive.'
+          timeout: 5s
+          url: '{$WAYSTATION.URL}/healthz'
+          status_codes: ''
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.status
+              error_handler: CUSTOM_VALUE
+              error_handler_params: unavailable
+          tags:
+            - tag: component
+              value: health
+          triggers:
+            - uuid: 10974ea93dc144fc9a8b2f2eb7c7b6ff
+              expression: 'last(/Waystation by HTTP/waystation.healthz)<>"ok"'
+              name: 'Waystation: server is down'
+              event_name: 'Waystation: server is down (/healthz answered "{ITEM.LASTVALUE1}")'
+              priority: HIGH
+              description: 'The web tier or the server does not answer /healthz with "ok".'
+              tags:
+                - tag: scope
+                  value: availability
+            - uuid: cb1bd1da3b5f47d3b3d8d114ece63b20
+              expression: 'nodata(/Waystation by HTTP/waystation.healthz,5m)=1'
+              name: 'Waystation: unreachable'
+              priority: HIGH
+              description: 'No answer from {$WAYSTATION.URL}/healthz for 5 minutes (connection refused, DNS, TLS or a proxy in front).'
+              tags:
+                - tag: scope
+                  value: availability
+        - uuid: eb53be07901d487cbefece926b58674e
+          name: 'Waystation: Readiness'
+          type: HTTP_AGENT
+          key: waystation.readyz
+          delay: 1m
+          history: 7d
+          value_type: CHAR
+          trends: '0'
+          description: 'GET /readyz: "ok" when MongoDB and Valkey both answered within 2 s, "unavailable" (HTTP 503) otherwise.'
+          timeout: 5s
+          url: '{$WAYSTATION.URL}/readyz'
+          status_codes: '200,503'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.status
+              error_handler: CUSTOM_VALUE
+              error_handler_params: unavailable
+          tags:
+            - tag: component
+              value: health
+          triggers:
+            - uuid: 2188776dde2946b88cbc24431a690735
+              expression: 'count(/Waystation by HTTP/waystation.readyz,3m,"ne","ok")>=2'
+              name: 'Waystation: MongoDB or Valkey unavailable'
+              priority: HIGH
+              description: '/readyz reported "unavailable" at least twice in 3 minutes: the server cannot reach MongoDB or Valkey.'
+              dependencies:
+                - name: 'Waystation: server is down'
+                  expression: 'last(/Waystation by HTTP/waystation.healthz)<>"ok"'
+              tags:
+                - tag: scope
+                  value: availability
+        - uuid: 6fcfae07ca2f4b4cac86dc5e7f4cc6a2
+          name: 'Waystation: Get metrics'
+          type: HTTP_AGENT
+          key: waystation.metrics.get
+          delay: '{$WAYSTATION.METRICS.INTERVAL}'
+          history: '0'
+          value_type: TEXT
+          trends: '0'
+          description: 'Raw Prometheus text from /metrics (master item; not stored).'
+          timeout: 10s
+          url: '{$WAYSTATION.URL}/metrics'
+          tags:
+            - tag: component
+              value: raw
+        - uuid: 8feac1abffc24a29973e0e8eb6b651b7
+          name: 'Waystation: Requests per second'
+          type: DEPENDENT
+          key: waystation.requests.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: req/s
+          description: 'Format requests answered by the proxy engine, all repositories.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_requests_total
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: requests
+        - uuid: c2a43a62c47d435f83c4c1cf767f8153
+          name: 'Waystation: Requests from cache per second'
+          type: DEPENDENT
+          key: waystation.requests.cache.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: req/s
+          description: 'Requests answered from the blob store (cache states HIT, REVALIDATED, STALE).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_requests_total{cache=~"HIT|REVALIDATED|STALE"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 630929a4207c48cea3d96e51d97f12d4
+          name: 'Waystation: Upstream errors per second'
+          type: DEPENDENT
+          key: waystation.requests.error.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: req/s
+          description: 'Requests that failed because of the upstream (cache state ERROR, HTTP 502).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_requests_total{cache="ERROR"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: upstream
+        - uuid: 58f03447d9d24232a41f1cc9f989ba87
+          name: 'Waystation: Cache hit ratio'
+          type: CALCULATED
+          key: waystation.cache.hit.ratio
+          delay: '{$WAYSTATION.METRICS.INTERVAL}'
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          params: '100*last(//waystation.requests.cache.rate)/max(last(//waystation.requests.rate),0.000001)'
+          description: 'Requests answered from cache / all requests over the last interval (0 when idle).'
+          tags:
+            - tag: component
+              value: requests
+        - uuid: 651b0a00d0f347b7a889fd4d72f5e3a6
+          name: 'Waystation: Upstream error ratio'
+          type: CALCULATED
+          key: waystation.error.ratio
+          delay: '{$WAYSTATION.METRICS.INTERVAL}'
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          params: '100*last(//waystation.requests.error.rate)/max(last(//waystation.requests.rate),0.000001)'
+          description: 'Upstream errors / all requests over the last interval (0 when idle).'
+          tags:
+            - tag: component
+              value: upstream
+          triggers:
+            - uuid: 3c5a62ccfb9146f18dadbb4e3bc0f646
+              expression: 'min(/Waystation by HTTP/waystation.error.ratio,10m)>{$WAYSTATION.ERROR.RATIO.WARN}'
+              name: 'Waystation: upstream error ratio above {$WAYSTATION.ERROR.RATIO.WARN}% for 10 minutes'
+              event_name: 'Waystation: upstream error ratio {ITEM.LASTVALUE1} for 10 minutes'
+              priority: AVERAGE
+              description: 'Across all repositories, more than {$WAYSTATION.ERROR.RATIO.WARN}% of requests failed because of upstreams. See the per-repository triggers and the Waystation dashboard.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 50ce9deca5654ebf8d05950b65092009
+          name: 'Waystation: Bytes served from cache per second'
+          type: DEPENDENT
+          key: waystation.bytes.out_cache.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: Bps
+          description: 'Bytes sent to clients from the blob store: upstream bandwidth saved.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_bytes_total{direction="out_cache"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: traffic
+        - uuid: 5a6870a86a6b43a5b0c54a468142c18c
+          name: 'Waystation: Bytes served while fetching per second'
+          type: DEPENDENT
+          key: waystation.bytes.out_upstream.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: Bps
+          description: 'Bytes sent to clients while they were being fetched from upstream (cache misses).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_bytes_total{direction="out_upstream"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: traffic
+        - uuid: 82359827d76a4ea58476ee4edb4ec833
+          name: 'Waystation: Bytes fetched from upstream per second'
+          type: DEPENDENT
+          key: waystation.bytes.in_upstream.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: Bps
+          description: 'Bytes downloaded from upstream registries.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_bytes_total{direction="in_upstream"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: traffic
+        - uuid: 8e082a252e90414f9bd5c93f72bfa6e7
+          name: 'Waystation: Transfers in flight'
+          type: DEPENDENT
+          key: waystation.transfers.inflight
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Live transfers (cache fills and coalesced followers) right now.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_inflight_transfers
+                - value
+                - ''
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: traffic
+          triggers:
+            - uuid: 088b2bfec6784379aaddced54c6a194f
+              expression: 'nodata(/Waystation by HTTP/waystation.transfers.inflight,10m)=1'
+              name: 'Waystation: no metrics for 10 minutes'
+              priority: WARNING
+              description: '/metrics did not answer with data (the raw master item is not stored, so this watches an item derived from it). A 404 means this Zabbix server or proxy is not in WAYSTATION_METRICS_ALLOW_CIDRS.'
+              dependencies:
+                - name: 'Waystation: unreachable'
+                  expression: 'nodata(/Waystation by HTTP/waystation.healthz,5m)=1'
+              tags:
+                - tag: scope
+                  value: availability
+        - uuid: 5b80dc150b96406385b3f0c326311ea3
+          name: 'Waystation: Coalesced followers per second'
+          type: DEPENDENT
+          key: waystation.coalesce.followers.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: '/s'
+          description: 'Requests that joined another request''s upstream fetch instead of fetching again (coalescing events tail and wait).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_coalesce_total{event=~"tail|wait"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: requests
+      discovery_rules:
+        - uuid: e29d3f9490224ca89109f6bffaa0e93a
+          name: 'Repositories discovery'
+          type: DEPENDENT
+          key: waystation.repo.discovery
+          delay: '0'
+          description: 'Repositories that have answered requests since the server started (labels of waystation_requests_total).'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - waystation_requests_total
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '[]'
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var seen = {}, out = [];
+                  JSON.parse(value).forEach(function (m) {
+                      var repo = m.labels && m.labels.repo;
+                      if (repo && !seen[repo]) {
+                          seen[repo] = true;
+                          out.push({'{#REPO}': repo, '{#FORMAT}': m.labels.format || ''});
+                      }
+                  });
+                  return JSON.stringify(out);
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: waystation.metrics.get
+          item_prototypes:
+            - uuid: ee2e12c3a5834366b9c2eefdfe42c2e1
+              name: 'Waystation: {#REPO}: Requests per second'
+              type: DEPENDENT
+              key: 'waystation.repo.requests.rate["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: req/s
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_requests_total{repo="{#REPO}"}'
+                    - function
+                    - sum
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: requests
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 97c5813c5ec0413b8b8563f1839470ca
+              name: 'Waystation: {#REPO}: Requests from cache per second'
+              type: DEPENDENT
+              key: 'waystation.repo.requests.cache.rate["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: req/s
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_requests_total{repo="{#REPO}",cache=~"HIT|REVALIDATED|STALE"}'
+                    - function
+                    - sum
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: requests
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: f085fef505ff4a1c8f7a77668d7add4f
+              name: 'Waystation: {#REPO}: Upstream errors per second'
+              type: DEPENDENT
+              key: 'waystation.repo.requests.error.rate["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: req/s
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_requests_total{repo="{#REPO}",cache="ERROR"}'
+                    - function
+                    - sum
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: upstream
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: be8fea57cc0c497aba9569795e03b9d4
+              name: 'Waystation: {#REPO}: Cache hit ratio'
+              type: CALCULATED
+              key: 'waystation.repo.cache.hit.ratio["{#REPO}"]'
+              delay: '{$WAYSTATION.METRICS.INTERVAL}'
+              history: 7d
+              value_type: FLOAT
+              units: '%'
+              params: '100*last(//waystation.repo.requests.cache.rate["{#REPO}"])/max(last(//waystation.repo.requests.rate["{#REPO}"]),0.000001)'
+              tags:
+                - tag: component
+                  value: requests
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 1ff29aad36604b498005ce48248c726c
+              name: 'Waystation: {#REPO}: Upstream error ratio'
+              type: CALCULATED
+              key: 'waystation.repo.error.ratio["{#REPO}"]'
+              delay: '{$WAYSTATION.METRICS.INTERVAL}'
+              history: 7d
+              value_type: FLOAT
+              units: '%'
+              params: '100*last(//waystation.repo.requests.error.rate["{#REPO}"])/max(last(//waystation.repo.requests.rate["{#REPO}"]),0.000001)'
+              tags:
+                - tag: component
+                  value: upstream
+                - tag: repository
+                  value: '{#REPO}'
+              trigger_prototypes:
+                - uuid: a2c09f8c26114729b40863e254c038fb
+                  expression: 'min(/Waystation by HTTP/waystation.repo.error.ratio["{#REPO}"],5m)>={$WAYSTATION.UPSTREAM.ERROR.HIGH}'
+                  name: 'Waystation: upstream of {#REPO} is down'
+                  event_name: 'Waystation: upstream of {#REPO} is down (error ratio {ITEM.LASTVALUE1} for 5 minutes)'
+                  priority: HIGH
+                  description: 'At least {$WAYSTATION.UPSTREAM.ERROR.HIGH}% of requests to {#REPO} failed because of its upstream for 5 minutes. Cached content is still served (stale-on-error); new content is not.'
+                  tags:
+                    - tag: scope
+                      value: availability
+                    - tag: repository
+                      value: '{#REPO}'
+                - uuid: 5fd6d8b5f0bc40a08940fcea2963c3d8
+                  expression: 'min(/Waystation by HTTP/waystation.repo.error.ratio["{#REPO}"],5m)>{$WAYSTATION.UPSTREAM.ERROR.WARN}'
+                  name: 'Waystation: upstream of {#REPO} is degraded'
+                  event_name: 'Waystation: upstream of {#REPO} is degraded (error ratio {ITEM.LASTVALUE1} for 5 minutes)'
+                  priority: WARNING
+                  description: 'More than {$WAYSTATION.UPSTREAM.ERROR.WARN}% of requests to {#REPO} failed because of its upstream for 5 minutes.'
+                  dependencies:
+                    - name: 'Waystation: upstream of {#REPO} is down'
+                      expression: 'min(/Waystation by HTTP/waystation.repo.error.ratio["{#REPO}"],5m)>={$WAYSTATION.UPSTREAM.ERROR.HIGH}'
+                  tags:
+                    - tag: scope
+                      value: performance
+                    - tag: repository
+                      value: '{#REPO}'
+            - uuid: 976c772b953345a39cba6703401efdea
+              name: 'Waystation: {#REPO}: Bytes served from cache per second'
+              type: DEPENDENT
+              key: 'waystation.repo.bytes.out_cache.rate["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: Bps
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_bytes_total{repo="{#REPO}",direction="out_cache"}'
+                    - function
+                    - sum
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: traffic
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 4d04eb907a0545bcb9f1383498818dd7
+              name: 'Waystation: {#REPO}: Bytes fetched from upstream per second'
+              type: DEPENDENT
+              key: 'waystation.repo.bytes.in_upstream.rate["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: Bps
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_bytes_total{repo="{#REPO}",direction="in_upstream"}'
+                    - function
+                    - sum
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: traffic
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 8b9c6259e21945e099f97760bfe95bdb
+              name: 'Waystation: {#REPO}: Upstream latency sum per second'
+              type: DEPENDENT
+              key: 'waystation.repo.upstream.latency.sum.rate["{#REPO}"]'
+              delay: '0'
+              history: 1d
+              value_type: FLOAT
+              description: 'Helper for the average upstream latency.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_upstream_latency_seconds_sum{repo="{#REPO}"}'
+                    - function
+                    - sum
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: upstream
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 10b0aa94272e46da978294f72aafdaaa
+              name: 'Waystation: {#REPO}: Upstream responses per second'
+              type: DEPENDENT
+              key: 'waystation.repo.upstream.latency.count.rate["{#REPO}"]'
+              delay: '0'
+              history: 1d
+              value_type: FLOAT
+              units: '/s'
+              description: 'Upstream requests that received response headers.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_upstream_latency_seconds_count{repo="{#REPO}"}'
+                    - function
+                    - sum
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: upstream
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 083fc467bcc147fd9e780b97ef0e429d
+              name: 'Waystation: {#REPO}: Upstream latency (average)'
+              type: CALCULATED
+              key: 'waystation.repo.upstream.latency.avg["{#REPO}"]'
+              delay: '{$WAYSTATION.METRICS.INTERVAL}'
+              history: 7d
+              value_type: FLOAT
+              units: s
+              params: 'last(//waystation.repo.upstream.latency.sum.rate["{#REPO}"])/max(last(//waystation.repo.upstream.latency.count.rate["{#REPO}"]),0.000001)'
+              description: 'Average time from an upstream request to its response headers over the last interval (0 when idle).'
+              tags:
+                - tag: component
+                  value: upstream
+                - tag: repository
+                  value: '{#REPO}'
+      tags:
+        - tag: class
+          value: application
+        - tag: target
+          value: waystation
+      macros:
+        - macro: '{$WAYSTATION.URL}'
+          value: 'https://registry.example.com'
+          description: 'Waystation base URL (WAYSTATION_BASE_URL), no trailing slash.'
+        - macro: '{$WAYSTATION.METRICS.INTERVAL}'
+          value: 1m
+          description: 'How often /metrics is scraped and the ratios are computed.'
+        - macro: '{$WAYSTATION.ERROR.RATIO.WARN}'
+          value: '5'
+          description: 'Overall upstream error ratio (%) that raises a trigger after 10 minutes.'
+        - macro: '{$WAYSTATION.UPSTREAM.ERROR.WARN}'
+          value: '10'
+          description: 'Per-repository upstream error ratio (%) for "degraded" after 5 minutes.'
+        - macro: '{$WAYSTATION.UPSTREAM.ERROR.HIGH}'
+          value: '50'
+          description: 'Per-repository upstream error ratio (%) for "down" after 5 minutes.'
