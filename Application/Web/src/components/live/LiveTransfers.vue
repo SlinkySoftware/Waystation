@@ -75,6 +75,7 @@ import type { Format } from '@/api/types'
 import EmptyState from '@/components/EmptyState.vue'
 import { t } from '@/i18n'
 import { type LiveTransfer, useLiveStore } from '@/stores/live'
+import { useRepositoriesStore } from '@/stores/repositories'
 import { formatLabel, LISTED_FORMATS } from '@/utils/domain'
 import { formatRate } from '@/utils/format'
 import { iconPause, iconPlay, iconSpeed } from '@/utils/icons'
@@ -99,10 +100,13 @@ const source = computed(() => {
   return props.repository ? all.filter((x) => x.repository === props.repository) : all
 })
 const repoOptions = computed(() => [...new Set(live.transfers.map((x) => x.repository))].sort().map((name) => ({ label: name, value: name })))
-const formatOptions = computed(() => [
-  { label: t('live.all'), value: 'all' },
-  ...LISTED_FORMATS.map((f) => ({ label: formatLabel(f), value: f })),
-])
+const repos = useRepositoriesStore()
+/** Only the formats this instance has repositories of (all listed formats until the index has loaded). */
+const formatOptions = computed(() => {
+  const present = new Set(repos.items.map((r) => r.format))
+  const shown = present.size ? LISTED_FORMATS.filter((f) => present.has(f)) : LISTED_FORMATS
+  return [{ label: t('live.all'), value: 'all' }, ...shown.map((f) => ({ label: formatLabel(f), value: f }))]
+})
 
 const filtered = computed(() =>
   source.value.filter((x) => (format.value === 'all' || x.format === format.value) && (!repo.value || x.repository === repo.value)),

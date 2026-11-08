@@ -189,6 +189,9 @@ backup: ## mongodump + blob copy
 .PHONY: e2e clients-test clients-check perf
 e2e: ## Playwright E2E
 	$(call not_yet,T-U09)
+.PHONY: e2e-m0
+e2e-m0: ## M0 end to end with real clients against a RUNNING stack (WAYSTATION_URL, WAYSTATION_ADMIN_PASSWORD[_FILE])
+	tests/e2e/m0/run.sh
 FORMAT ?= all
 MODE   ?= replay
 clients-test: dev-image ## Real-client format tests: FORMAT=<name|all> MODE=replay|record|live (tests/clients/README.md)

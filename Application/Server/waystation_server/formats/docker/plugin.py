@@ -16,7 +16,8 @@ router resolves the repository, SPEC §4.4) and at ``/repository/<repo>/v2/<name
   Docker Hub names without a namespace get ``library/``; ``ratelimit-*`` headers are recorded for upstream health.
 
 Browse (``browser``, ``formats.docker.browse``): every cached manifest is recorded in ``docker_manifests`` and every
-cached tag manifest in ``docker_tags``, in the background after the fill (parsed in a thread).
+cached tag manifest in ``docker_tags``, in the background after the fill (parsed in a thread). A tag resolved by an
+upstream ``HEAD`` (how the Docker daemon pulls) is recorded in ``docker_tags`` from its ``Docker-Content-Digest``.
 
 Not yet (later tasks): hosted/group repositories, ``_catalog`` and the referrers API (404 makes clients fall back to
 the tag schema).
@@ -32,6 +33,7 @@ from urllib.parse import urlencode
 from starlette.responses import JSONResponse, Response
 
 from waystation_common.errors import NotFound, WaystationError
+from waystation_common.events import CacheState
 from waystation_server.db import docker as docker_db
 from waystation_server.formats.base import FormatRequest
 from waystation_server.formats.common.background import Background
@@ -136,6 +138,8 @@ class DockerPlugin:
             return _error(404, f'{op.op} unknown to registry', NOT_FOUND_CODES[op.op])
         except WaystationError as exc:
             return self._upstream_error(exc, upstream, op)
+        if op.op == 'manifest' and not op.by_digest and req.is_head:
+            self._record_head_tag(req, op, name, response)
         return self._finish(req, response, op)
 
     # -------------------------------------------------------------- specs
@@ -171,6 +175,24 @@ class DockerPlugin:
             self._indexing.spawn((repo_id, asset.path, asset.blob_sha256), index)
 
         return stored
+
+    def _record_head_tag(self, req: FormatRequest, op: p.Operation, name: str, response: Response) -> None:
+        """A tag answered by an upstream ``HEAD`` (the Docker daemon resolves a tag with ``HEAD``, then pulls the
+        manifest by digest, so the tag manifest itself is never cached): record the tag for browsing. The manifests
+        are recorded when the client fetches them by digest."""
+        if response.headers.get('x-ws-cache') != CacheState.FETCHING.value:
+            return
+        digest = response.headers.get('docker-content-digest', '')
+        if not p.DIGEST_RE.fullmatch(digest):
+            return
+        types = p.accepted_types(req.request.headers.getlist('accept'))
+        authoritative = p.accept_variant(types) == ''
+        db, repo_id, tag = req.proxy.db, req.repo.id, op.reference
+
+        async def index() -> None:
+            await docker_db.record_tag(db, repo_id, name, tag, digest, authoritative=authoritative)
+
+        self._indexing.spawn((repo_id, 'head', name, tag), index)
 
     @staticmethod
     def _asset(req: FormatRequest, op: p.Operation, name: str) -> AssetSpec:

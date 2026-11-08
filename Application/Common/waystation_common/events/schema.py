@@ -84,6 +84,7 @@ class ActivityEvent(_Model):
     repo: str | None = None
     format: str | None = None
     path: str | None = None
+    artifact: str | None = None  # display name (as in live transfers); default: the last path segment
     principal: str | None = None
     client_ip: str | None = None
     cache: CacheState | None = None

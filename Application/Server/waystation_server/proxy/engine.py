@@ -276,26 +276,26 @@ class ProxyEngine:
         asset = await self._cached(req.repo, spec)
         if asset is not None:
             if proxy.offline or self._fresh(asset, spec, proxy):
-                return self._hit(req, asset, CacheState.HIT, started)
+                return self._hit(req, asset, CacheState.HIT, started, spec.artifact)
             if await self._unchanged_by_head(req, spec, proxy, asset):
-                return self._hit(req, asset, CacheState.REVALIDATED, started)
+                return self._hit(req, asset, CacheState.REVALIDATED, started, spec.artifact)
             try:
                 spec = await self._expect(spec)
                 response, info = await self._open(req, spec, proxy, conditional=asset)
             except (UpstreamError, DigestMismatch) as exc:
                 if proxy.stale_on_error:
                     log.info('serving stale copy', extra={'path': spec.path, 'error': exc.detail})
-                    return self._hit(req, asset, CacheState.STALE, started)
+                    return self._hit(req, asset, CacheState.STALE, started, spec.artifact)
                 self._account_error(req, started)
                 raise
             if info.status == 304:
                 await response.aclose()
                 await self._revalidated(asset, info)
-                return self._hit(req, asset, CacheState.REVALIDATED, started)
+                return self._hit(req, asset, CacheState.REVALIDATED, started, spec.artifact)
             if info.status != 200:
                 await response.aclose()
                 if proxy.stale_on_error:
-                    return self._hit(req, asset, CacheState.STALE, started)
+                    return self._hit(req, asset, CacheState.STALE, started, spec.artifact)
                 self._account_error(req, started)
                 raise UpstreamError(f'upstream answered {info.status}')
             return await self._fill(req, spec, proxy, response, info, started)
@@ -896,7 +896,9 @@ class ProxyEngine:
         )
         return serve_blob(req.request, blob, cache=cache.value)
 
-    def _hit(self, req: FormatRequest, asset: StoredAsset, cache: CacheState, started: float) -> Response:
+    def _hit(
+        self, req: FormatRequest, asset: StoredAsset, cache: CacheState, started: float, artifact: str | None = None
+    ) -> Response:
         response = self._serve(req, asset, cache)
         sent = asset.size if response.status_code == 200 and req.method == 'GET' else 0
         self._account(req, cache, response.status_code, sent, started)
@@ -909,6 +911,7 @@ class ProxyEngine:
                     repo=req.repo.name,
                     format=req.repo.format,
                     path=asset.path,
+                    artifact=artifact,
                     principal=req.principal.display,
                     client_ip=req.client_ip or None,
                     cache=cache,
