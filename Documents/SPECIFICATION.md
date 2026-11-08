@@ -195,13 +195,23 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - Exposed via API, SSE event stream (live), Prometheus `/metrics`.
 
 ### 4.8 Cleanup, retention, garbage collection, quotas
-- **Cleanup policies** (named, reusable, attached to repos): criteria `last_downloaded_older_than`,
-  `published_older_than`, `keep_latest_n_versions` (per component), name/version regex include/exclude,
-  `prerelease_only`, docker `untagged_older_than`. Every policy has a **dry-run preview** (counts, bytes, sample).
-- Policies run on a schedule (cron per policy) in workers; they delete assets/components, never blobs directly.
-- **Blob GC**: mark-and-sweep in workers; a blob is deleted only if unreferenced for a grace period (default 24 h)
-  so in-flight uploads/fetches are never broken.
-- Docker hosted: untagged manifest cleanup; layer GC via blob GC.
+- **Cleanup policies** (named, reusable, attached to repos in run order; a policy is for one format or `*`):
+  criteria `last_downloaded_older_than_days` (never downloaded = since cached), `published_older_than_days`,
+  `keep_latest_n_versions` (per component, in the format's version order: semver for npm, dpkg for apt, rpm for yum;
+  raw: newest cached files per folder), name/version regex include/exclude, `prerelease_only`, docker
+  `untagged_older_than_days`. Every criterion that is set must match. Docker policies select tags (image = name, tag =
+  version, newest by recency); removing a tag also removes the manifests only it reached and the layers no remaining
+  manifest uses. Only content is removed, never metadata (indexes, packuments). Every policy has a **dry-run
+  preview** (counts, bytes, per repository, paged candidates with the reason) computed by the same code a run uses.
+- Policies run on a schedule (cron per policy, or manually) as worker jobs with progress in the job history; they
+  delete asset/tag/manifest records, never blobs. Downloads are recorded in Valkey on the request path and flushed to
+  the assets in bulk (≤ 10 s), feeding "last downloaded" and download counts.
+- **Blob GC**: mark-and-sweep in workers (every 6 h by default, or on demand); a blob is deleted only if unreferenced
+  and unclaimed for a grace period (default 24 h), so in-flight uploads/fetches are never broken: a cache fill claims
+  its blob before putting it in place, and a claim either stops the deletion or waits for it and writes the file
+  again. Orphan upload files older than 24 h are removed; untracked blob files are adopted; referenced blobs whose
+  file is missing are reported (proxies re-fetch them). Freed bytes show in the activity feed and `/metrics`.
+- Docker: untagged manifest cleanup through cleanup policies; layer GC via blob GC.
 - Quotas per repo (§4.2) and a global low-disk guard (refuse new cache writes below a free-space threshold,
   keep serving hits, alert).
 
@@ -615,6 +625,8 @@ Waystation/
 | LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
 | Identity linking and group sync (T-A03) | LDAP half 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`); OIDC half waits for T-A02 |
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
+| Cleanup policies (T-O01) | Done 2026-11-09: named policies (criteria per SPEC §4.8, per-format version order, docker tag cascade), dry-run preview API (same planning code as runs), `cleanup.run` worker job with progress, per-policy cron schedules, attachment per repository, REST + UI (`/cleanup` page with live impact count, candidate preview and run history; repository Cleanup tab); downloads recorded off the hot path into `assets.last_downloaded_at`/`download_count`. Audit records pending (T-S10) |
+| Blob GC (T-O02) | Done 2026-11-09: `blob.gc` worker job (every 6 h, 24 h grace): orphan uploads, adoption of untracked files, mark-and-sweep with a claim protocol that makes a racing cache fill safe (property test + real fill-vs-sweep race test), missing referenced blobs reported; GC status/run API and UI card; freed bytes as activity events and Prometheus counters (`waystation_gc_*`, `waystation_cleanup_*`) |
 | Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Left: substring matching, the 1M-asset p95 benchmark |
 | Everything else | Not started |
 

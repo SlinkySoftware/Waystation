@@ -63,6 +63,7 @@ class RepoConfig(_Stored):
     description: str = ''
     proxy: StoredProxy | None = None
     format_options: dict[str, Any] = Field(default_factory=dict)
+    cleanup_policy_ids: tuple[str, ...] = ()  # attached cleanup policies, in run order
     created_at: datetime
     updated_at: datetime
     created_by: str | None = None

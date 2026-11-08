@@ -1201,9 +1201,8 @@ class ProxyEngine:
             created_at=now,
             updated_at=now,
         )
-        saved = await assets_db.save(self.db, asset)
-        await assets_db.record_blob(self.db, ref.sha256, ref.size, now)
-        return saved
+        # The blobs document was written by the commit's GC claim (``BlobStore.guard``), before the rename.
+        return await assets_db.save(self.db, asset)
 
     def _stored_headers(self, spec: AssetSpec, info: UpstreamInfo) -> dict[str, str]:
         return {name: info.headers[name.lower()] for name in spec.store_headers if name.lower() in info.headers}
@@ -1385,6 +1384,7 @@ class ProxyEngine:
             committed = True
             checksums = {'sha256': ref.sha256, **{alg: h.hexdigest() for alg, h in fill.extra.items()}}
             asset = await self._record(req, spec, ref, fill.content_type, fill.stored, info, checksums)
+            self.emitter.asset_downloaded(asset.id)
             await lease.finish(sha256=ref.sha256, size=ref.size)
             if spec.on_stored is not None:
                 await spec.on_stored(asset, None)
@@ -1430,6 +1430,8 @@ class ProxyEngine:
         response = self._serve(req, asset, cache)
         sent = asset.size if response.status_code == 200 and req.method == 'GET' else 0
         self._account(req, cache, response.status_code, sent, started)
+        if sent:
+            self.emitter.asset_downloaded(asset.id)  # batched; flushed by the stats rollup (cleanup criteria)
         if sent and asset.kind is AssetKind.CONTENT:
             self.emitter.activity(
                 ActivityEvent(

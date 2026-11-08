@@ -45,7 +45,7 @@ export const navigation: NavGroup[] = [
       { label: 'nav.search', icon: iconSearch, to: '/search', name: 'search' },
       { label: 'nav.activity', icon: iconActivity, to: '/activity', name: 'activity' },
       { label: 'nav.storage', icon: iconStorage, to: '/storage', name: 'storage' },
-      { label: 'nav.cleanup', icon: iconCleanup, to: '/cleanup', name: 'cleanup', planned: true },
+      { label: 'nav.cleanup', icon: iconCleanup, to: '/cleanup', name: 'cleanup' },
       { label: 'nav.tasks', icon: iconTasks, to: '/tasks', name: 'tasks', planned: true },
     ],
   },

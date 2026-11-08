@@ -6,14 +6,49 @@ reaches one process (multi-process aggregation is not done yet); cluster-wide fi
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 
 from prometheus_client import CONTENT_TYPE_LATEST as CONTENT_TYPE
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
+from prometheus_client.core import CounterMetricFamily, Metric
+from prometheus_client.registry import Collector
 
 __all__ = ['CONTENT_TYPE', 'Metrics']
 
 LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0)
+
+
+MAINTENANCE_HELP = {
+    'cleanup_removed': (
+        'waystation_cleanup_removed_items',
+        'Items removed by cleanup policies (assets, tags, manifests).',
+    ),
+    'cleanup_bytes': ('waystation_cleanup_removed_bytes', 'Bytes of the assets removed by cleanup policies.'),
+    'gc_freed_blobs': ('waystation_gc_freed_blobs', 'Blobs deleted by blob GC.'),
+    'gc_freed_bytes': ('waystation_gc_freed_bytes', 'Bytes freed by blob GC.'),
+    'gc_uploads_removed': ('waystation_gc_orphan_uploads_removed', 'Orphan upload files removed by blob GC.'),
+    'gc_runs': ('waystation_gc_runs', 'Blob GC runs completed.'),
+}
+
+
+class MaintenanceCollector(Collector):
+    """Cluster-wide cleanup/GC totals (Valkey ``maintenance:totals``, written by workers), refreshed per scrape."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, int] = {}
+
+    def update(self, raw: Mapping[bytes | str, bytes | str]) -> None:
+        values: dict[str, int] = {}
+        for key, value in raw.items():
+            name = key.decode() if isinstance(key, bytes) else key
+            text = value.decode() if isinstance(value, bytes) else value
+            if name in MAINTENANCE_HELP and text.lstrip('-').isdigit():
+                values[name] = int(text)
+        self.values = values
+
+    def collect(self) -> Iterator[Metric]:
+        for field, (name, doc) in MAINTENANCE_HELP.items():
+            yield CounterMetricFamily(name, doc, value=self.values.get(field, 0))
 
 
 class Metrics:
@@ -55,6 +90,9 @@ class Metrics:
             ['repo'],
             registry=self.registry,
         )
+
+        self.maintenance = MaintenanceCollector()
+        self.registry.register(self.maintenance)
 
     def coalesce(self, *, repo: str, event: str) -> None:
         self.coalescing.labels(repo, event).inc()

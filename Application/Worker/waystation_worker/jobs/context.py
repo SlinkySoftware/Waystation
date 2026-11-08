@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 
 from waystation_common.db import jobs as jobs_db
 from waystation_common.db.client import Database
+from waystation_common.events import EventEmitter
 from waystation_common.jobs.model import JobEnvelope
 from waystation_common.settings import Settings
 
@@ -33,6 +34,7 @@ class JobContext:
     valkey: Redis
     clock: Clock = time.time
     settings: Settings | None = None
+    emitter: EventEmitter | None = None  # activity events (summaries of what a job did)
     _last_progress: float = field(default=0.0, repr=False)
     _pending_progress: tuple[int, int | None, str | None] | None = field(default=None, repr=False)
 
