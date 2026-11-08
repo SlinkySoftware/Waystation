@@ -2,7 +2,9 @@
 
 MongoDB is the system of record; Valkey holds only ephemeral state; the blob store holds file content.
 Collection access goes through the `*.db` modules only (ARCHITECTURE §3). IDs are ULIDs (string) unless noted.
-All timestamps are UTC `datetime`. Every collection has a `schema_version` migration path (`init` container).
+All timestamps are UTC `datetime`. Collections and indexes are declared in `waystation_common.db.collections` and
+created by `init` (`db.schema.ensure_schema`, idempotent; index names are part of the schema); data changes are
+forward-only migrations (`db.migrations`, recorded in `migrations`).
 
 ## 1. MongoDB (database `WAYSTATION_MONGO_DB`, default `waystation`)
 
@@ -33,6 +35,7 @@ All timestamps are UTC `datetime`. Every collection has a `schema_version` migra
 | `assets` | `_id`, `repo_id`, `path` (normalised, unique per repo), `kind` (`content`/`metadata`), `component_id?`, `blob_sha256`, `size`, `content_type`, `checksums{sha1, sha256, sha512, md5}` (as provided/computed), `upstream{url, etag, last_modified, fetched_at, status}`, `created_at`, `last_downloaded_at`, `download_count` | `repo_id,path` unique; `blob_sha256` (GC + "where used"); `component_id`; `repo_id,last_downloaded_at` |
 | `docker_tags` | `repo_id`, `image` (name), `tag`, `manifest_digest`, `updated_at`, `pushed_by` | `repo_id,image,tag` unique; `repo_id,manifest_digest` |
 | `docker_manifests` | `repo_id`, `image`, `digest`, `media_type`, `subject_digest?` (referrers), `artifact_type?`, `platforms[]`, `layers[{digest,size,media_type}]`, `config_digest`, `size_total` | `repo_id,image,digest` unique; `repo_id,subject_digest` |
+| `apt_pool_index` | `repo_id`, `filename` (pool path), `sha256`, `size`, `suite`, `component`, `arch`, `verified`, `updated_at` (FORMATS apt: `Filename → (SHA256, Size)` from cached `Packages` files) | `repo_id,filename` unique; `repo_id,suite,component` |
 | `blobs` | `_id` = sha256 hex, `size`, `first_seen`, `refcount_hint` (advisory; GC is mark-and-sweep), `gc_marked_at?` | `gc_marked_at` |
 | `upload_sessions` | `_id` (uuid), `repo_id`, `kind` (`oci-chunked`/`single`), `principal`, `bytes_received`, `started_at`, `expires_at` | TTL `expires_at` |
 
@@ -48,7 +51,7 @@ All timestamps are UTC `datetime`. Every collection has a `schema_version` migra
 | `storage_snapshots` | time-series per repo: `bytes`, `assets`, `components` (hourly) | 2 y |
 | `downloads_daily` | `component_id`, `day`, `count`, `bytes` | `component_id,day` unique; TTL 400 d |
 | `audit` | `_id`, `ts`, `principal{kind,id,name}`, `ip`, `action`, `target{kind,id,name}`, `outcome`, `details{...}` | `ts` desc; `principal.id,ts`; `action,ts`; TTL per settings |
-| `migrations` | applied migration ids | – |
+| `migrations` | `_id` = applied migration id (`NNNN_slug`), `description`, `applied_at` | – |
 
 Notes:
 - `components.version_sort` is computed by each format (semver, PEP 440, Maven ComparableVersion, Debian

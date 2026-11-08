@@ -3,6 +3,13 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-F06 (M0 slice): MongoDB layer in `waystation_common.db`: `create_client` (PyMongo `AsyncMongoClient`,
+  tz-aware), collection registry with named indexes for the M0 collections (new: `apt_pool_index` for apt pool
+  validation, added to DATA_MODEL), `ensure_schema` (creates only what is missing, reports index conflicts),
+  forward-only migrations with `check_schema` for newer/pending schemas, replica-set initiation. `init` now runs data
+  dir → replica set → schema → migrations; a re-run changes nothing. `make test-integration` starts throwaway
+  MongoDB/Valkey containers (project name unique per checkout) and runs `pytest -m integration`; it is part of
+  `make check`.
 - T-F05 (M0 slice): containers and dev stack. Server/worker images (uv, non-editable venv, UID/GID 10001), web image
   (nginx-unprivileged, SPA build stage with placeholder fallback, `nginx.conf.template`: `/` → `/ui/`, SPA with
   immutable assets, unbuffered proxy of the dynamic paths with no body limit, SSE location, internal `/_blobs/`).
