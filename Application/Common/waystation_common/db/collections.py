@@ -31,6 +31,7 @@ DOCKER_MANIFESTS = 'docker_manifests'
 APT_POOL_INDEX = 'apt_pool_index'
 APT_PACKAGES = 'apt_packages'
 NPM_PACKAGES = 'npm_packages'
+YUM_PACKAGES = 'yum_packages'
 # --- operations, stats, audit
 AUDIT = 'audit'
 STATS_MINUTE = 'stats_minute'
@@ -191,6 +192,16 @@ SPECS: tuple[CollectionSpec, ...] = (
     ),
     CollectionSpec(
         NPM_PACKAGES, (_ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),)
+    ),
+    CollectionSpec(
+        YUM_PACKAGES,
+        (
+            # Package path -> checksum (from cached primary.xml files, or computed: unverified).
+            _ix('repo_path_unique', [('repo_id', ASCENDING), ('path', ASCENDING)], unique=True),
+            # A directory's listing generation: replaced on re-index; "is this primary indexed".
+            _ix('repo_dir_gen', [('repo_id', ASCENDING), ('repo_dir', ASCENDING), ('gen', ASCENDING)]),
+            _ix('repo_verified', [('repo_id', ASCENDING), ('verified', ASCENDING)]),
+        ),
     ),
     CollectionSpec(
         AUDIT,
