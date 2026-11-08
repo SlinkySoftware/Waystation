@@ -73,6 +73,8 @@
      `add_header Docker-Content-Digest $upstream_http_docker_content_digest always` (etc.), `internal`, `sendfile on`.
      The server also sets its normal `Content-Type` on the X-Accel response: nginx keeps it across the internal
      redirect (verified in T-F05; `default_type` cannot take a variable, so `X-Ws-Content-Type` is informational).
+     Implemented by `waystation_server.dataplane.xaccel.serve_blob` (ETag `"sha256:<hex>"`; `HEAD` is answered by
+     the server with `Content-Length`; `Content-Disposition` passes through nginx unchanged).
    - File access: server/worker and web share a GID (`waystation`, default 10001); blob dirs are setgid (2750),
      files 0640, processes run with umask 0027; the unprivileged nginx user is a member of that group. The `init`
      container fixes ownership/modes on the data dir at start (idempotent, only when wrong).

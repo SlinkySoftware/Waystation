@@ -470,6 +470,7 @@ Waystation/
 | Dashboard (T-U03 min) | M0 slice 2026-11-08 on mocks: KPIs, live transfers, traffic chart, storage donut, upstream health, activity feed, all live from the event stream. Top artifacts / recently added still to do |
 | Repositories UI (T-U04 min) | M0 slice 2026-11-08 on mocks: list + filters, create/edit/delete docker/npm/apt/raw proxies with test upstream and field errors, detail page (Overview, Browse, Settings), Set me up panel. Snippets shown with a `<your-api-token>` placeholder (tokens are shown once at creation, T-S04) |
 | Browse UI (T-U05 min) | M0 slice 2026-11-08 on mocks: docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour (both themes, desktop + mobile) in `Documents/Notes/screenshots/m0/` |
+| Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

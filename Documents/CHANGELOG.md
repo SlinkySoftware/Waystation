@@ -3,6 +3,10 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S06: data plane `waystation_server.dataplane.xaccel.serve_blob`: `If-None-Match`/`If-Modified-Since` → 304 by
+  the server, HEAD answered by the server, GET → empty response with `X-Accel-Redirect` to `/_blobs/...`, digest
+  ETag and `X-Ws-*` headers, format headers replayed. nginx `/_blobs/` also re-adds `Docker-Distribution-API-Version`,
+  `X-Ws-Cache` and `X-Request-Id`. Verified through the dev stack's nginx (exact bytes, 206 ranges, 304, HEAD).
 - T-S05 (M0 slice): repositories. Format descriptors with option models and "Set me up" snippets for docker
   (aliases, Docker Hub, default repo), npm, apt (distribution, flat) and raw (metadata regex) proxies, registered by
   `waystation_server.plugins`. `repos.service` validates names (reserved words, docker aliases, case-insensitive
