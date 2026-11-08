@@ -71,12 +71,20 @@ test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 1
 	$(DEV_RUN) uv run --frozen pytest -m "not integration" --cov --cov-report=term-missing:skip-covered $(ARGS)
 	$(DEV_RUN) uv run --frozen coverage report --fail-under=100 $(FULL_COVERAGE)
 
+# One throwaway MongoDB/Valkey project per checkout, so parallel worktrees don't collide.
+TEST_PROJECT := waystation-test-$(shell printf '%s' '$(CURDIR)' | md5sum | cut -c1-8)
+COMPOSE_TEST  = docker compose -p $(TEST_PROJECT) -f Build/Containers/compose.test.yaml
 .PHONY: test-integration
-test-integration: ## Integration tests against MongoDB/Valkey containers
-	$(call not_yet,T-F06)
+test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
+  -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
+  -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0'
+test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey containers
+	$(COMPOSE_TEST) up -d --wait --quiet-pull
+	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
+	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 
 .PHONY: check
-check: fmt-check lint typecheck test ## Everything CI runs on a PR (grows as tasks land)
+check: fmt-check lint typecheck test test-integration ## Everything CI runs on a PR (grows as tasks land)
 
 .PHONY: env-example
 env-example: sync ## Regenerate .env.example from waystation_common.settings (idempotent)
