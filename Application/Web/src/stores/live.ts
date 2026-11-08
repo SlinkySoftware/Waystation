@@ -33,6 +33,7 @@ export const useLiveStore = defineStore('live', () => {
   // Non-reactive working state.
   const map = new Map<string, LiveTransfer>()
   const topicRefs = new Map<string, number>()
+  const activityListeners = new Set<(event: ActivityEvent) => void>()
   let dirty = false
   let lastEventId: string | null = null
   let source: LiveSource | null = null
@@ -96,6 +97,7 @@ export const useLiveStore = defineStore('live', () => {
         upstreams.value = { ...upstreams.value, [event.health.repository]: event.health }
         break
       case 'activity':
+        for (const listener of activityListeners) listener(event.event)
         if (activity.value.some((a) => a.id === event.event.id)) break
         activity.value = [event.event, ...activity.value].slice(0, ACTIVITY_HISTORY)
         break
@@ -161,6 +163,12 @@ export const useLiveStore = defineStore('live', () => {
     }
   }
 
+  /** Every activity event as it arrives (the Activity page keeps its own, longer, filtered log). */
+  function onActivity(listener: (event: ActivityEvent) => void): () => void {
+    activityListeners.add(listener)
+    return () => activityListeners.delete(listener)
+  }
+
   function stop(): void {
     source?.close()
     source = null
@@ -182,7 +190,7 @@ export const useLiveStore = defineStore('live', () => {
     lastEventId = null
   }
 
-  return { status, transfers, activeCount, lastTick, ticks, activity, upstreams, subscribe, apply, flush, reset }
+  return { status, transfers, activeCount, lastTick, ticks, activity, upstreams, subscribe, onActivity, apply, flush, reset }
 })
 
 if (import.meta.hot) import.meta.hot.accept(acceptHMRUpdate(useLiveStore, import.meta.hot))
