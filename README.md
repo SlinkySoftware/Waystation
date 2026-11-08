@@ -12,7 +12,8 @@ public package ecosystems and a private registry for the things you build, with 
 - **No caps**: no component or request limits, no mandatory telemetry.
 - **Nexus-compatible URLs** (`/repository/<name>/...`) so existing clients can switch without reconfiguration.
 
-Status: planning. See `Documents/SPECIFICATION.md` and `Documents/TASKS.md`.
+Status: M0 feedback build (proxy repositories for Docker, npm, apt and raw). To run it, see
+`Documents/Operations/TRY_IT.md`. The plan is in `Documents/SPECIFICATION.md` and `Documents/TASKS.md`.
 
 ## Architecture at a glance
 
