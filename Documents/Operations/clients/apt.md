@@ -88,16 +88,24 @@ Ubuntu before 24.04 the image needs `ca-certificates` (and `apt-transport-https`
 
 ## Authentication
 
-M0: proxy repositories are readable anonymously, so no client configuration is needed. When an administrator
-removes anonymous access, apt authenticates with HTTP basic auth using a username and an API token once API tokens
-land (T-S04). Keep the credentials out of the sources file, in `/etc/apt/auth.conf.d/waystation.conf`
-(`chmod 600`, owned by root):
+Proxy repositories are readable anonymously by default, so no client configuration is needed. When an
+administrator removes anonymous access, apt authenticates with HTTP basic auth: any username and an API token as the
+password. Create an API token on your profile page (avatar menu → Profile → API tokens; shown once, copy it then) or, for
+CI, on a service account. Give it only the `read` scope and, ideally, restrict it to the repositories the client
+needs: a token only ever narrows what its owner may do. A revoked or expired token is refused at once (401); it
+never falls back to anonymous access.
+
+Keep the credentials out of the sources file, in `/etc/apt/auth.conf.d/waystation.conf` (`chmod 600`, owned by
+root):
 
 ```text
 machine registry.example.com/repository/
 login alice
 password <your-api-token>
 ```
+
+apt applies an entry without a scheme to `https://` sources only. If Waystation is reached over plain HTTP (not
+recommended: the token travels in clear), write the scheme: `machine http://registry.example.com/repository/`.
 
 ## Troubleshooting
 

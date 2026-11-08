@@ -35,6 +35,51 @@ class UserRecord(BaseModel):
     created_at: datetime
 
 
+class TokenOwner(BaseModel):
+    """``api_tokens.principal``: whose grants the token narrows."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    kind: Literal['user', 'service_account']
+    id: str
+
+
+class ApiTokenRecord(BaseModel):
+    """``api_tokens``: only a keyed hash of the secret is stored (``security.tokens``), plus a display prefix."""
+
+    model_config = ConfigDict(extra='ignore', populate_by_name=True)
+
+    id: str = Field(alias='_id')
+    principal: TokenOwner
+    name: str
+    prefix: str
+    hash: str
+    scopes: list[str] = Field(default_factory=list)
+    repo_globs: list[str] = Field(default_factory=list)
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
+    last_used_ip: str | None = None
+    created_at: datetime
+    created_by: str | None = None
+    revoked_at: datetime | None = None
+    revoked_by: str | None = None
+
+
+class ServiceAccountRecord(BaseModel):
+    """``service_accounts``: a non-human principal that holds roles and authenticates only with API tokens."""
+
+    model_config = ConfigDict(extra='ignore', populate_by_name=True)
+
+    id: str = Field(alias='_id')
+    name: str  # lower-case, unique
+    description: str = ''
+    roles: list[str] = Field(default_factory=list)
+    disabled: bool = False
+    owner_user_id: str | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
 class SessionRecord(BaseModel):
     """``_id`` is the sha256 of the cookie value: a database dump does not reveal usable session ids."""
 

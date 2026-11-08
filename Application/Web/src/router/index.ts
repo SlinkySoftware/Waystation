@@ -13,7 +13,7 @@ export default defineRouter(() => {
     // BASE_URL is the public path, /ui/ (SPEC §4.4).
     history: createWebHistory(import.meta.env.BASE_URL),
     routes,
-    scrollBehavior: (_to, _from, saved) => saved ?? { left: 0, top: 0 },
+    scrollBehavior: (to, _from, saved) => saved ?? (to.hash ? { el: to.hash, top: 72 } : { left: 0, top: 0 }),
   })
 
   router.beforeEach((to) => authGuard(to, useAuthStore()))

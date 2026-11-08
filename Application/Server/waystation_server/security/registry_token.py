@@ -2,12 +2,14 @@
 
 ``GET /auth/token?service=<host>&scope=repository:<name>:pull,push`` issues a short-lived (5 min) JWT signed with
 Ed25519 (``alg: EdDSA``). The caller is anonymous unless it sends HTTP basic credentials (``docker login``: local
-username + password; API tokens arrive with T-S04). Each requested scope is granted the subset of its actions the
+username + password, or an API token as the password). Each requested scope is granted the subset of its actions the
 caller's RBAC grants allow on the repository the name resolves to (SPECIFICATION §4.4 routing); unknown or hidden
 names get no actions (the spec's "grant what you can" rule).
 
 On ``/v2/`` the token is the only credential. Its ``sub`` (user id or ``anonymous``) is re-resolved and RBAC is
 re-checked on every request: access = token grants ∩ current grants, so revoking a role takes effect immediately.
+A registry token issued for an API token carries its id (``tid``): the API token is re-checked on every request too
+(revoked, expired or narrowed tokens stop working at once, not when the registry token expires).
 
 The signing key lives in ``WAYSTATION_DATA_DIR/keys/registry-token.key``, encrypted with ``WAYSTATION_SECRET_KEYS``
 (created by the first server that needs it; every replica uses the same key). Without secret keys the server uses
@@ -87,6 +89,7 @@ class TokenClaims:
     audience: str
     access: tuple[Scope, ...]
     expires_at: float
+    token_id: str | None = None  # the API token the registry token was issued for (re-checked on every request)
 
 
 class TokenSigner:
@@ -96,7 +99,15 @@ class TokenSigner:
         raw = self.public.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
         self.kid = hashlib.sha256(raw).hexdigest()[:16]
 
-    def issue(self, *, subject: str, audience: str, access: list[Scope], now: float | None = None) -> tuple[str, int]:
+    def issue(
+        self,
+        *,
+        subject: str,
+        audience: str,
+        access: list[Scope],
+        now: float | None = None,
+        token_id: str | None = None,
+    ) -> tuple[str, int]:
         now = time.time() if now is None else now
         header = {'alg': 'EdDSA', 'typ': 'JWT', 'kid': self.kid}
         payload = {
@@ -109,6 +120,8 @@ class TokenSigner:
             'jti': uuid.uuid4().hex,
             'access': [s.claim() for s in access],
         }
+        if token_id is not None:
+            payload['tid'] = token_id
 
         def part(obj: dict[str, Any]) -> str:
             return _b64(json.dumps(obj, separators=(',', ':')).encode())
@@ -140,7 +153,14 @@ class TokenSigner:
                 Scope(str(a['type']), str(a['name']), tuple(str(x) for x in a['actions']))
                 for a in payload.get('access', [])
             )
-            return TokenClaims(str(payload['sub']), str(payload['aud']), access, float(payload['exp']))
+            tid = payload.get('tid')
+            return TokenClaims(
+                str(payload['sub']),
+                str(payload['aud']),
+                access,
+                float(payload['exp']),
+                token_id=str(tid) if tid is not None else None,
+            )
         except KeyError, TypeError, ValueError:
             return None
 
