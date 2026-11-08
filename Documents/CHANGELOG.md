@@ -22,6 +22,22 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `linux.duke.edu` (the repodata XML namespace) added to the host allowlist.
 
 ## 2026-11-08
+- T-S04: API tokens and service accounts. `security.tokens.TokenService`: `wst_` tokens shown once, stored as
+  HMAC-SHA256 under a `SECRET_KEYS`-derived key (all keys tried, so key rotation keeps tokens), per-process cache
+  ≤ 5 s, revocation announced on the Valkey `revocations` channel (every replica drops the token at once; tested
+  across two app instances < 1 s), rejected tokens rate-limited per client address (`WAYSTATION_TOKEN_FAILURE_LIMIT`).
+  Scopes (`read`, `write`, `delete`, `manage`, `stats-read`, `metrics`, `admin`) and repository patterns only narrow
+  the owner's RBAC, applied inside `access.check`; a token can only get scopes its owner holds. Authentication:
+  `Bearer`/`Token` API tokens and basic auth with the token as the password on `/repository/*` and the API; invalid
+  credentials are refused instead of falling back to anonymous; `docker login` with a token (the registry token
+  carries `tid`, re-checked on every `/v2/` request); `/metrics` with a `metrics` token. Last used recorded in
+  Valkey (`seen:tokens`) and flushed in bulk by the `stats.rollup` job together with session last-seen
+  (`waystation_common.db.seen`). New collection `service_accounts`. REST: `/auth/me/tokens` (list, create with an
+  interactive session only, revoke), `/tokens` (all, revoke), `/service-accounts` (CRUD, tokens) in the server
+  OpenAPI, the M0 contract, generated client and MSW mocks. UI: profile page with an "API tokens" card (create
+  dialog with scopes, repositories and expiry; copy-once secret dialog; list with status and last used; revoke).
+  Real-client harness steps for raw (curl basic and bearer, narrowed, revoked), npm (`.npmrc` `_authToken`), apt
+  (`auth.conf`) and docker (`docker login`); client docs' authentication sections updated.
 - T-F08: job system on Valkey Streams (ARCHITECTURE §10). `waystation_common.jobs`: typed payloads (`JobPayload`
   with `kind`, `queue`, `max_attempts`, `dedupe_key()`, `routine`; `JOB_TYPES` registry), `JobEnvelope`, the queue
   state machine as atomic Lua scripts (`JobQueue`: enqueue with dirty-flag dedupe, start, finish/retry/dead, heartbeat,

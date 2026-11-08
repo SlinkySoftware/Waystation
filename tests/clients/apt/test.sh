@@ -96,4 +96,21 @@ for p in $packages; do
   [ -n "$found" ] || fail "$p is not listed as cached and verified by the browse API"
 done
 
+step 'API token in auth.conf (basic auth, token as the password): update with it, refused once revoked'
+# apt applies auth.conf entries without a scheme to https only; the harness stack is plain http.
+ws_token '["read"]' "[\"$main\",\"$sec\"]"
+token_id=$WS_TOKEN_ID
+mkdir -p /etc/apt/auth.conf.d
+printf 'machine %s/repository/\nlogin ci-bot\npassword %s\n' "$WAYSTATION_URL" "$WS_TOKEN" \
+  > /etc/apt/auth.conf.d/waystation.conf
+chmod 600 /etc/apt/auth.conf.d/waystation.conf
+update
+ws_revoke "$token_id"
+rm -rf /var/lib/apt/lists/*
+if apt-get update --error-on=any > /tmp/revoked.log 2>&1; then
+  cat /tmp/revoked.log; fail 'apt-get update worked with a revoked token'
+fi
+grep -q '401' /tmp/revoked.log || { cat /tmp/revoked.log; fail 'revoked token: no 401'; }
+rm -f /etc/apt/auth.conf.d/waystation.conf
+
 pass

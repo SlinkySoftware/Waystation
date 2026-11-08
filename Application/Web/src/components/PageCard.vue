@@ -36,14 +36,15 @@ const titleId = useId()
 
 .page-card__head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 14px 16px 10px;
   min-height: 52px;
 }
 
 .page-card__titles {
-  flex: 1;
+  flex: 1 1 240px;
   min-width: 0;
 }
 
