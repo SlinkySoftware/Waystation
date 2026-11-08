@@ -8,15 +8,22 @@ import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 function docker(repo: Repository): SetupClient[] {
   const opts = (repo.format_options ?? {}) as DockerOptions
   const alias = opts.aliases?.[0]
-  const sample = repo.proxy?.upstream_url.includes('docker.io') ? 'library/nginx:latest' : repo.name === 'ghcr' ? 'astral-sh/uv:latest' : 'org/image:tag'
+  const hub = Boolean(repo.proxy?.upstream_url.includes('docker.io'))
+  const sample = hub ? 'library/nginx:latest' : repo.proxy?.upstream_url.includes('ghcr.io') ? 'home-assistant/home-assistant:stable' : 'org/image:tag'
   const host = REGISTRY_HOST
   const dockerSnippets: SetupClient['snippets'] = [
     { id: 'login', title: 'Sign in', description: 'Use an API token as the password. Anonymous pulls work without signing in if your administrator allows them.', language: 'shell', filename: null, os: null, content: `echo '{{TOKEN}}' | docker login ${host} --username {{USERNAME}} --password-stdin` },
-    { id: 'pull-prefix', title: 'Pull by repository prefix', language: 'shell', filename: null, os: null, content: `docker pull ${host}/${repo.name}/${sample}` },
   ]
-  if (alias) dockerSnippets.push({ id: 'pull-alias', title: `Pull by upstream alias (${alias})`, description: 'Keep the upstream registry name in the image reference: only the host changes.', language: 'shell', filename: null, os: null, content: `docker pull ${host}/${alias}/${sample}` })
+  const prefix: SetupClient['snippets'][number] = { id: 'pull-prefix', title: 'Pull by repository prefix', language: 'shell', filename: null, os: null, content: `docker pull ${host}/${repo.name}/${sample}` }
+  // A non-default repository with an alias is usually addressed by the upstream's name (ghcr.io/<owner>/<image>).
+  if (alias && !opts.default_repo) {
+    dockerSnippets.push({ id: 'pull-alias', title: `Pull by upstream name (${alias}/…)`, description: `Keep ${alias} in the image reference: only the host changes.`, language: 'shell', filename: null, os: null, content: `docker pull ${host}/${alias}/${sample}` }, prefix)
+  } else {
+    dockerSnippets.push(prefix)
+    if (alias) dockerSnippets.push({ id: 'pull-alias', title: `Pull by upstream alias (${alias})`, description: 'Keep the upstream registry name in the image reference: only the host changes.', language: 'shell', filename: null, os: null, content: `docker pull ${host}/${alias}/${sample}` })
+  }
   if (opts.default_repo) {
-    dockerSnippets.push({ id: 'pull-default', title: 'Pull without a prefix (default repository)', language: 'shell', filename: null, os: null, content: `docker pull ${host}/${sample}` })
+    dockerSnippets.splice(1, 0, { id: 'pull-default', title: 'Pull without a prefix (default repository)', description: 'Docker Hub names work as they are; single-segment names get library/ like on Docker Hub.', language: 'shell', filename: null, os: null, content: `docker pull ${host}/${hub ? 'nginx:latest' : sample}` })
     dockerSnippets.unshift({ id: 'mirror', title: 'Use as a Docker Hub mirror', description: 'Every docker pull of a Docker Hub image then goes through Waystation. Restart the daemon afterwards.', language: 'json', filename: '/etc/docker/daemon.json', os: 'linux', content: `{\n  "registry-mirrors": ["${BASE_URL}"]\n}` })
     dockerSnippets.splice(1, 0, { id: 'restart', title: 'Apply the mirror setting', language: 'shell', filename: null, os: 'linux', content: 'sudo systemctl restart docker' })
   }
@@ -71,7 +78,7 @@ function apt(repo: Repository): SetupClient[] {
   const rpi = upstream.includes('raspberrypi')
   const security = opts.distribution?.endsWith('-security')
   const suite = opts.distribution || 'trixie'
-  const suites = security ? suite : ubuntu ? `${suite} ${suite}-updates` : `${suite} ${suite}-updates`
+  const suites = security || rpi ? suite : `${suite} ${suite}-updates ${suite}-backports`
   const components = ubuntu ? 'main restricted universe multiverse' : rpi ? 'main' : 'main contrib non-free non-free-firmware'
   const keyring = ubuntu ? '/usr/share/keyrings/ubuntu-archive-keyring.gpg' : rpi ? '/usr/share/keyrings/raspberrypi-archive-keyring.gpg' : '/usr/share/keyrings/debian-archive-keyring.gpg'
   return [
@@ -88,9 +95,39 @@ function apt(repo: Repository): SetupClient[] {
   ]
 }
 
+/** yum / dnf: one .repo file per distribution repo id, keeping $releasever/$basearch and the distribution's GPG check. */
+function yum(repo: Repository): SetupClient[] {
+  const upstream = repo.proxy?.upstream_url ?? ''
+  const url = `${BASE_URL}/repository/${repo.name}`
+  const oracle = upstream.includes('oracle')
+  const epel = upstream.includes('epel')
+  const alma = upstream.includes('almalinux')
+  const name = oracle ? 'Oracle Linux' : epel ? 'EPEL' : alma ? 'AlmaLinux' : upstream.includes('rocky') ? 'Rocky Linux' : repo.name
+  const key = oracle ? 'file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle' : epel ? 'file:///etc/pki/rpm-gpg/RPM-GPG-KEY-EPEL-$releasever' : alma ? 'file:///etc/pki/rpm-gpg/RPM-GPG-KEY-AlmaLinux-$releasever' : 'file:///etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-$releasever'
+  const sections: [string, string, string][] = oracle
+    ? [['ol9_baseos_latest', 'BaseOS Latest', 'OL9/baseos/latest'], ['ol9_appstream', 'AppStream', 'OL9/appstream'], ['ol9_UEKR8', 'UEK Release 8', 'OL9/UEKR8']]
+    : epel
+      ? [['epel', 'Everything', '$releasever/Everything']]
+      : [['baseos', 'BaseOS', '$releasever/BaseOS'], ['appstream', 'AppStream', '$releasever/AppStream']]
+  const baseurl = (path: string) => (oracle ? `${url}/repo/OracleLinux/${path}/$basearch/` : epel ? `${url}/${path}/$basearch/` : `${url}/${path}/$basearch/os/`)
+  const content = sections.map(([id, label, path]) => `[${repo.name}-${id}]\nname=${name} ${oracle ? '9' : '$releasever'} - ${label} (Waystation)\nbaseurl=${baseurl(path)}\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=0\ngpgkey=${key}\n#username={{USERNAME}}\n#password={{TOKEN}}`).join('\n\n')
+  const disable = oracle ? 'sudo dnf config-manager --disable ol9_baseos_latest ol9_appstream ol9_UEKR8' : epel ? 'sudo dnf config-manager --disable epel' : 'sudo dnf config-manager --disable baseos appstream'
+  return [
+    {
+      id: 'dnf',
+      label: 'dnf',
+      snippets: [
+        { id: 'repo', title: 'Repository file', description: 'Packages stay signed by the distribution: dnf verifies them with its own key (gpgcheck stays on). Uncomment the credentials only if anonymous reads are off.', language: 'ini', filename: `/etc/yum.repos.d/${repo.name}.repo`, os: 'linux', content },
+        { id: 'disable', title: 'Turn off the distribution\'s own mirrors', description: 'So dnf does not fall back to the internet (mirrorlist/metalink upstreams are not used).', language: 'shell', filename: null, os: 'linux', content: disable },
+        { id: 'refresh', title: 'Refresh and install', language: 'shell', filename: null, os: 'linux', content: 'sudo dnf makecache && sudo dnf upgrade' },
+      ],
+    },
+  ]
+}
+
 function raw(repo: Repository): SetupClient[] {
   const url = `${BASE_URL}/repository/${repo.name}`
-  const sample = repo.name === 'raw-isos' ? 'debian-cd/13.1.0/amd64/iso-cd/debian-13.1.0-amd64-netinst.iso' : 'cli/cli/releases/download/v2.83.0/gh_2.83.0_linux_amd64.tar.gz'
+  const sample = 'cli/cli/releases/download/v2.83.0/gh_2.83.0_linux_amd64.tar.gz'
   return [
     { id: 'curl', label: 'curl', snippets: [
       { id: 'download', title: 'Download a file', description: 'The path after the repository name is the path on the upstream.', language: 'shell', filename: null, os: null, content: `curl -fLO ${url}/${sample}` },
@@ -101,7 +138,13 @@ function raw(repo: Repository): SetupClient[] {
 }
 
 export function setupGuide(repo: Repository): SetupGuide {
-  const clients = repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : raw(repo)
-  const notes = repo.format === 'docker' ? [`Docker clients address this repository as ${REGISTRY_HOST}/${repo.name}/… (path routing).`] : []
+  const clients = repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : raw(repo)
+  const opts = (repo.format_options ?? {}) as DockerOptions
+  const notes: string[] = []
+  if (repo.format === 'docker') {
+    notes.push(`Docker clients address this repository as ${REGISTRY_HOST}/${repo.name}/… (path routing).`)
+    if (opts.aliases?.length) notes.push(`${opts.aliases.map((a) => `${REGISTRY_HOST}/${a}/…`).join(', ')} also routes here.`)
+    if (opts.default_repo) notes.push('This is the default docker repository: unprefixed names and registry-mirrors pulls land here.')
+  }
   return { repository: repo.name, format: repo.format, clients, notes }
 }

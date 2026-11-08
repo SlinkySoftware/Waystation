@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Files cached by the raw proxies, as a folder tree (paths mirror the upstream layout).
+// Files cached by the raw proxy (the example GitHub releases repo), as a folder tree (paths mirror the upstream layout).
 import type { FolderEntry } from '@/api/types'
 
-import { fakeSha256, GiB, hash, KiB, MiB, rng } from '../rng'
+import { fakeSha256, hash, KiB, MiB, rng } from '../rng'
 
 const NOW = Date.now()
 const DAY = 86_400_000
@@ -26,16 +26,6 @@ export const RAW_FILES: Record<string, [string, number][]> = {
     ['restic/restic/releases/download/v0.18.1/restic_0.18.1_linux_amd64.bz2', 9.4 * MiB],
     ['gohugoio/hugo/releases/download/v0.152.2/hugo_extended_0.152.2_linux-amd64.tar.gz', 24.8 * MiB],
     ['cli/cli/releases/download/v2.83.0/gh_2.83.0_checksums.txt', 2.1 * KiB],
-  ],
-  'raw-isos': [
-    ['debian-cd/13.1.0/amd64/iso-cd/debian-13.1.0-amd64-netinst.iso', 754 * MiB],
-    ['debian-cd/13.1.0/amd64/iso-cd/SHA256SUMS', 610],
-    ['debian-cd/13.1.0/amd64/iso-cd/SHA512SUMS', 1010],
-    ['debian-cd/13.1.0/arm64/iso-cd/debian-13.1.0-arm64-netinst.iso', 680 * MiB],
-    ['debian-cd/13.1.0/amd64/iso-dvd/debian-13.1.0-amd64-DVD-1.iso', 3.92 * GiB],
-    ['debian-cd/12.12.0/amd64/iso-cd/debian-12.12.0-amd64-netinst.iso', 633 * MiB],
-    ['cdimage/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2', 412 * MiB],
-    ['cdimage/cloud/trixie/latest/debian-13-generic-arm64.qcow2', 431 * MiB],
   ],
 }
 

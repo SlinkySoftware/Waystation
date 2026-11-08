@@ -76,11 +76,19 @@ export function formatColor(format: string): string {
   return slot ? `var(--chart-${slot})` : 'var(--text-tertiary)'
 }
 
-/** The mark for a format, refined by upstream for apt (Debian / Ubuntu / Raspberry Pi). */
+/** Formats offered in list and live filters: the M0 formats plus yum (displayed, not yet creatable). */
+export const LISTED_FORMATS: readonly Format[] = ['docker', 'npm', 'apt', 'yum', 'raw']
+
+/** The mark for a format, refined by upstream for apt (Debian / Ubuntu / Raspberry Pi) and yum (Rocky / Alma / Fedora). */
 export function formatMark(format: Format, upstreamUrl?: string | null): BrandMark {
   if (format === 'apt' && upstreamUrl) {
     if (/ubuntu/i.test(upstreamUrl)) return 'ubuntu'
     if (/raspberrypi|raspbian/i.test(upstreamUrl)) return 'raspberrypi'
+  }
+  if (format === 'yum' && upstreamUrl) {
+    if (/rockylinux/i.test(upstreamUrl)) return 'rockylinux'
+    if (/almalinux/i.test(upstreamUrl)) return 'almalinux'
+    if (/fedoraproject|epel/i.test(upstreamUrl)) return 'fedora'
   }
   return FORMAT_MARKS[format] ?? 'raw'
 }

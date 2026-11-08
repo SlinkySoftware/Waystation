@@ -3,6 +3,18 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-U03: mock data mirrors the owner's repository set: 13 proxies (`dockerhub-proxy` default/mirror + `docker.io`
+  alias with the Hub rate-limit gauge, `ghcr-proxy` with the `ghcr.io` alias, apt `debian`, `debian-security`,
+  `ubuntu` (resolute), `ubuntu-security`, `raspberrypi` (arm64/armhf), yum `rocky`, `almalinux`, `epel` (auto-blocked
+  with a rolling retry countdown), `oracle` (degraded: slow, intermittent 5xx, stale repomd.xml), `npm` and one example
+  raw repo `raw-releases`), public canonical upstreams only, per-repo freshness (docker metadata 6 h / negative 60 min,
+  apt and yum 60 min with security pockets at 30 min, npm 30 min, content 24 h outside docker). The live generator adds
+  dnf makecache/install runs and per-suite apt updates; storage-by-format and the traffic split include yum. yum
+  displays everywhere (Rocky/Alma/Fedora marks by upstream, list and live format filters, settings edit without
+  format options), gets a dnf **Set me up** (`/etc/yum.repos.d/<repo>.repo`, `gpgcheck=1`) and a "coming with
+  T-P2-YUM" browse state; creating yum repos stays unavailable. Docker Set me up leads with the upstream-name pull for
+  aliased non-default repos (`ghcr.io/...`). The settings form now keeps `content_max_age_s` instead of resetting it.
+  Screenshot tour regenerated (new shots: `repo-ghcr-proxy-setup`, `repo-rocky-setup`, `browse-yum`).
 - T-P2-HARNESS (M0 slice): real-client harness in `tests/clients/`. `make clients-test FORMAT=<f|all>
   MODE=replay|record|live` (default replay) runs each format as its own compose project (own container names, no
   published port) on top of `compose.yaml` + `compose.dev.yaml`. A stdlib fake upstream impersonates the public

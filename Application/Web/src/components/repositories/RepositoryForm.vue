@@ -59,7 +59,7 @@
       />
     </section>
 
-    <section class="repo-form__section">
+    <section v-if="model.format !== 'yum'" class="repo-form__section">
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
       <template v-if="model.format === 'docker'">
         <q-select
@@ -131,7 +131,7 @@ const model = defineModel<RepoFormModel>({ required: true })
 
 const config = useConfigStore()
 const baseUrl = computed(() => config.config?.base_url ?? '')
-const presets = computed(() => (props.mode === 'create' ? PRESETS[model.value.format] : []))
+const presets = computed(() => (props.mode === 'create' ? (model.value.format === 'yum' ? [] : PRESETS[model.value.format]) : []))
 
 const authOptions = computed(() => [
   { label: t('repoForm.authNone'), value: 'none' },

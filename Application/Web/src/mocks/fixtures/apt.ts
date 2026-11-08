@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// apt suites and packages for the apt proxies (Debian trixie, Ubuntu noble, Raspberry Pi OS).
+// apt suites and packages for the apt proxies (Debian trixie, Ubuntu resolute, their security pockets, Raspberry Pi OS).
 import type { AptPackage, AptSuite } from '@/api/types'
 
 import { fakeSha256, hash, KiB, rng } from '../rng'
@@ -48,26 +48,69 @@ const DEBIAN: PkgSeed[] = [
   { name: 'gcc-14', version: '14.2.0-19', section: 'devel', kib: 19_400 },
 ]
 
+const DEBIAN_SECURITY: PkgSeed[] = [
+  { name: 'libc6', version: '2.41-12+deb13u1', section: 'libs', kib: 2840 },
+  { name: 'libssl3t64', version: '3.5.1-1+deb13u2', section: 'libs', kib: 2390 },
+  { name: 'openssl', version: '3.5.1-1+deb13u2', section: 'utils', kib: 1480 },
+  { name: 'linux-image-6.12.57+deb13-amd64', version: '6.12.57-1', section: 'kernel', kib: 104_200 },
+  { name: 'openssh-server', version: '1:10.0p1-7+deb13u1', section: 'net', kib: 590 },
+  { name: 'curl', version: '8.14.1-2+deb13u2', section: 'web', kib: 268 },
+  { name: 'libcurl4t64', version: '8.14.1-2+deb13u2', section: 'libs', kib: 404 },
+  { name: 'git', version: '1:2.47.3-0+deb13u1', section: 'vcs', kib: 8890 },
+  { name: 'sudo', version: '1.9.16p2-3+deb13u1', section: 'admin', kib: 1960 },
+  { name: 'postgresql-17', version: '17.6-0+deb13u1', section: 'database', kib: 17_850 },
+  { name: 'nginx', version: '1.26.3-3+deb13u1', section: 'httpd', kib: 610 },
+]
+
 const UBUNTU: PkgSeed[] = [
-  { name: 'apt', version: '2.8.3', section: 'admin', kib: 1380 },
-  { name: 'curl', version: '8.5.0-2ubuntu10.6', section: 'web', kib: 226 },
-  { name: 'git', version: '1:2.43.0-1ubuntu7.3', section: 'vcs', kib: 3680 },
-  { name: 'libc6', version: '2.39-0ubuntu8.6', section: 'libs', kib: 3150 },
-  { name: 'libssl3t64', version: '3.0.13-0ubuntu3.6', section: 'libs', kib: 1940 },
-  { name: 'linux-image-6.8.0-87-generic', version: '6.8.0-87.88', section: 'kernel', kib: 15_200 },
-  { name: 'nginx', version: '1.24.0-2ubuntu7.5', section: 'httpd', kib: 520 },
-  { name: 'openssh-server', version: '1:9.6p1-3ubuntu13.14', section: 'net', kib: 510 },
-  { name: 'python3.12', version: '3.12.3-1ubuntu0.8', section: 'python', kib: 650 },
-  { name: 'systemd', version: '255.4-1ubuntu8.11', section: 'admin', kib: 3480 },
-  { name: 'vim', version: '2:9.1.0016-1ubuntu7.9', section: 'editors', kib: 1730 },
-  { name: 'snapd', version: '2.68.5+ubuntu24.04.1', section: 'devel', kib: 31_400 },
+  { name: 'apt', version: '3.1.11ubuntu1', section: 'admin', kib: 1510 },
+  { name: 'curl', version: '8.16.0-1ubuntu2', section: 'web', kib: 262 },
+  { name: 'git', version: '1:2.51.0-1ubuntu1', section: 'vcs', kib: 4120 },
+  { name: 'libc6', version: '2.42-0ubuntu3', section: 'libs', kib: 3210 },
+  { name: 'libssl3t64', version: '3.5.3-1ubuntu2', section: 'libs', kib: 2420 },
+  { name: 'linux-image-6.17.0-8-generic', version: '6.17.0-8.8', section: 'kernel', kib: 16_100 },
+  { name: 'nginx', version: '1.28.0-2ubuntu1', section: 'httpd', kib: 560 },
+  { name: 'openssh-server', version: '1:10.0p1-9ubuntu2', section: 'net', kib: 600 },
+  { name: 'python3.14', version: '3.14.0-3', section: 'python', kib: 690 },
+  { name: 'systemd', version: '258.1-2ubuntu1', section: 'admin', kib: 3610 },
+  { name: 'vim', version: '2:9.1.1754-1ubuntu1', section: 'editors', kib: 1760 },
+  { name: 'docker.io', version: '28.2.2-0ubuntu3', section: 'admin', kib: 31_800 },
+  { name: 'snapd', version: '2.72+ubuntu26.04', section: 'devel', kib: 33_100 },
+  { name: 'htop', version: '3.4.1-5build1', section: 'utils', kib: 176 },
+  { name: 'jq', version: '1.8.1-2', section: 'utils', kib: 76 },
+]
+
+const UBUNTU_SECURITY: PkgSeed[] = [
+  { name: 'libc6', version: '2.42-0ubuntu3.1', section: 'libs', kib: 3210 },
+  { name: 'libssl3t64', version: '3.5.3-1ubuntu2.1', section: 'libs', kib: 2420 },
+  { name: 'linux-image-6.17.0-9-generic', version: '6.17.0-9.9', section: 'kernel', kib: 16_100 },
+  { name: 'openssh-server', version: '1:10.0p1-9ubuntu2.1', section: 'net', kib: 600 },
+  { name: 'curl', version: '8.16.0-1ubuntu2.1', section: 'web', kib: 262 },
+  { name: 'sudo-rs', version: '0.2.8-1ubuntu1.1', section: 'admin', kib: 1240 },
+  { name: 'vim', version: '2:9.1.1754-1ubuntu1.1', section: 'editors', kib: 1760 },
+]
+
+const RASPBERRYPI: PkgSeed[] = [
+  { name: 'raspi-config', version: '20251020', section: 'utils', kib: 42, arch: 'all' },
+  { name: 'raspi-firmware', version: '1:1.20251031-1', section: 'kernel', kib: 9_870, arch: 'all' },
+  { name: 'linux-image-rpi-2712', version: '1:6.12.47-1+rpt1', section: 'kernel', kib: 38_400 },
+  { name: 'linux-image-rpi-v8', version: '1:6.12.47-1+rpt1', section: 'kernel', kib: 37_900 },
+  { name: 'rpi-eeprom', version: '28.6-1', section: 'utils', kib: 6_120, arch: 'all' },
+  { name: 'rpicam-apps', version: '1.9.1-1', section: 'graphics', kib: 410 },
+  { name: 'libcamera0.5', version: '0.5.2+rpt20250903-1', section: 'libs', kib: 980 },
+  { name: 'raspberrypi-sys-mods', version: '20251014', section: 'admin', kib: 22 },
+  { name: 'rpi-connect-lite', version: '2.7.2', section: 'net', kib: 6_350 },
+  { name: 'labwc', version: '0.8.4-1+rpt2', section: 'x11', kib: 520 },
+  { name: 'chromium', version: '1:142.0.7444.59-1~deb13u1+rpt1', section: 'web', kib: 79_600 },
+  { name: 'raspi-utils', version: '20251006-1', section: 'utils', kib: 160 },
 ]
 
 const SUITES: Record<string, { suites: string[]; origin: string; components: string[]; archs: string[]; pkgs: PkgSeed[] }> = {
   debian: { suites: ['trixie', 'trixie-updates', 'trixie-backports'], origin: 'Debian', components: ['main', 'contrib', 'non-free', 'non-free-firmware'], archs: ['amd64', 'arm64', 'all'], pkgs: DEBIAN },
-  'debian-security': { suites: ['trixie-security'], origin: 'Debian', components: ['main', 'contrib', 'non-free-firmware'], archs: ['amd64', 'arm64', 'all'], pkgs: DEBIAN.slice(0, 12) },
-  ubuntu: { suites: ['noble', 'noble-updates', 'noble-security'], origin: 'Ubuntu', components: ['main', 'restricted', 'universe', 'multiverse'], archs: ['amd64', 'all'], pkgs: UBUNTU },
-  raspberrypi: { suites: ['trixie'], origin: 'Raspberry Pi Foundation', components: ['main'], archs: ['arm64', 'armhf', 'all'], pkgs: DEBIAN.slice(0, 18) },
+  'debian-security': { suites: ['trixie-security'], origin: 'Debian', components: ['main', 'contrib', 'non-free', 'non-free-firmware'], archs: ['amd64', 'arm64', 'all'], pkgs: DEBIAN_SECURITY },
+  ubuntu: { suites: ['resolute', 'resolute-updates', 'resolute-backports'], origin: 'Ubuntu', components: ['main', 'restricted', 'universe', 'multiverse'], archs: ['amd64', 'all'], pkgs: UBUNTU },
+  'ubuntu-security': { suites: ['resolute-security'], origin: 'Ubuntu', components: ['main', 'restricted', 'universe', 'multiverse'], archs: ['amd64', 'all'], pkgs: UBUNTU_SECURITY },
+  raspberrypi: { suites: ['trixie'], origin: 'Raspberry Pi Foundation', components: ['main'], archs: ['arm64', 'armhf', 'all'], pkgs: RASPBERRYPI },
 }
 
 export function aptSuitesFor(repo: string): AptSuite[] {
@@ -75,7 +118,7 @@ export function aptSuitesFor(repo: string): AptSuite[] {
   if (!cfg) return []
   return cfg.suites.map((suite, i) => {
     const next = rng(hash(`suite:${repo}:${suite}`))
-    const total = suite.includes('updates') || suite.includes('security') ? Math.round(300 + next() * 900) : suite.includes('backports') ? 6_812 : 64_419
+    const total = suite.includes('updates') || suite.includes('security') ? Math.round(300 + next() * 900) : suite.includes('backports') ? 6_812 : repo === 'raspberrypi' ? 3_184 : cfg.origin === 'Ubuntu' ? 66_973 : 64_419
     return {
       suite,
       origin: cfg.origin,
@@ -104,7 +147,7 @@ export function aptPackagesFor(repo: string, suite: string, arch?: string | null
       const ver = p.version.replace(/^\d+:/, '')
       out.push({
         name: p.name,
-        version: suite.includes('backports') ? `${p.version}~bpo13+1` : p.version,
+        version: suite.includes('backports') ? (cfg.origin === 'Ubuntu' ? `${p.version}~ubuntu26.04.1` : `${p.version}~bpo13+1`) : p.version,
         architecture: pkgArch,
         component: 'main',
         section: p.section,
@@ -122,11 +165,11 @@ export function aptPackagesFor(repo: string, suite: string, arch?: string | null
 }
 
 /** A run of packages for the generator's "apt install" scenario. */
-export function aptInstallPlan(repo: string): { path: string; size: number; name: string }[] {
+export function aptInstallPlan(repo: string, suite?: string, arch?: string): { path: string; size: number; name: string }[] {
   const cfg = SUITES[repo]
   if (!cfg) return []
-  const arch = cfg.archs[0]!
-  return aptPackagesFor(repo, cfg.suites[0]!, arch).map((p) => ({ path: p.filename, size: p.size ?? 100 * KiB, name: `${p.name} ${p.version}` }))
+  const a = arch ?? cfg.archs[0]!
+  return aptPackagesFor(repo, suite ?? cfg.suites[0]!, a).map((p) => ({ path: p.filename, size: p.size ?? 100 * KiB, name: `${p.name} ${p.version}` }))
 }
 
 export function aptSuiteNames(repo: string): string[] {

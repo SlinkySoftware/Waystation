@@ -39,7 +39,7 @@ describe('base components', () => {
   it('TransferRow renders progress, speed and ETA, and never renders the artifact as HTML', () => {
     const transfer: Transfer & { endedAt: null } = {
       id: 't1',
-      repository: 'npm-proxy',
+      repository: 'npm',
       format: 'npm',
       direction: 'download',
       artifact: '<img src=x onerror=alert(1)>.tgz',
