@@ -3,7 +3,8 @@
 - ``/healthz``: liveness; the process answers. Reveals nothing else.
 - ``/readyz``: MongoDB and Valkey answer a ping within 2 s; 503 otherwise. Reveals only ``ok``/``unavailable``.
 - ``/metrics``: Prometheus text format, only for clients in ``WAYSTATION_METRICS_ALLOW_CIDRS`` (default loopback);
-  everyone else gets 404. (Bearer tokens with the ``metrics`` scope arrive with API tokens, T-S04.)
+  or with an API token carrying the ``metrics`` scope whose owner holds ``stats-read`` (``Authorization: Bearer``);
+  everyone else gets 404.
 """
 
 from __future__ import annotations
@@ -15,10 +16,12 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
+from waystation_common.errors import WaystationError
 from waystation_server.clientip import in_networks, parse_ip, parse_networks
 from waystation_server.metrics import CONTENT_TYPE
 from waystation_server.problems import native_error
 from waystation_server.security import access
+from waystation_server.security.authn import authenticate
 from waystation_server.services import Services
 
 log = logging.getLogger('waystation.health')
@@ -69,5 +72,10 @@ async def metrics(request: Request) -> Response:
     allowed = parse_networks(services.settings.metrics_allow_cidrs)
     ip = parse_ip(getattr(request.state, 'client_ip', None))
     if ip is None or not in_networks(ip, allowed):
-        return native_error(404, 'Not Found')
+        try:
+            principal = await authenticate(request)
+        except WaystationError:
+            return native_error(404, 'Not Found')
+        if not access.may_scrape_metrics(principal):
+            return native_error(404, 'Not Found')
     return Response(services.metrics.render(), media_type=CONTENT_TYPE)

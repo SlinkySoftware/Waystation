@@ -21,7 +21,7 @@
           <q-icon :name="iconToken" size="18px" />
           <div class="col">
             {{ t('setup.tokenNote') }}
-            <router-link :to="{ name: 'admin-tokens' }" class="text-link">{{ t('setup.createToken') }}</router-link>
+            <router-link :to="{ name: 'profile', hash: '#tokens' }" class="text-link">{{ t('setup.createToken') }}</router-link>
           </div>
         </div>
 
