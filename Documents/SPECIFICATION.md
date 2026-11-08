@@ -216,10 +216,30 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - **OIDC**: authorization code + PKCE, discovery URL, client secret, scopes, claim mapping (username, email,
   groups), group claim → Waystation groups, auto-provision on first login (configurable), RP-initiated logout.
   Multiple providers allowed; login page shows a button per provider.
+  Now: OIDC providers sit next to LDAP under Administration → Authentication providers (kind `oidc`): issuer
+  (discovery at `<issuer>/.well-known/openid-configuration`, which must name exactly that issuer; cached an hour),
+  client id, write-only encrypted client secret (`client_secret_basic`, `client_secret_post` or a public client),
+  scopes (default `openid profile email`), username / display name / email / groups claims (dotted paths), an
+  optional require-group gate, auto-provision, optional userinfo, RP-initiated logout, "allow private addresses"
+  (SSRF guard), signing algorithm allowlist (asymmetric only: RS/PS/ES/EdDSA; `none` and HMAC refused) and timeout.
+  The form shows the redirect URI (`<base>/auth/oidc/<provider id>/callback`) and post-logout URI to register, and
+  "Test discovery" checks the issuer, endpoints, JWKS and (for confidential clients) the client credentials. The
+  sign-in page shows "Sign in with <provider>" per enabled OIDC provider. `GET /auth/oidc/<id>/login` sends the
+  browser to the provider with a fresh `state`, `nonce` and PKCE S256 challenge (flow record in Valkey for 10 min,
+  single use, bound to the browser by an HttpOnly `ws_oidc` cookie; starts rate limited per address). The callback
+  checks the binding and RFC 9207 `iss`, exchanges the code, and verifies the ID token: signature with a JWKS key
+  (cached an hour, refetched when an unknown `kid` appears, at most every 10 s), `alg` in the allowlist and matching
+  the key, `iss`, `aud`/`azp`, `exp`, `iat`, `nbf`, `nonce`, `sub` (60 s leeway). Claims become an external identity
+  (`oidc:<provider>`), linked with the same rules as LDAP; the groups claim feeds group sync and the group mapping.
+  Failures go back to the sign-in page with `?error=oidc_<reason>` (details only in the log). The session remembers
+  the provider and (encrypted) the ID token, so sign-out returns the provider's end-session URL with
+  `id_token_hint` when RP-initiated logout is on. All IdP calls use the pooled upstream client, the SSRF guard, no
+  redirects, size bounds and the provider timeout. OIDC users use API tokens for package clients. Tested against
+  Keycloak (`make test-integration`) and authentik (opt-in, `make test-integration-authentik`).
 - Identity linking: one Waystation user per username across providers (never link to an account that has a
   usable local password). Now: a local account with a password is checked only against that password, whatever
   provider the client picks; a successful external sign-in creates the user when there is none (`source`
-  `ldap:<provider>`; OIDC per its auto-provision toggle), links a password-less local account (which takes the
+  `ldap:<provider>` / `oidc:<provider>`; OIDC only when its auto-provision toggle is on), links a password-less local account (which takes the
   provider as source) or a user of another provider (`identities[]` lists every linked external account), and
   refuses disabled users. Group sync: the groups the provider reported replace that provider's entries in
   `external_groups` on every sign-in through it.
@@ -462,7 +482,9 @@ See §5.5. Metric names: `waystation_requests_total{repo,format,status,cache}`, 
 - **OCI distribution-spec conformance suite** must pass for docker hosted repos.
 - Integration tests against real MongoDB and Valkey containers, and against real directories for LDAP (`make
   test-integration` builds an OpenLDAP server with a FreeIPA-style tree and a Samba AD domain controller with a
-  throwaway CA, `Build/Containers/test/`).
+  throwaway CA, `Build/Containers/test/`) and OIDC providers (a Keycloak realm in `make test-integration`; authentik
+  with PostgreSQL, server and worker is opt-in, `make test-integration-authentik`, as it takes minutes to start).
+  The OIDC tests drive the provider's login form / flow executor headlessly with a real HTTP client.
 - Playwright E2E for the UI (login with each provider type, dashboard live updates, repo CRUD, set-me-up).
 - Load/perf tests (k6) enforcing §5.1 budgets; bundle-size budget for the SPA.
 - Security tests: path traversal corpus, SSRF corpus, auth bypass matrix (every route × principal type).
@@ -555,7 +577,8 @@ Waystation/
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted, group, `_catalog`, referrers and podman/containerd/crane harness runs pending |
 | LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
-| Identity linking and group sync (T-A03) | LDAP half 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`); OIDC half waits for T-A02 |
+| OIDC provider (T-A02) | Done 2026-11-09: several OIDC providers (discovery, code + PKCE S256, state + nonce bound to the browser, ID token checks with JWKS rotation and an asymmetric alg allowlist, optional userinfo, claim and group-claim mapping, require-group, auto-provision toggle, RP-initiated logout), write-only encrypted client secret, IdP calls on the pooled client + SSRF guard; admin form with test discovery; "Sign in with" buttons. Tested against Keycloak and (opt-in) authentik. JOSE library choice is ADR 0004 (Proposed) |
+| Identity linking and group sync (T-A03) | LDAP half and OIDC half done 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`), LDAP and OIDC provider admin forms. Users/Groups admin pages wait for T-U08 |
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
 | Everything else | Not started |
 

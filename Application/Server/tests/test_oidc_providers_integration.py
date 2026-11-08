@@ -279,7 +279,8 @@ async def authentik_login(idp: httpx.AsyncClient, url: str, username: str, passw
     """Drive authentik's flow executor API like its web UI does."""
     location: str | None = url
     for _ in range(20):
-        assert location is not None
+        if location is None:  # the flow refused (wrong password, access denied)
+            return None
         if location.startswith('https://registry.example.com/'):
             return location
         target = urljoin(AUTHENTIK + '/', location)

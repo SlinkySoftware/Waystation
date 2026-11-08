@@ -3,6 +3,25 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-A02: OIDC sign-in providers (kind `oidc` in `auth_providers`). `security.oidc` (protocol side): discovery
+  (cached per issuer, issuer must match exactly), authorization code + PKCE S256 with `state` and `nonce`, token
+  request (`client_secret_basic`/`client_secret_post`/public), ID token verification with `joserfc` (asymmetric alg
+  allowlist, `none`/HMAC refused, key type/alg match, `crit` refused; `iss`, `aud`/`azp`, `exp`, `iat`, `nbf`,
+  `nonce`, `sub`), JWKS cache with refetch on an unknown `kid`, optional userinfo, claim mapping with dotted paths,
+  group claim, require-group gate, RP-initiated logout URL. All IdP HTTP on the pooled upstream client with the
+  SSRF guard (per-provider "allow private addresses"), no redirects, size bounds and timeouts. `oidc_auth` (browser
+  side): `GET /auth/oidc/<id>/login` and `/callback`, flow record in Valkey (`oidc:state:*`, single use, 10 min),
+  browser binding cookie `ws_oidc`, RFC 9207 `iss` check, rate-limited starts, `?error=oidc_<reason>` on failure.
+  Sessions record `provider_id` and the encrypted ID token; `POST /api/v1/auth/logout` now returns
+  `{end_session_url}`. Write-only encrypted client secret; admin "Test discovery". UI: OIDC section in the provider
+  dialog (redirect URIs to register, claims, scopes, algorithms), "Sign in with <provider>" buttons, sign-out
+  follows the end-session URL; MSW mocks. Tests: unit (wrong aud/iss, expired, bad nonce, alg confusion, unknown
+  kid → JWKS refresh, PKCE, state/binding) and integration against a Keycloak realm (`make test-integration`) and
+  authentik (opt-in `make test-integration-authentik`; `Build/Containers/test/keycloak`, `.../authentik`). New
+  dependency `joserfc`; ADR 0004 (Proposed) replaces `authlib` in ARCHITECTURE §2.
+- T-A03 (OIDC half): OIDC sign-ins go through `security.external.link_identity` (`oidc:<provider>`, auto-provision
+  toggle, never linked to an account with a local password) and sync the group claim into `external_groups`, so
+  provider group mappings apply; OIDC provider admin form. Left: Users/Groups admin pages (T-U08).
 - T-A01: LDAP sign-in provider. `security.ldap` (ldap3 in a dedicated thread pool, connect/response timeouts and an
   overall ceiling): ordered server list with failover (unreachable or TLS-failing servers skipped for 30 s), LDAPS,
   StartTLS or clear text, custom CA with host-name verification by Python `ssl`, service bind with a write-only
