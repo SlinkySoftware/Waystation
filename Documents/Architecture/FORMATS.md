@@ -118,6 +118,17 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   `Packages`/`Release`/`InRelease` per suite/component/arch, signs with the repo key (`InRelease` clearsigned +
   `Release.gpg`), publishes atomically (write new index blobs, then swap metadata assets).
 - Clients: apt (deb822 `.sources` and one-line), with `Signed-By`; Debian 12/13, Ubuntu 24.04/26.04, Raspberry Pi OS (arm64/armhf).
+- Built (M0, T-P2-APT min): proxy `GET`/`HEAD` (`formats/apt/plugin.py`, parsers in `deb822.py`, `apt_pool_index`
+  access in `db/apt.py`). Indexes at plain paths are stored under their `by-hash/SHA256/<h>` key from the
+  `InRelease` (else `Release`) currently cached for the suite and fetched from the upstream `by-hash` path when the
+  `Release` says `Acquire-By-Hash: yes`; files the `Release` does not list answer 404. `by-hash/SHA256` and
+  `by-hash/SHA512` are accepted (other algorithms 404). `Packages` files (any of `.xz`, `.gz`, `.bz2`, `.lzma`,
+  `.zst`, plain) are parsed in a background task after they are cached (decompression bounded to 512 MiB, at most
+  1 M entries; stanzas with unsafe `Filename`s are skipped) and written to `apt_pool_index` as `verified`; an
+  unverified pool file whose recorded hash disagrees with a new listing is dropped from the cache. Parsed `Release`
+  files are kept in a small in-process LRU keyed by blob digest. Real clients: apt on Debian 13 and Ubuntu 26.04
+  (`tests/clients/apt/`). Not yet: hosted, `Release` signature checks by Waystation (clients verify), proactive
+  `Packages` refresh by a worker, Raspberry Pi OS / arm64 clients, component browse indexing.
 
 ## yum / dnf (RHEL family, EPEL, Oracle, Fedora) — Phase 2 (proxy), Phase 5 (hosted)
 - `repodata/repomd.xml` (+ `.asc`), `repodata/<hash>-primary.xml.{gz,zst}`, `filelists`, `other`, `updateinfo`,

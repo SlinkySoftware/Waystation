@@ -16,6 +16,18 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   Real-client harness format `docker` (dockerd mirror mode, prefix and alias pulls from Docker Hub and GHCR; skopeo
   inspect, list-tags and copy) with 2.6 MB of fixtures; the `client-docker` service is now `docker:29-dind` plus curl
   and skopeo with its entrypoint cleared. Client guide `Documents/Operations/clients/docker.md`.
+- T-P2-APT (M0 slice): apt proxy plugin (`formats/apt/plugin.py`, bounded `Release`/`Packages` parsers and
+  decompression in `formats/apt/deb822.py`, `apt_pool_index` access in `db/apt.py`, registered in `plugins.py`):
+  `InRelease`/`Release`/`Release.gpg` passed through untouched as metadata; index files served only by the SHA256 the
+  cached `Release` lists (stored under their `by-hash` key, fetched by-hash when offered, one `Release` revalidation
+  on mismatch, then 502; unlisted indexes 404); `by-hash/SHA256|SHA512` immutable and self-validating; cached
+  `Packages` files indexed in the background into `apt_pool_index`, pool files validated against their listing or
+  served `unverified` and dropped when a later listing disagrees. New `apt_pool_index` index `repo_id,verified`. "Set
+  me up" snippets use the Ubuntu keyring for Ubuntu upstreams and no `-updates` suffix for `-security` suites.
+  Real-client harness format `apt` (Debian 13 + Ubuntu 26.04, four repositories, `*-updates`/`*-security` suites,
+  2.3 MB of fixtures, 32 MiB budget per the owner's fixture decision); `CLIENT` in `format.env` may list several
+  clients (run in turn, `HARNESS_CLIENT` set); `lib.sh`'s `wait_for`/`ws_login`/`ws_api` work without curl (bash
+  `/dev/tcp`). Client guide `Documents/Operations/clients/apt.md`.
 - T-P2-NPM (M0 slice): npm proxy plugin. Packuments full and abbreviated (`application/vnd.npm.install-v1+json`) cached
   separately as metadata and revalidated, scoped names as `@scope%2fname` or `@scope/name`, every
   `versions.*.dist.tarball` rewritten to `<base>/repository/<repo>/` in a thread; tarballs cached as content and

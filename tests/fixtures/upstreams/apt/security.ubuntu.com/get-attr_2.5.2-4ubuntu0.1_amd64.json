@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://security.ubuntu.com/ubuntu/pool/main/a/attr/attr_2.5.2-4ubuntu0.1_amd64.deb"
+  },
+  "response": {
+    "body_sha256": "ea5e22fb64f67600285aa625c16c17bf3932f87751f247900b7f39f920c61323",
+    "body_size": 26064,
+    "headers": [
+      [
+        "last-modified",
+        "Mon, 31 Aug 2026 09:47:07 GMT"
+      ],
+      [
+        "etag",
+        "\"65d0-65a54af6bbd4a\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "26064"
+      ],
+      [
+        "cache-control",
+        "max-age=86400"
+      ],
+      [
+        "content-type",
+        "application/vnd.debian.binary-package"
+      ]
+    ],
+    "status": 200
+  }
+}

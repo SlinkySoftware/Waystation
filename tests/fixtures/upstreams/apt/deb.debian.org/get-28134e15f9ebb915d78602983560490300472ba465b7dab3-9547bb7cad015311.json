@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://deb.debian.org/debian-security/dists/trixie-security/main/binary-amd64/by-hash/SHA256/28134e15f9ebb915d78602983560490300472ba465b7dab33782a83655ec4573"
+  },
+  "response": {
+    "body_sha256": "28134e15f9ebb915d78602983560490300472ba465b7dab33782a83655ec4573",
+    "body_size": 299916,
+    "headers": [
+      [
+        "content-length",
+        "299916"
+      ],
+      [
+        "last-modified",
+        "Sat, 07 Nov 2026 19:26:34 GMT"
+      ],
+      [
+        "etag",
+        "\"4938c-65fb4b4e7ce16\""
+      ],
+      [
+        "cache-control",
+        "public, max-age=2592000"
+      ],
+      [
+        "expires",
+        "Sat, 07 Nov 2026 19:31:25 GMT"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}
