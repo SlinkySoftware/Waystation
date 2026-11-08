@@ -37,8 +37,9 @@ Common rules: all format routes live under `/repository/<repo>/` (Nexus-compatib
   option, `attachment` by default) and every answer `X-Content-Type-Options: nosniff`; with `inline`, HTML,
   XHTML, SVG and XML are served as `text/plain` so upstream content never runs on the Waystation origin.
 - Uses: installers, ISOs, release binaries, `get.docker.com`-style scripts.
-- Built (M0, T-P2-RAW min): proxy `GET`/`HEAD` with curl and wget. Not yet: directory listings (the repository root
-  and paths ending in `/` answer 404), hosted, group.
+- Built (M0, T-P2-RAW min): proxy `GET`/`HEAD` with curl and wget. Browse (T-S09 min): the generic folder listing of
+  cached assets (`/api/v1/repositories/{name}/browse`). Not yet: directory listings on the protocol side (the
+  repository root and paths ending in `/` answer 404), hosted, group.
 
 ## Docker / OCI — Phase 2
 Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API v2, Docker token auth spec.
@@ -78,6 +79,10 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
 - Group: read through members; tag lists merged; push goes to `writable_member`.
 - Clients to test: docker (BuildKit), podman, containerd/nerdctl (`hosts.toml` mirror with and without
   `override_path`), skopeo, crane, oras (artifacts), helm (OCI charts), cosign (signatures via referrers).
+- Browse (T-S09 min): every cached manifest is parsed in the background (thread, bounded) into `docker_manifests`
+  (index entries with platforms, or config + layers); a manifest cached by tag also sets `docker_tags` (only the
+  full-`Accept` variant moves an existing tag). Image configs are read from the cache at view time (platform,
+  `created`, labels, history). Index entries with platform `unknown/unknown` (attestations) are not platforms.
 
 ## npm — Phase 2 (proxy), Phase 5 (hosted)
 Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
@@ -94,6 +99,9 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
 - Group: merge packuments (versions union; first member wins per version; `dist-tags` from first member that has
   the tag), rewrite tarball URLs to the group.
 - Clients: npm 9/10/11, pnpm, yarn v1, yarn berry (`npmRegistryServer`), bun.
+- Browse (T-S09 min): a stored packument (either representation) is summarised in the background into
+  `npm_packages` (latest, dist-tags, version count; description and licence only from the full packument); versions
+  are read from the cached packument (full preferred: publish times) and sorted by semver precedence.
 
 ## apt (Debian, Ubuntu, Raspberry Pi OS) — Phase 2 (proxy), Phase 5 (hosted)
 - Layout under the upstream base: `dists/<suite>/{InRelease,Release,Release.gpg}`,
@@ -128,7 +136,10 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   unverified pool file whose recorded hash disagrees with a new listing is dropped from the cache. Parsed `Release`
   files are kept in a small in-process LRU keyed by blob digest. Real clients: apt on Debian 13 and Ubuntu 26.04
   (`tests/clients/apt/`). Not yet: hosted, `Release` signature checks by Waystation (clients verify), proactive
-  `Packages` refresh by a worker, Raspberry Pi OS / arm64 clients, component browse indexing.
+  `Packages` refresh by a worker, Raspberry Pi OS / arm64 clients, components (`components` collection). Browse
+  (T-S09 min): the same background pass writes each `Packages` stanza (name, version, architecture, section) to
+  `apt_packages`, replacing the previous generation of that index; suites come from the cached `InRelease`/`Release`
+  (origin, codename, date, components, architectures).
 
 ## yum / dnf (RHEL family, EPEL, Oracle, Fedora) — Phase 2 (proxy), Phase 5 (hosted)
 - `repodata/repomd.xml` (+ `.asc`), `repodata/<hash>-primary.xml.{gz,zst}`, `filelists`, `other`, `updateinfo`,

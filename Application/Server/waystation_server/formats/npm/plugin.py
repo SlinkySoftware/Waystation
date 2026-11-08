@@ -10,6 +10,9 @@
   (``/-/npm/v1/security/...``, relayed uncached when ``audit_passthrough`` is on).
 
 Errors answer npm's JSON shape ``{"error": "..."}``. Hosted (publish, dist-tags) and group are later tasks.
+
+Browse (``browser``, ``formats.npm.browse``): when a packument is stored, its summary is recorded in ``npm_packages``
+in the background (parsed in a thread), so the response never waits for it.
 """
 
 from __future__ import annotations
@@ -20,11 +23,22 @@ import hashlib
 from starlette.responses import JSONResponse, Response
 
 from waystation_common.errors import NotFound, PayloadTooLarge, WaystationError
+from waystation_server.db import npm as npm_db
 from waystation_server.formats.base import FormatDescriptor, FormatRequest
+from waystation_server.formats.common.background import Background
 from waystation_server.formats.npm import metadata
+from waystation_server.formats.npm.browse import NpmBrowse, parse_packument
 from waystation_server.formats.npm.descriptor import DESCRIPTOR, NpmOptions
 from waystation_server.formats.npm.metadata import Op, Route
-from waystation_server.proxy.engine import AssetKind, AssetSpec, Expected, UpstreamInfo
+from waystation_server.proxy.engine import (
+    AssetKind,
+    AssetSpec,
+    Expected,
+    OnStored,
+    ProxyEngine,
+    StoredAsset,
+    UpstreamInfo,
+)
 
 SEARCH_MAX_AGE_S = 300
 SEARCH_MAX_BYTES = 4 * 1024 * 1024
@@ -44,6 +58,12 @@ def wants_abbreviated(accept: str) -> bool:
 class NpmPlugin:
     def __init__(self, descriptor: FormatDescriptor = DESCRIPTOR) -> None:
         self.descriptor = descriptor
+        self.browser = NpmBrowse()
+        self._indexing = Background('npm-packages')
+
+    async def drain(self) -> None:
+        """Wait for background indexing (tests, shutdown)."""
+        await self._indexing.drain()
 
     async def handle(self, req: FormatRequest) -> Response:
         try:
@@ -80,9 +100,8 @@ class NpmPlugin:
         raise NotFound('Not Found')  # pragma: no cover - every Op is handled above
 
     # ------------------------------------------------------------------ packuments and tarballs
-    @staticmethod
     def packument_spec(
-        req: FormatRequest, package: str, *, abbreviated: bool, max_age_s: int | None = None
+        self, req: FormatRequest, package: str, *, abbreviated: bool, max_age_s: int | None = None
     ) -> AssetSpec:
         repo_url = req.repo_url
 
@@ -97,9 +116,21 @@ class NpmPlugin:
             content_type=metadata.ABBREVIATED_TYPE if abbreviated else metadata.JSON_TYPE,
             transform=rewrite,
             max_age_s=max_age_s,
+            on_stored=self._on_packument_stored(req.proxy, req.repo.id, package),
             artifact=package,
             component=package,
         )
+
+    def _on_packument_stored(self, engine: ProxyEngine, repo_id: str, package: str) -> OnStored:
+        async def stored(asset: StoredAsset, data: bytes | None) -> None:
+            async def index() -> None:
+                raw = data if data is not None else await engine.read(asset)
+                parsed = await asyncio.to_thread(parse_packument, raw, package)
+                await npm_db.upsert(engine.db, repo_id, package, parsed.summary())
+
+            self._indexing.spawn((repo_id, asset.path, asset.blob_sha256), index)
+
+        return stored
 
     def tarball_spec(self, req: FormatRequest, route: Route) -> AssetSpec:
         path = metadata.tarball_path(route.package, route.filename)

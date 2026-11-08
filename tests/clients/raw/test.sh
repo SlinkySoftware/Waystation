@@ -68,4 +68,13 @@ code=$(curl -sS -o /dev/null -w '%{http_code}' "$repo/")
 code=$(curl -sS -o /dev/null -w '%{http_code}' -T README "$repo/upload.txt")
 [ "$code" = 401 ] || fail "anonymous PUT returned $code"
 
+step 'browse API (anonymous): cached files in the folder listing'
+api="$WAYSTATION_URL/api/v1/repositories/debian-files/browse"
+curl -fsS "$api" > root.json || fail 'browse root'
+grep -q '"name":"project","path":"project","kind":"folder"' root.json || fail "browse root: $(cat root.json)"
+grep -q '"name":"README.mirrors.txt","path":"README.mirrors.txt","kind":"file"' root.json \
+  || fail "browse root: $(cat root.json)"
+curl -fsS "$api?path=project/trace" | grep -q '"path":"project/trace/master","kind":"file"' \
+  || fail 'browse project/trace'
+
 pass

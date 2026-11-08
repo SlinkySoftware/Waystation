@@ -21,6 +21,10 @@ H512 = hashlib.sha512(b'one').hexdigest()
 
 RELEASE = f"""Origin: Debian
 Suite: trixie-security
+Codename: trixie-security
+Date: Sat, 07 Nov 2026 10:00:00 UTC
+Components: main contrib
+Architectures: amd64 arm64
 Acquire-By-Hash: yes
 Description: Debian x.y Security Updates
  continued description line
@@ -47,6 +51,14 @@ def test_parse_release() -> None:
     assert release.path_for('sha512', H512) == 'main/binary-amd64/Packages.xz'
     assert release.path_for('sha256', '0' * 64) is None
     assert release.path_for('md5', H1) is None
+    assert release.info == {
+        'origin': 'Debian',
+        'suite': 'trixie-security',
+        'codename': 'trixie-security',
+        'date': 'Sat, 07 Nov 2026 10:00:00 UTC',
+        'components': 'main contrib',
+        'architectures': 'amd64 arm64',
+    }
 
 
 def test_parse_inrelease_strips_the_clearsign_armor() -> None:
@@ -90,6 +102,8 @@ def test_release_entry_limit(monkeypatch: pytest.MonkeyPatch) -> None:
 
 PACKAGES = f"""Package: hello
 Version: 2.10-5
+Architecture: amd64
+Section: devel
 Filename: pool/main/h/hello/hello_2.10-5_amd64.deb
 Size: 53000
 SHA256: {H1.upper()}
@@ -111,6 +125,8 @@ Size: 1
 SHA256: zz
 
 Package: last
+Version: 1
+Architecture: all
 Filename: pool/main/l/last_1_all.deb
 Size: 7
 SHA256: {H2}""".encode()
@@ -118,8 +134,8 @@ SHA256: {H2}""".encode()
 
 def test_parse_packages() -> None:
     assert deb822.parse_packages(PACKAGES) == [
-        deb822.PoolEntry('pool/main/h/hello/hello_2.10-5_amd64.deb', H1, 53000),
-        deb822.PoolEntry('pool/main/l/last_1_all.deb', H2, 7),
+        deb822.PoolEntry('pool/main/h/hello/hello_2.10-5_amd64.deb', H1, 53000, 'hello', '2.10-5', 'amd64', 'devel'),
+        deb822.PoolEntry('pool/main/l/last_1_all.deb', H2, 7, 'last', '1', 'all', ''),
     ]
 
 

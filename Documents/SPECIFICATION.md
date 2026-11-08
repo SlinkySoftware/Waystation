@@ -152,6 +152,12 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 ### 4.6 Browse and search
 - Browse any repository as a tree (paths) or as components (format-aware: images → tags → platforms → layers;
   npm packages → versions; apt suites → packages).
+  Now (M0, T-S09 min): `GET /api/v1/repositories/{name}/browse?path=` lists the cached assets of any repository as
+  folders (first) and files with size, type, sha256 and last-modified, paged by cursor; npm `packages`/`versions`,
+  apt `suites`/`packages` (per suite, architecture, component; cached-only filter; `verified` = the cached file
+  matches its listing) and docker `images`/`tags`/`manifest` (platforms, layers with cached flag and history,
+  labels, pull commands) show what is cached. Browsing needs `browse` on the repository (anonymous: proxy
+  repositories); download counts are not recorded yet (0/null).
 - Global search across repositories the principal can read: name (prefix and substring), version, format,
   repository, digest/checksum lookup ("where is this sha256 used?"), with facets (format, repo, type).
   Target: results in < 150 ms p95 for 1M assets.
@@ -479,7 +485,8 @@ Waystation/
 | Design system (T-U01 min) | M0 slice 2026-11-08: tokens, themes, format icon sprite, base components, SVG charts. Density toggle and showcase route still to do |
 | Dashboard (T-U03 min) | M0 slice 2026-11-08 on mocks: KPIs, live transfers, traffic chart, storage donut, upstream health, activity feed, all live from the event stream. Top artifacts / recently added still to do |
 | Repositories UI (T-U04 min) | M0 slice 2026-11-08 on mocks: list + filters, create/edit/delete docker/npm/apt/raw proxies with test upstream and field errors, detail page (Overview, Browse, Settings), Set me up panel. Snippets shown with a `<your-api-token>` placeholder (tokens are shown once at creation, T-S04) |
-| Browse UI (T-U05 min) | M0 slice 2026-11-08 on mocks: docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour (both themes, desktop + mobile) in `Documents/Notes/screenshots/m0/` |
+| Browse UI (T-U05 min) | M0 slice 2026-11-08 (built on mocks, now on the real API, T-S09 min): docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour (both themes, desktop + mobile) in `Documents/Notes/screenshots/m0/` |
+| Browse API (T-S09 min) | M0 slice 2026-11-08: generic folder listing of cached assets for every format, npm packages/versions, apt suites/packages, docker images/tags/manifest, to the M0 contract; indexing in the background after cache fills (`npm_packages`, `apt_packages`, `docker_tags`/`docker_manifests`); every browse query index-backed (explain test); the raw, npm, apt and docker real-client harness runs check it. Components, `version_sort`, download counters and "where used" pending
 | Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
 | Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block, per-repo CA/proxy and coalescing (T-S08) pending; used by the raw plugin (T-P2-RAW) |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
