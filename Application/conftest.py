@@ -44,7 +44,7 @@ async def mongo_db(mongo_settings: Settings) -> AsyncIterator[Database]:
 async def valkey() -> AsyncIterator['Redis']:
     if not VALKEY_URL:
         pytest.skip('WAYSTATION_TEST_VALKEY_URL not set (run make test-integration)')
-    client: Redis = Redis.from_url(VALKEY_URL)
+    client: Redis = Redis.from_url(VALKEY_URL, decode_responses=True)  # as create_valkey()
     await client.flushdb()
     try:
         yield client

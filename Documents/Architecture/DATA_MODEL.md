@@ -45,7 +45,7 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 | `job_definitions` | `_id`, `kind`, `params`, `schedule`, `enabled`, `queue` | – |
 | `job_runs` | `_id`, `definition_id?`, `kind`, `queue`, `status`, `progress{done,total,message}`, `started_at`, `finished_at`, `worker_id`, `log[]` (capped 500 lines), `result{...}` | `started_at` desc; TTL 90 d |
 | `workers` | `_id` = worker id, `hostname`, `version`, `queues[]`, `started_at`, `heartbeat_at`, `running_jobs[]` | TTL on `heartbeat_at` (+5 min) |
-| `stats_minute` | **time-series** (`timeField: ts`, `metaField: m{repo_id, format}`, granularity minutes), one document per closed minute per repo (written once; time-series collections can't upsert): `requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_out_cache`, `bytes_out_upstream`, `bytes_in_upstream`, `bytes_in_upload`, `lat_hist` (fixed log-scale bucket counts; percentiles computed at query time) | expireAfterSeconds 7 d |
+| `stats_minute` | **time-series** (`timeField: ts`, `metaField: m{repo_id, format}`, granularity minutes), one document per closed minute per repo (written once; time-series collections can't upsert): (the rollup checks for an existing (repo, minute) document before inserting, so a crashed rollup never duplicates) `requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_out_cache`, `bytes_out_upstream`, `bytes_in_upstream`, `bytes_in_upload`, `lat_hist` (fixed log-scale bucket counts; percentiles computed at query time) | expireAfterSeconds 7 d |
 | `job_outbox` | `_id`, `job` (payload), `queue`, `dedupe_key`, `created_at`, `sent_at?`, `done_at?` (written in the same transaction as the triggering change; ARCH §10) | `sent_at`; `done_at` TTL 7 d |
 | `stats_hour` / `stats_day` | same shape, time-series, rolled up | 90 d / 2 y |
 | `storage_snapshots` | time-series per repo: `bytes`, `assets`, `components` (hourly) | 2 y |
@@ -65,8 +65,9 @@ Notes:
 | `fill:<repo_id>:<asset_key>` | string (JSON: upload id, owner replica, progress, total) | single-flight lock + progress for coalescing (lease, renewed) |
 | `neg:<repo_id>:<asset_key>` | string | negative cache (404) |
 | `meta:<repo_id>:<asset_key>` | string/bytes | hot metadata response cache (rewritten/merged docs), short TTL |
-| `cnt:<minute>:<repo_id>` | hash | per-minute counters (rolled up by worker after the minute closes) |
-| `lat:<minute>:<repo_id>` | hash of bucket → count | latency histogram (fixed log-scale buckets) |
+| `cnt:<minute>:<repo_id>` | hash | per-minute counters (`requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_*`) + `format`; `<minute>` = epoch minute (`ts // 60`); rolled up by the worker after the minute closes; TTL 3 h safety net |
+| `lat:<minute>:<repo_id>` | hash of bucket → count | latency histogram, fixed log-scale buckets `le_1`, `le_2`, `le_5` ... `le_60000`, `le_inf` (ms upper bounds, `waystation_common.events.keys`) |
+| `stats:pending` | set (no TTL) | `<minute>:<repo_id>` pairs with counters awaiting rollup (lets the rollup find keys without SCAN) |
 | `transfers` | hash `<transfer_id>` → JSON (state, bytes, rate, updated_at); stale entries swept by the rollup job | live transfers: current state |
 | `live` | pub/sub channel | transfer progress (≤ 4 Hz per transfer), no history |
 | `activity` | stream (MAXLEN ~200000) | durable-ish activity events for SSE resume, Activity page, dashboard feed |

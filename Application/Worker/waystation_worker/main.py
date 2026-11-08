@@ -1,7 +1,7 @@
 """Worker process: runs the background loops until SIGTERM/SIGINT.
 
-Minimal for M0: a heartbeat loop (container health). Background loops register in ``LOOPS``; the job system on
-Valkey Streams (ARCHITECTURE §10) is T-F08.
+Minimal for M0: a heartbeat loop (container health) and the per-minute stats rollup. Background loops register in
+``LOOPS``; the job system on Valkey Streams (ARCHITECTURE §10) is T-F08.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any
 from waystation_common.logs import configure_logging
 from waystation_common.settings import Settings, get_settings
 from waystation_worker import health
+from waystation_worker.rollup import rollup_loop
 
 log = logging.getLogger('waystation.worker')
 
@@ -30,7 +31,7 @@ async def heartbeat_loop(settings: Settings, stop: asyncio.Event) -> None:
             await asyncio.wait_for(stop.wait(), timeout=health.INTERVAL_S)
 
 
-LOOPS: list[Loop] = [heartbeat_loop]
+LOOPS: list[Loop] = [heartbeat_loop, rollup_loop]
 
 
 async def run(settings: Settings, stop: asyncio.Event, loops: list[Loop] | None = None) -> None:
