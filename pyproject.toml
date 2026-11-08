@@ -49,6 +49,7 @@ ignore = ["S101"]  # asserts are fine; tests use them and mypy narrowing relies 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S", "PT011", "PT018"]
 "Application/Common/waystation_common/errors.py" = ["N818"]  # HTTP-status style names (NotFound, Forbidden...)
+"tests/clients/harness/**" = ["T20", "S104"]  # CLI test tooling: prints progress, listens on container interfaces
 
 [tool.ruff.lint.flake8-quotes]
 inline-quotes = "single"
@@ -61,17 +62,17 @@ known-first-party = ["waystation_common", "waystation_server", "waystation_worke
 python_version = "3.14"
 strict = true
 warn_unreachable = true
-mypy_path = ["Application/Common", "Application/Server", "Application/Worker"]
+mypy_path = ["Application/Common", "Application/Server", "Application/Worker", "tests/clients/harness"]
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
-testpaths = ["Application/Common/tests", "Application/Server/tests", "Application/Worker/tests"]
+testpaths = ["Application/Common/tests", "Application/Server/tests", "Application/Worker/tests", "tests/clients/harness/tests"]
+pythonpath = ["tests/clients/harness", "Application/Server/tests/support"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers --import-mode=importlib"
-pythonpath = ["Application/Server/tests/support"]
 markers = ["integration: needs MongoDB/Valkey containers (make test-integration)"]
 
 [tool.coverage.run]

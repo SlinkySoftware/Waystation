@@ -33,6 +33,7 @@ Application/Web/playwright-report/
 /data/
 /.dev-data/
 tests/**/recordings-tmp/
+tests/clients/.run/
 
 # Editors and OS
 .idea/

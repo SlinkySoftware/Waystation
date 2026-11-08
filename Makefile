@@ -10,7 +10,7 @@ GID         := $(shell id -g)
 VERSION     := $(shell cat VERSION)
 TTY         := $(shell [ -t 0 ] && echo -t)
 DEV_RUN      = docker run --rm -i $(TTY) --user $(UID):$(GID) -v $(CURDIR):/src -w /src $(DEV_ENV) $(DEV_IMAGE)
-PY_SRC      := Application/Common Application/Server Application/Worker
+PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness
 # Modules held to 100% branch coverage (TASKS T-F04 acceptance).
 FULL_COVERAGE := --include="*/waystation_common/paths.py,*/waystation_common/crypto.py"
 
@@ -64,7 +64,7 @@ lint: sync ## ruff + import-linter contracts (ARCHITECTURE §3)
 
 .PHONY: typecheck
 typecheck: sync ## mypy --strict
-	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker
+	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker tests/clients/harness
 
 .PHONY: test
 test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 100% branch coverage
@@ -84,7 +84,7 @@ test-integration: sync ## Integration tests (pytest -m integration) against real
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 
 .PHONY: check
-check: fmt-check lint typecheck test test-integration ## Everything CI runs on a PR (grows as tasks land)
+check: fmt-check lint typecheck test test-integration clients-check frontend-check ## Everything CI runs on a PR (grows as tasks land)
 
 .PHONY: env-example
 env-example: sync ## Regenerate .env.example from waystation_common.settings (idempotent)
@@ -100,21 +100,46 @@ set-version: ## Set the version everywhere: make set-version V=X.Y.Z
 	$(DEV_RUN) uv lock
 
 ##@ Frontend
-.PHONY: frontend-install frontend-dev frontend-mock frontend-lint frontend-test frontend-build gen-api
-frontend-install: ## npm ci for the SPA
-	$(call not_yet,T-V01)
-frontend-dev: ## SPA dev server against the real server
-	$(call not_yet,T-F10)
-frontend-mock: ## SPA dev server on MSW mocks (npm run dev:mock)
-	$(call not_yet,T-V01)
-frontend-lint: ## ESLint + vue-tsc
-	$(call not_yet,T-V01)
-frontend-test: ## Vitest
-	$(call not_yet,T-V01)
-frontend-build: ## Production SPA build + bundle budget
-	$(call not_yet,T-F10)
-gen-api: ## Regenerate the TS API client from the OpenAPI schema
-	$(call not_yet,T-V01)
+WEB_DIR     := Application/Web
+WEB_PORT    ?= 9000
+WEB_RUN      = $(DEV_RUN) sh -c
+# Dev servers need a TTY-less long-running container with the port published (bound to 0.0.0.0 inside).
+WEB_SERVE    = docker run --rm -i $(TTY) --init --user $(UID):$(GID) -v $(CURDIR):/src -w /src/$(WEB_DIR) \
+               -p $(WEB_PORT):9000 $(DEV_ENV) $(DEV_IMAGE)
+
+.PHONY: frontend-install frontend-dev frontend-mock frontend-lint frontend-test frontend-build frontend-build-mock gen-api gen-api-check
+$(WEB_DIR)/node_modules/.installed: $(WEB_DIR)/package.json $(WEB_DIR)/package-lock.json | dev-image
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm ci --no-audit --no-fund'
+	@touch $@
+
+frontend-install: $(WEB_DIR)/node_modules/.installed ## npm ci for the SPA (inside the dev image)
+
+frontend-dev: frontend-install ## SPA dev server against the real server (WAYSTATION_DEV_API_TARGET, port WEB_PORT)
+	$(WEB_SERVE) npm run dev
+
+frontend-mock: frontend-install ## SPA dev server on MSW mocks + live generator: http://localhost:$(WEB_PORT)/ui/
+	$(WEB_SERVE) npm run dev:mock
+
+frontend-lint: frontend-install ## ESLint + vue-tsc
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm run lint'
+
+frontend-test: frontend-install ## Vitest
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm test'
+
+frontend-build: frontend-install ## Production SPA build (dist/spa, served under /ui/) + bundle budget
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm run build'
+
+frontend-build-mock: frontend-install ## SPA build that runs on mocks (static demo / screenshots)
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm run build:mock'
+
+gen-api: frontend-install ## Regenerate src/api/schema.d.ts from openapi/waystation-m0.yaml
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm run gen-api'
+
+gen-api-check: frontend-install ## Fail if the generated API types are stale (CI)
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm run gen-api:check'
+
+.PHONY: frontend-check
+frontend-check: gen-api-check frontend-lint frontend-test frontend-build ## Everything CI runs for the SPA
 
 ##@ Stack
 COMPOSE_DIR    := Build/Containers
@@ -161,10 +186,14 @@ backup: ## mongodump + blob copy
 	$(call not_yet,T-O07)
 
 ##@ Test suites
-.PHONY: e2e clients-test perf
+.PHONY: e2e clients-test clients-check perf
 e2e: ## Playwright E2E
 	$(call not_yet,T-U09)
-clients-test: ## Real-client format tests
-	$(call not_yet,T-P2-HARNESS)
+FORMAT ?= all
+MODE   ?= replay
+clients-test: dev-image ## Real-client format tests: FORMAT=<name|all> MODE=replay|record|live (tests/clients/README.md)
+	tests/clients/run.sh $(FORMAT) $(MODE)
+clients-check: dev-image ## Forbidden-strings + size check on upstream fixtures and the client harness
+	tests/clients/check_fixtures.sh
 perf: ## k6 performance budgets
 	$(call not_yet,T-P2-PERF)

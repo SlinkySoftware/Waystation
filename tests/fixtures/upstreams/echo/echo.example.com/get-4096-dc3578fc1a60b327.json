@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://echo.example.com/blob/4096"
+  },
+  "response": {
+    "body_sha256": "573498c1adb55dbe908cd546b751cc4ec1f59496d46df2c02ecaca29ed67e62f",
+    "body_size": 4096,
+    "headers": [
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "content-length",
+        "4096"
+      ],
+      [
+        "etag",
+        "\"573498c1adb55dbe\""
+      ]
+    ],
+    "status": 200
+  }
+}
