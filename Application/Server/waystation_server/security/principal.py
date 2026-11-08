@@ -17,6 +17,18 @@ class AuthMethod(StrEnum):
     SESSION = 'session'
     REGISTRY_TOKEN = 'registry_token'  # noqa: S105 - an enum label, not a secret
     BASIC = 'basic'
+    API_TOKEN = 'api_token'  # noqa: S105 - an enum label, not a secret
+
+
+@dataclass(frozen=True)
+class TokenLimits:
+    """What an API token narrows its owner's grants to (ARCHITECTURE §7): only ``actions``, and repository actions
+    only on repositories matching one of ``repositories`` (RBAC scope patterns; empty = every repository)."""
+
+    token_id: str
+    actions: frozenset[str]
+    repositories: tuple[str, ...] = ()
+    scopes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -30,6 +42,8 @@ class Principal:
     # Docker registry tokens carry their own grants (``(resource_name, frozenset(actions))``); access is the
     # intersection of the token grants and the principal's RBAC grants (ARCHITECTURE §7).
     token_access: tuple[tuple[str, frozenset[str]], ...] | None = None
+    # API tokens (and registry tokens issued for one) narrow the owner's grants further (``TokenLimits``).
+    token: TokenLimits | None = None
     extra: dict[str, str] = field(default_factory=dict, compare=False)
 
     @property

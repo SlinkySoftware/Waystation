@@ -67,6 +67,21 @@ ws_api() {
   cat "$_out"
 }
 
+# ws_token <scopes JSON array> [repositories JSON array]: create an API token for the signed-in admin (after
+# ws_login). Sets WS_TOKEN (the secret, shown once) and WS_TOKEN_ID.
+ws_token() {
+  _tbody=$(printf '{"name":"harness %s","scopes":%s,"repositories":%s}' "${HARNESS_FORMAT:-?}" "$1" "${2:-[]}")
+  _tout=$(ws_api POST /auth/me/tokens "$_tbody") || fail 'ws_token: could not create a token'
+  WS_TOKEN=$(printf '%s' "$_tout" | sed -n 's/.*"secret": *"\([^"]*\)".*/\1/p')
+  WS_TOKEN_ID=$(printf '%s' "$_tout" | sed -n 's/.*"token": *{"id": *"\([^"]*\)".*/\1/p')
+  [ -n "$WS_TOKEN" ] && [ -n "$WS_TOKEN_ID" ] || fail 'ws_token: no token in the response'
+}
+
+# ws_revoke <token id>: revoke one of the signed-in admin's tokens.
+ws_revoke() {
+  ws_api DELETE "/auth/me/tokens/$1" >/dev/null || fail "ws_revoke: could not revoke $1"
+}
+
 # _ws_http <METHOD> <http URL> [json body]: a plain HTTP/1.0 request with bash alone (/dev/tcp), for client images
 # without curl (debian-slim, ubuntu). Prints the status code; the body goes to /tmp/ws-api.out, the headers to
 # /tmp/ws-api.headers. Sends the cookies kept in $WS_COOKIES (a Cookie header line, set by ws_login) and

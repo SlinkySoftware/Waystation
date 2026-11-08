@@ -15,6 +15,7 @@ import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 import { setupGuide } from './setup'
 import { RANGES, statsSummary, trafficSeries } from './stats'
+import { tokenHandlers } from './tokens'
 import { upstreamHealth, world } from './world'
 
 const API = '/api/v1'
@@ -187,6 +188,9 @@ export const handlers = [
     preferences = (await request.json()) as Preferences
     return HttpResponse.json(preferences)
   }),
+
+  // ---------------------------------------------------------------- API tokens and service accounts
+  ...tokenHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
   // ---------------------------------------------------------------- repositories
   http.get(`${API}/repositories`, async ({ request }) => {

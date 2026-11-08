@@ -53,6 +53,14 @@ async def record_failure(db: Database, user_id: str, *, threshold: int, locked_u
     return failures
 
 
+async def usernames(db: Database, user_ids: list[str]) -> dict[str, str]:
+    """``{user id: username}`` for listings."""
+    if not user_ids:
+        return {}
+    cursor = db[USERS].find({'_id': {'$in': user_ids}}, {'username': 1})
+    return {doc['_id']: doc['username'] async for doc in cursor}
+
+
 async def set_preferences(db: Database, user_id: str, preferences: Preferences) -> None:
     await db[USERS].update_one({'_id': user_id}, {'$set': {'preferences': preferences.model_dump()}})
 

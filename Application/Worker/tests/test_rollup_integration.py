@@ -6,8 +6,10 @@ from datetime import UTC, datetime
 import pytest
 from redis.asyncio import Redis
 
+from waystation_common.db import seen
 from waystation_common.db import stats as stats_db
 from waystation_common.db.client import Database
+from waystation_common.db.collections import API_TOKENS, SESSIONS
 from waystation_common.db.schema import ensure_schema
 from waystation_common.events import CacheState, EventEmitter, Transfer, keys
 from waystation_common.leases import hold_lease, release_lease
@@ -81,6 +83,36 @@ async def test_lease_single_roller(valkey: Redis, mongo_db: Database) -> None:
     assert await rollup.rollup_once(valkey, mongo_db, 'w1') == 1
     assert await valkey.exists(rollup.LEASE_KEY) == 0  # released after the cycle
     assert not await release_lease(valkey, 'w2', key=rollup.LEASE_KEY)
+
+
+async def test_flush_last_seen(valkey: Redis, mongo_db: Database) -> None:
+    """Token last-used and session last-seen go from Valkey to MongoDB in bulk, only forwards (ARCH §8)."""
+    await ensure_schema(mongo_db)
+    early, late = datetime(2026, 11, 8, 10, tzinfo=UTC), datetime(2026, 11, 8, 11, tzinfo=UTC)
+    await mongo_db[API_TOKENS].insert_many(
+        [
+            {'_id': 't1', 'hash': 'h1', 'last_used_at': None},
+            {'_id': 't2', 'hash': 'h2', 'last_used_at': late, 'last_used_ip': '192.0.2.9'},
+        ]
+    )
+    await mongo_db[SESSIONS].insert_one({'_id': 's1', 'last_seen_at': early})
+    await valkey.hset(
+        seen.SEEN_TOKENS,
+        mapping={'t1': f'{int(late.timestamp())} 192.0.2.1', 't2': f'{int(early.timestamp())} 192.0.2.2', 'tx': 'bad'},
+    )
+    await valkey.hset(seen.SEEN_SESSIONS, 's1', str(int(late.timestamp())))
+    assert await rollup.flush_last_seen(valkey, mongo_db) == 2
+    t1 = await mongo_db[API_TOKENS].find_one({'_id': 't1'})
+    t2 = await mongo_db[API_TOKENS].find_one({'_id': 't2'})
+    s1 = await mongo_db[SESSIONS].find_one({'_id': 's1'})
+    assert t1 is not None and t1['last_used_at'] == late and t1['last_used_ip'] == '192.0.2.1'
+    assert t2 is not None and t2['last_used_ip'] == '192.0.2.9'  # an older use never moves it back
+    assert s1 is not None and s1['last_seen_at'] == late
+    assert not await valkey.exists(seen.SEEN_TOKENS, seen.SEEN_SESSIONS, f'{seen.SEEN_TOKENS}:flushing')
+    assert await rollup.flush_last_seen(valkey, mongo_db) == 0
+    # a hash left by a crashed cycle is flushed first
+    await valkey.hset(f'{seen.SEEN_TOKENS}:flushing', 't1', f'{int(late.timestamp()) + 60} 192.0.2.3')
+    assert await rollup.flush_last_seen(valkey, mongo_db) == 1
 
 
 async def test_sweep_stale_transfers(valkey: Redis) -> None:

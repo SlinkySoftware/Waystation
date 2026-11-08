@@ -16,6 +16,10 @@ Decisions
 - Built-in roles (M0: no custom roles, groups or grant cache yet): ``admin``, ``reader`` (browse + read all),
   ``deployer`` (browse + read + write all), ``viewer`` (browse all + stats), ``anonymous`` (browse + read on proxy
   repositories, SPECIFICATION §4.9 default).
+- API tokens only **narrow** their owner's grants: a token's scopes (``read``, ``write``, ``delete``, ``manage``,
+  ``stats-read``, ``metrics``, ``admin``; ``TOKEN_SCOPE_ACTIONS``) limit the actions, its repository patterns (the
+  scope syntax above) limit repository actions to matching repositories; the owner's current RBAC still applies.
+  A token can only be given scopes its owner holds (``token_scopes_for``).
 
 Route declarations
 ------------------
@@ -27,8 +31,10 @@ refused (fail closed) and the route-enumeration test fails.
 
 from __future__ import annotations
 
+import dataclasses
 import fnmatch
 import logging
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from functools import lru_cache
@@ -38,15 +44,15 @@ from starlette.requests import Request
 
 from waystation_common.errors import Forbidden, NotFound, Unauthorized
 from waystation_server.repos.model import RepoConfig
-from waystation_server.security.actions import GLOBAL_ACTIONS, Action
+from waystation_server.security.actions import GLOBAL_ACTIONS, Action, TokenScope
 from waystation_server.security.authn import authenticate, current_session
-from waystation_server.security.principal import AuthMethod, Principal
+from waystation_server.security.principal import AuthMethod, Principal, TokenLimits
 from waystation_server.security.sessions import CSRF_HEADER, csrf_matches
 
 log = logging.getLogger('waystation.access')
 
 
-__all__ = ['GLOBAL_ACTIONS', 'Action']
+__all__ = ['GLOBAL_ACTIONS', 'Action', 'TokenScope']
 
 # What a granted action also allows on the same scope.
 IMPLIES: dict[Action, frozenset[Action]] = {
@@ -81,17 +87,13 @@ ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     'reader': ('Reader', 'Browse and download from every repository'),
     'deployer': ('Deployer', 'Browse, download and upload to every repository'),
     'viewer': ('Viewer', 'Browse every repository and read statistics'),
-    'anonymous': ('Anonymous', 'Browse and download from proxy repositories (the default for anonymous access)'),
 }
 
 
 def roles() -> list[tuple[str, str, str]]:
-    """Grantable roles as ``(id, name, description)`` (built-in only until custom roles land)."""
-    return [(role, *ROLE_DESCRIPTIONS.get(role, (role, ''))) for role in BUILTIN_ROLES]
-
-
-def is_role(role: str) -> bool:
-    return role in BUILTIN_ROLES
+    """Grantable roles as ``(id, name, description)`` (built-in only until custom roles land; ``anonymous`` is the
+    anonymous principal's own role and cannot be granted)."""
+    return [(role, *ROLE_DESCRIPTIONS.get(role, (role, ''))) for role in BUILTIN_ROLES if is_role(role)]
 
 
 @dataclass(frozen=True)
@@ -124,11 +126,84 @@ def scope_matches(scope: str, repo: RepoConfig) -> bool:
     return repo.name.lower() == scope.lower()
 
 
+# ---------------------------------------------------------------------------- API token scopes
+_REPO_READ = frozenset({Action.BROWSE, Action.READ})
+TOKEN_SCOPE_ACTIONS: dict[TokenScope, frozenset[Action]] = {
+    TokenScope.READ: _REPO_READ,
+    TokenScope.WRITE: _REPO_READ | {Action.WRITE},
+    TokenScope.DELETE: _REPO_READ | {Action.DELETE},
+    TokenScope.MANAGE: _REPO_READ | {Action.MANAGE},
+    TokenScope.STATS_READ: frozenset({Action.STATS_READ}),
+    TokenScope.METRICS: frozenset(),
+    TokenScope.ADMIN: frozenset(Action),
+}
+# What the owner must hold (somewhere) to put a scope on a token.
+TOKEN_SCOPE_REQUIRES: dict[TokenScope, Action] = {
+    TokenScope.READ: Action.READ,
+    TokenScope.WRITE: Action.WRITE,
+    TokenScope.DELETE: Action.DELETE,
+    TokenScope.MANAGE: Action.MANAGE,
+    TokenScope.STATS_READ: Action.STATS_READ,
+    TokenScope.METRICS: Action.STATS_READ,
+    TokenScope.ADMIN: Action.ADMIN,
+}
+_PATTERN = re.compile(r'^(?:format:[a-z0-9]+|type:(?:proxy|hosted|group)|[A-Za-z0-9._\-*?]{1,128})$')
+
+
+def token_actions(scopes: Iterable[str]) -> frozenset[str]:
+    """The actions a token with ``scopes`` may use (before the owner's RBAC is applied)."""
+    actions: set[str] = set()
+    for scope in scopes:
+        try:
+            actions |= TOKEN_SCOPE_ACTIONS[TokenScope(scope)]
+        except ValueError:
+            continue  # unknown scope (newer release): grants nothing
+    return frozenset(actions)
+
+
+def token_permits(limits: TokenLimits, action: Action, repo: RepoConfig | None) -> bool:
+    if action not in limits.actions:
+        return False
+    if repo is None or action in GLOBAL_ACTIONS or not limits.repositories:
+        return True
+    return any(scope_matches(pattern, repo) for pattern in limits.repositories)
+
+
+def token_scopes_for(principal: Principal) -> list[TokenScope]:
+    """The scopes ``principal`` may put on a new token: only what it holds itself (tokens only narrow)."""
+    return [scope for scope in TokenScope if check(principal, TOKEN_SCOPE_REQUIRES[scope])]
+
+
+def may_scrape_metrics(principal: Principal) -> bool:
+    """``/metrics`` from outside the allowed networks: an API token with the ``metrics`` scope whose owner holds
+    ``stats-read``."""
+    if principal.token is None or TokenScope.METRICS.value not in principal.token.scopes:
+        return False
+    return check(dataclasses.replace(principal, token=None, token_access=None), Action.STATS_READ)
+
+
+def valid_repository_pattern(pattern: str) -> bool:
+    """A token's repository restriction uses the RBAC scope syntax: a name, a glob, ``format:``, ``type:``."""
+    return bool(_PATTERN.fullmatch(pattern)) and pattern != '*'
+
+
+def is_role(name: str) -> bool:
+    return name in BUILTIN_ROLES and name != 'anonymous'
+
+
+def may_assign_role(principal: Principal, role: str) -> bool:
+    """Giving a role away needs the role's global powers: only administrators grant ``admin``."""
+    return not grants_for((role,)).is_admin or check(principal, Action.ADMIN)
+
+
 # ---------------------------------------------------------------------------- decisions
 def check(principal: Principal, action: Action, repo: RepoConfig | None = None) -> bool:
     """May ``principal`` perform ``action`` (on ``repo``; without a repo: on at least one repository)?
 
-    A principal authenticated by a Docker registry token is also limited to what the token grants (ARCH §7)."""
+    A principal authenticated by a Docker registry token is also limited to what the token grants, and one
+    authenticated by an API token to the token's scopes and repository patterns (ARCH §7): tokens only narrow."""
+    if principal.token is not None and not token_permits(principal.token, action, repo):
+        return False
     if principal.token_access is not None:
         if action in GLOBAL_ACTIONS or repo is None:
             return False

@@ -118,7 +118,8 @@ Windows containers support for the server.
 - The UI lives under `/ui/` (SPA history routes `/ui/...`, hashed assets `/ui/assets/...`); `/` redirects to `/ui/`.
   API at `/api/v1/`.
 - `/metrics` is restricted: allowed source CIDRs (`WAYSTATION_METRICS_ALLOW_CIDRS`, default loopback only; add the
-  scraper's network) or a bearer token with the `metrics` scope (T-S04); everyone else gets 404. The client address
+  scraper's network) or an API token with the `metrics` scope whose owner holds `stats-read`
+  (`Authorization: Bearer`); everyone else gets 404. The client address
   is the web tier's `X-Real-IP` when the request comes from a container network (loopback, RFC 1918, ULA), extended
   through `X-Forwarded-For` only when `WAYSTATION_TRUST_FORWARDED` is on and the hop is a `TRUSTED_PROXIES` address.
   `/healthz` (liveness) and `/readyz` (MongoDB and Valkey answer within 2 s, else 503) reveal nothing beyond status.
@@ -222,10 +223,28 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   provider as source) or a user of another provider (`identities[]` lists every linked external account), and
   refuses disabled users. Group sync: the groups the provider reported replace that provider's entries in
   `external_groups` on every sign-in through it.
-- **API tokens**: per user and per service account; scopes (`read`, `write`, `delete`, `admin`) and optional
-  repo restriction; expiry; last used; shown once at creation, stored hashed.
+- **API tokens**: per user and per service account. A token is `wst_` + 43 random characters, shown once at
+  creation; only a keyed hash (HMAC-SHA256 under a key derived from `SECRET_KEYS`, every configured key tried on
+  lookup) and a display prefix (`wst_` + 8) are stored. Scopes `read`, `write`, `delete`, `manage`, `stats-read`,
+  `metrics`, `admin` (a token can only carry scopes its owner holds) and optional repository patterns (RBAC scope
+  syntax: name, glob, `format:`, `type:`) only ever **narrow** the owner's current RBAC grants. Optional expiry
+  (UI presets 7/30/90/365 days or none). Last used time and client address are recorded in Valkey, at most once a
+  minute per token, and flushed to MongoDB by the worker. Revoking a token (or disabling/deleting a service
+  account, or changing its roles) is announced on the Valkey `revocations` channel and refused by every replica
+  within a second; resolved tokens are cached per process for at most 5 s. Rejected tokens are counted per client
+  address (`TOKEN_FAILURE_LIMIT` per 5 min, then 429). Presented but invalid credentials are refused (401), never
+  downgraded to anonymous. Creating a token needs an interactive session (a token cannot mint tokens).
+- **Service accounts**: non-human principals holding built-in roles, managed by `user-admin`
+  (`/api/v1/service-accounts`, tokens under `/service-accounts/{id}/tokens`); they authenticate only with API
+  tokens. Only administrators may give a service account `admin`. `/api/v1/tokens` lists and revokes every token
+  (incident response).
+- **API token transport** for format clients on `/repository/*` and the API: `Authorization: Bearer <token>`,
+  `Authorization: Token <token>`, or HTTP basic with the token as the password (any username). Basic credentials
+  whose password is not an API token are refused: account passwords (local or LDAP) are accepted only by the UI sign-in and
+  `docker login`.
 - **Format client auth**: docker (Bearer token service at `/auth/token` per Docker token spec; `docker login` with
-  username + password or API token; today: anonymous tokens and local passwords. `/v2/` accepts only these
+  username + local password or an API token as the password, any username; a registry token issued for an API token
+  carries its id and is re-checked on every request, so revocation is immediate. `/v2/` accepts only these
   5-minute EdDSA tokens and answers everything else with the `401` Bearer challenge naming the scope; a token's
   grants are re-checked against RBAC on every request), npm (`npm login --auth-type=legacy` and `_authToken` = API token), PyPI/twine
   (basic: username + token), Maven (basic in `settings.xml`), Helm classic repos (basic: `helm repo add --username
@@ -479,7 +498,7 @@ Both remote repositories must exist first (the owner creates them; empty, no REA
 ### 13.2 Layout
 ```
 Waystation/
-  CLAUDE.md  README.md  appidea.txt  VERSION  LICENSE  Makefile  pyproject.toml (uv workspace)  uv.lock
+  CLAUDE.md  README.md  VERSION  LICENSE  Makefile  pyproject.toml (uv workspace)  uv.lock
   .env.example  .gitignore  .dockerignore  .github/workflows/  .gitea/workflows/
   Application/
     Common/   waystation_common/   settings, logging, ids, crypto, events schema, job protocol, storage API, errors
@@ -515,6 +534,7 @@ Waystation/
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
 | RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Since 2026-11-09 (T-A01): groups in MongoDB holding roles, effective roles = own ∪ group roles per request, `GET /roles`. Custom roles, group admin and the grant cache pending |
+| API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audit records (T-S10) and the service-account admin UI (T-U08) pending |
 | Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Hosted/group, clone and audit pending |
 | Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Formats: `echo` (self-test), `raw`, `npm` and `apt` (Debian 13 + Ubuntu 26.04 clients in one run: `CLIENT` may list several; `lib.sh` falls back to bash `/dev/tcp` where the image has no curl; apt fixture budget 32 MiB); `setup.sh` creates repositories through the API as a per-run bootstrap admin (`ws_login`/`ws_api` in `lib.sh`); nightly live smoke workflow stub |
 | M0 API contract + mocks (T-V01) | Done 2026-11-08: OpenAPI 3.1 contract (`Application/Web/openapi/waystation-m0.yaml`), generated TS types + `openapi-fetch` client, MSW handlers with seeded fixtures (11 proxy repos: Docker Hub, GHCR, Quay, registry.k8s.io, npmjs, Debian, Debian security, Ubuntu, Raspberry Pi OS, two raw) and a live-event generator (bursty docker pulls, npm installs, apt runs, raw downloads, coalescing, failures); `npm run dev:mock` / `make frontend-mock`. Server-side contract test: `Application/Server/tests/test_contract.py` compares the server's generated OpenAPI with it for every implemented operation (T-S05, T-S11) |
@@ -528,7 +548,7 @@ Waystation/
 | Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block and per-repo CA/proxy pending; used by the raw plugin (T-P2-RAW) |
 | Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Followers on a second host against NFS not covered by CI yet |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
-| Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified. API-token login pending (T-S04) |
+| Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified; `docker login` with an API token (T-S04) |
 | Raw format (T-P2-RAW) | M0 slice 2026-11-08: raw proxy repositories serve `GET`/`HEAD /repository/<repo>/<path>` through the proxy engine (cache by path, metadata regex → revalidated metadata, extension-based Content-Type, `Content-Disposition` + `nosniff`, native 404 with negative cache); curl and wget pass the real-client harness in replay. Directory listings, hosted and group pending |
 | apt format (T-P2-APT) | M0 slice 2026-11-08: apt proxy repositories pass `InRelease`/`Release` through untouched, serve index files only by the SHA256 the cached `Release` lists (by-hash fetch, one `Release` revalidation on mismatch, then 502), accept self-validating `by-hash` paths, index cached `Packages` files into `apt_pool_index` and validate pool files against it (or record them `unverified`); several suites per repository. apt on Debian 13 and Ubuntu 26.04 passes the real-client harness in replay (`*-updates` and `*-security` suites). Hosted, Raspberry Pi OS / arm64 clients and worker-side re-verification pending |
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |

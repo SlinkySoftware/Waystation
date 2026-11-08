@@ -39,10 +39,27 @@ const SHOTS = [
   { name: 'auth-providers', path: 'admin/auth-providers' },
   { name: 'auth-provider-edit', path: 'admin/auth-providers', action: editProvider },
   { name: 'auth-provider-tests', path: 'admin/auth-providers', action: testProvider },
+  { name: 'profile-tokens', path: 'profile', full: true },
+  { name: 'create-token', path: 'profile', action: createToken },
+  { name: 'token-created', path: 'profile', action: tokenCreated },
 ]
 
 async function openSetup(page) {
   await page.getByRole('button', { name: /set me up/i }).first().click()
+  await page.waitForTimeout(900)
+}
+
+async function createToken(page) {
+  await page.getByRole('button', { name: /create token/i }).first().click()
+  await page.waitForTimeout(500)
+  await page.getByLabel('Name', { exact: true }).fill('GitHub Actions: build images')
+  await page.getByText('Also push and upload').click()
+  await page.waitForTimeout(300)
+}
+
+async function tokenCreated(page) {
+  await createToken(page)
+  await page.locator('.form-dialog button[type=submit]').click()
   await page.waitForTimeout(900)
 }
 

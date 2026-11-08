@@ -21,10 +21,10 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 | Collection | Key fields | Indexes |
 |---|---|---|
 | `users` | `_id`, `username` (unique, lower-case), `display_name`, `email`, `source` (`local`/`ldap:<provider>`/`oidc:<provider>`), `password_hash` (local only), `totp_enc`, `disabled`, `roles[]`, `groups[]` (local group ids) + `external_groups[{provider (`ldap:<id>`), id (group DN / claim value), name}]` (replaced per provider at each sign-in through it, ≤ 500), `identities[{provider, subject (entry DN / `sub`), linked_at, last_login}]` (linked external accounts, ≤ 20), `last_login`, `failed_logins`, `locked_until`, `preferences{theme, density}`, `must_change_password` (bootstrap one-time password), `created_at` | `username` unique; `source` |
-| `service_accounts` | `_id`, `name` unique, `description`, `roles[]`, `owner_user_id` | `name` |
 | `groups` | `_id`, `name` unique (mapped groups: `<kind>:<provider name>:<external group>`), `source` (`local`/`ldap`/`oidc`), `provider_id` (mapped groups), `external_id` (normalised group DN or name: lower case, no spaces around `,` `=` `+`), `external_group` (as entered), `position` (order in the provider's mapping), `roles[]`, `created_at`, `updated_at`. A user gets a mapped group's roles when one of its `external_groups` of that provider has a matching id or name | `name`; `source,external_id`; `provider_id` |
+| `service_accounts` | `_id`, `name` unique (lower-case), `description`, `roles[]`, `disabled`, `owner_user_id`, `created_at`, `updated_at` | `name` unique |
 | `roles` | `_id` (slug), `name`, `builtin`, `permissions[{action, scope}]` | – |
-| `api_tokens` | `_id`, `principal{kind, id}`, `name`, `prefix` (first 8 chars, display), `hash` (sha256), `scopes[]`, `repo_globs[]`, `expires_at`, `last_used_at`, `last_used_ip`, `created_at`, `revoked_at` | `hash` unique; `principal.id` |
+| `api_tokens` | `_id`, `principal{kind: user\|service_account, id}`, `name`, `prefix` (`wst_` + 8 chars, display), `hash` (HMAC-SHA256 hex under a `SECRET_KEYS`-derived key; ARCH §7), `scopes[]`, `repo_globs[]` (RBAC scope syntax), `expires_at`, `last_used_at`, `last_used_ip`, `created_at`, `created_by`, `revoked_at`, `revoked_by` (revoked tokens are kept for the record) | `hash` unique; `principal.id` |
 | `sessions` | `_id` (sha256 hex of the random cookie token; the token itself is never stored), `user_id`, `csrf` (double-submit token), `created_at`, `last_seen_at`, `expires_at`, `ip`, `user_agent` | TTL on `expires_at`; `user_id` |
 | `rbac_state` | singleton `grant_version` counter | – |
 
@@ -75,8 +75,8 @@ Notes:
 | `transfers` | hash `<transfer_id>` → JSON (state, bytes, rate, updated_at); stale entries swept by the rollup job | live transfers: current state |
 | `live` | pub/sub channel | transfer progress (≤ 4 Hz per transfer), no history |
 | `activity` | stream (MAXLEN ~200000) | durable-ish activity events for SSE resume, Activity page, dashboard feed |
-| `revocations` | set + pub/sub channel | revoked token/session ids (ARCH §7) |
-| `seen:sessions`, `seen:tokens` | hashes id → timestamp | batched `last_seen_at` / `last_used_at`, flushed to MongoDB by the rollup job |
+| `revocations` | pub/sub channel | revoked API token ids, or `*` (drop every cached token) (ARCH §7) |
+| `seen:sessions`, `seen:tokens` | hashes id → `<epoch s>` (sessions) / `<epoch s> <client address>` (tokens) | batched `last_seen_at` / `last_used_at` + `last_used_ip`, drained (`RENAME` to `<key>:flushing`) and flushed to MongoDB by the `stats.rollup` job; only moves timestamps forward |
 | `jobs:<queue>` | stream (no TTL), consumer group `workers`, field `job` = `JobEnvelope` JSON; entries are deleted when acked | job queue (`index`, `maintenance`, `stats`, `prefetch`, `import`) |
 | `jobs:<queue>:delayed` | sorted set (no TTL): envelope JSON scored by due time (ms) | `run_after` jobs and retry backoff; promoted into the stream by the scheduler leader |
 | `jobs:dead` | stream (MAXLEN ~10000): `job` (envelope, `attempt` = attempts made), `error`, `ts` | dead letters |
