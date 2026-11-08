@@ -81,7 +81,8 @@ test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
   -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
   -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0'
 test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey containers
-	$(COMPOSE_TEST) up -d --wait --quiet-pull
+	$(COMPOSE_TEST) up -d --wait --quiet-pull || { $(COMPOSE_TEST) logs --no-color --tail 80; \
+	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }
 	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 
