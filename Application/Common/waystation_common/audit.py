@@ -220,7 +220,9 @@ MAX_ITEMS = 100
 MAX_STRING = 1000
 MAX_CHANGES = 200
 # Keys whose values are secrets (or secret-derived): never recorded. ``*_id``/``*_set``/``*_count`` are not secrets.
-_SECRET_KEY = re.compile(r'(passw|secret|token$|_enc$|hash|private|credential|api_?key|csrf|cookie|authorization)', re.I)
+_SECRET_KEY = re.compile(
+    r'(passw|secret|token$|_enc$|hash|private|credential|api_?key|csrf|cookie|authorization)', re.I
+)
 _NOT_SECRET = re.compile(r'(_id|_ids|_set|_count|_prefix|^prefix)$', re.I)
 # Credentials inside a URL (``https://user:pass@host/``).
 _USERINFO = re.compile(r'\b([a-z][a-z0-9+.-]*://)[^/@\s]+@', re.I)

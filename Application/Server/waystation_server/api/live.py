@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
@@ -20,9 +20,11 @@ from waystation_server.security.authn import authenticate
 from waystation_server.services import Services
 from waystation_server.sse.hub import Subscriber
 from waystation_server.sse.stream import event_stream, parse_topics, valid_event_id
-from waystation_server.stats import live
+from waystation_server.stats import export, live
 
 router = APIRouter(tags=['live'])
+
+EXPORT_MAX_ROWS = 100_000
 
 CacheStateName = Literal['HIT', 'FETCHING', 'COALESCED', 'STALE', 'REVALIDATED', 'ERROR']
 ActivityKind = Literal[
@@ -71,6 +73,7 @@ class ActivityEvent(BaseModel):
     repository: str | None = None
     format: Format | None = None
     artifact: str | None = None
+    path: str | None = Field(default=None, description='Full path of the asset in the repository, when there is one')
     principal: str | None = None
     cache: CacheStateName | None = None
     bytes: int | None = None
@@ -192,22 +195,79 @@ async def list_transfers(
     return TransferList.model_validate({'items': items, 'as_of': datetime.now(UTC)})
 
 
-@router.get('/activity', response_model=ActivityPage, operation_id='listActivity')
-@access.requires(Action.STATS_READ)
-async def list_activity(
+async def activity_filter(
     request: Request,
     svc: ServicesDep,
     repo: str | None = None,
     kind: ActivityKind | None = None,
+    format: Format | None = None,
+    principal: Annotated[
+        str | None, Query(max_length=128, description='User name or client address (case-insensitive substring)')
+    ] = None,
+    cache: CacheStateName | None = None,
+    outcome: Literal['success', 'failure', 'info'] | None = None,
+    since: Annotated[datetime | None, Query(description='Only events at or after this time')] = None,
+    until: Annotated[datetime | None, Query(description='Only events at or before this time')] = None,
+) -> live.ActivityFilter:
+    """The Activity filters shared by the page and the CSV export."""
+    since_ms = _epoch_ms(since) if since else None
+    until_ms = _epoch_ms(until) if until else None
+    if since_ms is not None and until_ms is not None and since_ms > until_ms:
+        raise ValidationFailed('since must not be after until')
+    return live.ActivityFilter(
+        visible=frozenset(await _visible_names(svc, request)),
+        repo=repo,
+        kind=kind,
+        format=format,
+        principal=principal.strip() or None if principal else None,
+        cache=cache,
+        outcome=outcome,
+        since_ms=since_ms,
+        until_ms=until_ms,
+    )
+
+
+def _epoch_ms(value: datetime) -> int:
+    return max(0, int((value if value.tzinfo else value.replace(tzinfo=UTC)).timestamp() * 1000))
+
+
+ActivityFilterDep = Annotated[live.ActivityFilter, Depends(activity_filter)]
+
+
+@router.get('/activity', response_model=ActivityPage, operation_id='listActivity')
+@access.requires(Action.STATS_READ)
+async def list_activity(
+    request: Request,
+    flt: ActivityFilterDep,
+    svc: ServicesDep,
     cursor: Annotated[str | None, Query(max_length=512)] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
 ) -> ActivityPage:
     if cursor is not None and valid_event_id(cursor) is None:
         raise ValidationFailed('invalid cursor')
-    items, next_cursor = await live.activity_page(
-        svc.valkey, visible=await _visible_names(svc, request), repo=repo, kind=kind, cursor=cursor, limit=limit
-    )
+    items, next_cursor = await live.activity_page(svc.valkey, flt, cursor=cursor, limit=limit)
     return ActivityPage.model_validate({'items': items, 'next_cursor': next_cursor})
+
+
+@router.get(
+    '/activity/export',
+    operation_id='exportActivity',
+    response_class=StreamingResponse,
+    responses={200: {'description': 'CSV, newest first', 'content': {'text/csv': {'schema': {'type': 'string'}}}}},
+)
+@access.requires(Action.STATS_READ)
+async def export_activity(request: Request, flt: ActivityFilterDep, svc: ServicesDep) -> StreamingResponse:
+    """The filtered activity as CSV, streamed newest first, at most ``EXPORT_MAX_ROWS`` rows."""
+    stamp = datetime.now(UTC).strftime('%Y%m%d-%H%M%S')
+    return StreamingResponse(
+        export.stream_csv(live.activity_scan(svc.valkey, flt, max_rows=EXPORT_MAX_ROWS)),
+        media_type='text/csv; charset=utf-8',
+        headers={
+            'Content-Disposition': f'attachment; filename="waystation-activity-{stamp}.csv"',
+            'Cache-Control': 'no-store',
+            'X-Accel-Buffering': 'no',
+        },
+    )
 
 
 @router.get('/events/stream', operation_id='streamEvents', response_class=StreamingResponse)
