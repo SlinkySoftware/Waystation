@@ -3,6 +3,21 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-O06: metrics gaps filled. The server now exports, besides the format traffic metrics: route latency for every
+  HTTP request (`waystation_http_request_duration_seconds{route,method,status}`, route template and status class
+  only), free-space guard refusals (`waystation_storage_refusals_total`), connected event-stream clients
+  (`waystation_sse_clients`), and cluster figures read from Valkey, MongoDB and the data filesystem when `/metrics` is
+  scraped (10 s cache, 2 s per source, `waystation_metrics_source_up{source}` when one fails): upstream state per
+  proxy repository (`waystation_upstream_state`, now set, the UI's rule) and consecutive failures, the latest
+  upstream rate limit (Docker Hub limit, remaining, window, when), jobs waiting, running and delayed and the oldest
+  waiting age per queue, dead letters, live workers and scheduler leaders, blob store used bytes and blobs, free and
+  total bytes of the data filesystem and the free-space guard. With `WAYSTATION_SERVER_WORKERS > 1` the processes'
+  metrics are merged (`PROMETHEUS_MULTIPROC_DIR` on the server tmpfs, prepared by `python -m waystation_server`), so
+  every scrape is complete. Grafana dashboard: new Upstreams, Jobs and workers, Storage and HTTP rows. Zabbix
+  template: items for all of them, upstream and job-queue discovery, and triggers for blob store full (below the
+  guard), low disk space, refused writes, too few workers, no scheduler leader, old waiting jobs, dead letters,
+  blocked/failing/offline upstreams, upstream rate limit and API latency. Both re-checked in Grafana 12.2 /
+  Prometheus 3.7 and Zabbix 7.0. `Documents/Operations/MONITORING.md` and SPECIFICATION §10 describe the metrics.
 - T-O06: monitoring. Grafana dashboard `Build/monitoring/grafana/waystation-dashboard.json` (Prometheus data
   source as a variable; job, instance and repository filters; stat tiles for request rate, cache hit ratio, bytes
   served from cache and fetched from upstream, upstream error ratio and transfers in flight; requests by cache state,

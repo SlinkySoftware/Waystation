@@ -35,6 +35,7 @@ import os
 import re
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
@@ -200,6 +201,7 @@ class BlobStore:
         self.chunk_size = chunk_size
         self._active: set[str] = set()
         self._locks: dict[str, _DigestLock] = {}
+        self.on_refused: Callable[[], None] | None = None  # called when the free-space guard refuses a write
 
     @classmethod
     def from_settings(cls, settings: Settings) -> BlobStore:
@@ -226,6 +228,8 @@ class BlobStore:
     async def check_free_space(self, needed: int = 0) -> None:
         free = await self.free_bytes()
         if free - needed < self.min_free_bytes:
+            if self.on_refused is not None:
+                self.on_refused()
             raise InsufficientStorage('not enough free space in the blob store')
 
     # ---- writing
