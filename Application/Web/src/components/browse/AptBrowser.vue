@@ -29,7 +29,7 @@
           <span>{{ t('browse.apt.refreshed') }} <TimeCell :value="s.last_refreshed_at" /></span>
         </div>
       </button>
-      <EmptyState v-if="suites.data.value && !suites.data.value.length" compact :title="t('browse.apt.noSuites')" :text="t('browse.apt.noSuitesText')" />
+      <EmptyState v-if="suites.data.value && !suites.data.value.length" compact illustration="cache" :title="t('browse.apt.noSuites')" :text="t('browse.apt.noSuitesText')" />
     </div>
 
     <q-table

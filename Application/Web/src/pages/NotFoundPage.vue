@@ -2,7 +2,7 @@
 <template>
   <q-page class="ws-page">
     <q-card>
-      <EmptyState :icon="iconSearch" :title="t('notFound.title')" :text="t('notFound.text')">
+      <EmptyState illustration="notFound" :title="t('notFound.title')" :text="t('notFound.text')">
         <q-btn unelevated no-caps color="primary" :label="t('placeholder.back')" :to="{ name: 'dashboard' }" />
       </EmptyState>
     </q-card>
@@ -12,5 +12,4 @@
 <script setup lang="ts">
 import EmptyState from '@/components/EmptyState.vue'
 import { t } from '@/i18n'
-import { iconSearch } from '@/utils/icons'
 </script>

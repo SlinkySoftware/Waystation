@@ -1,8 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Empty state: illustration, one sentence, the primary action (UI_DESIGN §3). -->
+<!-- Empty state: illustration, one sentence, the primary action (UI_DESIGN §3). `illustration` picks one of the
+     brand illustrations (EmptyIllustration); without it the icon is shown in a brand-tinted tile. -->
 <template>
   <div class="empty-state" :class="{ 'empty-state--compact': compact }" role="status">
-    <div class="empty-state__art" aria-hidden="true">
+    <div v-if="illustration" class="empty-state__illustration">
+      <EmptyIllustration :name="illustration" />
+    </div>
+    <div v-else class="empty-state__art" aria-hidden="true">
       <q-icon :name="icon" />
     </div>
     <div class="empty-state__title">{{ title }}</div>
@@ -14,9 +18,13 @@
 <script setup lang="ts">
 import { iconPackage } from '@/utils/icons'
 
-withDefaults(defineProps<{ title: string; text?: string; icon?: string; compact?: boolean }>(), {
+import EmptyIllustration from './EmptyIllustration.vue'
+import type { IllustrationName } from './illustrations'
+
+withDefaults(defineProps<{ title: string; text?: string; icon?: string; illustration?: IllustrationName; compact?: boolean }>(), {
   text: undefined,
   icon: iconPackage,
+  illustration: undefined,
   compact: false,
 })
 </script>
@@ -45,6 +53,17 @@ withDefaults(defineProps<{ title: string; text?: string; icon?: string; compact?
   background: radial-gradient(circle at 30% 25%, var(--brand-100), var(--surface-brand));
   color: var(--q-primary);
   font-size: 32px;
+}
+
+.empty-state__illustration {
+  width: 160px;
+  height: 120px;
+  margin-bottom: 4px;
+}
+
+.empty-state--compact .empty-state__illustration {
+  width: 96px;
+  height: 72px;
 }
 
 .empty-state--compact .empty-state__art {
