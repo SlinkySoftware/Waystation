@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import logging
 import re
 import time
@@ -27,6 +28,8 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
+from waystation_server import audit
+from waystation_server.audit import AuditAction
 from waystation_server.db import users as users_db
 from waystation_server.problems import oci_error
 from waystation_server.security import access
@@ -109,6 +112,26 @@ async def _grant(services: Services, principal: Principal, scope: Scope) -> Scop
 DOCKER_ACTIONS_ALL = ('pull', 'push', 'delete')
 
 
+DOCKER_LOGIN_AUDIT_S = 3600
+
+
+async def _audit_password_login(services: Services, principal: Principal, client_ip: str) -> None:
+    """Docker clients send the password with every token request (each pull or push), so a successful one is
+    audited at most once an hour per user and client address (failures always are, in ``verify_login``)."""
+    digest = hashlib.sha256(f'{principal.id} {client_ip}'.encode()).hexdigest()[:32]
+    try:
+        first = bool(await services.valkey.set(f'audit:docker-login:{digest}', '1', nx=True, ex=DOCKER_LOGIN_AUDIT_S))
+    except Exception:  # Valkey down: record it rather than lose it
+        first = True
+    if first:
+        audit.record(
+            AuditAction.AUTH_LOGIN,
+            actor=principal,
+            target=audit.target('user', principal.id, principal.name),
+            details={'username': principal.name, 'via': 'docker', 'provider': principal.provider},
+        )
+
+
 @router.get('/auth/token')
 @access.public  # the token service authenticates the caller itself (anonymous or basic credentials)
 async def token(
@@ -133,6 +156,7 @@ async def token(
             client_ip=client_address(request),
         )
         principal = await principal_for(services, user, AuthMethod.BASIC)
+        await _audit_password_login(services, principal, client_address(request))
     scopes = parse_scopes(scope or [])[:20]
     granted = [await _grant(services, principal, s) for s in scopes]
     signer = await services.registry_signer.get()

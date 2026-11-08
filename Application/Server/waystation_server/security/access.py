@@ -255,6 +255,8 @@ def capabilities(principal: Principal) -> list[str]:
         caps.append('repositories.manage')
     if check(principal, Action.STATS_READ):
         caps.append('stats.read')
+    if check(principal, Action.AUDIT_READ):
+        caps.append('audit.read')
     return caps
 
 

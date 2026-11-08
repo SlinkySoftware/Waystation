@@ -83,3 +83,11 @@ export type AuthProviderConnectionTest = S['AuthProviderConnectionTest']
 export type ExternalGroup = S['ExternalGroup']
 export type DirectoryUser = S['DirectoryUser']
 export type AuthProviderUserTest = S['AuthProviderUserTest']
+
+// Audit log (T-S10).
+export type AuditRecord = S['AuditRecord']
+export type AuditPage = S['AuditPage']
+export type AuditActor = S['AuditActor']
+export type AuditTarget = S['AuditTarget']
+export type AuditChange = S['AuditChange']
+export type AuditOutcome = S['AuditOutcome']
