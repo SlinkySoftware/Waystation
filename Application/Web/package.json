@@ -47,7 +47,9 @@
   "overrides": {
     "openapi-typescript": {
       "typescript": "$typescript"
-    }
+    },
+    "minimatch": "^11.0.1",
+    "glob": "^14.0.2"
   },
   "engines": {
     "node": ">=24",
