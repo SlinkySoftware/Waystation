@@ -453,7 +453,7 @@ Both remote repositories must exist first (James creates them; empty, no README/
 ### 13.2 Layout
 ```
 Waystation/
-  CLAUDE.md  README.md  appidea.txt  VERSION  LICENSE  Makefile  pyproject.toml (uv workspace)  uv.lock
+  CLAUDE.md  README.md  VERSION  LICENSE  Makefile  pyproject.toml (uv workspace)  uv.lock
   .env.example  .gitignore  .dockerignore  .github/workflows/  .gitea/workflows/
   Application/
     Common/   waystation_common/   settings, logging, ids, crypto, events schema, job protocol, storage API, errors
