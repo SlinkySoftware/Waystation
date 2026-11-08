@@ -14,6 +14,7 @@ from typing import Any
 
 from waystation_common.db.client import Database
 from waystation_common.db.collections import DOCKER_MANIFESTS, DOCKER_TAGS
+from waystation_common.searchkeys import name_keys
 
 
 async def record_manifest(db: Database, repo_id: str, image: str, digest: str, fields: Mapping[str, Any]) -> None:
@@ -30,7 +31,8 @@ async def record_tag(db: Database, repo_id: str, image: str, tag: str, digest: s
     which may be one platform's manifest) only creates the tag when it is unknown."""
     now = datetime.now(UTC)
     fields = {'manifest_digest': digest, 'updated_at': now}
-    update: dict[str, Any] = {'$set': fields} if authoritative else {'$setOnInsert': fields}
+    keys = name_keys(image)  # search keys (always set: also backfills a tag written before they existed)
+    update: dict[str, Any] = {'$set': {**fields, **keys}} if authoritative else {'$setOnInsert': fields, '$set': keys}
     await db[DOCKER_TAGS].update_one({'repo_id': repo_id, 'image': image, 'tag': tag}, update, upsert=True)
 
 

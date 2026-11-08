@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Top bar: menu toggle, product mark + instance name, search (palette in T-U06), live indicator, theme, user. -->
+<!-- Top bar: menu toggle, product mark + instance name, search (opens the command palette), live indicator, theme, user. -->
 <template>
   <div class="topbar">
     <q-btn flat round dense :icon="iconMenu" :aria-label="t('nav.toggle')" class="topbar__menu" @click="emit('toggle-rail')" />
@@ -12,11 +12,12 @@
       <q-tooltip>{{ t('shell.mockHelp') }}</q-tooltip>
     </span>
 
-    <button type="button" class="topbar__search" :aria-label="t('shell.search')" @click="router.push({ name: 'search' })">
+    <button type="button" class="topbar__search" :aria-label="t('shell.search')" aria-haspopup="dialog" :aria-keyshortcuts="keyshortcut" @click="emit('open-palette')">
       <q-icon :name="iconSearch" size="18px" />
       <span class="topbar__search-text">{{ t('shell.searchPlaceholder') }}</span>
       <kbd>{{ shortcut }}</kbd>
     </button>
+    <q-btn flat round dense :icon="iconSearch" :aria-label="t('shell.search')" class="topbar__search-icon" @click="emit('open-palette')" />
     <q-space />
 
     <LiveIndicator @click="emit('open-live')" />
@@ -33,7 +34,6 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
 
 import BrandMark from '@/components/BrandMark.vue'
 import { t } from '@/i18n'
@@ -45,13 +45,14 @@ import LiveIndicator from './LiveIndicator.vue'
 import UserMenu from './UserMenu.vue'
 
 defineProps<{ railOpen: boolean }>()
-const emit = defineEmits<{ 'toggle-rail': []; 'open-live': [] }>()
+const emit = defineEmits<{ 'toggle-rail': []; 'open-live': []; 'open-palette': [] }>()
 
-const router = useRouter()
 const config = useConfigStore()
 const theme = useThemeStore()
 const mock = import.meta.env.WAYSTATION_MOCK === '1'
-const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'
+const mac = /Mac|iPhone|iPad/.test(navigator.platform)
+const shortcut = mac ? '⌘K' : 'Ctrl K'
+const keyshortcut = mac ? 'Meta+K' : 'Control+K'
 
 const themeIcon = computed(() => (theme.mode === 'light' ? iconLight : theme.mode === 'dark' ? iconDark : iconSystemTheme))
 const themeLabel = computed(() => t('shell.themeIs', { mode: t(`theme.${theme.mode}`) }))
@@ -126,9 +127,17 @@ kbd {
   color: var(--text-secondary);
 }
 
+.topbar__search-icon {
+  display: none;
+}
+
 @media (max-width: 1023px) {
   .topbar__search {
     display: none;
+  }
+
+  .topbar__search-icon {
+    display: inline-flex;
   }
 }
 

@@ -96,7 +96,7 @@ Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. 
 - **Raw**: folder listing.
 
 ### 4.5 Search
-Full-page results with facet sidebar (format, repository, type), result rows with icon, name, version,
+Full-page results with facet sidebar (format, repository, kind, type, cached only), result rows with icon, name, version,
 repo, size, last downloaded; digest search ("sha256:..." shows every asset using that blob).
 
 ### 4.6 Activity

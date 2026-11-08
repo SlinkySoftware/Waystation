@@ -42,6 +42,14 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 | `blobs` | `_id` = sha256 hex, `size`, `first_seen`, `claimed_at` (last time a commit put or found the file in place: the GC claim, written before the rename), `adopted?` (a file GC found without a document), `gc_marked_at?` (first seen unreferenced; cleared when referenced or claimed), `gc_state?` = `deleting` + `gc_deleting_at` (GC is removing the file; claims wait, or take over after 10 min). Protocol in `waystation_common.db.blobs` (ARCHITECTURE §5) | `gc_marked_at` |
 | `upload_sessions` | `_id` (uuid), `repo_id`, `kind` (`oci-chunked`/`single`), `principal`, `bytes_received`, `started_at`, `expires_at` | TTL `expires_at` |
 
+**Search keys** (T-U06, `waystation_common.searchkeys`): every searchable document (`npm_packages`, `docker_tags`,
+`apt_packages`, `yum_packages` listing entries, `assets` of kind `content`) carries `name_lc` (its name lower-cased,
+at most 200 characters; files: the last path segment) and, for names with a `/`, `base_lc` (the last segment
+lower-cased, so `nginx` finds `library/nginx`). The format index writers set them; migration `0002_search_keys`
+backfills older documents (idempotent, batched). Indexes, partial on the key existing: `search_name`
+`name_lc,repo_id,_id` on all five collections, and `search_base` `base_lc,repo_id,_id,name_lc` on `docker_tags` and
+`npm_packages`. Global search reads prefix ranges of these in index order (no in-memory sort).
+
 ### Operations, stats, audit
 | Collection | Key fields | Indexes |
 |---|---|---|

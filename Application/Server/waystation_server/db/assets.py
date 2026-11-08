@@ -10,6 +10,7 @@ from pymongo import ReturnDocument
 from waystation_common.db.client import Database
 from waystation_common.db.collections import ASSETS
 from waystation_common.ids import new_id
+from waystation_common.searchkeys import file_keys
 from waystation_server.proxy.records import StoredAsset, UpstreamMeta
 
 
@@ -21,6 +22,8 @@ async def get(db: Database, repo_id: str, path: str) -> StoredAsset | None:
 async def save(db: Database, asset: StoredAsset) -> StoredAsset:
     """Insert or replace the asset at ``(repo_id, path)``; keeps the original ``_id`` and ``created_at``."""
     fields = asset.model_dump(by_alias=True, exclude={'id', 'created_at'})
+    if asset.kind == 'content':
+        fields |= file_keys(asset.path)  # global search (waystation_common.searchkeys)
     doc = await db[ASSETS].find_one_and_update(
         {'repo_id': asset.repo_id, 'path': asset.path},
         {'$set': fields, '$setOnInsert': {'_id': new_id(), 'created_at': asset.created_at}},

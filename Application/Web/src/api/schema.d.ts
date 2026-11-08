@@ -815,6 +815,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search packages, images and files across every repository the principal can browse
+         * @description Name search: `q` is `<name prefix>[ <version prefix>]`, case-insensitive; the name prefix matches a full name
+         *     or its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`). Sources: docker tags,
+         *     npm packages, apt and yum index listings, cached files (by file name; not docker layers). Results are ordered
+         *     by the matched name. An empty `q` lists everything.
+         *     Digest search: `sha256:<8-64 hex digits>` or 64 hex digits finds every cached file with that blob in any
+         *     repository and format, and the docker tags pointing at it.
+         *     Hidden repositories are never searched: they appear in no result, count or facet value.
+         *     Facets (first page): counts per value with every other filter applied.
+         */
+        get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stats/summary": {
         parameters: {
             query?: never;
@@ -1667,6 +1694,62 @@ export interface components {
         AptPackagePage: {
             items: components["schemas"]["AptPackage"][];
             next_cursor: string | null;
+        };
+        /** @enum {string} */
+        SearchKind: "package" | "image" | "file";
+        SearchBrowseLink: {
+            repository: string;
+            /** @description Query of the repository Browse view: `image` + `ref` (docker), `package` (npm), `suite` + `arch` + `q` (apt), `path` (the folder listing of every other format) */
+            query: {
+                [key: string]: string;
+            };
+        };
+        SearchHit: {
+            kind: components["schemas"]["SearchKind"];
+            format: components["schemas"]["Format"];
+            repository: string;
+            repository_type: components["schemas"]["RepositoryType"];
+            /** @description Package, image or file name */
+            name: string;
+            /** @description Version (packages) or tag (images) */
+            version: string | null;
+            /** @description Where it is listed: suite/component and architecture (apt), arch (yum) */
+            qualifier: string | null;
+            /** @description File path in the repository (files */
+            path: string | null;
+            size: number | null;
+            /** @description Blob sha256 (files) or manifest digest (images) */
+            sha256: string | null;
+            /** Format: date-time */
+            updated_at: string | null;
+            /** @description In the cache (a listed apt/yum package may not be); null if unknown */
+            cached: boolean | null;
+            browse: components["schemas"]["SearchBrowseLink"];
+        };
+        SearchFacetValue: {
+            value: string;
+            count: number;
+        };
+        SearchFacets: {
+            format: components["schemas"]["SearchFacetValue"][];
+            repository: components["schemas"]["SearchFacetValue"][];
+            kind: components["schemas"]["SearchFacetValue"][];
+            type: components["schemas"]["SearchFacetValue"][];
+            /** @description Matches with every filter applied */
+            total: number;
+            /** @description Counting stopped early: counts are lower bounds */
+            capped: boolean;
+        };
+        SearchPage: {
+            /**
+             * @description `digest` when the query is a sha256 digest (or a prefix of one)
+             * @enum {string}
+             */
+            mode: "name" | "digest";
+            items: components["schemas"]["SearchHit"][];
+            next_cursor: string | null;
+            /** @description First page only, unless `facets=false` */
+            facets: components["schemas"]["SearchFacets"] | null;
         };
         /** @description Sparkline values per KPI over the range, oldest first, equally spaced (`step_s`) */
         Sparks: {
@@ -3685,6 +3768,51 @@ export interface operations {
                 };
             };
             403: components["responses"]["Forbidden"];
+        };
+    };
+    search: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Repeat to select several (OR) */
+                format?: components["schemas"]["Format"][];
+                /** @description Repository names; repeat to select several (OR) */
+                repository?: string[];
+                kind?: components["schemas"]["SearchKind"][];
+                /** @description Repository types */
+                type?: components["schemas"]["RepositoryType"][];
+                /** @description Only what is in the cache (leaves out apt/yum index listings; downloaded packages are still found as files) */
+                cached?: boolean;
+                /** @description Facet counts on the first page */
+                facets?: boolean;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of results (and facets on the first page) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPage"];
+                };
+            };
+            /** @description Invalid cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getStatsSummary: {

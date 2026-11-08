@@ -165,6 +165,18 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - Global search across repositories the principal can read: name (prefix and substring), version, format,
   repository, digest/checksum lookup ("where is this sha256 used?"), with facets (format, repo, type).
   Target: results in < 150 ms p95 for 1M assets.
+  Now (T-U06, 2026-11-09): `GET /api/v1/search?q=&format=&repository=&kind=&type=&cached=&cursor=&limit=` searches
+  only the repositories the principal may `browse` (`access.filter_repos`; a hidden repository never appears in a
+  hit, a facet value or a count, and naming it as a filter yields an empty result). `q` is
+  `<name prefix>[ <version prefix>]`, case-insensitive, matched on the full name or its last `/` segment (`nginx`
+  finds `library/nginx`, `node` finds `@types/node`); empty lists everything. Sources: docker tags (kind `image`),
+  npm packages and apt/yum index listings (kind `package`; `cached` says whether the listed file is in the cache),
+  and cached files of every format but docker (kind `file`). `cached=true` leaves out the apt/yum listings. A digest
+  (`sha256:<8-64 hex>` or 64 hex digits) finds every cached file with that blob and the docker tags pointing at it,
+  in any visible repository. Results come straight from per-collection `(name_lc, repo_id, _id)` indexes, merged
+  with exact keyset cursor paging; facet counts (format, repository, kind, repository type) are disjunctive (each
+  ignores its own filter), on the first page only, and lower bounds when `capped`. Every hit carries a Browse deep
+  link. Substring (non-prefix) matching and the 1M-asset p95 measurement are still to do.
 - Component pages show: coordinates, versions/tags, size, digests, created/last downloaded/last modified,
   download count and sparkline, which repos hold it, upstream URL, uploader (hosted), install/pull snippet.
 
@@ -615,6 +627,7 @@ Waystation/
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
 | Cleanup policies (T-O01) | Done 2026-11-09: named policies (criteria per SPEC §4.8, per-format version order, docker tag cascade), dry-run preview API (same planning code as runs), `cleanup.run` worker job with progress, per-policy cron schedules, attachment per repository, REST + UI (`/cleanup` page with live impact count, candidate preview and run history; repository Cleanup tab); downloads recorded off the hot path into `assets.last_downloaded_at`/`download_count`. Audit records pending (T-S10) |
 | Blob GC (T-O02) | Done 2026-11-09: `blob.gc` worker job (every 6 h, 24 h grace): orphan uploads, adoption of untracked files, mark-and-sweep with a claim protocol that makes a racing cache fill safe (property test + real fill-vs-sweep race test), missing referenced blobs reported; GC status/run API and UI card; freed bytes as activity events and Prometheus counters (`waystation_gc_*`, `waystation_cleanup_*`) |
+| Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Left: substring matching, the 1M-asset p95 benchmark |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)
