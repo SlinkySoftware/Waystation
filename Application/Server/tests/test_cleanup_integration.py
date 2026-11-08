@@ -315,6 +315,46 @@ async def test_run_now_enqueues_once(admin: httpx.AsyncClient, services: Service
     assert listed[0]['last_run']['id'] == 'run-1'
 
 
+# ---------------------------------------------------------------------------- blob GC (T-O02)
+async def test_gc_status_run_and_metrics(admin: httpx.AsyncClient, rita: httpx.AsyncClient, services: Services) -> None:
+    status = (await admin.get('/api/v1/maintenance/gc')).json()
+    assert status['enabled'] and status['schedule'] == '0 */6 * * *' and status['grace_hours'] == 24
+    assert status['next_run_at'] is not None and status['runs'] == []
+    assert (status['pending_blobs'], status['pending_bytes']) == (0, 0)
+    await services.db[JOB_DEFINITIONS].insert_one(
+        {'_id': 'blob.gc', 'kind': 'blob.gc', 'schedule': '@daily', 'params': {'grace_s': 7200}, 'enabled': False}
+    )
+    await services.db['blobs'].insert_one({'_id': 'f' * 64, 'size': 5, 'gc_marked_at': NOW})
+    await services.db[JOB_RUNS].insert_one(
+        {
+            '_id': 'gc-1',
+            'job_id': 'j',
+            'definition_id': 'blob.gc',
+            'kind': 'blob.gc',
+            'status': 'succeeded',
+            'progress': {'done': 9, 'total': 9, 'message': None},
+            'started_at': NOW,
+            'finished_at': NOW,
+            'result': {'freed_blobs': 2, 'freed_bytes': 2048, 'marked': 1, 'uploads_removed': 3},
+        }
+    )
+    status = (await admin.get('/api/v1/maintenance/gc')).json()
+    assert not status['enabled'] and status['next_run_at'] is None and status['grace_hours'] == 2
+    assert (status['pending_blobs'], status['pending_bytes']) == (1, 5)
+    run = status['runs'][0]
+    assert (run['trigger'], run['freed_bytes'], run['uploads_removed']) == ('schedule', 2048, 3)
+    accepted = await admin.post('/api/v1/maintenance/gc/run')
+    assert accepted.status_code == 202 and accepted.json()['status'] == 'enqueued'
+    assert (await rita.get('/api/v1/maintenance/gc')).status_code == 403
+    assert (await rita.post('/api/v1/maintenance/gc/run')).status_code == 403
+
+    await services.valkey.hset('maintenance:totals', mapping={'gc_freed_bytes': '4096', 'cleanup_removed': '7'})
+    metrics = (await admin.get('/metrics')).text
+    assert 'waystation_gc_freed_bytes_total 4096.0' in metrics
+    assert 'waystation_cleanup_removed_items_total 7.0' in metrics
+    assert 'waystation_gc_freed_blobs_total 0.0' in metrics
+
+
 # ---------------------------------------------------------------------------- preview == run
 async def remaining(services: Services) -> dict[str, set[str]]:
     return {

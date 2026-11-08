@@ -17,6 +17,7 @@ from waystation_common.jobs.client import JobClient
 from waystation_common.jobs.model import (
     JOB_TYPES,
     QUEUES,
+    BlobGc,
     CleanupRun,
     JobEnvelope,
     JobPayload,
@@ -29,6 +30,7 @@ from waystation_common.jobs.schedule import parse_schedule
 __all__ = [
     'JOB_TYPES',
     'QUEUES',
+    'BlobGc',
     'CleanupRun',
     'Delivery',
     'EnqueueResult',

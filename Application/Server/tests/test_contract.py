@@ -68,6 +68,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/cleanup-policies/{policy_id}', 'delete'),
     ('/cleanup-policies/{policy_id}/run', 'post'),
     ('/cleanup-policies/{policy_id}/runs', 'get'),
+    ('/maintenance/gc', 'get'),
+    ('/maintenance/gc/run', 'post'),
     ('/repositories/{name}/docker/manifest', 'get'),
     ('/stats/summary', 'get'),
     ('/stats/traffic', 'get'),
