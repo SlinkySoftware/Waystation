@@ -15,7 +15,9 @@ from dataclasses import dataclass, field
 from redis.asyncio import Redis
 from starlette.requests import Request
 
+from waystation_common.audit import AuditWriter
 from waystation_common.crypto import Keyring
+from waystation_common.db import audit as audit_db
 from waystation_common.db.blobs import MongoBlobGuard
 from waystation_common.db.client import Client, Database, create_client, database
 from waystation_common.db.migrations import check_schema
@@ -69,6 +71,7 @@ class Services:
     groups: GroupDirectory  # group → roles (security.groups)
     ldap: LdapAuthenticator  # LDAP thread pool front end + bind cache (security.ldap)
     jobs: JobClient  # enqueue worker jobs (durable via the outbox inside a transaction, or best effort; ARCH §10)
+    audit: AuditWriter  # audit records, queued and batched (``waystation_server.audit.record``)
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
@@ -135,6 +138,7 @@ class Services:
             groups=groups,
             ldap=LdapAuthenticator(),
             jobs=JobClient(redis, db),
+            audit=AuditWriter(audit_db.inserter(db), retention_days=settings.audit_retention_days),
             proxy=ProxyEngine(
                 settings=settings,
                 db=db,
@@ -162,6 +166,7 @@ class Services:
         if self.keyring is None:
             log.warning('WAYSTATION_SECRET_KEYS is not set: upstream credentials cannot be stored')
         await self.emitter.start()
+        self.audit.start()
         await self.proxy.coalescer.start()
         self.tokens.start()
         self._started = True
@@ -173,6 +178,7 @@ class Services:
         await self.hub.stop()
         await self.proxy.coalescer.aclose()
         await self.tokens.stop()
+        await self.audit.aclose()
         await self.emitter.aclose()
         await self.upstream.aclose()
         await self.valkey.aclose()
