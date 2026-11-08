@@ -1,0 +1,37 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://deb.debian.org/debian/README"
+  },
+  "response": {
+    "body_sha256": "a0c66a1fe046f008b6db9584d05347dd8ded2b78250851b61d3861c213ac361e",
+    "body_size": 1198,
+    "headers": [
+      [
+        "content-length",
+        "1198"
+      ],
+      [
+        "last-modified",
+        "Sat, 12 Sep 2026 07:22:23 GMT"
+      ],
+      [
+        "etag",
+        "\"4ae-65b440ff1a67e\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}
