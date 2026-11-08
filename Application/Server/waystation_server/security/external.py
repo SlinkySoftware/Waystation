@@ -22,9 +22,12 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from waystation_common.audit import SYSTEM, AuditChange
 from waystation_common.db.client import Database
 from waystation_common.errors import Conflict
 from waystation_common.ids import new_id
+from waystation_server import audit
+from waystation_server.audit import AuditAction
 from waystation_server.db import users as users_db
 from waystation_server.security.identity import ExternalGroupRef, LinkedIdentity, UserRecord
 
@@ -91,6 +94,13 @@ async def link_identity(
         try:
             await users_db.insert(db, created)
             log.info('user provisioned', extra={'user_id': created.id, 'provider': identity.provider})
+            audit.record(
+                AuditAction.USER_CREATE,
+                actor=SYSTEM,
+                target=audit.target('user', created.id, created.username),
+                details={'provider': identity.provider, 'subject': identity.subject},
+                changes=audit.diff(None, created.model_dump(include={'username', 'display_name', 'email', 'source'})),
+            )
             user = created
         except Conflict:  # created concurrently (another replica, the same login twice): link to that one
             user = await users_db.get_by_username(db, identity.username)
@@ -112,4 +122,28 @@ async def link_identity(
     )
     if synced is None:
         raise LinkRefused('changed')
+    _audit_sync(user, synced, identity)
     return synced
+
+
+def _audit_sync(before: UserRecord, after: UserRecord, identity: ExternalIdentity) -> None:
+    """``user.link`` when this external account is new to the user, ``user.groups_sync`` when the provider reported
+    different groups than last time (the user's mapped roles follow them)."""
+    target = audit.target('user', after.id, after.username)
+    if not any(i.provider == identity.provider and i.subject == identity.subject for i in before.identities):
+        audit.record(
+            AuditAction.USER_LINK,
+            actor=SYSTEM,
+            target=target,
+            details={'provider': identity.provider, 'subject': identity.subject},
+        )
+    old = sorted(g.name or g.id for g in before.external_groups if g.provider == identity.provider)
+    new = sorted(g.name or g.id for g in after.external_groups if g.provider == identity.provider)
+    if old != new:
+        audit.record(
+            AuditAction.USER_GROUPS_SYNC,
+            actor=SYSTEM,
+            target=target,
+            details={'provider': identity.provider},
+            changes=[AuditChange(field=f'external_groups.{identity.provider}', before=old, after=new)],
+        )

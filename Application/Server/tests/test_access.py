@@ -74,7 +74,13 @@ def test_visibility_and_filtering() -> None:
 
 
 def test_capabilities() -> None:
-    assert access.capabilities(ADMIN) == ['admin', 'repositories.create', 'repositories.manage', 'stats.read']
+    assert access.capabilities(ADMIN) == [
+        'admin',
+        'repositories.create',
+        'repositories.manage',
+        'stats.read',
+        'audit.read',
+    ]
     assert access.capabilities(VIEWER) == ['stats.read']
     assert access.capabilities(ANONYMOUS) == []
 

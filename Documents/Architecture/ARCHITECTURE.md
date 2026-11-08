@@ -160,7 +160,11 @@ Formats without upstream checksums record the computed sha256 and serve consiste
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and
   every parsed metadata document, XML parsing with `defusedxml`, archive extraction with zip/tar-slip checks,
   no `eval`/`pickle`/YAML unsafe load.
-- Audit records written for SPEC §4.11 actions via `audit.record(...)` only.
+- Audit records written for SPEC §4.11 actions via `audit.record(...)` only (`waystation_server.audit`; one call per
+  action, request context bound by the middleware). Records are queued to a bounded in-process `AuditWriter`
+  (`waystation_common.audit`) and inserted in batches off the request path: auditing never blocks or fails a
+  request; overflow is counted and logged at ERROR. Secret values never reach a record (`sanitize`, `diff`).
+  Workers use the same writer (actor `system`).
 
 ## 8. Events, stats and live activity
 - The server emits typed events (`waystation_common.events`): `transfer.started|progress|finished|failed`,
