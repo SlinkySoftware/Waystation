@@ -253,7 +253,7 @@ function onCreated(repo: Repository): void {
 }
 
 .repos__desc {
-  max-width: 300px;
+  max-width: 220px;
   font-size: var(--fs-12);
   color: var(--text-secondary);
   overflow: hidden;
@@ -271,7 +271,7 @@ function onCreated(repo: Repository): void {
 }
 
 .repos__url {
-  max-width: 300px;
+  max-width: 220px;
 }
 
 .repos__spark {
@@ -281,7 +281,7 @@ function onCreated(repo: Repository): void {
 }
 
 .repos__spark :deep(.sparkline) {
-  width: 84px;
+  width: 60px;
 }
 
 .repos__card {
