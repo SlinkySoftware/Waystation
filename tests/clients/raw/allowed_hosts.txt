@@ -1,0 +1,4 @@
+# Public hosts that appear in the raw format's recorded upstream content (the Debian archive's README files, its
+# trace file and the archive's HTML 404 page).
+debian.org
+w3.org
