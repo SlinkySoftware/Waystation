@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://deb.debian.org/debian-security/pool/updates/main/u/util-linux/rfkill_2.41.5-0+deb13u1_amd64.deb"
+  },
+  "response": {
+    "body_sha256": "a3aa5a05997bed2b306168b0281226300fc816486537fa240861494058adbaad",
+    "body_size": 43944,
+    "headers": [
+      [
+        "content-length",
+        "43944"
+      ],
+      [
+        "last-modified",
+        "Fri, 31 Jul 2026 16:37:53 GMT"
+      ],
+      [
+        "etag",
+        "\"aba8-657eacf656727\""
+      ],
+      [
+        "cache-control",
+        "public, max-age=2592000"
+      ],
+      [
+        "expires",
+        "Fri, 14 Aug 2026 17:02:06 GMT"
+      ],
+      [
+        "content-type",
+        "application/vnd.debian.binary-package"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

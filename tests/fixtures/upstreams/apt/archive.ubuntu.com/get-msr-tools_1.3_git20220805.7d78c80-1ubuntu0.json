@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://archive.ubuntu.com/ubuntu/pool/main/m/msr-tools/msr-tools_1.3+git20220805.7d78c80-1ubuntu0.1_amd64.deb"
+  },
+  "response": {
+    "body_sha256": "345a7f0d960c9081db3597461ba6d0f63fd5425db3e765981b4a52f01c61e6c9",
+    "body_size": 10142,
+    "headers": [
+      [
+        "last-modified",
+        "Fri, 28 Aug 2026 17:50:46 GMT"
+      ],
+      [
+        "etag",
+        "\"279e-65a1f179a97e1\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "10142"
+      ],
+      [
+        "cache-control",
+        "max-age=86400"
+      ],
+      [
+        "content-type",
+        "application/vnd.debian.binary-package"
+      ]
+    ],
+    "status": 200
+  }
+}

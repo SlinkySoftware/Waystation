@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://archive.ubuntu.com/ubuntu/dists/resolute-updates/main/binary-amd64/by-hash/SHA256/9c1b9c550cee550b22e5ca08aab25531ac65b573cb65696d78a7d0ac08d03f1d"
+  },
+  "response": {
+    "body_sha256": "9c1b9c550cee550b22e5ca08aab25531ac65b573cb65696d78a7d0ac08d03f1d",
+    "body_size": 843612,
+    "headers": [
+      [
+        "last-modified",
+        "Sat, 07 Nov 2026 19:42:23 GMT"
+      ],
+      [
+        "etag",
+        "\"cdf5c-65fb4ed84242f\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "843612"
+      ],
+      [
+        "cache-control",
+        "max-age=86400"
+      ]
+    ],
+    "status": 200
+  }
+}
