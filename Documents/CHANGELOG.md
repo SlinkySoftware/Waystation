@@ -3,6 +3,11 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-F04: `waystation_common` core: settings (pydantic-settings, `WAYSTATION_` prefix, `<NAME>_FILE` for every secret
+  including the Mongo/Valkey URIs, `make env-example` regenerates `.env.example` and a test fails when it is stale),
+  JSON logging with contextvars request context and secret redaction, ULIDs, error types, `paths.normalise`
+  (hypothesis property tests), AES-256-GCM keyring (first key encrypts, all decrypt, `rotate`). `make test` now
+  excludes `integration` tests and enforces 100% branch coverage on `paths` and `crypto`.
 - T-F02: dev tooling. Dev image (`Build/Containers/dev/`: Python 3.14, uv 0.13, Node 26 LTS); Makefile with every
   planned target (later ones say which task delivers them); uv workspace with the three packages and the server/worker
   subpackage skeleton; ruff (single quotes, 120 columns), mypy strict, pytest with coverage; six import-linter

@@ -329,7 +329,7 @@ Forward-only migrations run by `init`; `server` refuses to start on an unknown n
 breaking changes. Zero-downtime for patch releases with ≥2 server replicas.
 
 ## 9. Configuration reference (environment)
-All variables are `WAYSTATION_*`; every secret also accepts `<NAME>_FILE`. The authoritative list is
+All variables are `WAYSTATION_*`; every secret also accepts `<NAME>_FILE` (setting both is an error; empty values mean "use the default"). The authoritative list is
 `.env.example` (generated from `waystation_common.settings` by `make env-example`; CI checks it is current).
 Key ones: `BASE_URL`, `DATA_DIR`, `MONGO_URI`, `MONGO_DB`, `VALKEY_URL`, `SECRET_KEYS` (comma list, first is
 active), `SESSION_SECRET`, `TRUST_FORWARDED`, `TRUSTED_PROXIES`, `LOG_LEVEL`, `LOG_FORMAT`, `SERVER_WORKERS`,
@@ -407,6 +407,7 @@ Waystation/
 | Plan and documents | Drafted 2026-11-08 |
 | Repository bootstrap (T-F01) | Done 2026-11-08: skeleton, LICENSE (GPL-3.0-or-later), VERSION 0.1.0; not yet pushed |
 | Dev tooling (T-F02) | Done 2026-11-08: dev image (Python 3.14, uv, Node 26 LTS), Makefile, uv workspace (`waystation_common`, `waystation_server`, `waystation_worker`), ruff, mypy strict, import-linter contracts (ARCH §3), pre-commit hook |
+| Common core (T-F04) | Done 2026-11-08: `waystation_common.settings` (env `WAYSTATION_*`, `<NAME>_FILE` for secrets, generated `.env.example`), `logs` (JSON lines + contextvars request context, redaction), `ids` (ULID), `errors`, `paths.normalise`, `crypto` (AES-256-GCM keyring, rotation) |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)
