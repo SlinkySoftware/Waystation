@@ -94,6 +94,16 @@
   by mark-and-sweep, SPEC §4.8). Never mutate a blob; never hard-link.
 - Free-space guard checked before opening writers (SPEC §4.8).
 
+As implemented (T-O02): mark-and-sweep runs as the worker job `blob.gc` (`waystation_worker.gc`) over the `blobs`
+collection. To make a cache fill racing the sweep safe, `BlobStore.commit` **claims** the blob through
+`BlobStore.guard` (`waystation_common.db.blobs.MongoBlobGuard`) before the rename, also when identical content is
+already in place: the claim sets `claimed_at` and clears the mark, and cannot happen while GC holds the blob in state
+`deleting` (it waits, then writes the file again). GC deletes only after a compare-and-set to `deleting` that needs
+both the mark and the last claim to be older than the grace period, then re-checks that no asset references the
+blob. Code that makes a new reference to an existing blob without a commit must claim it first. nginx may be sending
+a blob GC unlinks: the open file stays readable on POSIX, and a blob served moments ago was referenced, so it is not
+deleted before the grace period ends.
+
 ## 6. Proxy engine
 ### 6.1 Upstream client
 One shared `httpx.AsyncClient` per upstream host (HTTP/2, connection pooling, limits per host), per-repo auth
@@ -160,7 +170,11 @@ Formats without upstream checksums record the computed sha256 and serve consiste
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and
   every parsed metadata document, XML parsing with `defusedxml`, archive extraction with zip/tar-slip checks,
   no `eval`/`pickle`/YAML unsafe load.
-- Audit records written for SPEC §4.11 actions via `audit.record(...)` only.
+- Audit records written for SPEC §4.11 actions via `audit.record(...)` only (`waystation_server.audit`; one call per
+  action, request context bound by the middleware). Records are queued to a bounded in-process `AuditWriter`
+  (`waystation_common.audit`) and inserted in batches off the request path: auditing never blocks or fails a
+  request; overflow is counted and logged at ERROR. Secret values never reach a record (`sanitize`, `diff`).
+  Workers use the same writer (actor `system`).
 
 ## 8. Events, stats and live activity
 - The server emits typed events (`waystation_common.events`): `transfer.started|progress|finished|failed`,
@@ -172,8 +186,9 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   - **Activity (lower rate, durable-ish)**: started/finished/failed, uploads, deletes, upstream state changes, jobs
     go to the `activity` stream (`XADD`, MAXLEN ~200k ≈ hours-days of history). `Last-Event-ID` resumes on this stream.
 - Hot path writes are O(1) Valkey ops (`HSET`, `PUBLISH`, `XADD`, `HINCRBY` per-minute counters, latency histogram
-  buckets). **Never write MongoDB per request**: session `last_seen_at` and token `last_used_at` are recorded in Valkey
-  and flushed in bulk by the rollup job (≤ 60 s staleness acceptable).
+  buckets). **Never write MongoDB per request**: session `last_seen_at`, token `last_used_at` and asset downloads
+  (`last_downloaded_at`, `download_count`) are recorded in Valkey and flushed in bulk by the rollup job (≤ 60 s
+  staleness acceptable).
 - **Rollups** (worker, every 10 s) write only **closed** minutes into `stats_minute` (time-series collections cannot
   upsert, so a minute is written exactly once, after it ends plus a 5 s grace); hour and day rollups run on closed
   hours/days. Latency is stored as fixed log-scale histogram buckets (counts), so percentiles can be recomputed

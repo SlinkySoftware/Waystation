@@ -117,6 +117,12 @@ async def runs_for_job(db: Database, job_id: str) -> list[Document]:
     return [doc async for doc in db[JOB_RUNS].find({'job_id': job_id}).sort('started_at', 1)]
 
 
+async def runs_by_dedupe(db: Database, dedupe_key: str, *, limit: int = 50) -> list[Document]:
+    """Newest first, without logs (index ``dedupe_started``)."""
+    cursor = db[JOB_RUNS].find({'dedupe_key': dedupe_key}, {'log': 0}).sort('started_at', -1).limit(limit)
+    return [doc async for doc in cursor]
+
+
 async def recent_runs(db: Database, *, kind: str | None = None, limit: int = 100) -> list[Document]:
     query = {'kind': kind} if kind else {}
     return [doc async for doc in db[JOB_RUNS].find(query, {'log': 0}).sort('started_at', -1).limit(limit)]

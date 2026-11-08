@@ -175,6 +175,7 @@ The authoritative list of application settings, with defaults and descriptions, 
 | `WAYSTATION_SESSION_IDLE_MINUTES` / `SESSION_MAX_HOURS` | `480` / `168` | UI session lifetimes |
 | `WAYSTATION_LOGIN_RATE_LIMIT`, `LOGIN_LOCKOUT_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | `20`, `10`, `15` | Sign-in throttling and lockout |
 | `WAYSTATION_TOKEN_FAILURE_LIMIT` | `60` | Rejected API tokens allowed per client address per 5 minutes (then 429) |
+| `WAYSTATION_AUDIT_RETENTION_DAYS` | `400` | Days an audit record is kept (MongoDB TTL); applies to records written from then on |
 | `WAYSTATION_TRUST_FORWARDED` / `TRUSTED_PROXIES` | `false` / empty | Trust `X-Forwarded-For` from these CIDRs (REVERSE_PROXIES.md) |
 | `WAYSTATION_METRICS_ALLOW_CIDRS` | `127.0.0.0/8,::1/128` | Who may scrape `/metrics` |
 | `WAYSTATION_SSRF_ALLOW_CIDRS` | empty | Private ranges upstreams may resolve to (e.g. an internal registry) |

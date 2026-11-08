@@ -36,8 +36,10 @@ tags:
   - name: tokens
   - name: repositories
   - name: browse
+  - name: search
   - name: stats
   - name: live
+  - name: cleanup
   - name: admin
 security:
   - session: []
@@ -448,6 +450,67 @@ paths:
                 items: { $ref: '#/components/schemas/Role' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /audit:
+    get:
+      tags: [admin]
+      operationId: listAudit
+      summary: Audit log, newest first (needs `audit-read`; `admin` implies it)
+      description: |
+        Append-only record of security-relevant actions (SPEC §4.11). Filters combine with AND; `action` may be
+        repeated (OR) and accepts a category wildcard such as `token.*`. Cursor paging, newest first.
+      parameters:
+        - $ref: '#/components/parameters/AuditFrom'
+        - $ref: '#/components/parameters/AuditTo'
+        - $ref: '#/components/parameters/AuditActor'
+        - $ref: '#/components/parameters/AuditAction'
+        - $ref: '#/components/parameters/AuditTarget'
+        - $ref: '#/components/parameters/AuditOutcome'
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Audit page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /audit/export:
+    get:
+      tags: [admin]
+      operationId: exportAudit
+      summary: Export the matching audit records (streamed CSV or NDJSON, newest first, at most 100 000 records)
+      description: |
+        Same filters as `GET /audit`. NDJSON lines are `AuditRecord` objects. CSV has one row per record with
+        `changes` and `details` as JSON text; cells a spreadsheet would treat as a formula are prefixed with `'`.
+        The response is an attachment. When the limit is reached the export stops and says so: the last NDJSON line
+        is `{"truncated": true}`, the last CSV row starts with `# truncated`.
+      parameters:
+        - $ref: '#/components/parameters/AuditFrom'
+        - $ref: '#/components/parameters/AuditTo'
+        - $ref: '#/components/parameters/AuditActor'
+        - $ref: '#/components/parameters/AuditAction'
+        - $ref: '#/components/parameters/AuditTarget'
+        - $ref: '#/components/parameters/AuditOutcome'
+        - name: format
+          in: query
+          schema: { type: string, enum: [csv, ndjson], default: csv }
+      responses:
+        '200':
+          description: The export file
+          content:
+            text/csv:
+              schema: { type: string }
+            application/x-ndjson:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /repositories:
     get:
       tags: [repositories]
@@ -759,6 +822,258 @@ paths:
               schema: { $ref: '#/components/schemas/AptPackagePage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/cleanup:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [cleanup]
+      operationId: getRepositoryCleanup
+      summary: Cleanup policies attached to a repository (needs `manage` on it)
+      responses:
+        '200':
+          description: Attached policies, in run order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RepositoryCleanup' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [cleanup]
+      operationId: setRepositoryCleanup
+      summary: Attach cleanup policies to a repository (replaces the list; needs `manage` on it)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RepositoryCleanupUpdate' }
+      responses:
+        '200':
+          description: Attached policies
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RepositoryCleanup' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /cleanup-policies:
+    get:
+      tags: [cleanup]
+      operationId: listCleanupPolicies
+      summary: Cleanup policies by name (needs `admin`, or `manage` on a repository to pick policies to attach)
+      responses:
+        '200':
+          description: Policies
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CleanupPolicyList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [cleanup]
+      operationId: createCleanupPolicy
+      summary: Create a cleanup policy (needs `admin`)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CleanupPolicyWrite' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CleanupPolicy' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /cleanup-policies/preview:
+    post:
+      tags: [cleanup]
+      operationId: previewCleanup
+      summary: Dry run of a (saved or draft) policy - what a run would remove now, with sizes; removes nothing
+      description: |
+        Evaluates the criteria against the repositories exactly as a run does (the same code), so the preview
+        equals the result of running the policy now. `limit: 0` returns only the totals (live counts in the editor).
+        Repositories: the request's list; else the saved policy's attached repositories (`policy_id`); else every
+        repository of the policy's format. Needs `admin`, or `manage` on every listed repository.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CleanupPreviewRequest' }
+      responses:
+        '200':
+          description: What would be removed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CleanupPreview' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /cleanup-policies/{policy_id}:
+    parameters:
+      - $ref: '#/components/parameters/PolicyId'
+    get:
+      tags: [cleanup]
+      operationId: getCleanupPolicy
+      summary: One cleanup policy
+      responses:
+        '200':
+          description: The policy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CleanupPolicy' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [cleanup]
+      operationId: updateCleanupPolicy
+      summary: Replace a cleanup policy (needs `admin`)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CleanupPolicyWrite' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CleanupPolicy' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [cleanup]
+      operationId: deleteCleanupPolicy
+      summary: Delete a cleanup policy (detaches it from every repository; needs `admin`)
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /cleanup-policies/{policy_id}/run:
+    parameters:
+      - $ref: '#/components/parameters/PolicyId'
+    post:
+      tags: [cleanup]
+      operationId: runCleanupPolicy
+      summary: Run a policy now on its attached repositories (a worker job; needs `admin`)
+      responses:
+        '202':
+          description: Queued (or merged into a pending run of the same policy)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /cleanup-policies/{policy_id}/runs:
+    parameters:
+      - $ref: '#/components/parameters/PolicyId'
+    get:
+      tags: [cleanup]
+      operationId: listCleanupRuns
+      summary: The policy's recent runs (newest first, up to 50) with progress and what they removed
+      responses:
+        '200':
+          description: Runs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CleanupRunList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /maintenance/gc:
+    get:
+      tags: [cleanup]
+      operationId: getBlobGc
+      summary: Blob garbage collection status - schedule, grace period, pending and recent runs (needs `admin`)
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GcStatus' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /maintenance/gc/run:
+    post:
+      tags: [cleanup]
+      operationId: runBlobGc
+      summary: Run blob garbage collection now (a worker job; needs `admin`)
+      responses:
+        '202':
+          description: Queued (or merged into a pending run)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /search:
+    get:
+      tags: [search]
+      operationId: search
+      summary: Search packages, images and files across every repository the principal can browse
+      description: |
+        Name search: `q` is `<name prefix>[ <version prefix>]`, case-insensitive; the name prefix matches a full name
+        or its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`). Sources: docker tags,
+        npm packages, apt and yum index listings, cached files (by file name; not docker layers). Results are ordered
+        by the matched name. An empty `q` lists everything.
+        Digest search: `sha256:<8-64 hex digits>` or 64 hex digits finds every cached file with that blob in any
+        repository and format, and the docker tags pointing at it.
+        Hidden repositories are never searched: they appear in no result, count or facet value.
+        Facets (first page): counts per value with every other filter applied.
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 256, default: '' }
+        - name: format
+          in: query
+          description: Repeat to select several (OR)
+          schema:
+            type: array
+            maxItems: 20
+            items: { $ref: '#/components/schemas/Format' }
+        - name: repository
+          in: query
+          description: Repository names; repeat to select several (OR)
+          schema:
+            type: array
+            maxItems: 50
+            items: { type: string }
+        - name: kind
+          in: query
+          schema:
+            type: array
+            maxItems: 3
+            items: { $ref: '#/components/schemas/SearchKind' }
+        - name: type
+          in: query
+          description: Repository types
+          schema:
+            type: array
+            maxItems: 3
+            items: { $ref: '#/components/schemas/RepositoryType' }
+        - name: cached
+          in: query
+          description: Only what is in the cache (leaves out apt/yum index listings; downloaded packages are still found as files)
+          schema: { type: boolean, default: false }
+        - name: facets
+          in: query
+          description: Facet counts on the first page
+          schema: { type: boolean, default: true }
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: One page of results (and facets on the first page)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchPage' }
+        '400':
+          description: Invalid cursor
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /stats/summary:
     get:
       tags: [stats]
@@ -1006,6 +1321,11 @@ components:
       name: metric
       in: query
       schema: { type: string, enum: [bytes, requests], default: bytes }
+    PolicyId:
+      name: policy_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
     TokenId:
       name: token_id
       in: path
@@ -1022,6 +1342,41 @@ components:
       required: true
       description: Image name within the repository, e.g. `library/nginx`
       schema: { type: string, maxLength: 255 }
+
+    AuditFrom:
+      name: from
+      in: query
+      description: Records at or after this time (RFC 3339)
+      schema: { type: string, format: date-time }
+    AuditTo:
+      name: to
+      in: query
+      description: Records before this time (RFC 3339)
+      schema: { type: string, format: date-time }
+    AuditActor:
+      name: actor
+      in: query
+      description: Who acted, by name (`admin`, `ci-bot`, `anonymous`) or id
+      schema: { type: string, maxLength: 256 }
+    AuditAction:
+      name: action
+      in: query
+      description: An action (`token.create`) or a category wildcard (`token.*`); repeat for several
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 20
+        items: { type: string, maxLength: 64 }
+    AuditTarget:
+      name: target
+      in: query
+      description: The object acted on, by name (`dockerhub-proxy`) or id
+      schema: { type: string, maxLength: 256 }
+    AuditOutcome:
+      name: outcome
+      in: query
+      schema: { $ref: '#/components/schemas/AuditOutcome' }
 
   responses:
     Unauthorized:
@@ -1151,7 +1506,7 @@ components:
           type: array
           description: |
             Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
-            replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`,
+            replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
             `admin`.
           items: { type: string }
         preferences: { $ref: '#/components/schemas/Preferences' }
@@ -1800,6 +2155,71 @@ components:
           items: { $ref: '#/components/schemas/AptPackage' }
         next_cursor: { type: [string, 'null'] }
 
+    # ---------------------------------------------------------------- search
+    SearchKind:
+      type: string
+      enum: [package, image, file]
+    SearchBrowseLink:
+      type: object
+      required: [repository, query]
+      properties:
+        repository: { type: string }
+        query:
+          type: object
+          description: 'Query of the repository Browse view: `image` + `ref` (docker), `package` (npm), `suite` + `arch` + `q` (apt), `path` (the folder listing of every other format)'
+          additionalProperties: { type: string }
+    SearchHit:
+      type: object
+      required: [kind, format, repository, repository_type, name, version, qualifier, path, size, sha256, updated_at, cached, browse]
+      properties:
+        kind: { $ref: '#/components/schemas/SearchKind' }
+        format: { $ref: '#/components/schemas/Format' }
+        repository: { type: string }
+        repository_type: { $ref: '#/components/schemas/RepositoryType' }
+        name: { type: string, description: 'Package, image or file name' }
+        version: { type: [string, 'null'], description: Version (packages) or tag (images) }
+        qualifier: { type: [string, 'null'], description: 'Where it is listed: suite/component and architecture (apt), arch (yum)' }
+        path: { type: [string, 'null'], description: File path in the repository (files, apt/yum packages) }
+        size: { type: [integer, 'null'] }
+        sha256: { type: [string, 'null'], description: Blob sha256 (files) or manifest digest (images) }
+        updated_at: { type: [string, 'null'], format: date-time }
+        cached: { type: [boolean, 'null'], description: In the cache (a listed apt/yum package may not be); null if unknown }
+        browse: { $ref: '#/components/schemas/SearchBrowseLink' }
+    SearchFacetValue:
+      type: object
+      required: [value, count]
+      properties:
+        value: { type: string }
+        count: { type: integer }
+    SearchFacets:
+      type: object
+      required: [format, repository, kind, type, total, capped]
+      properties:
+        format:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        repository:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        kind:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        type:
+          type: array
+          items: { $ref: '#/components/schemas/SearchFacetValue' }
+        total: { type: integer, description: Matches with every filter applied }
+        capped: { type: boolean, description: 'Counting stopped early: counts are lower bounds' }
+    SearchPage:
+      type: object
+      required: [mode, items, next_cursor, facets]
+      properties:
+        mode: { type: string, enum: [name, digest], description: '`digest` when the query is a sha256 digest (or a prefix of one)' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SearchHit' }
+        next_cursor: { type: [string, 'null'] }
+        facets: { oneOf: [{ $ref: '#/components/schemas/SearchFacets' }, { type: 'null' }], description: 'First page only, unless `facets=false`' }
+
     # ---------------------------------------------------------------- stats
     Sparks:
       type: object
@@ -2078,3 +2498,282 @@ components:
         type: { type: string, const: activity }
         ts: { $ref: '#/components/schemas/Timestamp' }
         event: { $ref: '#/components/schemas/ActivityEvent' }
+
+    # ---------------------------------------------------------------- cleanup and blob GC (T-O01, T-O02)
+    CleanupFormat:
+      type: string
+      description: The format a policy applies to, or `*` for every format
+      enum: ['*', docker, npm, apt, raw, yum, pypi, maven, go, helm, terraform, galaxy, swift, nuget, cargo, rubygems, composer, conda, apk, huggingface]
+    CleanupCriteria:
+      type: object
+      description: |
+        Every criterion that is set must match (AND); at least one selecting criterion is required. Docker policies
+        select tags (name = image, version = tag); `untagged_older_than_days` also removes manifests no tag reaches.
+        Only content is removed (never indexes or packuments); blob GC reclaims the space later.
+      additionalProperties: false
+      properties:
+        last_downloaded_older_than_days:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 36500
+          description: Not downloaded for this many days (never downloaded = counted from when it was cached)
+        published_older_than_days:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 36500
+          description: Cached or published more than this many days ago (docker - tag last updated)
+        keep_latest_n_versions:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 1000
+          description: Always keep the newest N versions of each component (format version order; docker - tags by recency)
+        name_include: { type: [string, 'null'], maxLength: 256, description: Regular expression the component name must contain a match of }
+        name_exclude: { type: [string, 'null'], maxLength: 256, description: Regular expression that protects matching names }
+        version_include: { type: [string, 'null'], maxLength: 256, description: Regular expression the version or tag must contain a match of }
+        version_exclude: { type: [string, 'null'], maxLength: 256, description: Regular expression that protects matching versions or tags }
+        prerelease_only: { type: boolean, default: false, description: 'Only pre-release versions (semver `-rc.1`, Debian `~beta`, tags such as `nightly`)' }
+        untagged_older_than_days:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 36500
+          description: Docker only - manifests no tag reaches, updated more than this many days ago
+    CleanupPolicyWrite:
+      type: object
+      required: [name, format, criteria]
+      additionalProperties: false
+      properties:
+        name: { $ref: '#/components/schemas/RepositoryName' }
+        description: { type: string, maxLength: 500 }
+        format: { $ref: '#/components/schemas/CleanupFormat' }
+        criteria: { $ref: '#/components/schemas/CleanupCriteria' }
+        schedule:
+          type: [string, 'null']
+          maxLength: 100
+          description: 'When it runs: 5-field UTC cron (`0 3 * * *`) or a macro such as `@daily`; null = manual only'
+        enabled: { type: boolean, default: true, description: Scheduled runs happen only while enabled }
+    JobProgress:
+      type: object
+      required: [done, total, message]
+      properties:
+        done: { type: integer }
+        total: { type: [integer, 'null'] }
+        message: { type: [string, 'null'] }
+    CleanupRunSummary:
+      type: object
+      required: [id, status, trigger, started_at, finished_at, progress, removed, bytes, error]
+      properties:
+        id: { type: string, description: Run id (one per attempt) }
+        status: { type: string, enum: [running, succeeded, failed, dead, interrupted] }
+        trigger: { type: string, enum: [schedule, manual] }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        finished_at: { type: [string, 'null'], format: date-time }
+        progress: { $ref: '#/components/schemas/JobProgress' }
+        removed: { type: integer, description: Items removed (assets, tags, manifests, layers) }
+        bytes: { type: integer, description: Bytes of the removed assets (blob GC reclaims them unless another asset shares the blob) }
+        error: { type: [string, 'null'] }
+    CleanupRunList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CleanupRunSummary' }
+    CleanupPolicy:
+      type: object
+      required: [id, name, description, format, criteria, schedule, enabled, repositories, created_at, updated_at, next_run_at, last_run]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        format: { $ref: '#/components/schemas/CleanupFormat' }
+        criteria: { $ref: '#/components/schemas/CleanupCriteria' }
+        schedule: { type: [string, 'null'] }
+        enabled: { type: boolean }
+        repositories:
+          type: array
+          description: Attached repositories the caller can see
+          items: { type: string }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        next_run_at: { type: [string, 'null'], format: date-time, description: Next scheduled run (null = manual only or disabled) }
+        last_run: { oneOf: [{ $ref: '#/components/schemas/CleanupRunSummary' }, { type: 'null' }] }
+    CleanupPolicyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CleanupPolicy' }
+    CleanupPreviewRequest:
+      type: object
+      required: [format, criteria]
+      additionalProperties: false
+      properties:
+        format: { $ref: '#/components/schemas/CleanupFormat' }
+        criteria: { $ref: '#/components/schemas/CleanupCriteria' }
+        policy_id: { type: [string, 'null'], maxLength: 64, description: A saved policy - preview on its attached repositories }
+        repositories:
+          type: [array, 'null']
+          maxItems: 100
+          items: { type: string, maxLength: 64 }
+        cursor: { type: [string, 'null'], maxLength: 512 }
+        limit: { type: integer, minimum: 0, maximum: 500, default: 50 }
+    CleanupCandidate:
+      type: object
+      required: [repository, kind, name, version, path, size, created_at, last_downloaded_at, reason]
+      properties:
+        repository: { type: string }
+        kind:
+          type: string
+          enum: [asset, tag, manifest, layer]
+          description: '`asset` = a cached file; docker - `tag`, `manifest` (no tag reaches it any more), `layer` (no remaining manifest uses it)'
+        name: { type: string, description: Component name (docker - the image) }
+        version: { type: [string, 'null'], description: Version (docker - tag or digest) }
+        path: { type: string }
+        size: { type: integer, description: Bytes of the asset removed (0 when only an index record goes) }
+        created_at: { type: [string, 'null'], format: date-time }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        reason: { type: string, description: 'Why it matches, e.g. `not downloaded for 120 days`' }
+    CleanupRepositoryTotal:
+      type: object
+      required: [name, format, count, bytes, truncated]
+      properties:
+        name: { type: string }
+        format: { $ref: '#/components/schemas/Format' }
+        count: { type: integer }
+        bytes: { type: integer }
+        truncated: { type: boolean, description: Too large to evaluate completely in a preview (a run evaluates everything) }
+    CleanupPreview:
+      type: object
+      required: [count, bytes, truncated, repositories, items, next_cursor]
+      properties:
+        count: { type: integer }
+        bytes: { type: integer }
+        truncated: { type: boolean }
+        repositories:
+          type: array
+          items: { $ref: '#/components/schemas/CleanupRepositoryTotal' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CleanupCandidate' }
+        next_cursor: { type: [string, 'null'] }
+    RepositoryCleanup:
+      type: object
+      required: [repository, policies]
+      properties:
+        repository: { type: string }
+        policies:
+          type: array
+          items: { $ref: '#/components/schemas/CleanupPolicy' }
+    RepositoryCleanupUpdate:
+      type: object
+      required: [policy_ids]
+      additionalProperties: false
+      properties:
+        policy_ids:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 64 }
+    JobAccepted:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id: { type: string }
+        status:
+          type: string
+          enum: [enqueued, merged, rerun, running]
+          description: '`merged` - joined a pending run; `rerun` - runs once more after the current run'
+    GcRun:
+      type: object
+      required: [id, status, trigger, started_at, finished_at, progress, freed_blobs, freed_bytes, marked, uploads_removed, error]
+      properties:
+        id: { type: string }
+        status: { type: string, enum: [running, succeeded, failed, dead, interrupted] }
+        trigger: { type: string, enum: [schedule, manual] }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        finished_at: { type: [string, 'null'], format: date-time }
+        progress: { $ref: '#/components/schemas/JobProgress' }
+        freed_blobs: { type: integer }
+        freed_bytes: { type: integer }
+        marked: { type: integer, description: Blobs newly found unreferenced (deleted once unreferenced for the grace period) }
+        uploads_removed: { type: integer, description: Orphan upload files removed }
+        error: { type: [string, 'null'] }
+    GcStatus:
+      type: object
+      required: [enabled, schedule, grace_hours, next_run_at, pending_blobs, pending_bytes, runs]
+      properties:
+        enabled: { type: boolean }
+        schedule: { type: string }
+        grace_hours: { type: number, description: A blob is deleted only after being unreferenced this long }
+        next_run_at: { type: [string, 'null'], format: date-time }
+        pending_blobs: { type: integer, description: Blobs marked unreferenced, waiting out the grace period }
+        pending_bytes: { type: integer }
+        runs:
+          type: array
+          description: Recent runs, newest first (up to 20)
+          items: { $ref: '#/components/schemas/GcRun' }
+
+    # ---------------------------------------------------------------- audit (SPEC §4.11, T-S10)
+    AuditOutcome:
+      type: string
+      enum: [success, failure]
+    AuditActor:
+      type: object
+      description: Who acted. `system` = the server or a worker job acting on its own.
+      required: [kind, id, name, auth, provider, token_id]
+      properties:
+        kind: { type: string, enum: [user, service_account, anonymous, system] }
+        id: { type: [string, 'null'] }
+        name: { type: string, description: 'Username, service account name, `anonymous` or `system`' }
+        auth:
+          type: string
+          description: How the request was authenticated
+          enum: [session, api_token, basic, registry_token, none, system]
+        provider: { type: [string, 'null'], description: 'Sign-in source of the user (`local`, `ldap:<id>`, `oidc:<id>`)' }
+        token_id: { type: [string, 'null'], description: The API token used, when there was one }
+    AuditTarget:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind:
+          type: string
+          description: '`user`, `service_account`, `api_token`, `auth_provider`, `repository`, `session`, `settings`...'
+        id: { type: [string, 'null'] }
+        name: { type: [string, 'null'] }
+    AuditChange:
+      type: object
+      description: One changed field. Secret values are never recorded; `redacted` marks a secret that changed.
+      required: [field, before, after, redacted]
+      properties:
+        field: { type: string, description: 'Dotted path, e.g. `proxy.upstream_url`' }
+        before: { description: Previous value (JSON); null when absent }
+        after: { description: New value (JSON); null when removed }
+        redacted: { type: boolean }
+    AuditRecord:
+      type: object
+      required: [id, ts, action, outcome, actor, target, client_ip, request_id, reason, details, changes]
+      properties:
+        id: { type: string }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        action: { type: string, description: '`<category>.<verb>`, e.g. `auth.login`, `repository.update`' }
+        outcome: { $ref: '#/components/schemas/AuditOutcome' }
+        actor: { $ref: '#/components/schemas/AuditActor' }
+        target: { oneOf: [{ $ref: '#/components/schemas/AuditTarget' }, { type: 'null' }] }
+        client_ip: { type: [string, 'null'] }
+        request_id: { type: [string, 'null'] }
+        reason: { type: [string, 'null'], description: 'Why it failed (`bad_credentials`, `locked`...); null on success' }
+        details:
+          type: object
+          description: Action-specific facts (plain values; never secrets)
+          additionalProperties: true
+        changes:
+          type: array
+          items: { $ref: '#/components/schemas/AuditChange' }
+    AuditPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AuditRecord' }
+        next_cursor: { type: [string, 'null'] }

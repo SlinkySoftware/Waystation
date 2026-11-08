@@ -22,6 +22,10 @@ strict), `test` (unit + coverage), `test-integration` (throwaway MongoDB/Valkey)
 size budgets), `frontend-check` (generated-client check, ESLint, vue-tsc, Vitest, production build + bundle budget),
 `budgets` (report).
 
+`test-integration` holds a machine-wide lock (`TEST_LOCK`, default `/tmp/waystation-test-integration.lock`) for
+the whole run, so runs from parallel worktrees queue instead of starting several container stacks at once.
+`make test-integration TEST_LOCK=` skips it (also skipped where `flock` is missing).
+
 In CI the dev image is built once per job by `docker/build-push-action` with the GitHub Actions layer cache
 (`scope=dev-image`), loaded as `waystation-dev:local`, and `SKIP_DEV_IMAGE_BUILD=1` stops make from rebuilding it.
 The buildx builder is not made the default, so make, compose and the harness keep using the normal Docker builder.
