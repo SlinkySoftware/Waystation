@@ -142,6 +142,7 @@ class Services:
         if self.keyring is None:
             log.warning('WAYSTATION_SECRET_KEYS is not set: upstream credentials cannot be stored')
         await self.emitter.start()
+        await self.proxy.coalescer.start()
         self._started = True
 
     async def stop(self) -> None:
@@ -149,6 +150,7 @@ class Services:
             return
         self._started = False
         await self.hub.stop()
+        await self.proxy.coalescer.aclose()
         await self.emitter.aclose()
         await self.upstream.aclose()
         await self.valkey.aclose()
