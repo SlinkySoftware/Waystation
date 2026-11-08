@@ -360,6 +360,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Audit log, newest first (needs `audit-read`; `admin` implies it)
+         * @description Append-only record of security-relevant actions (SPEC §4.11). Filters combine with AND; `action` may be
+         *     repeated (OR) and accepts a category wildcard such as `token.*`. Cursor paging, newest first.
+         */
+        get: operations["listAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the matching audit records (streamed CSV or NDJSON, newest first, at most 100 000 records)
+         * @description Same filters as `GET /audit`. NDJSON lines are `AuditRecord` objects. CSV has one row per record with
+         *     `changes` and `details` as JSON text; cells a spreadsheet would treat as a formula are prefixed with `'`.
+         *     The response is an attachment. When the limit is reached the export stops and says so: the last NDJSON line
+         *     is `{"truncated": true}`, the last CSV row starts with `# truncated`.
+         */
+        get: operations["exportAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories": {
         parameters: {
             query?: never;
@@ -609,6 +653,33 @@ export interface paths {
         };
         /** Packages listed by a cached index (suite/component/arch), with cache state per package */
         get: operations["listAptPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search packages, images and files across every repository the principal can browse
+         * @description Name search: `q` is `<name prefix>[ <version prefix>]`, case-insensitive; the name prefix matches a full name
+         *     or its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`). Sources: docker tags,
+         *     npm packages, apt and yum index listings, cached files (by file name; not docker layers). Results are ordered
+         *     by the matched name. An empty `q` lists everything.
+         *     Digest search: `sha256:<8-64 hex digits>` or 64 hex digits finds every cached file with that blob in any
+         *     repository and format, and the docker tags pointing at it.
+         *     Hidden repositories are never searched: they appear in no result, count or facet value.
+         *     Facets (first page): counts per value with every other filter applied.
+         */
+        get: operations["search"];
         put?: never;
         post?: never;
         delete?: never;
@@ -868,7 +939,7 @@ export interface components {
             csrf_token: string;
             /**
              * @description Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
-             *     replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`,
+             *     replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
              *     `admin`.
              */
             capabilities: string[];
@@ -1470,6 +1541,62 @@ export interface components {
             items: components["schemas"]["AptPackage"][];
             next_cursor: string | null;
         };
+        /** @enum {string} */
+        SearchKind: "package" | "image" | "file";
+        SearchBrowseLink: {
+            repository: string;
+            /** @description Query of the repository Browse view: `image` + `ref` (docker), `package` (npm), `suite` + `arch` + `q` (apt), `path` (the folder listing of every other format) */
+            query: {
+                [key: string]: string;
+            };
+        };
+        SearchHit: {
+            kind: components["schemas"]["SearchKind"];
+            format: components["schemas"]["Format"];
+            repository: string;
+            repository_type: components["schemas"]["RepositoryType"];
+            /** @description Package, image or file name */
+            name: string;
+            /** @description Version (packages) or tag (images) */
+            version: string | null;
+            /** @description Where it is listed: suite/component and architecture (apt), arch (yum) */
+            qualifier: string | null;
+            /** @description File path in the repository (files */
+            path: string | null;
+            size: number | null;
+            /** @description Blob sha256 (files) or manifest digest (images) */
+            sha256: string | null;
+            /** Format: date-time */
+            updated_at: string | null;
+            /** @description In the cache (a listed apt/yum package may not be); null if unknown */
+            cached: boolean | null;
+            browse: components["schemas"]["SearchBrowseLink"];
+        };
+        SearchFacetValue: {
+            value: string;
+            count: number;
+        };
+        SearchFacets: {
+            format: components["schemas"]["SearchFacetValue"][];
+            repository: components["schemas"]["SearchFacetValue"][];
+            kind: components["schemas"]["SearchFacetValue"][];
+            type: components["schemas"]["SearchFacetValue"][];
+            /** @description Matches with every filter applied */
+            total: number;
+            /** @description Counting stopped early: counts are lower bounds */
+            capped: boolean;
+        };
+        SearchPage: {
+            /**
+             * @description `digest` when the query is a sha256 digest (or a prefix of one)
+             * @enum {string}
+             */
+            mode: "name" | "digest";
+            items: components["schemas"]["SearchHit"][];
+            next_cursor: string | null;
+            /** @description First page only, unless `facets=false` */
+            facets: components["schemas"]["SearchFacets"] | null;
+        };
         /** @description Sparkline values per KPI over the range, oldest first, equally spaced (`step_s`) */
         Sparks: {
             requests_per_s: number[];
@@ -1735,6 +1862,63 @@ export interface components {
             ts: components["schemas"]["Timestamp"];
             event: components["schemas"]["ActivityEvent"];
         };
+        /** @enum {string} */
+        AuditOutcome: "success" | "failure";
+        /** @description Who acted. `system` = the server or a worker job acting on its own. */
+        AuditActor: {
+            /** @enum {string} */
+            kind: "user" | "service_account" | "anonymous" | "system";
+            id: string | null;
+            /** @description Username, service account name, `anonymous` or `system` */
+            name: string;
+            /**
+             * @description How the request was authenticated
+             * @enum {string}
+             */
+            auth: "session" | "api_token" | "basic" | "registry_token" | "none" | "system";
+            /** @description Sign-in source of the user (`local`, `ldap:<id>`, `oidc:<id>`) */
+            provider: string | null;
+            /** @description The API token used */
+            token_id: string | null;
+        };
+        AuditTarget: {
+            /** @description `user`, `service_account`, `api_token`, `auth_provider`, `repository`, `session`, `settings`... */
+            kind: string;
+            id: string | null;
+            name: string | null;
+        };
+        /** @description One changed field. Secret values are never recorded; `redacted` marks a secret that changed. */
+        AuditChange: {
+            /** @description Dotted path, e.g. `proxy.upstream_url` */
+            field: string;
+            /** @description Previous value (JSON); null when absent */
+            before: unknown;
+            /** @description New value (JSON); null when removed */
+            after: unknown;
+            redacted: boolean;
+        };
+        AuditRecord: {
+            id: string;
+            ts: components["schemas"]["Timestamp"];
+            /** @description `<category>.<verb>`, e.g. `auth.login`, `repository.update` */
+            action: string;
+            outcome: components["schemas"]["AuditOutcome"];
+            actor: components["schemas"]["AuditActor"];
+            target: components["schemas"]["AuditTarget"] | null;
+            client_ip: string | null;
+            request_id: string | null;
+            /** @description Why it failed (`bad_credentials`, `locked`...); null on success */
+            reason: string | null;
+            /** @description Action-specific facts (plain values; never secrets) */
+            details: {
+                [key: string]: unknown;
+            };
+            changes: components["schemas"]["AuditChange"][];
+        };
+        AuditPage: {
+            items: components["schemas"]["AuditRecord"][];
+            next_cursor: string | null;
+        };
     };
     responses: {
         /** @description Not signed in */
@@ -1807,6 +1991,17 @@ export interface components {
         AccountId: string;
         /** @description Image name within the repository, e.g. `library/nginx` */
         DockerImage: string;
+        /** @description Records at or after this time (RFC 3339) */
+        AuditFrom: string;
+        /** @description Records before this time (RFC 3339) */
+        AuditTo: string;
+        /** @description Who acted, by name (`admin`, `ci-bot`, `anonymous`) or id */
+        AuditActor: string;
+        /** @description An action (`token.create`) or a category wildcard (`token.*`); repeat for several */
+        AuditAction: string[];
+        /** @description The object acted on, by name (`dockerhub-proxy`) or id */
+        AuditTarget: string;
+        AuditOutcome: components["schemas"]["AuditOutcome"];
     };
     requestBodies: never;
     headers: never;
@@ -2436,6 +2631,81 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    listAudit: {
+        parameters: {
+            query?: {
+                /** @description Records at or after this time (RFC 3339) */
+                from?: components["parameters"]["AuditFrom"];
+                /** @description Records before this time (RFC 3339) */
+                to?: components["parameters"]["AuditTo"];
+                /** @description Who acted, by name (`admin`, `ci-bot`, `anonymous`) or id */
+                actor?: components["parameters"]["AuditActor"];
+                /** @description An action (`token.create`) or a category wildcard (`token.*`); repeat for several */
+                action?: components["parameters"]["AuditAction"];
+                /** @description The object acted on, by name (`dockerhub-proxy`) or id */
+                target?: components["parameters"]["AuditTarget"];
+                outcome?: components["parameters"]["AuditOutcome"];
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    exportAudit: {
+        parameters: {
+            query?: {
+                /** @description Records at or after this time (RFC 3339) */
+                from?: components["parameters"]["AuditFrom"];
+                /** @description Records before this time (RFC 3339) */
+                to?: components["parameters"]["AuditTo"];
+                /** @description Who acted, by name (`admin`, `ci-bot`, `anonymous`) or id */
+                actor?: components["parameters"]["AuditActor"];
+                /** @description An action (`token.create`) or a category wildcard (`token.*`); repeat for several */
+                action?: components["parameters"]["AuditAction"];
+                /** @description The object acted on, by name (`dockerhub-proxy`) or id */
+                target?: components["parameters"]["AuditTarget"];
+                outcome?: components["parameters"]["AuditOutcome"];
+                format?: "csv" | "ndjson";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The export file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/x-ndjson": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
     listRepositories: {
         parameters: {
             query?: {
@@ -2871,6 +3141,51 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    search: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Repeat to select several (OR) */
+                format?: components["schemas"]["Format"][];
+                /** @description Repository names; repeat to select several (OR) */
+                repository?: string[];
+                kind?: components["schemas"]["SearchKind"][];
+                /** @description Repository types */
+                type?: components["schemas"]["RepositoryType"][];
+                /** @description Only what is in the cache (leaves out apt/yum index listings; downloaded packages are still found as files) */
+                cached?: boolean;
+                /** @description Facet counts on the first page */
+                facets?: boolean;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of results (and facets on the first page) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPage"];
+                };
+            };
+            /** @description Invalid cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getStatsSummary: {

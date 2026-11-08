@@ -45,6 +45,8 @@ class Principal:
     # API tokens (and registry tokens issued for one) narrow the owner's grants further (``TokenLimits``).
     token: TokenLimits | None = None
     extra: dict[str, str] = field(default_factory=dict, compare=False)
+    # Where a user signs in from (``local``, ``ldap:<id>``, ``oidc:<id>``): audit records only, never authorisation.
+    provider: str | None = field(default=None, compare=False)
 
     @property
     def is_anonymous(self) -> bool:

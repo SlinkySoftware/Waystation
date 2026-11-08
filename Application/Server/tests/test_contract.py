@@ -67,6 +67,7 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/docker/images', 'get'),
     ('/repositories/{name}/docker/tags', 'get'),
     ('/repositories/{name}/docker/manifest', 'get'),
+    ('/search', 'get'),
     ('/stats/summary', 'get'),
     ('/stats/traffic', 'get'),
     ('/stats/storage', 'get'),
@@ -75,6 +76,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/activity', 'get'),
     ('/activity/export', 'get'),
     ('/events/stream', 'get'),
+    ('/audit', 'get'),
+    ('/audit/export', 'get'),
 }
 
 # Deliberate, reviewed differences: (path, method, where) -> reason. Keep this short.
