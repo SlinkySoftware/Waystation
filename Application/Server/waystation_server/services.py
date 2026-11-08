@@ -33,6 +33,7 @@ from waystation_server.repos.model import RepoConfig
 from waystation_server.security.principal import Principal
 from waystation_server.security.registry_token import SignerHolder
 from waystation_server.security.sessions import SessionManager
+from waystation_server.security.tokens import TokenService
 from waystation_server.sse.hub import Hub
 from waystation_server.stats.storage import StorageStats
 
@@ -52,6 +53,7 @@ class Services:
     formats: FormatRegistry
     metrics: Metrics
     sessions: SessionManager
+    tokens: TokenService
     upstream: UpstreamClients
     proxy: ProxyEngine
     storage: StorageStats
@@ -113,6 +115,7 @@ class Services:
             formats=formats,
             metrics=metrics,
             sessions=SessionManager(db, redis, settings),
+            tokens=TokenService(db, redis, settings),
             upstream=upstream,
             storage=storage,
             hub=Hub(redis, visible, figures),
@@ -146,6 +149,7 @@ class Services:
             log.warning('WAYSTATION_SECRET_KEYS is not set: upstream credentials cannot be stored')
         await self.emitter.start()
         await self.proxy.coalescer.start()
+        self.tokens.start()
         self._started = True
 
     async def stop(self) -> None:
@@ -154,6 +158,7 @@ class Services:
         self._started = False
         await self.hub.stop()
         await self.proxy.coalescer.aclose()
+        await self.tokens.stop()
         await self.emitter.aclose()
         await self.upstream.aclose()
         await self.valkey.aclose()

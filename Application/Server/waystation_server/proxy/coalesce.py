@@ -597,7 +597,8 @@ class Coalescer:
             lease.start()
             return lease
         items = list(result)
-        state = FillState.parse(dict(zip(items[::2], items[1::2], strict=True)))
+        pairs = zip(items[::2], items[1::2], strict=True)  # forbidden-strings: allow (slices, not addresses)
+        state = FillState.parse(dict(pairs))
         if state is None:  # unreadable record: fetch alone rather than wait on it
             return Lease(self, key, token, solo=True)
         local = self._leases.get(key)

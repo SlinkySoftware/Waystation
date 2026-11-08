@@ -85,7 +85,7 @@ async def repo(services: Services, upstream: FakeUpstream, plugin: FilesPlugin, 
     return await add_repo(services, upstream.url)
 
 
-async def eventually(check: Callable[[], Awaitable[bool]], timeout: float = 10.0) -> None:
+async def eventually(check: Callable[[], Awaitable[bool]], timeout: float = 10.0) -> None:  # noqa: ASYNC109
     deadline = asyncio.get_running_loop().time() + timeout
     while not await check():
         if asyncio.get_running_loop().time() > deadline:
