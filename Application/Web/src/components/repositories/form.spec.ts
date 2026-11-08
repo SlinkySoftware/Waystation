@@ -34,7 +34,7 @@ describe('repository form model', () => {
     expect(toWrite(m).format_options).toEqual({ distribution: 'trixie', flat: false })
   })
 
-  it('edits a yum repository without inventing format options and keeps content max age', () => {
+  it('edits a yum repository keeping its format options and content max age', () => {
     const repo = {
       name: 'rocky',
       format: 'yum',
@@ -42,10 +42,12 @@ describe('repository form model', () => {
       online: true,
       description: 'Rocky Linux',
       proxy: { upstream_url: 'https://dl.rockylinux.org/pub/rocky/', auth: { kind: 'none', secret_set: false }, metadata_max_age_s: 3600, content_max_age_s: 86400, negative_ttl_s: 600, stale_on_error: true, offline: false, allow_private_upstream: false },
+      format_options: { repo_path: '10/extras/$basearch/os/', gpg_key: null },
     } as unknown as Repository
     const w = toWrite(modelFromRepository(repo))
     expect(w.format).toBe('yum')
-    expect(w).not.toHaveProperty('format_options')
+    expect(w.format_options).toEqual({ repo_path: '10/extras/$basearch/os/', gpg_key: null })
+    expect(toWrite(modelFromRepository({ ...repo, format_options: undefined } as unknown as Repository)).format_options).toEqual({ repo_path: '', gpg_key: null })
     expect(w.proxy?.content_max_age_s).toBe(86400)
     expect(w.proxy?.metadata_max_age_s).toBe(3600)
   })

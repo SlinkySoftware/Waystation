@@ -4,7 +4,7 @@
   <q-page class="ws-page">
     <PageHeader :title="title" />
     <q-card>
-      <EmptyState :icon="iconTasks" :title="t('placeholder.title', { page: title })" :text="t('placeholder.text', { task: route.meta.planned ?? '' })">
+      <EmptyState illustration="soon" :title="t('placeholder.title', { page: title })" :text="t('placeholder.text', { task: route.meta.planned ?? '' })">
         <q-btn unelevated no-caps color="primary" :label="t('placeholder.back')" :to="{ name: 'dashboard' }" />
       </EmptyState>
     </q-card>
@@ -18,7 +18,6 @@ import { useRoute } from 'vue-router'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { t } from '@/i18n'
-import { iconTasks } from '@/utils/icons'
 
 const route = useRoute()
 const title = computed(() => (route.meta.title ? t(route.meta.title) : ''))

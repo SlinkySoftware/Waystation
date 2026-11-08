@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE comps PUBLIC "-//Red Hat, Inc.//DTD Comps info//EN" "comps.dtd">
+<comps>
+  <environment>
+    <id>custom-environment</id>
+    <name>Custom Operating System</name>
+    <name xml:lang="fr">Custom Operating System</name>
+    <name xml:lang="ja">カスタムオペレーティングシステム</name>
+    <name xml:lang="ko">사용자 정의 운영 체제</name>
+    <name xml:lang="zh_CN">定制操作系统</name>
+    <description>Basic building block for a custom AlmaLinux system.</description>
+    <description xml:lang="fr">Blocs de base pour personnaliser le système AlmaLinux.</description>
+    <description xml:lang="ja">カスタム AlmaLinux システム用のベーシックビルディングブロック。</description>
+    <description xml:lang="ko">사용자 정의 AlmaLinux 시스템의 기본 구성 요소.</description>
+    <description xml:lang="zh_CN">定制 AlmaLinux 系统的基础组件。</description>
+    <display_order>99</display_order>
+    <grouplist>
+      <groupid>core</groupid>
+    </grouplist>
+    <optionlist>
+      <groupid>standard</groupid>
+    </optionlist>
+  </environment>
+  <environment>
+    <id>minimal-environment</id>
+    <name>Minimal Install</name>
+    <name xml:lang="af">Minimale installasie</name>
+    <name xml:lang="bg">Минимална инсталация</name>
+    <name xml:lang="ca">Instal·lació mínima</name>
+    <name xml:lang="cs">Minimální instalace</name>
+    <name xml:lang="da">Minimal installation</name>
+    <name xml:lang="de">Minimalinstallation</name>
+    <name xml:lang="en_GB">Minimal Install</name>
+    <name xml:lang="es">Instalación mínima</name>
+    <name xml:lang="fi">Vähimmäisasennus</name>
+    <name xml:lang="fr">Installation minimale</name>
+    <name xml:lang="hu">Minimális telepítés</name>
+    <name xml:lang="hy">Մինիմալ Տեղադրում</name>
+    <name xml:lang="ia">Installation minime</name>
+    <name xml:lang="id">Instalasi Minimum</name>
+    <name xml:lang="it">Installazione minima</name>
+    <name xml:lang="ja">最小限のインストール</name>
+    <name xml:lang="ko">최소 설치</name>
+    <name xml:lang="nb">Minimal installasjon</name>
+    <name xml:lang="nl">Minimale installatie</name>
+    <name xml:lang="pa">ਘੱਟੋ-ਘੱਟ ਇੰਸਟਾਲ</name>
+    <name xml:lang="pl">Minimalna instalacja</name>
+    <name xml:lang="pt">Instalaçao minima</name>
+    <name xml:lang="pt_BR">Instalação Mínima</name>
+    <name xml:lang="ru">Минимальная установка</name>
+    <name xml:lang="sk">Minimálna inštalácia</name>
+    <name xml:lang="sr">Минимална инсталација</name>
+    <name xml:lang="sv">Minimal installation</name>
+    <name xml:lang="te">కనీస సంస్థాపనా</name>
+    <name xml:lang="tr">Asgari Kurulum</name>
+    <name xml:lang="uk">Мінімальне встановлення</name>
+    <name xml:lang="zh_CN">最小安装</name>
+    <name xml:lang="zh_TW">最小安裝</name>
+    <description>Basic functionality.</description>
+    <description xml:lang="af">Basiese funksionaliteit.</description>
+    <description xml:lang="bg">Основна функционалност.</description>
+    <description xml:lang="ca">Funcionalitat bàsica.</description>
+    <description xml:lang="cs">Základní funkčnost.</description>
+    <description xml:lang="da">Grundlæggende funktionalitet.</description>
+    <description xml:lang="de">Grundfunktionalität</description>
+    <description xml:lang="en_GB">Basic functionality.</description>
+    <description xml:lang="es">Funcionalidad básica.</description>
+    <description xml:lang="fi">Perustoiminnot.</description>
+    <description xml:lang="fr">Fonctionnalité de base.</description>
+    <description xml:lang="hu">Alapvető funkcionalitás.</description>
+    <description xml:lang="hy">Հիմնական ֆունկցիոնալ։</description>
+    <description xml:lang="ia">Le functionalitate basic.</description>
+    <description xml:lang="id">Fungsi dasar.</description>
+    <description xml:lang="it">Funzionalità base.</description>
+    <description xml:lang="ja">基本的な機能です。</description>
+    <description xml:lang="ko">기본적인 기능입니다.</description>
+    <description xml:lang="nb">Basisfunksjonalitet.</description>
+    <description xml:lang="nl">Basis functionaliteit.</description>
+    <description xml:lang="pa">ਮੂਲ ਸਹੂਲਤਾਂ।</description>
+    <description xml:lang="pl">Podstawowa funkcjonalność.</description>
+    <description xml:lang="pt">Funcionalidades basicas.</description>
+    <description xml:lang="pt_BR">Funcionalidade básica.</description>
+    <description xml:lang="ru">Базовая функциональность.</description>
+    <description xml:lang="sk">Základná funkčnosť</description>
+    <description xml:lang="sr">Основна функционалност</description>
+    <description xml:lang="sv">Grundläggande funktionalitet.</description>
+    <description xml:lang="te">ప్రాథమిక కార్యాచరణను</description>
+    <description xml:lang="tr">Temel işlevsellik.</description>
+    <description xml:lang="uk">Базові можливості.</description>
+    <description xml:lang="zh_CN">基本功能。</description>
+    <description xml:lang="zh_TW">具備基本功能。</description>
+    <display_order>3</display_order>
+    <grouplist>
+      <groupid>core</groupid>
+    </grouplist>
+    <optionlist>
+      <groupid>standard</groupid>
+    </optionlist>
+  </environment>
+  <environment>
+    <id>server-product-environment</id>
+    <name>Server</name>
+    <name xml:lang="fr">Serveurs</name>
+    <name xml:lang="ja">サーバー</name>
+    <name xml:lang="ko">서버</name>
+    <name xml:lang="zh_CN">服务器</name>
+    <description>An integrated, easy-to-manage server.</description>
+    <description xml:lang="fr">Un serveur intégré, facile à gérer.</description>
+    <description xml:lang="ja">統合された、管理が容易なサーバーです。</description>
+    <description xml:lang="ko">통합되고 관리가 쉬운 서버.</description>
+    <description xml:lang="zh_CN">集成的易于管理的服务器。</description>
+    <display_order>2</display_order>
+    <grouplist>
+      <groupid>container-management</groupid>
+      <groupid>core</groupid>
+      <groupid>hardware-support</groupid>
+      <groupid>headless-management</groupid>
+      <groupid>server-product</groupid>
+      <groupid>standard</groupid>
+    </grouplist>
+    <optionlist>
+      <groupid>debugging</groupid>
+      <groupid>dns-server</groupid>
+      <groupid>file-server</groupid>
+      <groupid>ftp-server</groupid>
+      <groupid>gnome-desktop</groupid>
+      <groupid>gnome-desktop-server-defaults</groupid>
+      <groupid>guest-agents</groupid>
+      <groupid>hardware-monitoring</groupid>
+      <groupid>infiniband</groupid>
+      <groupid>mail-server</groupid>
+      <groupid>network-file-system-client</groupid>
+      <groupid>network-server</groupid>
+      <groupid>performance</groupid>
+      <groupid>remote-system-management</groupid>
+      <groupid>smb-server</groupid>
+      <groupid>virtualization-hypervisor</groupid>
+      <groupid>web-server</groupid>
+    </optionlist>
+  </environment>
+</comps>

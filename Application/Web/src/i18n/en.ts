@@ -342,6 +342,8 @@ export const en = {
   detail: {
     notFound: 'Repository not found',
     notFoundText: 'There is no repository called "{name}", or you do not have access to it.',
+    loadFailed: 'Could not load this repository',
+    retry: 'Try again',
     liveCaption: 'Transfers in flight for this repository',
     tab: {
       overview: 'Overview',
@@ -452,10 +454,6 @@ export const en = {
       section: 'Section',
       unverified: 'unverified',
       unverifiedHelp: 'Fetched before any index listing it was cached; verified on the next index refresh.',
-    },
-    yum: {
-      soonTitle: 'Package browsing for yum is coming',
-      soonText: 'A repodata and package view for yum/dnf repositories ships with T-P2-YUM. Until then, use Set me up to point dnf at this repository.',
     },
   },
   authProviders: {
