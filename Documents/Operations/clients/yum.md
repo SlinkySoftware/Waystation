@@ -19,8 +19,8 @@ One repository per upstream tree:
 | `oracle` | `https://yum.oracle.com/` |
 | `epel` | `https://dl.fedoraproject.org/pub/epel/` |
 
-**Use a concrete base URL.** Mirrorlist and metalink URLs (`mirrors.rockylinux.org/mirrorlist?...`,
-`mirrors.fedoraproject.org/metalink?...`) are not proxied: point the repository at one mirror's tree instead.
+**Use a concrete base URL.** Mirrorlist and metalink URLs (the `mirrorlist=` / `metalink=` lines of the stock
+`.repo` files) are not proxied: point the repository at one mirror's tree instead.
 
 Options (all optional):
 
