@@ -806,6 +806,11 @@ components:
       properties:
         metadata_path_regex: { type: [string, 'null'], maxLength: 512, description: 'Paths matching this regex are mutable metadata (revalidated)' }
         content_disposition: { type: string, enum: [inline, attachment], default: attachment }
+    YumOptions:
+      type: object
+      properties:
+        repo_path: { type: string, maxLength: 200, default: '', description: 'Path of the yum repository (the directory holding `repodata/`) below the upstream URL, e.g. `$releasever/BaseOS/$basearch/os/`. Empty: derived for well-known upstreams, else the repository root. Only used by "Set me up" and "test upstream"' }
+        gpg_key: { type: [string, 'null'], maxLength: 500, description: '`gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams' }
     FormatOptions:
       description: Format-specific options; the shape follows the repository's `format`
       oneOf:
@@ -813,6 +818,7 @@ components:
         - $ref: '#/components/schemas/NpmOptions'
         - $ref: '#/components/schemas/AptOptions'
         - $ref: '#/components/schemas/RawOptions'
+        - $ref: '#/components/schemas/YumOptions'
     RepositoryWrite:
       type: object
       required: [name, format, type, online]
