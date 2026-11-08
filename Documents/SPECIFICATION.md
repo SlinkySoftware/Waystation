@@ -358,7 +358,9 @@ See §5.5. Metric names: `waystation_requests_total{repo,format,status,cache}`, 
 - **Real-client tests** (`tests/clients/<format>/`): containers run the actual clients (docker/podman/skopeo/crane,
   npm/pnpm/yarn, pip/uv/twine, mvn/gradle, apt, dnf, go, helm, terraform/tofu, ansible-galaxy, swift, dotnet nuget,
   cargo, gem, composer, conda) against a Waystation stack with **recorded upstream fixtures** (an offline fake
-  upstream replays captured responses; a nightly job runs against live upstreams).
+  upstream replays captured responses; a nightly job runs against live upstreams). `make clients-test
+  FORMAT=<f> MODE=replay|record|live`; fixtures are scrubbed and pass `make clients-check` (forbidden strings,
+  size budget). How a format plugs in: `tests/clients/README.md`.
 - **OCI distribution-spec conformance suite** must pass for docker hosted repos.
 - Integration tests against real MongoDB and Valkey containers.
 - Playwright E2E for the UI (login with each provider type, dashboard live updates, repo CRUD, set-me-up).
@@ -421,6 +423,7 @@ Waystation/
 | MongoDB layer (T-F06) | M0 slice 2026-11-08: async client factory, collection registry and indexes for the M0 collections, declarative schema + forward-only migrations run by `init` (idempotent), `make test-integration` against real MongoDB/Valkey |
 | Blob store (T-F07) | M0 slice 2026-11-08: local-filesystem `BlobStore` (streaming sha256, size limits, verified atomic commit, X-Accel paths, orphan sweeper, free-space guard); NFS CI scenario pending |
 | Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once. Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
+| Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Only the `echo` self-test format exists so far; nightly live smoke workflow stub |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

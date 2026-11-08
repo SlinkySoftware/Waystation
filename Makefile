@@ -10,7 +10,7 @@ GID         := $(shell id -g)
 VERSION     := $(shell cat VERSION)
 TTY         := $(shell [ -t 0 ] && echo -t)
 DEV_RUN      = docker run --rm -i $(TTY) --user $(UID):$(GID) -v $(CURDIR):/src -w /src $(DEV_ENV) $(DEV_IMAGE)
-PY_SRC      := Application/Common Application/Server Application/Worker
+PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness
 # Modules held to 100% branch coverage (TASKS T-F04 acceptance).
 FULL_COVERAGE := --include="*/waystation_common/paths.py,*/waystation_common/crypto.py"
 
@@ -64,7 +64,7 @@ lint: sync ## ruff + import-linter contracts (ARCHITECTURE §3)
 
 .PHONY: typecheck
 typecheck: sync ## mypy --strict
-	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker
+	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker tests/clients/harness
 
 .PHONY: test
 test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 100% branch coverage
@@ -84,7 +84,7 @@ test-integration: sync ## Integration tests (pytest -m integration) against real
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 
 .PHONY: check
-check: fmt-check lint typecheck test test-integration ## Everything CI runs on a PR (grows as tasks land)
+check: fmt-check lint typecheck test test-integration clients-check ## Everything CI runs on a PR (grows as tasks land)
 
 .PHONY: env-example
 env-example: sync ## Regenerate .env.example from waystation_common.settings (idempotent)
@@ -161,10 +161,14 @@ backup: ## mongodump + blob copy
 	$(call not_yet,T-O07)
 
 ##@ Test suites
-.PHONY: e2e clients-test perf
+.PHONY: e2e clients-test clients-check perf
 e2e: ## Playwright E2E
 	$(call not_yet,T-U09)
-clients-test: ## Real-client format tests
-	$(call not_yet,T-P2-HARNESS)
+FORMAT ?= all
+MODE   ?= replay
+clients-test: dev-image ## Real-client format tests: FORMAT=<name|all> MODE=replay|record|live (tests/clients/README.md)
+	tests/clients/run.sh $(FORMAT) $(MODE)
+clients-check: dev-image ## Forbidden-strings + size check on upstream fixtures and the client harness
+	tests/clients/check_fixtures.sh
 perf: ## k6 performance budgets
 	$(call not_yet,T-P2-PERF)
