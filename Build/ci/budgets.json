@@ -1,0 +1,86 @@
+{
+  "$comment": "Performance budgets (SPECIFICATION §5.1, ARCHITECTURE §9). Read by Build/ci/budgets.py (make budgets) and Application/Web/scripts/bundle-budget.mjs. 'enforce' is 'warn' (reported, never fails the build) until milestone M2, then 'fail'. 'source' names the check that measures the metric; metrics without a source are not measured yet (k6 suite: T-P2-PERF).",
+  "milestone_enforced_from": "M2",
+  "budgets": [
+    {
+      "id": "spa_initial_route_js_kb_gzip",
+      "description": "JS for the initial route (dashboard), gzip",
+      "limit": 250,
+      "unit": "kB",
+      "enforce": "fail",
+      "source": "Application/Web/dist/bundle-budget.json"
+    },
+    {
+      "id": "cache_hit_content_ttfb_p95_ms",
+      "description": "Cache hit, content asset, server-side time to first byte p95",
+      "limit": 15,
+      "unit": "ms",
+      "enforce": "warn",
+      "source": null
+    },
+    {
+      "id": "cache_hit_metadata_p95_ms",
+      "description": "Cache hit, metadata asset p95",
+      "limit": 25,
+      "unit": "ms",
+      "enforce": "warn",
+      "source": null
+    },
+    {
+      "id": "docker_manifest_cached_p95_ms",
+      "description": "Docker manifest HEAD/GET (cached) p95",
+      "limit": 20,
+      "unit": "ms",
+      "enforce": "warn",
+      "source": null
+    },
+    {
+      "id": "cache_miss_added_ttfb_ms",
+      "description": "Cache miss added TTFB vs direct upstream fetch",
+      "limit": 30,
+      "unit": "ms",
+      "enforce": "warn",
+      "source": null
+    },
+    {
+      "id": "cache_miss_throughput_loss_pct",
+      "description": "Cache miss throughput loss vs direct upstream fetch",
+      "limit": 5,
+      "unit": "%",
+      "enforce": "warn",
+      "source": null
+    },
+    {
+      "id": "api_list_search_p95_ms",
+      "description": "API list/search endpoints p95 at 1M assets",
+      "limit": 150,
+      "unit": "ms",
+      "enforce": "warn",
+      "source": null
+    },
+    {
+      "id": "dashboard_first_meaningful_paint_ms",
+      "description": "Dashboard first meaningful paint (cold, LAN)",
+      "limit": 1000,
+      "unit": "ms",
+      "enforce": "warn",
+      "source": null
+    },
+    {
+      "id": "live_event_latency_ms",
+      "description": "Live event latency (transfer progress to UI)",
+      "limit": 1000,
+      "unit": "ms",
+      "enforce": "warn",
+      "source": null
+    },
+    {
+      "id": "concurrent_download_errors",
+      "description": "Errors with 500 concurrent downloads on 4 vCPU",
+      "limit": 0,
+      "unit": "errors",
+      "enforce": "warn",
+      "source": null
+    }
+  ]
+}

@@ -50,6 +50,7 @@ ignore = ["S101"]  # asserts are fine; tests use them and mypy narrowing relies 
 "**/tests/**" = ["S", "PT011", "PT018"]
 "Application/Common/waystation_common/errors.py" = ["N818"]  # HTTP-status style names (NotFound, Forbidden...)
 "tests/clients/harness/**" = ["T20", "S104"]  # CLI test tooling: prints progress, listens on container interfaces
+"Build/ci/**" = ["T20"]  # CI scripts print reports
 
 [tool.ruff.lint.flake8-quotes]
 inline-quotes = "single"
