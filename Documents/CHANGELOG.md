@@ -16,6 +16,17 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   random per-run bootstrap admin; new `DROP_JSON_KEYS` format setting removes personal and registry-internal fields
   (readmes, maintainer e-mails, `_npmOperationalInternal`) from recorded JSON. Client guide
   `Documents/Operations/clients/npm.md`.
+- T-P2-RAW (M0 slice): raw proxy plugin (`formats/raw/plugin.py`, registered in `plugins.py`): `GET`/`HEAD
+  /repository/<repo>/<path>` cached by path; `metadata_path_regex` (searched in `/<path>`) selects revalidated
+  metadata, everything else is immutable content; Content-Type by extension from Python's built-in table, else the
+  sanitised upstream type; `Content-Disposition` (`attachment` default) and `X-Content-Type-Options: nosniff` on every
+  answer, and `inline` never renders HTML/SVG/XML; upstream paths percent-escaped (`:` too); upstream 404/410 →
+  native 404 (negative cache), other methods 405, directories 404 until listings land. Real-client harness format
+  `raw` (curl + wget, fixtures from `deb.debian.org`); the harness now creates a per-run bootstrap admin
+  (`HARNESS_ADMIN_PASSWORD`), `lib.sh` gains `ws_login`/`ws_api` for `setup.sh` scripts, and `make clients-check`
+  scans a format's own files (`tests/clients/<format>/`) with its `allowed_hosts.txt`. import-linter: the
+  engine's typing-only import of `formats.base` is ignored in the "formats never import each other" contract.
+  Client guide `Documents/Operations/clients/raw.md`.
 - T-V01: npm `overrides` pin `minimatch` ≥ 11.0.1 and `glob` ≥ 14.0.2 (dev-only transitive dependencies of eslint,
   `@vue/test-utils` and `openapi-typescript`) for two moderate advisories; `npm audit` clean.
 - T-U03: mock data mirrors the owner's repository set: 13 proxies (`dockerhub-proxy` default/mirror + `docker.io`

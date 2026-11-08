@@ -1,0 +1,37 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://deb.debian.org/debian/project/trace/master"
+  },
+  "response": {
+    "body_sha256": "17ee58a193cda6c8297ca863b09a1196229882a700360ad65aaf4574dc194ade",
+    "body_size": 321,
+    "headers": [
+      [
+        "content-length",
+        "321"
+      ],
+      [
+        "last-modified",
+        "Sun, 08 Nov 2026 08:21:11 GMT"
+      ],
+      [
+        "etag",
+        "\"141-65fbf87303557\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

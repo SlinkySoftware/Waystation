@@ -65,9 +65,6 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
   HARNESS_UID=$(id -u)
   HARNESS_GID=$(id -g)
   export WAYSTATION_IMAGE_PREFIX=waystation WAYSTATION_IMAGE_TAG=harness
-  # Throwaway bootstrap admin for setup.sh (repository creation through the REST API); random per run.
-  export HARNESS_ADMIN_PASSWORD
-  HARNESS_ADMIN_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -d '/+=')
 
   # Throwaway stack env (secrets are random per run and deleted with the run directory).
   umask 077
@@ -77,6 +74,7 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
     echo 'WAYSTATION_LOG_LEVEL=INFO'
     echo "WAYSTATION_SECRET_KEYS=$(head -c 32 /dev/urandom | base64)"
     echo "WAYSTATION_SESSION_SECRET=$(head -c 32 /dev/urandom | base64)"
+    echo "HARNESS_ADMIN_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -d '/+=')"
   } > "$run_dir/stack.env"
   umask 022
 
