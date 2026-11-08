@@ -30,6 +30,7 @@ from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db.client import Database
 from waystation_common.db.collections import APT_PACKAGES, APT_POOL_INDEX, ASSETS
+from waystation_common.searchkeys import name_keys
 from waystation_server.db import assets as assets_db
 
 BATCH = 1000
@@ -166,6 +167,7 @@ async def record_packages(
             {
                 '$set': {
                     'name': s.name,
+                    **name_keys(s.name),
                     'version': s.version,
                     'architecture': s.architecture,
                     'section': s.section or None,

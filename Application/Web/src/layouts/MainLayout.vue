@@ -3,7 +3,7 @@
 <template>
   <q-layout view="hHh Lpr lFf" class="shell">
     <q-header class="shell__header">
-      <AppTopBar :rail-open="railOpen" @toggle-rail="toggleRail" @open-live="liveOpen = true" />
+      <AppTopBar :rail-open="railOpen" @toggle-rail="toggleRail" @open-live="liveOpen = true" @open-palette="paletteOpen = true" />
     </q-header>
 
     <q-drawer
@@ -28,6 +28,9 @@
       <LiveDrawer v-if="liveOpen" @close="liveOpen = false" />
     </q-drawer>
 
+    <!-- Lazy: the palette's code loads the first time it is opened (bundle budget). -->
+    <CommandPalette v-if="paletteLoaded" v-model="paletteOpen" />
+
     <q-page-container>
       <router-view v-slot="{ Component, route }">
         <transition name="page" mode="out-in">
@@ -40,7 +43,8 @@
 
 <script setup lang="ts">
 import { useQuasar } from 'quasar'
-import { computed, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 
 import AppRail from '@/components/shell/AppRail.vue'
 import AppTopBar from '@/components/shell/AppTopBar.vue'
@@ -48,7 +52,10 @@ import LiveDrawer from '@/components/shell/LiveDrawer.vue'
 import { useLiveTopic } from '@/composables/useLiveTopic'
 import { t } from '@/i18n'
 import { iconMenu, iconMenuOpen } from '@/utils/icons'
+import { useRecentStore } from '@/stores/recent'
 import { readString, writeString } from '@/utils/storage'
+
+const CommandPalette = defineAsyncComponent(() => import('@/components/search/CommandPalette.vue'))
 
 defineOptions({ name: 'MainLayout' })
 
@@ -57,6 +64,32 @@ const RAIL_KEY = 'ws.rail'
 
 const railOpen = ref(false)
 const liveOpen = ref(false)
+const paletteOpen = ref(false)
+const paletteLoaded = ref(false)
+watch(paletteOpen, (open) => {
+  if (open) paletteLoaded.value = true
+})
+
+/** Ctrl/⌘ K anywhere toggles the command palette. */
+function onShortcut(event: KeyboardEvent): void {
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    paletteOpen.value = !paletteOpen.value
+  }
+}
+onMounted(() => window.addEventListener('keydown', onShortcut))
+onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut))
+
+// Repositories opened from anywhere show up under the palette's "Recent".
+const currentRoute = useRoute()
+const recent = useRecentStore()
+watch(
+  () => (currentRoute.name === 'repository' ? String(currentRoute.params.name) : null),
+  (name) => {
+    if (name) recent.add({ id: `repo:${name}`, kind: 'repository', label: name, repository: name, to: { name: 'repository', params: { name } } })
+  },
+  { immediate: true },
+)
 // Collapsed by preference, or forced to icons between 1024 and 1439 px (UI_DESIGN §5).
 const collapsed = ref(readString(RAIL_KEY) === 'collapsed')
 const mini = computed(() => !$q.screen.lt.md && (collapsed.value || $q.screen.width < 1440))

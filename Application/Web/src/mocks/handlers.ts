@@ -14,6 +14,7 @@ import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 import { setupGuide } from './setup'
+import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
 import { tokenHandlers } from './tokens'
 import { upstreamHealth, world } from './world'
@@ -388,6 +389,27 @@ export const handlers = [
     const cachedOnly = url.searchParams.get('cached') === 'true'
     const items = aptPackagesFor(repo.name, url.searchParams.get('suite') ?? '', url.searchParams.get('arch')).filter((p) => (!q || p.name.includes(q)) && (!cachedOnly || p.cached))
     return HttpResponse.json(paginate(items, url))
+  }),
+
+  // ---------------------------------------------------------------- search
+  http.get(`${API}/search`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await delay(40 + Math.random() * 80)
+    const url = new URL(request.url)
+    const cursor = url.searchParams.get('cursor')
+    const offset = cursor ? Number(atob(cursor)) : 0
+    if (!Number.isInteger(offset) || offset < 0) return problem(400, 'Bad Request', 'invalid cursor')
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 50)))
+    const params: SearchParams = {
+      q: url.searchParams.get('q') ?? '',
+      formats: url.searchParams.getAll('format'),
+      repositories: url.searchParams.getAll('repository'),
+      kinds: url.searchParams.getAll('kind'),
+      types: url.searchParams.getAll('type'),
+      cached: url.searchParams.get('cached') === 'true',
+    }
+    return HttpResponse.json(mockSearch(world.repos, params, offset, limit, url.searchParams.get('facets') !== 'false'))
   }),
 
   // ---------------------------------------------------------------- stats & live
