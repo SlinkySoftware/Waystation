@@ -1,0 +1,80 @@
+# Pull-request and main-branch checks (T-F03, Documents/Operations/CI.md). Every step is a `make` target that also
+# runs locally; nothing here needs a secret. Actions are pinned by commit SHA (version in the comment).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DEV_IMAGE: waystation-dev:local
+  # The dev image is built once per job from the GitHub Actions layer cache; make must not rebuild it.
+  SKIP_DEV_IMAGE_BUILD: '1'
+
+jobs:
+  check:
+    name: make check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        id: buildx
+        with:
+          use: false # keep the default docker builder for make, compose and the harness
+      - name: Dev image (cached)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: Build/Containers/dev
+          file: Build/Containers/dev/Dockerfile
+          tags: ${{ env.DEV_IMAGE }}
+          load: true
+          provenance: false
+          cache-from: type=gha,scope=dev-image
+          cache-to: type=gha,scope=dev-image,mode=max
+      - name: make check
+        run: make check
+      - name: Generated API client is current
+        run: |
+          make gen-api
+          git diff --exit-code -- Application/Web/src/api
+      - name: Performance budgets (warnings until M2)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: make --no-print-directory budgets MARKDOWN=1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+  clients:
+    name: real-client harness (replay)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        id: buildx
+        with:
+          use: false
+      - name: Dev image (cached)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: Build/Containers/dev
+          file: Build/Containers/dev/Dockerfile
+          tags: ${{ env.DEV_IMAGE }}
+          load: true
+          provenance: false
+          cache-from: type=gha,scope=dev-image
+      - name: Client tests, all formats, replay mode
+        run: make clients-test FORMAT=all MODE=replay

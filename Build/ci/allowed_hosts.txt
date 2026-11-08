@@ -1,0 +1,69 @@
+# Host names allowed anywhere in the repository (Build/ci/forbidden_strings.sh, make clients-check; scanner:
+# tests/clients/harness/check_fixtures.py). The repository is public: only documentation names and public upstream
+# services belong here, never a real deployment's hosts.
+#
+# A plain entry allows the name itself and every subdomain. Internal-only suffixes (.local, .lan, .internal, .corp,
+# .home, .private, ...) are always rejected; reserved names (*.example, *.test, *.invalid, *.localhost) are always
+# allowed. A format can add public hosts that appear in its upstream content in tests/clients/<format>/allowed_hosts.txt
+# (applies to tests/clients/<format>/ and tests/fixtures/upstreams/<format>/ only).
+#
+#   url <prefix>         allows one exact URL prefix without allowing its host anywhere else (source control)
+#   not-a-host <token>   an exact dotted token that is code, not a host name (i18n keys, event names)
+#
+# Adding an entry is a reviewed change: say why in a comment.
+
+# Documentation domains (RFC 2606)
+example.com
+example.net
+example.org
+
+# The two source-control URLs (CLAUDE.md "Source control", SPECIFICATION §13.1)
+github.com
+url https://git.example.com/SlinkySoftware/Waystation
+
+# Public upstreams: container registries
+docker.io
+docker.com
+ghcr.io
+quay.io
+gcr.io
+registry.k8s.io
+mcr.microsoft.com
+githubusercontent.com
+
+# Public upstreams: language package registries
+npmjs.org
+pypi.org
+pythonhosted.org
+repo.maven.apache.org
+proxy.golang.org
+sum.golang.org
+registry.terraform.io
+registry.opentofu.org
+galaxy.ansible.com
+
+# Public upstreams: Linux distribution mirrors
+deb.debian.org
+security.debian.org
+archive.ubuntu.com
+security.ubuntu.com
+ports.ubuntu.com
+archive.raspberrypi.com
+dl.fedoraproject.org
+dl.rockylinux.org
+repo.almalinux.org
+yum.oracle.com
+
+# Standards, licences and tooling referenced in code and docs
+w3.org
+gnu.org
+fsf.org
+quasar.dev
+simpleicons.org
+
+# npm package names that are also domains (package-lock.json "resolved" URLs)
+colorjs.io
+
+# Code tokens the host-name pattern would otherwise match
+not-a-host nav.home
+not-a-host detail.upstream.private

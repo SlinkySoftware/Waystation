@@ -84,7 +84,9 @@ Scrubbed at record time (`harness/upstream_store.py`):
   untouched when nothing matched). Only metadata the client does not verify byte-for-byte may be scrubbed this way.
 
 `make clients-check` (also run after every record, and in `make check`) scans `tests/clients/` and
-`tests/fixtures/upstreams/` and fails on: host names outside `allowed_hosts.txt` (+ the format's own list),
+`tests/fixtures/upstreams/` and fails on: host names outside the repository allowlist `Build/ci/allowed_hosts.txt`
+(+ the format's own list; the same scanner runs repository-wide as `make forbidden-strings`,
+`Documents/Operations/CI.md`),
 internal-only suffixes (never allowable), IPs outside RFC 5737/3849/loopback, private keys and token shapes
 (GitHub, npm, GitLab, Slack, AWS, JWT), strings from an optional local deny list
 (`WAYSTATION_FORBIDDEN_FILE=/path/outside/the/repo`, e.g. your real domains), and size budgets. Host/IP scanning
