@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://archive.ubuntu.com/ubuntu/dists/resolute-updates/InRelease"
+  },
+  "response": {
+    "body_sha256": "f100a1a2f57a39b2f67a7f34219a462c474d4c275b456a94c2d5f1bccf077f25",
+    "body_size": 137401,
+    "headers": [
+      [
+        "last-modified",
+        "Sun, 08 Nov 2026 00:30:30 GMT"
+      ],
+      [
+        "etag",
+        "\"218b9-65fb8f3e30cdb\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "137401"
+      ],
+      [
+        "cache-control",
+        "max-age=0, proxy-revalidate, s-maxage=3300"
+      ],
+      [
+        "expires",
+        "Sun, 08 Nov 2026 10:21:38 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -143,6 +143,7 @@ SPECS: tuple[CollectionSpec, ...] = (
         (
             _ix('repo_filename_unique', [('repo_id', ASCENDING), ('filename', ASCENDING)], unique=True),
             _ix('repo_suite', [('repo_id', ASCENDING), ('suite', ASCENDING), ('component', ASCENDING)]),
+            _ix('repo_verified', [('repo_id', ASCENDING), ('verified', ASCENDING)]),
         ),
     ),
     CollectionSpec(
