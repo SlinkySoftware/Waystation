@@ -16,6 +16,8 @@ dev = [
     "pytest-cov>=7.0",
     "hypothesis>=6.140",
     "respx>=0.22",
+    "pyyaml>=6.0",
+    "types-pyyaml>=6.0",
 ]
 
 [tool.uv]
@@ -45,7 +47,7 @@ select = ["E", "W", "F", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF", "PT", "C4",
 ignore = ["S101"]  # asserts are fine; tests use them and mypy narrowing relies on them
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**" = ["S", "PT011"]
+"**/tests/**" = ["S", "PT011", "PT018"]
 "Application/Common/waystation_common/errors.py" = ["N818"]  # HTTP-status style names (NotFound, Forbidden...)
 "tests/clients/harness/**" = ["T20", "S104"]  # CLI test tooling: prints progress, listens on container interfaces
 
@@ -67,7 +69,7 @@ plugins = ["pydantic.mypy"]
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
 testpaths = ["Application/Common/tests", "Application/Server/tests", "Application/Worker/tests", "tests/clients/harness/tests"]
-pythonpath = ["tests/clients/harness"]
+pythonpath = ["tests/clients/harness", "Application/Server/tests/support"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers --import-mode=importlib"

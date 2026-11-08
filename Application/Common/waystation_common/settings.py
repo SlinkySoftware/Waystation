@@ -101,6 +101,7 @@ class Settings(BaseSettings):
         description='Public base URL clients use (scheme, host, optional port; no trailing slash).',
         json_schema_extra={'example': 'https://registry.example.com'},
     )
+    instance_name: str = Field('Waystation', description='Name shown in the UI top bar and on the sign-in page.')
     log_level: str = Field('INFO', description='Log level: DEBUG, INFO, WARNING, ERROR.')
     log_format: LogFormat = Field(LogFormat.JSON, description='Log format: json (default) or console.')
 
@@ -147,6 +148,15 @@ class Settings(BaseSettings):
         description='First admin password (prefer the _FILE form); unset = a one-time password is printed by init.',
         json_schema_extra=_SECRET,
     )
+
+    # --- sign-in and sessions (SPECIFICATION §4.9)
+    session_idle_minutes: int = Field(480, ge=5, description='Sign out a UI session after this long without use.')
+    session_max_hours: int = Field(168, ge=1, description='Absolute lifetime of a UI session, in hours.')
+    login_rate_limit: int = Field(
+        20, ge=1, description='Sign-in attempts allowed per client address per 5 minutes (then 429).'
+    )
+    login_lockout_failures: int = Field(10, ge=1, description='Consecutive failed sign-ins that lock a local account.')
+    login_lockout_minutes: int = Field(15, ge=1, description='How long a locked local account stays locked.')
 
     # --- network and proxies
     trust_forwarded: bool = Field(default=False, description='Trust X-Forwarded-* from TRUSTED_PROXIES.')

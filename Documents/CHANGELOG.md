@@ -17,6 +17,68 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   T-P2-YUM" browse state; creating yum repos stays unavailable. Docker Set me up leads with the upstream-name pull for
   aliased non-default repos (`ghcr.io/...`). The settings form now keeps `content_max_age_s` instead of resetting it.
   Screenshot tour regenerated (new shots: `repo-ghcr-proxy-setup`, `repo-rocky-setup`, `browse-yum`).
+- T-S12 (M0 slice): Docker token service `GET /auth/token` (`security.registry_token`, `registry_auth`): 5-minute
+  EdDSA JWTs signed with an Ed25519 key kept encrypted in `keys/registry-token.key`; Docker scope grammar; grants are
+  what RBAC allows on the repository each name resolves to (prefix, alias, default repo); anonymous tokens and
+  `docker login` with a local password. `/v2/` now requires a registry token and otherwise answers the Bearer
+  challenge (`realm`, `service`, `scope`, `error="insufficient_scope"`); token principals are limited to token
+  grants ∩ current RBAC (`access.check`). Verified with a real `docker login` against the dev stack.
+- T-S11 (M0 slice): stats and live APIs per the M0 contract: `GET /api/v1/stats/summary`, `/stats/traffic`,
+  `/stats/storage`, `/stats/upstreams`, `/repositories/{name}/stats/traffic`, `/transfers`, `/activity`, and the
+  repository list's 24 h `stats` and `degraded` status. Series merge rolled-up minutes with the live Valkey counters
+  (a minute present in both counts once). `GET /api/v1/events/stream`: one hub per process (pub/sub `live`, blocking
+  `XREAD` on `activity`, 1 Hz `stats.tick`), per-subscriber topic and RBAC filtering, bounded queues,
+  `transfers.snapshot` on connect, `Last-Event-ID` resume without gaps or duplicates, 15 s heartbeats. OpenAPI now
+  documents the SSE payloads (`LiveEvent`); the contract test covers every M0 operation the server implements.
+- T-S07 (M0 slice): proxy engine `waystation_server.proxy.engine`. Formats describe files as `AssetSpec` (kind,
+  upstream path/URL/headers, `Expected` digests incl. npm SRI, stored/response headers, size and age limits,
+  `validate`/`transform` hooks run in a thread, `on_stored`, pluggable `UpstreamAuthenticator`) and call
+  `serve`/`ensure`/`read`. Hits go out by X-Accel; content misses are teed to the client and the blob store with the
+  last chunk held until verified and committed; metadata is fetched bounded, verified, transformed and committed.
+  Conditional revalidation (`REVALIDATED`), stale-on-error (`STALE`), offline mode and a Valkey negative cache.
+  Redirects followed manually with the SSRF guard on every hop and credentials only for the upstream origin.
+  Records `assets`/`blobs`, live transfers (new `Transfer` fields `artifact`, `component`, `client_agent`, `error`),
+  activity (`cache.hit`, transfers), per-minute counters (new `upstream_requests`, `upstream_errors`), the upstream
+  health hash and Prometheus metrics. Fault-injection integration tests (timeouts, slow body, reset, 5xx, digest
+  and size mismatch, validation failure, SSRF on redirect, credential stripping) and a dev-stack run against a
+  public Debian mirror.
+- T-S06: data plane `waystation_server.dataplane.xaccel.serve_blob`: `If-None-Match`/`If-Modified-Since` → 304 by
+  the server, HEAD answered by the server, GET → empty response with `X-Accel-Redirect` to `/_blobs/...`, digest
+  ETag and `X-Ws-*` headers, format headers replayed. nginx `/_blobs/` also re-adds `Docker-Distribution-API-Version`,
+  `X-Ws-Cache` and `X-Request-Id`. Verified through the dev stack's nginx (exact bytes, 206 ranges, 304, HEAD).
+- T-S05 (M0 slice): repositories. Format descriptors with option models and "Set me up" snippets for docker
+  (aliases, Docker Hub, default repo), npm, apt (distribution, flat) and raw (metadata regex) proxies, registered by
+  `waystation_server.plugins`. `repos.service` validates names (reserved words, docker aliases, case-insensitive
+  uniqueness → 409), formats/types, upstream URLs and options (422 field errors), encrypts upstream secrets
+  (write-only, kept on update) and keeps one default docker repository. REST: list (filters, cursor paging,
+  RBAC-filtered), create, read, replace, delete, test upstream, setup guide, per the M0 contract; OpenAPI
+  `FormatOptions` is `oneOf` the registered option models. Upstream HTTP clients (`proxy.http`: HTTP/2, pooled per
+  host, no automatic redirects) with the SSRF guard enforced at connect time (`proxy.ssrf`). Contract test compares
+  the generated OpenAPI with `Application/Web/openapi/waystation-m0.yaml`. DATA_MODEL `repositories.proxy` fields
+  aligned with the API.
+- T-S03 (M0 slice): RBAC decision point `waystation_server.security.access`: `check`, `can_see`, `filter_repos`,
+  `require`, `require_repo`, `capabilities`; built-in roles (`admin`, `reader`, `deployer`, `viewer`,
+  `anonymous` = browse + read on proxy repositories); scopes `*`, name, glob, `format:`, `type:` (new, SPEC §4.10).
+  Hidden repositories answer 404; visible-but-denied answers 401 (anonymous) or 403. Every route declares its rule
+  with a decorator, applied by the app-wide `enforce` dependency (fails closed; CSRF for session requests on unsafe
+  methods); a test enumerates all routes and fails on a missing rule.
+- T-S02 (M0 slice): local authentication. argon2id passwords (hashing in a thread; unknown users cost the same),
+  `init` creates the first `admin` (configured or one-time password printed once, idempotent), sessions
+  (`ws_session` cookie, sha256-hashed ids, fixation-safe, idle and absolute timeouts, last-seen kept in Valkey),
+  double-submit CSRF, per-address login rate limit (429 + `Retry-After`) and account lockout. REST:
+  `GET /api/v1/config`, `GET /auth/providers`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`,
+  `PUT /auth/me/preferences` (contract shapes). New settings: `INSTANCE_NAME`, `SESSION_IDLE_MINUTES`,
+  `SESSION_MAX_HOURS`, `LOGIN_RATE_LIMIT`, `LOGIN_LOCKOUT_FAILURES`, `LOGIN_LOCKOUT_MINUTES`. The integration-test
+  MongoDB gets a higher open-files limit (every test creates a database).
+- T-S01: server app factory. `Services` (MongoDB, Valkey, event emitter, blob store, keyring, repository catalog,
+  format registry, metrics) created and started in the lifespan; start-up refuses an unknown or unmigrated schema.
+  Routing for `/repository/<repo>/<path>` and `/v2/<name>/...` (SPEC §4.4 name resolution) hands requests to format
+  plugins (`formats.base.FormatPlugin`, `formats.registry`); unknown repositories get the native 404. Pure ASGI
+  middleware for request id, client address (`X-Real-IP` from the web tier, `X-Forwarded-For` only through trusted
+  proxies) and the access log; `HEAD` for API routes. Errors: problem+json for the API, OCI JSON under `/v2/`, plain
+  text under `/repository/`. `/readyz` checks MongoDB and Valkey; `/metrics` serves Prometheus metrics to
+  `WAYSTATION_METRICS_ALLOW_CIDRS` only (SPEC §4.4 default corrected to loopback). New `repositories.name_ci_unique`
+  index (case-insensitive uniqueness, SPEC §3). Dependencies: `prometheus-client`; dev: `pyyaml`.
 - T-P2-HARNESS (M0 slice): real-client harness in `tests/clients/`. `make clients-test FORMAT=<f|all>
   MODE=replay|record|live` (default replay) runs each format as its own compose project (own container names, no
   published port) on top of `compose.yaml` + `compose.dev.yaml`. A stdlib fake upstream impersonates the public

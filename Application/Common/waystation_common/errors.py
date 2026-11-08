@@ -56,6 +56,18 @@ class Conflict(WaystationError):
     status = 409
 
 
+class RateLimited(WaystationError):
+    """Too many attempts; ``retry_after`` seconds until the next one is allowed (sent as ``Retry-After``)."""
+
+    code = 'rate_limited'
+    status = 429
+
+    def __init__(self, detail: str = '', *, retry_after: int = 60) -> None:
+        super().__init__(detail)
+        self.retry_after = max(1, retry_after)
+        self.headers = {'Retry-After': str(self.retry_after)}
+
+
 class PayloadTooLarge(WaystationError):
     code = 'too_large'
     status = 413
