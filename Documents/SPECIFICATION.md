@@ -56,8 +56,11 @@ Windows containers support for the server.
 
 ### 4.1 Proxy repositories
 - Fetch on first request, stream to the client **while** writing to the blob store (no "download then serve").
-- **Request coalescing**: concurrent requests for the same uncached asset cause one upstream fetch; followers
-  stream from the partially written file as it grows (ARCHITECTURE §6.3).
+- **Request coalescing**: concurrent requests for the same uncached (or stale) asset cause one upstream fetch, across
+  every server replica; followers stream from the partially written file as it grows (same host, local filesystem)
+  or are served from the cache once it is committed (ARCHITECTURE §6.3). Followers are reported as `COALESCED` and
+  the owner's live transfer shows how many follow it. A failed or mismatched fetch fails its followers too; if the
+  owner goes away (its client disconnects, its replica dies) a follower takes the fetch over.
 - **Freshness**: `metadata_max_age` (default 30 min, per repo) and `content_max_age` (default: forever for
   immutable assets). Revalidate with `If-None-Match` / `If-Modified-Since` when the upstream supports it.
 - **Negative cache** of 404s (default 10 min, per repo).
@@ -395,7 +398,7 @@ All variables are `WAYSTATION_*`; every secret also accepts `<NAME>_FILE` (setti
 Key ones: `BASE_URL`, `DATA_DIR`, `MONGO_URI`, `MONGO_DB`, `VALKEY_URL`, `SECRET_KEYS` (comma list, first is
 active), `SESSION_SECRET`, `TRUST_FORWARDED`, `TRUSTED_PROXIES`, `LOG_LEVEL`, `LOG_FORMAT`, `SERVER_WORKERS`,
 `WORKER_QUEUES`, `WORKER_CONCURRENCY`, `MAX_UPLOAD_GB`, `MIN_FREE_GB`, `BOOTSTRAP_ADMIN_PASSWORD_FILE`,
-`HTTP_PROXY`/`NO_PROXY`, `EXTRA_CA_FILE`, `SSRF_ALLOW_CIDRS`. Auth providers, repositories and policies are
+`HTTP_PROXY`/`NO_PROXY`, `EXTRA_CA_FILE`, `SSRF_ALLOW_CIDRS`, `COALESCE_TAIL`, `COALESCE_LEASE_S`. Auth providers, repositories and policies are
 configured in the UI/API (stored in MongoDB). Planned (Phase 6, T-O09): optional **declarative provisioning** from
 a YAML file (`WAYSTATION_PROVISION_FILE`, applied idempotently at start; GitOps-friendly).
 
@@ -495,7 +498,8 @@ Waystation/
 | Browse UI (T-U05 min) | M0 slice 2026-11-08 (built on mocks, now on the real API, T-S09 min): docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour (both themes, desktop + mobile) in `Documents/Notes/screenshots/m0/` |
 | Browse API (T-S09 min) | M0 slice 2026-11-08: generic folder listing of cached assets for every format, npm packages/versions, apt suites/packages, docker images/tags/manifest, to the M0 contract; indexing in the background after cache fills (`npm_packages`, `apt_packages`, `docker_tags`/`docker_manifests`); every browse query index-backed (explain test); the raw, npm, apt and docker real-client harness runs check it. Components, `version_sort`, download counters and "where used" pending
 | Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
-| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block, per-repo CA/proxy and coalescing (T-S08) pending; used by the raw plugin (T-P2-RAW) |
+| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block and per-repo CA/proxy pending; used by the raw plugin (T-P2-RAW) |
+| Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Followers on a second host against NFS not covered by CI yet |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
 | Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified. API-token login pending (T-S04) |
 | Raw format (T-P2-RAW) | M0 slice 2026-11-08: raw proxy repositories serve `GET`/`HEAD /repository/<repo>/<path>` through the proxy engine (cache by path, metadata regex → revalidated metadata, extension-based Content-Type, `Content-Disposition` + `nosniff`, native 404 with negative cache); curl and wget pass the real-client harness in replay. Directory listings, hosted and group pending |

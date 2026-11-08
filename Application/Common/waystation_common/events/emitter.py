@@ -266,6 +266,7 @@ class EventEmitter:
         bytes_total: int | None = None,
         cache: CacheState | None = None,
         upstream_latency_ms: float | None = None,
+        followers: int | None = None,
     ) -> None:
         """Update in memory only (O(1)); the latest state is published at most every ``flush_interval_s``."""
         live = self._live.get(transfer_id)
@@ -285,7 +286,17 @@ class EventEmitter:
             update['cache'] = cache
         if upstream_latency_ms is not None:
             update['upstream_latency_ms'] = upstream_latency_ms
+        if followers is not None:
+            update['followers'] = followers
         live.transfer = live.transfer.model_copy(update=update)
+        live.dirty = True
+
+    def transfer_followers(self, transfer_id: str, followers: int) -> None:
+        """Set the number of requests coalesced onto this transfer (published with the next flush)."""
+        live = self._live.get(transfer_id)
+        if live is None or live.transfer.followers == followers:
+            return
+        live.transfer = live.transfer.model_copy(update={'followers': followers})
         live.dirty = True
 
     def transfer_finished(

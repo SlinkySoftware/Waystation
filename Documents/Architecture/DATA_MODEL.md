@@ -64,7 +64,7 @@ Notes:
 ## 2. Valkey keys (all with TTLs unless noted)
 | Key | Type | Purpose |
 |---|---|---|
-| `fill:<repo_id>:<asset_key>` | string (JSON: upload id, owner replica, progress, total) | single-flight lock + progress for coalescing (lease, renewed) |
+| `fill:<repo_id>:<sha1(asset_key)>` | hash: `owner` (token), `status` (`pending`/`streaming`/`done`/`failed`/`aborted`), `host` (owner's boot id), `upload` (upload file id), `written`, `synced`, `total`, `content_type`, `headers` (JSON), `sha256`, `size`, `outcome`, `error`, `error_code`, `followers` | single-flight lock + progress for coalescing (ARCH §6.3); TTL = the lease (`WAYSTATION_COALESCE_LEASE_S`), renewed by the owner; finished fills linger 10 s |
 | `neg:<repo_id>:<asset_key>` | string | negative cache (404) |
 | `meta:<repo_id>:<asset_key>` | string/bytes | hot metadata response cache (rewritten/merged docs), short TTL |
 | `cnt:<minute>:<repo_id>` | hash | per-minute counters (`requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_*`, `upstream_requests`, `upstream_errors`) + `format`; `<minute>` = epoch minute (`ts // 60`); rolled up by the worker after the minute closes; TTL 3 h safety net |
