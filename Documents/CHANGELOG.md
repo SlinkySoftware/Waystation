@@ -3,6 +3,20 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-F08: job system on Valkey Streams (ARCHITECTURE §10). `waystation_common.jobs`: typed payloads (`JobPayload`
+  with `kind`, `queue`, `max_attempts`, `dedupe_key()`, `routine`; `JOB_TYPES` registry), `JobEnvelope`, the queue
+  state machine as atomic Lua scripts (`JobQueue`: enqueue with dirty-flag dedupe, start, finish/retry/dead, heartbeat,
+  reclaim via XAUTOCLAIM, delayed set, epoch), cron/`@every` schedules, and `JobClient` for the server
+  (`Services.jobs`: `enqueue_durable` into `job_outbox` inside the caller's transaction, `enqueue` straight to Valkey).
+  `waystation_common.db.jobs` for `job_outbox`, `job_runs`, `job_definitions`, `workers` (new collections and indexes
+  in the registry); `waystation_common.leases` (shared lease helpers). Worker: `JobSystem` = runner (concurrency,
+  heartbeats, retries with backoff, dead letters, `job_runs` with progress/log/result, `job.*` activity events),
+  coordinator under `lease:scheduler` (outbox dispatcher with re-dispatch when Valkey lost its data, scheduler with
+  compare-and-set fires, delayed promotion, consumer pruning), presence in `workers`, liveness watchdog for the
+  healthcheck; graceful stop lets jobs finish for 8 s. The stats rollup now runs as the scheduled job `stats.rollup`
+  (`@every 10s`, queue `stats`), still under `lease:rollup`, so a minute is written exactly once. Integration tests
+  cover a killed worker (exactly one re-run), a flushed Valkey (outbox re-dispatched), uploads during a running
+  rebuild (exactly one rerun that sees them all), one fire per schedule with three workers, retries and dead letters.
 - T-S09 (M0 slice): browse API to the M0 contract (`api/browse.py`, contract test extended):
   `GET /api/v1/repositories/{name}/browse` (generic folder tree of cached assets, every format: folders first, keyset
   cursors, one index seek per sub-folder, 404 for a missing folder), npm `packages`/`versions`, apt
