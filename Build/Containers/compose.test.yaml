@@ -1,0 +1,34 @@
+# Throwaway MongoDB + Valkey for `make test-integration` (project name is unique per checkout; volumes are
+# anonymous and removed on `down -v`). Tests run in the dev image attached to this project's default network.
+services:
+  mongodb:
+    image: mongo:8
+    user: "999:999"
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--quiet"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    networks:
+      default:
+        aliases: [waystation-mongodb]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--norc", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 1)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    user: "999:1000"
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction",
+              "--save", ""]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      default:
+        aliases: [waystation-valkey]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

@@ -2,7 +2,9 @@
 
 MongoDB is the system of record; Valkey holds only ephemeral state; the blob store holds file content.
 Collection access goes through the `*.db` modules only (ARCHITECTURE §3). IDs are ULIDs (string) unless noted.
-All timestamps are UTC `datetime`. Every collection has a `schema_version` migration path (`init` container).
+All timestamps are UTC `datetime`. Collections and indexes are declared in `waystation_common.db.collections` and
+created by `init` (`db.schema.ensure_schema`, idempotent; index names are part of the schema); data changes are
+forward-only migrations (`db.migrations`, recorded in `migrations`).
 
 ## 1. MongoDB (database `WAYSTATION_MONGO_DB`, default `waystation`)
 
@@ -33,6 +35,7 @@ All timestamps are UTC `datetime`. Every collection has a `schema_version` migra
 | `assets` | `_id`, `repo_id`, `path` (normalised, unique per repo), `kind` (`content`/`metadata`), `component_id?`, `blob_sha256`, `size`, `content_type`, `checksums{sha1, sha256, sha512, md5}` (as provided/computed), `upstream{url, etag, last_modified, fetched_at, status}`, `created_at`, `last_downloaded_at`, `download_count` | `repo_id,path` unique; `blob_sha256` (GC + "where used"); `component_id`; `repo_id,last_downloaded_at` |
 | `docker_tags` | `repo_id`, `image` (name), `tag`, `manifest_digest`, `updated_at`, `pushed_by` | `repo_id,image,tag` unique; `repo_id,manifest_digest` |
 | `docker_manifests` | `repo_id`, `image`, `digest`, `media_type`, `subject_digest?` (referrers), `artifact_type?`, `platforms[]`, `layers[{digest,size,media_type}]`, `config_digest`, `size_total` | `repo_id,image,digest` unique; `repo_id,subject_digest` |
+| `apt_pool_index` | `repo_id`, `filename` (pool path), `sha256`, `size`, `suite`, `component`, `arch`, `verified`, `updated_at` (FORMATS apt: `Filename → (SHA256, Size)` from cached `Packages` files) | `repo_id,filename` unique; `repo_id,suite,component` |
 | `blobs` | `_id` = sha256 hex, `size`, `first_seen`, `refcount_hint` (advisory; GC is mark-and-sweep), `gc_marked_at?` | `gc_marked_at` |
 | `upload_sessions` | `_id` (uuid), `repo_id`, `kind` (`oci-chunked`/`single`), `principal`, `bytes_received`, `started_at`, `expires_at` | TTL `expires_at` |
 
@@ -42,13 +45,13 @@ All timestamps are UTC `datetime`. Every collection has a `schema_version` migra
 | `job_definitions` | `_id`, `kind`, `params`, `schedule`, `enabled`, `queue` | – |
 | `job_runs` | `_id`, `definition_id?`, `kind`, `queue`, `status`, `progress{done,total,message}`, `started_at`, `finished_at`, `worker_id`, `log[]` (capped 500 lines), `result{...}` | `started_at` desc; TTL 90 d |
 | `workers` | `_id` = worker id, `hostname`, `version`, `queues[]`, `started_at`, `heartbeat_at`, `running_jobs[]` | TTL on `heartbeat_at` (+5 min) |
-| `stats_minute` | **time-series** (`timeField: ts`, `metaField: m{repo_id, format}`, granularity minutes), one document per closed minute per repo (written once; time-series collections can't upsert): `requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_out_cache`, `bytes_out_upstream`, `bytes_in_upstream`, `bytes_in_upload`, `lat_hist` (fixed log-scale bucket counts; percentiles computed at query time) | expireAfterSeconds 7 d |
+| `stats_minute` | **time-series** (`timeField: ts`, `metaField: m{repo_id, format}`, granularity minutes), one document per closed minute per repo (written once; time-series collections can't upsert): (the rollup checks for an existing (repo, minute) document before inserting, so a crashed rollup never duplicates) `requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_out_cache`, `bytes_out_upstream`, `bytes_in_upstream`, `bytes_in_upload`, `lat_hist` (fixed log-scale bucket counts; percentiles computed at query time) | expireAfterSeconds 7 d |
 | `job_outbox` | `_id`, `job` (payload), `queue`, `dedupe_key`, `created_at`, `sent_at?`, `done_at?` (written in the same transaction as the triggering change; ARCH §10) | `sent_at`; `done_at` TTL 7 d |
 | `stats_hour` / `stats_day` | same shape, time-series, rolled up | 90 d / 2 y |
 | `storage_snapshots` | time-series per repo: `bytes`, `assets`, `components` (hourly) | 2 y |
 | `downloads_daily` | `component_id`, `day`, `count`, `bytes` | `component_id,day` unique; TTL 400 d |
 | `audit` | `_id`, `ts`, `principal{kind,id,name}`, `ip`, `action`, `target{kind,id,name}`, `outcome`, `details{...}` | `ts` desc; `principal.id,ts`; `action,ts`; TTL per settings |
-| `migrations` | applied migration ids | – |
+| `migrations` | `_id` = applied migration id (`NNNN_slug`), `description`, `applied_at` | – |
 
 Notes:
 - `components.version_sort` is computed by each format (semver, PEP 440, Maven ComparableVersion, Debian
@@ -62,8 +65,9 @@ Notes:
 | `fill:<repo_id>:<asset_key>` | string (JSON: upload id, owner replica, progress, total) | single-flight lock + progress for coalescing (lease, renewed) |
 | `neg:<repo_id>:<asset_key>` | string | negative cache (404) |
 | `meta:<repo_id>:<asset_key>` | string/bytes | hot metadata response cache (rewritten/merged docs), short TTL |
-| `cnt:<minute>:<repo_id>` | hash | per-minute counters (rolled up by worker after the minute closes) |
-| `lat:<minute>:<repo_id>` | hash of bucket → count | latency histogram (fixed log-scale buckets) |
+| `cnt:<minute>:<repo_id>` | hash | per-minute counters (`requests`, `hits`, `misses`, `coalesced`, `stale`, `errors`, `bytes_*`) + `format`; `<minute>` = epoch minute (`ts // 60`); rolled up by the worker after the minute closes; TTL 3 h safety net |
+| `lat:<minute>:<repo_id>` | hash of bucket → count | latency histogram, fixed log-scale buckets `le_1`, `le_2`, `le_5` ... `le_60000`, `le_inf` (ms upper bounds, `waystation_common.events.keys`) |
+| `stats:pending` | set (no TTL) | `<minute>:<repo_id>` pairs with counters awaiting rollup (lets the rollup find keys without SCAN) |
 | `transfers` | hash `<transfer_id>` → JSON (state, bytes, rate, updated_at); stale entries swept by the rollup job | live transfers: current state |
 | `live` | pub/sub channel | transfer progress (≤ 4 Hz per transfer), no history |
 | `activity` | stream (MAXLEN ~200000) | durable-ish activity events for SSE resume, Activity page, dashboard feed |
