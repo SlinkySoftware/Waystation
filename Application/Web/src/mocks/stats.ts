@@ -15,10 +15,11 @@ export const RANGES: Record<StatsRange, { seconds: number; step: number }> = {
 }
 
 const FORMAT_SHARE: [string, string, number][] = [
-  ['docker', 'Docker', 0.61],
-  ['npm', 'npm', 0.13],
-  ['apt', 'apt', 0.19],
-  ['raw', 'Raw', 0.07],
+  ['docker', 'Docker', 0.55],
+  ['npm', 'npm', 0.11],
+  ['apt', 'apt', 0.18],
+  ['yum', 'yum', 0.12],
+  ['raw', 'Raw', 0.04],
 ]
 
 /** Average bytes/s served at time `t` (ms): diurnal + weekday shape, seeded noise and bursts. */

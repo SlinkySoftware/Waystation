@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Seeded repositories: the proxies a home lab typically runs. Upstreams are the real public registries;
+// Seeded repositories: a home lab's proxies (two docker registries, Debian / Ubuntu / Raspberry Pi apt archives and
+// their security pockets, the RHEL family via yum, npm, one raw example). Upstreams are the public canonical hosts;
 // the instance itself is registry.example.com (no environment details, CLAUDE.md).
 import type { Repository } from '@/api/types'
 
@@ -18,22 +19,30 @@ interface Seed {
   description: string
   upstream: string
   status?: Repository['status']
-  online?: boolean
   sizeGiB: number
   artifacts: number
   hitRatio: number
   requests24h: number
   createdDaysAgo: number
   options?: Repository['format_options']
-  offline?: boolean
-  metadataMaxAge?: number
+  /** Freshness, minutes (content: null = forever, immutable). */
+  metadataMaxAge: number
+  contentMaxAge: number | null
+  negativeTtl: number
+  /** Hours since the last request (default: within the last 90 s). */
+  idleHours?: number
 }
+
+const DOCKER = { metadataMaxAge: 360, contentMaxAge: null, negativeTtl: 60 }
+const DISTRO = { metadataMaxAge: 60, contentMaxAge: 1440, negativeTtl: 10 }
+const SECURITY = { metadataMaxAge: 30, contentMaxAge: 1440, negativeTtl: 10 }
+const OTHER = { metadataMaxAge: 30, contentMaxAge: 1440, negativeTtl: 10 }
 
 const SEEDS: Seed[] = [
   {
-    name: 'docker-hub',
+    name: 'dockerhub-proxy',
     format: 'docker',
-    description: 'Docker Hub pull-through cache (default docker repository, mirror mode)',
+    description: 'Docker Hub pull-through cache (default docker repository: mirror mode and unprefixed names)',
     upstream: 'https://registry-1.docker.io',
     sizeGiB: 186.4,
     artifacts: 4812,
@@ -41,47 +50,139 @@ const SEEDS: Seed[] = [
     requests24h: 48_210,
     createdDaysAgo: 41,
     options: { aliases: ['docker.io'], docker_hub: true, default_repo: true },
+    ...DOCKER,
   },
   {
-    name: 'ghcr',
+    name: 'ghcr-proxy',
     format: 'docker',
-    description: 'GitHub Container Registry',
+    description: 'GitHub Container Registry (pull as ghcr.io/<owner>/<image>)',
     upstream: 'https://ghcr.io',
-    sizeGiB: 23.4,
-    artifacts: 911,
-    hitRatio: 0.887,
-    requests24h: 6_904,
+    sizeGiB: 31.6,
+    artifacts: 1_164,
+    hitRatio: 0.902,
+    requests24h: 8_317,
     createdDaysAgo: 41,
     options: { aliases: ['ghcr.io'], docker_hub: false, default_repo: false },
+    ...DOCKER,
   },
   {
-    name: 'quay',
-    format: 'docker',
-    description: 'Red Hat Quay',
-    upstream: 'https://quay.io',
-    status: 'degraded',
-    sizeGiB: 6.1,
-    artifacts: 233,
-    hitRatio: 0.71,
-    requests24h: 1_312,
-    createdDaysAgo: 30,
-    options: { aliases: ['quay.io'], docker_hub: false, default_repo: false },
+    name: 'debian',
+    format: 'apt',
+    description: 'Debian archive (trixie, trixie-updates, trixie-backports)',
+    upstream: 'https://deb.debian.org/debian/',
+    sizeGiB: 38.2,
+    artifacts: 18_744,
+    hitRatio: 0.911,
+    requests24h: 31_448,
+    createdDaysAgo: 41,
+    options: { distribution: 'trixie', flat: false },
+    ...DISTRO,
   },
   {
-    name: 'k8s-registry',
-    format: 'docker',
-    description: 'registry.k8s.io (Kubernetes images)',
-    upstream: 'https://registry.k8s.io',
+    name: 'debian-security',
+    format: 'apt',
+    description: 'Debian security updates (trixie-security)',
+    upstream: 'https://security.debian.org/debian-security/',
+    sizeGiB: 4.4,
+    artifacts: 2_206,
+    hitRatio: 0.842,
+    requests24h: 7_921,
+    createdDaysAgo: 41,
+    options: { distribution: 'trixie-security', flat: false },
+    ...SECURITY,
+  },
+  {
+    name: 'ubuntu',
+    format: 'apt',
+    description: 'Ubuntu archive (resolute, resolute-updates, resolute-backports)',
+    upstream: 'http://archive.ubuntu.com/ubuntu/',
+    sizeGiB: 29.8,
+    artifacts: 14_102,
+    hitRatio: 0.903,
+    requests24h: 19_877,
+    createdDaysAgo: 35,
+    options: { distribution: 'resolute', flat: false },
+    ...DISTRO,
+  },
+  {
+    name: 'ubuntu-security',
+    format: 'apt',
+    description: 'Ubuntu security updates (resolute-security)',
+    upstream: 'http://security.ubuntu.com/ubuntu/',
+    sizeGiB: 3.1,
+    artifacts: 1_538,
+    hitRatio: 0.826,
+    requests24h: 5_204,
+    createdDaysAgo: 35,
+    options: { distribution: 'resolute-security', flat: false },
+    ...SECURITY,
+  },
+  {
+    name: 'raspberrypi',
+    format: 'apt',
+    description: 'Raspberry Pi OS archive (trixie, arm64 and armhf)',
+    upstream: 'https://archive.raspberrypi.com/debian/',
+    sizeGiB: 3.2,
+    artifacts: 1_481,
+    hitRatio: 0.879,
+    requests24h: 2_215,
+    createdDaysAgo: 18,
+    options: { distribution: 'trixie', flat: false },
+    ...DISTRO,
+  },
+  {
+    name: 'rocky',
+    format: 'yum',
+    description: 'Rocky Linux (BaseOS, AppStream, CRB)',
+    upstream: 'https://dl.rockylinux.org/pub/rocky/',
+    sizeGiB: 21.7,
+    artifacts: 9_412,
+    hitRatio: 0.917,
+    requests24h: 12_386,
+    createdDaysAgo: 33,
+    ...DISTRO,
+  },
+  {
+    name: 'almalinux',
+    format: 'yum',
+    description: 'AlmaLinux (BaseOS, AppStream, CRB)',
+    upstream: 'https://repo.almalinux.org/almalinux/',
+    sizeGiB: 14.3,
+    artifacts: 6_087,
+    hitRatio: 0.894,
+    requests24h: 7_652,
+    createdDaysAgo: 33,
+    ...DISTRO,
+  },
+  {
+    name: 'epel',
+    format: 'yum',
+    description: 'Extra Packages for Enterprise Linux (rarely used)',
+    upstream: 'https://dl.fedoraproject.org/pub/epel/',
     status: 'blocked',
-    sizeGiB: 3.8,
-    artifacts: 164,
-    hitRatio: 0.96,
-    requests24h: 512,
-    createdDaysAgo: 22,
-    options: { aliases: ['registry.k8s.io'], docker_hub: false, default_repo: false },
+    sizeGiB: 1.2,
+    artifacts: 214,
+    hitRatio: 0.71,
+    requests24h: 96,
+    createdDaysAgo: 30,
+    idleHours: 0.12,
+    ...DISTRO,
   },
   {
-    name: 'npm-proxy',
+    name: 'oracle',
+    format: 'yum',
+    description: 'Oracle Linux (baseos, appstream, UEK)',
+    upstream: 'https://yum.oracle.com/',
+    status: 'degraded',
+    sizeGiB: 8.7,
+    artifacts: 3_356,
+    hitRatio: 0.862,
+    requests24h: 3_911,
+    createdDaysAgo: 27,
+    ...DISTRO,
+  },
+  {
+    name: 'npm',
     format: 'npm',
     description: 'npmjs.org registry',
     upstream: 'https://registry.npmjs.org',
@@ -91,83 +192,25 @@ const SEEDS: Seed[] = [
     requests24h: 214_655,
     createdDaysAgo: 41,
     options: { audit_passthrough: true },
-  },
-  {
-    name: 'debian',
-    format: 'apt',
-    description: 'Debian main archive (trixie, trixie-updates, trixie-backports)',
-    upstream: 'https://deb.debian.org/debian',
-    sizeGiB: 38.2,
-    artifacts: 18_744,
-    hitRatio: 0.911,
-    requests24h: 31_448,
-    createdDaysAgo: 41,
-    options: { distribution: 'trixie', flat: false },
-  },
-  {
-    name: 'debian-security',
-    format: 'apt',
-    description: 'Debian security updates',
-    upstream: 'https://security.debian.org/debian-security',
-    sizeGiB: 4.4,
-    artifacts: 2_206,
-    hitRatio: 0.842,
-    requests24h: 7_921,
-    createdDaysAgo: 41,
-    options: { distribution: 'trixie-security', flat: false },
-    metadataMaxAge: 600,
-  },
-  {
-    name: 'ubuntu',
-    format: 'apt',
-    description: 'Ubuntu archive (noble, noble-updates)',
-    upstream: 'http://archive.ubuntu.com/ubuntu',
-    sizeGiB: 29.8,
-    artifacts: 14_102,
-    hitRatio: 0.903,
-    requests24h: 19_877,
-    createdDaysAgo: 35,
-    options: { distribution: 'noble', flat: false },
-  },
-  {
-    name: 'raspberrypi',
-    format: 'apt',
-    description: 'Raspberry Pi OS archive',
-    upstream: 'https://archive.raspberrypi.com/debian',
-    sizeGiB: 3.2,
-    artifacts: 1_481,
-    hitRatio: 0.879,
-    requests24h: 2_215,
-    createdDaysAgo: 18,
-    options: { distribution: 'trixie', flat: false },
+    ...OTHER,
   },
   {
     name: 'raw-releases',
     format: 'raw',
-    description: 'GitHub release downloads (CLI tools, binaries)',
-    upstream: 'https://github.com',
+    description: 'Example raw proxy: GitHub release downloads (CLI tools, binaries)',
+    upstream: 'https://github.com/',
     sizeGiB: 12.9,
     artifacts: 388,
     hitRatio: 0.948,
     requests24h: 1_604,
     createdDaysAgo: 29,
     options: { metadata_path_regex: null, content_disposition: 'attachment' },
-  },
-  {
-    name: 'raw-isos',
-    format: 'raw',
-    description: 'Installer images from cdimage.debian.org (offline: serves only what is cached)',
-    upstream: 'https://cdimage.debian.org',
-    status: 'offline',
-    offline: true,
-    sizeGiB: 48.3,
-    artifacts: 37,
-    hitRatio: 1,
-    requests24h: 18,
-    createdDaysAgo: 40,
-    options: { metadata_path_regex: '.*/SHA(256|512)SUMS$', content_disposition: 'attachment' },
+    ...OTHER,
   },
 ]
+
+/** Average response size per request, by format (bytes): drives bytes served from request counts. */
+const BYTES_PER_REQUEST: Partial<Record<Repository['format'], number>> = { npm: 180_000, docker: 9_500_000, raw: 40_000_000, yum: 2_100_000 }
 
 /** Requests per hour for the last 24 h: diurnal shape, seeded noise, scaled to the 24 h total. */
 function spark(name: string, total: number): number[] {
@@ -186,26 +229,26 @@ function spark(name: string, total: number): number[] {
 export function seedRepositories(): Repository[] {
   return SEEDS.map((s) => {
     const next = rng(hash(`repo:${s.name}`))
-    const bytesServed = Math.round(s.requests24h * (s.format === 'npm' ? 180_000 : s.format === 'docker' ? 9_500_000 : s.format === 'raw' ? 40_000_000 : 1_400_000) * (0.7 + next() * 0.6))
+    const bytesServed = Math.round(s.requests24h * (BYTES_PER_REQUEST[s.format] ?? 1_400_000) * (0.7 + next() * 0.6))
     return {
       name: s.name,
       format: s.format,
       type: 'proxy',
-      online: s.online ?? true,
+      online: true,
       description: s.description,
       status: s.status ?? 'ok',
       url: `${BASE_URL}/repository/${s.name}/`,
       proxy: {
         upstream_url: s.upstream,
-        auth: s.name === 'docker-hub' ? { kind: 'basic', username: 'example-hub-user', secret_set: true } : { kind: 'none' },
-        metadata_max_age_s: s.metadataMaxAge ?? 1800,
-        content_max_age_s: null,
-        negative_ttl_s: 600,
+        auth: s.name === 'dockerhub-proxy' ? { kind: 'basic', username: 'example-hub-user', secret_set: true } : { kind: 'none' },
+        metadata_max_age_s: s.metadataMaxAge * 60,
+        content_max_age_s: s.contentMaxAge === null ? null : s.contentMaxAge * 60,
+        negative_ttl_s: s.negativeTtl * 60,
         stale_on_error: true,
-        offline: s.offline ?? false,
+        offline: false,
         allow_private_upstream: false,
       },
-      format_options: s.options,
+      ...(s.options ? { format_options: s.options } : {}),
       created_at: ago(s.createdDaysAgo * DAY),
       updated_at: ago(Math.round(next() * 9 * DAY)),
       stats: {
@@ -216,7 +259,7 @@ export function seedRepositories(): Repository[] {
         bytes_served_24h: bytesServed,
         bytes_saved_24h: Math.round(bytesServed * s.hitRatio),
         requests_spark_24h: spark(s.name, s.requests24h),
-        last_activity_at: s.offline ? ago(5 * 3_600_000) : ago(Math.round(next() * 90_000)),
+        last_activity_at: s.idleHours ? ago(s.idleHours * 3_600_000) : ago(Math.round(next() * 90_000)),
       },
     }
   })

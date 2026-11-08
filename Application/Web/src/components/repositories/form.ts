@@ -2,9 +2,12 @@
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
 import type { AptOptions, DockerOptions, Format, M0Format, NpmOptions, RawOptions, Repository, RepositoryWrite } from '@/api/types'
 
+/** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (no options yet). */
+export type FormFormat = M0Format | 'yum'
+
 export interface RepoFormModel {
   name: string
-  format: M0Format
+  format: FormFormat
   description: string
   online: boolean
   upstreamUrl: string
@@ -15,6 +18,8 @@ export interface RepoFormModel {
   secretSet: boolean
   metadataMaxAgeMin: number
   negativeTtlMin: number
+  /** Not edited in this form yet; carried through so saving keeps it. */
+  contentMaxAgeS: number | null
   staleOnError: boolean
   offline: boolean
   allowPrivate: boolean
@@ -49,13 +54,13 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   apt: [
     { id: 'debian', label: 'Debian', apply: { name: 'debian', upstreamUrl: 'https://deb.debian.org/debian', distribution: 'trixie' } },
     { id: 'debsec', label: 'Debian security', apply: { name: 'debian-security', upstreamUrl: 'https://security.debian.org/debian-security', distribution: 'trixie-security', metadataMaxAgeMin: 10 } },
-    { id: 'ubuntu', label: 'Ubuntu', apply: { name: 'ubuntu', upstreamUrl: 'http://archive.ubuntu.com/ubuntu', distribution: 'noble' } },
+    { id: 'ubuntu', label: 'Ubuntu', apply: { name: 'ubuntu', upstreamUrl: 'http://archive.ubuntu.com/ubuntu', distribution: 'resolute' } },
     { id: 'rpi', label: 'Raspberry Pi OS', apply: { name: 'raspberrypi', upstreamUrl: 'https://archive.raspberrypi.com/debian', distribution: 'trixie' } },
   ],
   raw: [{ id: 'github', label: 'GitHub releases', apply: { name: 'raw-github', upstreamUrl: 'https://github.com' } }],
 }
 
-export function emptyModel(format: M0Format): RepoFormModel {
+export function emptyModel(format: FormFormat): RepoFormModel {
   return {
     name: '',
     format,
@@ -68,6 +73,7 @@ export function emptyModel(format: M0Format): RepoFormModel {
     secretSet: false,
     metadataMaxAgeMin: 30,
     negativeTtlMin: 10,
+    contentMaxAgeS: null,
     staleOnError: true,
     offline: false,
     allowPrivate: false,
@@ -83,7 +89,7 @@ export function emptyModel(format: M0Format): RepoFormModel {
 }
 
 export function modelFromRepository(repo: Repository): RepoFormModel {
-  const m = emptyModel(repo.format as M0Format)
+  const m = emptyModel(repo.format as FormFormat)
   const p = repo.proxy
   const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions
   return {
@@ -97,6 +103,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     secretSet: Boolean(p?.auth?.secret_set),
     metadataMaxAgeMin: Math.round((p?.metadata_max_age_s ?? 1800) / 60),
     negativeTtlMin: Math.round((p?.negative_ttl_s ?? 600) / 60),
+    contentMaxAgeS: p?.content_max_age_s ?? null,
     staleOnError: p?.stale_on_error ?? true,
     offline: p?.offline ?? false,
     allowPrivate: p?.allow_private_upstream ?? false,
@@ -119,6 +126,8 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       return { audit_passthrough: m.auditPassthrough }
     case 'apt':
       return { distribution: m.distribution.trim(), flat: m.flat }
+    case 'yum':
+      return undefined
     case 'raw':
     default:
       return { metadata_path_regex: m.metadataRegex.trim() || null, content_disposition: m.contentDisposition }
@@ -141,13 +150,13 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
         ...(m.authKind !== 'none' && m.secret ? { secret: m.secret } : {}),
       },
       metadata_max_age_s: Math.max(0, Math.round(m.metadataMaxAgeMin * 60)),
-      content_max_age_s: null,
+      content_max_age_s: m.contentMaxAgeS,
       negative_ttl_s: Math.max(0, Math.round(m.negativeTtlMin * 60)),
       stale_on_error: m.staleOnError,
       offline: m.offline,
       allow_private_upstream: m.allowPrivate,
     },
-    format_options: formatOptions(m),
+    ...(m.format === 'yum' ? {} : { format_options: formatOptions(m) }),
   }
 }
 

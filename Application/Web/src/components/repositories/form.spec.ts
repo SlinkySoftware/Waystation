@@ -34,6 +34,22 @@ describe('repository form model', () => {
     expect(toWrite(m).format_options).toEqual({ distribution: 'trixie', flat: false })
   })
 
+  it('edits a yum repository without inventing format options and keeps content max age', () => {
+    const repo = {
+      name: 'rocky',
+      format: 'yum',
+      type: 'proxy',
+      online: true,
+      description: 'Rocky Linux',
+      proxy: { upstream_url: 'https://dl.rockylinux.org/pub/rocky/', auth: { kind: 'none', secret_set: false }, metadata_max_age_s: 3600, content_max_age_s: 86400, negative_ttl_s: 600, stale_on_error: true, offline: false, allow_private_upstream: false },
+    } as unknown as Repository
+    const w = toWrite(modelFromRepository(repo))
+    expect(w.format).toBe('yum')
+    expect(w).not.toHaveProperty('format_options')
+    expect(w.proxy?.content_max_age_s).toBe(86400)
+    expect(w.proxy?.metadata_max_age_s).toBe(3600)
+  })
+
   it('validates names like the server', () => {
     expect(NAME_PATTERN.test('docker-hub')).toBe(true)
     expect(NAME_PATTERN.test('-bad')).toBe(false)

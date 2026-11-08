@@ -75,7 +75,7 @@ import type { Format } from '@/api/types'
 import EmptyState from '@/components/EmptyState.vue'
 import { t } from '@/i18n'
 import { type LiveTransfer, useLiveStore } from '@/stores/live'
-import { formatLabel } from '@/utils/domain'
+import { formatLabel, LISTED_FORMATS } from '@/utils/domain'
 import { formatRate } from '@/utils/format'
 import { iconPause, iconPlay, iconSpeed } from '@/utils/icons'
 
@@ -101,7 +101,7 @@ const source = computed(() => {
 const repoOptions = computed(() => [...new Set(live.transfers.map((x) => x.repository))].sort().map((name) => ({ label: name, value: name })))
 const formatOptions = computed(() => [
   { label: t('live.all'), value: 'all' },
-  ...(['docker', 'npm', 'apt', 'raw'] as Format[]).map((f) => ({ label: formatLabel(f), value: f })),
+  ...LISTED_FORMATS.map((f) => ({ label: formatLabel(f), value: f })),
 ])
 
 const filtered = computed(() =>
