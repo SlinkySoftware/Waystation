@@ -8,7 +8,7 @@ from datetime import datetime
 from pymongo import ReturnDocument
 
 from waystation_common.db.client import Database
-from waystation_common.db.collections import ASSETS, BLOBS
+from waystation_common.db.collections import ASSETS
 from waystation_common.ids import new_id
 from waystation_common.searchkeys import file_keys
 from waystation_server.proxy.records import StoredAsset, UpstreamMeta
@@ -41,7 +41,3 @@ async def mark_revalidated(db: Database, asset_id: str, upstream: UpstreamMeta, 
 
 async def delete(db: Database, asset_id: str) -> None:
     await db[ASSETS].delete_one({'_id': asset_id})
-
-
-async def record_blob(db: Database, sha256: str, size: int, now: datetime) -> None:
-    await db[BLOBS].update_one({'_id': sha256}, {'$setOnInsert': {'size': size, 'first_seen': now}}, upsert=True)

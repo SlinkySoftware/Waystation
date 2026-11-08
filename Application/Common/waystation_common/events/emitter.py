@@ -238,6 +238,17 @@ class EventEmitter:
 
         self._enqueue(op)
 
+    def asset_downloaded(self, asset_id: str, *, ts: float | None = None) -> None:
+        """Record a download of a cached asset: ``seen:assets`` (last time) and ``dl:assets`` (count), flushed to
+        ``assets.last_downloaded_at`` / ``download_count`` by the stats rollup (never MongoDB on the request path)."""
+        stamp = str(int(self._clock() if ts is None else ts))
+
+        def op(pipe: Pipeline) -> None:
+            pipe.hset(keys.SEEN_ASSETS, asset_id, stamp)
+            pipe.hincrby(keys.DL_ASSETS, asset_id, 1)
+
+        self._enqueue(op)
+
     # ------------------------------------------------------------------ transfers
     def transfer_started(self, transfer: Transfer) -> None:
         now = self._clock()

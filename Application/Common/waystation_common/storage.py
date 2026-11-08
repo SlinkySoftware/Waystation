@@ -25,6 +25,12 @@ Guarantees:
 
 ``path_for_xaccel(sha256)`` is the internal URI the web tier serves (``/_blobs/...``, ARCHITECTURE §4.5).
 ``delete`` is for GC only. Not done yet: the NFS-backed CI scenario (T-F07 full task).
+
+GC safety (ARCHITECTURE §5): ``commit`` calls ``guard.claim(sha256, size)`` before it puts the file in place, also
+when identical content is already there. The server's guard (``waystation_common.db.blobs.MongoBlobGuard``) records
+the claim in the ``blobs`` document and waits while blob GC is deleting that blob, so GC never removes a blob that a
+fill is about to reference, and a fill never relies on a blob GC is removing. Anything that references an existing
+blob without committing it must call ``guard.claim`` first.
 """
 
 from __future__ import annotations
@@ -35,10 +41,11 @@ import os
 import re
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
-from typing import Self
+from typing import Protocol, Self
 
 from waystation_common.datadir import DIR_MODE, FILE_MODE
 from waystation_common.errors import DigestMismatch, InsufficientStorage, PayloadTooLarge, ValidationFailed
@@ -48,6 +55,21 @@ XACCEL_PREFIX = '/_blobs/'
 DEFAULT_CHUNK = 1024 * 1024
 ORPHAN_AGE_S = 24 * 3600
 _HEX = re.compile(r'^[0-9a-f]{64}$')
+
+
+class BlobGuard(Protocol):
+    """Coordination with blob GC (see the module docstring)."""
+
+    async def claim(self, sha256: str, size: int) -> None: ...
+
+
+@dataclass(frozen=True)
+class BlobFile:
+    """A file in the blob store, as GC sees it."""
+
+    sha256: str
+    size: int
+    mtime: float
 
 
 @dataclass(frozen=True)
@@ -191,8 +213,10 @@ class BlobStore:
         min_free_bytes: int = 0,
         max_size: int | None = None,
         chunk_size: int = DEFAULT_CHUNK,
+        guard: BlobGuard | None = None,
     ) -> None:
         self.root = root
+        self.guard = guard
         self.blobs_dir = root / 'blobs'
         self.uploads_dir = root / 'uploads'
         self.min_free_bytes = min_free_bytes
@@ -300,6 +324,8 @@ class BlobStore:
             if writer.expected_sha256 is not None and digest != writer.expected_sha256:
                 raise DigestMismatch('sha256 does not match the expected digest')
             target = self.blob_path(digest)
+            if self.guard is not None:
+                await self.guard.claim(digest, size)
             entry = self._locks.setdefault(digest, _DigestLock())
             entry.users += 1
             try:
@@ -330,6 +356,13 @@ class BlobStore:
     async def exists(self, sha256: str) -> bool:
         return await self.stat(sha256) is not None
 
+    def _existing_sync(self, sha256s: list[str]) -> set[str]:
+        return {s for s in sha256s if self.blob_path(s).is_file()}
+
+    async def existing(self, sha256s: Iterable[str]) -> set[str]:
+        """Which of these blobs have a file (one thread hop for the batch)."""
+        return await asyncio.to_thread(self._existing_sync, list(sha256s))
+
     def _delete_sync(self, sha256: str) -> bool:
         try:
             self.blob_path(sha256).unlink()
@@ -341,7 +374,7 @@ class BlobStore:
         """Remove a blob (GC only, after mark-and-sweep). True when a file was removed."""
         return await asyncio.to_thread(self._delete_sync, sha256)
 
-    def _sweep_sync(self, older_than_s: float, active: frozenset[str]) -> int:
+    def _sweep_sync(self, older_than_s: float, keep: frozenset[str]) -> int:
         cutoff = time.time() - older_than_s
         removed = 0
         try:
@@ -349,7 +382,7 @@ class BlobStore:
         except FileNotFoundError:
             return 0
         for entry in entries:
-            if entry.name in active or not entry.is_file(follow_symlinks=False):
+            if entry.name in keep or not entry.is_file(follow_symlinks=False):
                 continue
             try:
                 if entry.stat(follow_symlinks=False).st_mtime <= cutoff:
@@ -359,6 +392,43 @@ class BlobStore:
                 continue
         return removed
 
-    async def sweep_uploads(self, older_than_s: float = ORPHAN_AGE_S) -> int:
-        """Delete upload files untouched for ``older_than_s`` (never this process's open writers)."""
-        return await asyncio.to_thread(self._sweep_sync, older_than_s, frozenset(self._active))
+    async def sweep_uploads(self, older_than_s: float = ORPHAN_AGE_S, *, keep: Iterable[str] = ()) -> int:
+        """Delete upload files untouched for ``older_than_s`` (never this process's open writers, nor ``keep``)."""
+        return await asyncio.to_thread(self._sweep_sync, older_than_s, frozenset(self._active) | frozenset(keep))
+
+    # ---- GC scan
+    def _prefixes_sync(self) -> list[str]:
+        try:
+            return sorted(e.name for e in os.scandir(self.blobs_dir / 'sha256') if e.is_dir() and len(e.name) == 2)
+        except FileNotFoundError:
+            return []
+
+    async def prefixes(self) -> list[str]:
+        """The first-level directories (``aa``) of ``blobs/sha256``: GC scans one at a time."""
+        return await asyncio.to_thread(self._prefixes_sync)
+
+    def _scan_sync(self, prefix: str) -> list[BlobFile]:
+        out: list[BlobFile] = []
+        top = self.blobs_dir / 'sha256' / prefix
+        try:
+            subdirs = [e for e in os.scandir(top) if e.is_dir(follow_symlinks=False)]
+        except FileNotFoundError:
+            return out
+        for sub in subdirs:
+            try:
+                files = list(os.scandir(sub.path))
+            except FileNotFoundError:  # pragma: no cover - removed meanwhile
+                continue
+            for entry in files:
+                if not _HEX.fullmatch(entry.name) or not entry.is_file(follow_symlinks=False):
+                    continue
+                try:
+                    st = entry.stat(follow_symlinks=False)
+                except FileNotFoundError:  # pragma: no cover - deleted meanwhile
+                    continue
+                out.append(BlobFile(entry.name, st.st_size, st.st_mtime))
+        return out
+
+    async def scan(self, prefix: str) -> list[BlobFile]:
+        """Blob files under ``blobs/sha256/<prefix>/`` (in a thread)."""
+        return await asyncio.to_thread(self._scan_sync, prefix)

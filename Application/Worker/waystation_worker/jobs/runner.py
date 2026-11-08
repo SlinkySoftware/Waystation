@@ -203,6 +203,7 @@ class Runner:
             valkey=self.valkey,
             clock=self.clock,
             settings=self.settings,
+            emitter=self.emitter,
         )
         self._event(EventType.JOB_STARTED, env, run_id, attempt)
         self.running[delivery.entry_id] = env

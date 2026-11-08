@@ -18,6 +18,7 @@ from starlette.requests import Request
 from waystation_common.audit import AuditWriter
 from waystation_common.crypto import Keyring
 from waystation_common.db import audit as audit_db
+from waystation_common.db.blobs import MongoBlobGuard
 from waystation_common.db.client import Client, Database, create_client, database
 from waystation_common.db.migrations import check_schema
 from waystation_common.events import EventEmitter
@@ -103,6 +104,7 @@ class Services:
             return await repos_db.list_all(db)
 
         blobs = BlobStore.from_settings(settings)
+        blobs.guard = MongoBlobGuard(db)  # commits claim their blob against GC (waystation_common.db.blobs)
         storage = StorageStats(db, settings.data_dir)
         catalog = RepoCatalog(load)
         groups = GroupDirectory(lambda: groups_db.list_all(db))

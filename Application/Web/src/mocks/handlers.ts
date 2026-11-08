@@ -15,6 +15,7 @@ import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/do
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
+import { cleanupHandlers } from './cleanup'
 import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
@@ -198,6 +199,9 @@ export const handlers = [
 
   // ---------------------------------------------------------------- API tokens and service accounts
   ...tokenHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
+
+  // ---------------------------------------------------------------- cleanup policies and blob GC
+  ...cleanupHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
   // ---------------------------------------------------------------- audit log (T-S10)
   ...auditHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),

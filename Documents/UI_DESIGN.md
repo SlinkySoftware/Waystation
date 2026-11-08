@@ -115,11 +115,21 @@ largest artifacts, GC status (last run, bytes reclaimed, next run).
 As built (T-U07): KPIs (stored, free, saved by de-duplication, blobs), data volume bar (Waystation blobs / other
 files / free, warning under 15 % free), by-format donut, largest repositories bar list, repository table (size,
 share bar, artifacts, average artifact size; sort and filter in the URL; link to the repository's activity). Growth
-chart, largest artifacts, per-repository de-dup savings and GC status wait for storage snapshots and GC.
+chart, largest artifacts and per-repository de-dup savings wait for storage snapshots. The Blob GC card (T-O02, shared with
+the Cleanup page) shows GC status to admins.
 
 ### 4.8 Cleanup
 Policies list → editor with criteria builder; **Preview** shows matches (count, bytes, sample table) before
 saving; run history with reclaimed bytes.
+As built (T-O01/T-O02): the policies table (format, criteria chips with protections marked, attached repositories,
+last run with progress, schedule and next run, enabled toggle, run now / history / edit / delete); the editor is a
+wide dialog with the form on the left (criteria read as sentences with a switch and an inline value; schedule
+presets manual/daily/weekly/custom cron with a plain-language reading) and a **live impact panel** on the right
+("N items · X across M repositories", per-repository bars, debounced dry run) that opens the paged candidate table.
+A **Blob GC** card on the same page (admins) shows the last run, reclaimed bytes, what waits out the grace period,
+the next run and "Run now"; the Storage page shows the same card. The repository detail page has a **Cleanup** tab for
+users who may manage the repository: attached policies in run order (attach compatible policies, reorder, detach)
+and what they would remove from this repository.
 
 ### 4.9 Tasks and workers
 Scheduled tasks table (kind, schedule, last result, next run, run now), job runs with progress bars and log
