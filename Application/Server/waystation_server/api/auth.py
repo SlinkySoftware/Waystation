@@ -99,6 +99,7 @@ def _session_body(user: UserRecord, record: SessionRecord) -> Session:
 
 
 @config_router.get('/config', response_model=UiConfig, operation_id='getUiConfig')
+@access.public
 async def get_config(svc: ServicesDep) -> UiConfig:
     default = await svc.catalog.default_docker()
     return UiConfig(
@@ -110,6 +111,7 @@ async def get_config(svc: ServicesDep) -> UiConfig:
 
 
 @router.get('/auth/providers', response_model=list[AuthProvider], operation_id='listAuthProviders')
+@access.public
 async def list_providers() -> list[AuthProvider]:
     return [AuthProvider(id='local', kind='local', name='Local account')]
 
@@ -120,6 +122,7 @@ async def list_providers() -> list[AuthProvider]:
     operation_id='login',
     responses={401: {'description': 'Bad credentials'}, 429: {'description': 'Too many attempts'}},
 )
+@access.public
 async def login(body: LoginRequest, request: Request, response: Response, svc: ServicesDep) -> Session:
     user = await verify_login(
         svc.db, svc.valkey, svc.settings, username=body.username, password=body.password, client_ip=client_ip(request)
@@ -142,6 +145,7 @@ def _require_csrf(request: Request, record: SessionRecord) -> None:
 
 
 @router.post('/auth/logout', status_code=204, operation_id='logout')
+@access.public  # CSRF checked in the handler when a session exists
 async def logout(request: Request, svc: ServicesDep) -> Response:
     await authenticate(request)
     record = current_session(request)
@@ -163,14 +167,15 @@ async def _signed_in(request: Request, svc: Services) -> tuple[UserRecord, Sessi
 
 
 @router.get('/auth/me', response_model=Session, operation_id='getMe')
+@access.authenticated
 async def me(request: Request, svc: ServicesDep) -> Session:
     user, record = await _signed_in(request, svc)
     return _session_body(user, record)
 
 
 @router.put('/auth/me/preferences', response_model=Preferences, operation_id='updatePreferences')
+@access.authenticated
 async def update_preferences(body: Preferences, request: Request, svc: ServicesDep) -> Preferences:
-    user, record = await _signed_in(request, svc)
-    _require_csrf(request, record)
+    user, _ = await _signed_in(request, svc)
     await users_db.set_preferences(svc.db, user.id, body)
     return body

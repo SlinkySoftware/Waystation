@@ -16,12 +16,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from waystation_common.settings import Settings, get_settings
 from waystation_server import api, health, problems, routing
 from waystation_server.clientip import ClientResolver
 from waystation_server.middleware import HeadMiddleware, RequestContextMiddleware
+from waystation_server.security import access
 from waystation_server.services import Services
 
 API_PREFIX = api.API_PREFIX
@@ -49,6 +50,7 @@ def create_app(settings: Settings | None = None, *, services: Services | None = 
         redoc_url=None,
         openapi_url=f'{API_PREFIX}/openapi.json',
         lifespan=lifespan,
+        dependencies=[Depends(access.enforce)],
     )
     app.state.settings = settings
     if services is not None:

@@ -3,6 +3,12 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S03 (M0 slice): RBAC decision point `waystation_server.security.access`: `check`, `can_see`, `filter_repos`,
+  `require`, `require_repo`, `capabilities`; built-in roles (`admin`, `reader`, `deployer`, `viewer`,
+  `anonymous` = browse + read on proxy repositories); scopes `*`, name, glob, `format:`, `type:` (new, SPEC §4.10).
+  Hidden repositories answer 404; visible-but-denied answers 401 (anonymous) or 403. Every route declares its rule
+  with a decorator, applied by the app-wide `enforce` dependency (fails closed; CSRF for session requests on unsafe
+  methods); a test enumerates all routes and fails on a missing rule.
 - T-S02 (M0 slice): local authentication. argon2id passwords (hashing in a thread; unknown users cost the same),
   `init` creates the first `admin` (configured or one-time password printed once, idempotent), sessions
   (`ws_session` cookie, sha256-hashed ids, fixation-safe, idle and absolute timeouts, last-seen kept in Valkey),
