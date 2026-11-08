@@ -117,7 +117,8 @@ curl -fLO $WS/repository/raw-releases/jqlang/jq/releases/download/jq-1.8.1/jq-li
 ```
 
 Open the dashboard while these run. Transfers show under **Live transfers** as they happen. Requests, hit ratio,
-bandwidth saved and storage update within a few seconds, and **Browse** lists what was cached.
+bandwidth saved and storage update within a few seconds, **Browse** lists what was cached, **Activity** shows
+every request (filter it, or export CSV) and **Storage** shows volume usage, usage by format and the largest repositories.
 
 ## 8. Run the scripted end-to-end check (optional)
 

@@ -14,8 +14,8 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   running stack, checked in the live event stream, stats, activity, upstream health and browse; creates the demo
   repositories when missing. `Documents/Operations/TRY_IT.md` (fresh host: build images, env file, start, first
   sign-in, the four repositories, clients, stop/reset). `scripts/screenshots.mjs` gains `REAL=1` (signs in, tours
-  real cached content); the M0 tour is now taken against the real server (`Documents/Notes/UI_TOUR_M0.md`, 72 shots,
-  pngquant). Feedback log `Documents/Notes/UI_FEEDBACK.md`.
+  real cached content); the M0 tour is now taken against the real server (`Documents/Notes/UI_TOUR_M0.md`, 84 shots
+  including Activity, Storage and Auth providers, pngquant). Feedback log `Documents/Notes/UI_FEEDBACK.md`.
 - T-O06: monitoring. Grafana dashboard `Build/monitoring/grafana/waystation-dashboard.json` (Prometheus data
   source as a variable; job, instance and repository filters; stat tiles for request rate, cache hit ratio, bytes
   served from cache and fetched from upstream, upstream error ratio and transfers in flight; requests by cache state,
