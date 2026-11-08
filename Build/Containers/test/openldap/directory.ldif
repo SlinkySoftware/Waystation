@@ -1,0 +1,153 @@
+# FreeIPA-like test tree (make test-integration). Throwaway passwords, documentation names only.
+dn: dc=example,dc=com
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: Example
+dc: example
+
+dn: ou=policies,dc=example,dc=com
+objectClass: organizationalUnit
+ou: policies
+
+dn: cn=default,ou=policies,dc=example,dc=com
+objectClass: device
+objectClass: pwdPolicy
+cn: default
+pwdAttribute: userPassword
+pwdLockout: TRUE
+pwdMaxFailure: 0
+
+dn: cn=accounts,dc=example,dc=com
+objectClass: organizationalRole
+cn: accounts
+
+dn: cn=users,cn=accounts,dc=example,dc=com
+objectClass: organizationalRole
+cn: users
+
+dn: cn=groups,cn=accounts,dc=example,dc=com
+objectClass: organizationalRole
+cn: groups
+
+dn: cn=etc,dc=example,dc=com
+objectClass: organizationalRole
+cn: etc
+
+dn: cn=sysaccounts,cn=etc,dc=example,dc=com
+objectClass: organizationalRole
+cn: sysaccounts
+
+dn: uid=waystation-svc,cn=sysaccounts,cn=etc,dc=example,dc=com
+objectClass: account
+objectClass: simpleSecurityObject
+uid: waystation-svc
+userPassword: Svc-Passw0rd1
+
+dn: uid=alice,cn=users,cn=accounts,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: alice
+cn: Alice Example
+sn: Example
+givenName: Alice
+displayName: Alice Example
+mail: alice@example.com
+uidNumber: 10001
+gidNumber: 10001
+homeDirectory: /home/alice
+userPassword: Alice-Passw0rd1
+
+dn: uid=bob,cn=users,cn=accounts,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: bob
+cn: Bob Example
+sn: Example
+givenName: Bob
+displayName: Bob Example
+mail: bob@example.com
+uidNumber: 10002
+gidNumber: 10002
+homeDirectory: /home/bob
+userPassword: Bob-Passw0rd1
+
+dn: uid=carol,cn=users,cn=accounts,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: carol
+cn: Carol Example
+sn: Example
+givenName: Carol
+displayName: Carol Example
+mail: carol@example.com
+uidNumber: 10003
+gidNumber: 10003
+homeDirectory: /home/carol
+userPassword: Carol-Passw0rd1
+
+dn: uid=dave,cn=users,cn=accounts,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: dave
+cn: Dave Example
+sn: Example
+givenName: Dave
+displayName: Dave Example
+mail: dave@example.com
+uidNumber: 10004
+gidNumber: 10004
+homeDirectory: /home/dave
+userPassword: Dave-Passw0rd1
+
+dn: uid=admin,cn=users,cn=accounts,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: admin
+cn: Directory Admin
+sn: Admin
+givenName: Directory
+displayName: Directory Admin
+mail: admin@example.com
+uidNumber: 10005
+gidNumber: 10005
+homeDirectory: /home/admin
+userPassword: Admin-Passw0rd1
+
+dn: uid=erin,cn=users,cn=accounts,dc=example,dc=com
+objectClass: inetOrgPerson
+objectClass: posixAccount
+uid: erin
+cn: Erin Example
+sn: Example
+givenName: Erin
+displayName: Erin Example
+mail: erin@example.com
+uidNumber: 10006
+gidNumber: 10006
+homeDirectory: /home/erin
+userPassword: Erin-Passw0rd1
+
+dn: cn=developers,cn=groups,cn=accounts,dc=example,dc=com
+objectClass: groupOfNames
+cn: developers
+member: uid=alice,cn=users,cn=accounts,dc=example,dc=com
+
+dn: cn=ops,cn=groups,cn=accounts,dc=example,dc=com
+objectClass: groupOfNames
+cn: ops
+member: uid=bob,cn=users,cn=accounts,dc=example,dc=com
+
+dn: cn=platform,cn=groups,cn=accounts,dc=example,dc=com
+objectClass: groupOfNames
+cn: platform
+member: cn=ops,cn=groups,cn=accounts,dc=example,dc=com
+
+dn: cn=waystation-users,cn=groups,cn=accounts,dc=example,dc=com
+objectClass: groupOfNames
+cn: waystation-users
+member: uid=alice,cn=users,cn=accounts,dc=example,dc=com
+member: uid=bob,cn=users,cn=accounts,dc=example,dc=com
+member: uid=carol,cn=users,cn=accounts,dc=example,dc=com
+member: uid=admin,cn=users,cn=accounts,dc=example,dc=com
+member: uid=erin,cn=users,cn=accounts,dc=example,dc=com

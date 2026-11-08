@@ -17,7 +17,7 @@ from waystation_common.errors import Forbidden, Unauthorized
 from waystation_server.api.deps import ServicesDep, client_ip
 from waystation_server.db import users as users_db
 from waystation_server.security import access
-from waystation_server.security.authn import authenticate, current_session, user_principal
+from waystation_server.security.authn import authenticate, current_session, principal_for
 from waystation_server.security.identity import Preferences, SessionRecord, UserRecord
 from waystation_server.security.login import verify_login
 from waystation_server.security.principal import AuthMethod
@@ -62,7 +62,7 @@ class LoginRequest(BaseModel):
 
     username: str = Field(min_length=1, max_length=256)
     password: str = Field(min_length=1, max_length=1024, json_schema_extra={'writeOnly': True})
-    provider: str | None = None
+    provider: str | None = Field(None, max_length=64)
 
 
 class User(BaseModel):
@@ -85,8 +85,8 @@ def registry_host(base_url: str) -> str:
     return urlsplit(base_url).netloc
 
 
-def _session_body(user: UserRecord, record: SessionRecord) -> Session:
-    principal = user_principal(user, AuthMethod.SESSION)
+async def _session_body(svc: Services, user: UserRecord, record: SessionRecord) -> Session:
+    principal = await principal_for(svc, user, AuthMethod.SESSION)
     return Session(
         user=User(
             id=user.id, username=user.username, display_name=user.display_name, email=user.email, source=user.source
@@ -112,8 +112,10 @@ async def get_config(svc: ServicesDep) -> UiConfig:
 
 @router.get('/auth/providers', response_model=list[AuthProvider], operation_id='listAuthProviders')
 @access.public
-async def list_providers() -> list[AuthProvider]:
-    return [AuthProvider(id='local', kind='local', name='Local account')]
+async def list_providers(svc: ServicesDep) -> list[AuthProvider]:
+    """Local accounts, then the enabled external providers in sign-in order (LDAP shares the password form)."""
+    external = [AuthProvider(id=p.id, kind=p.kind, name=p.name) for p in await svc.auth_providers.enabled()]
+    return [AuthProvider(id='local', kind='local', name='Local account'), *external]
 
 
 @router.post(
@@ -125,7 +127,12 @@ async def list_providers() -> list[AuthProvider]:
 @access.public
 async def login(body: LoginRequest, request: Request, response: Response, svc: ServicesDep) -> Session:
     user = await verify_login(
-        svc.db, svc.valkey, svc.settings, username=body.username, password=body.password, client_ip=client_ip(request)
+        svc,
+        username=body.username,
+        password=body.password,
+        client_ip=client_ip(request),
+        provider=body.provider or None,
+        interactive=True,
     )
     old = request.cookies.get('ws_session')
     if old:  # never keep a pre-login session (fixation)
@@ -136,7 +143,7 @@ async def login(body: LoginRequest, request: Request, response: Response, svc: S
         user.id, ip=client_ip(request), user_agent=request.headers.get('user-agent')
     )
     svc.sessions.set_cookies(response, token, record)
-    return _session_body(user, record)
+    return await _session_body(svc, user, record)
 
 
 def _require_csrf(request: Request, record: SessionRecord) -> None:
@@ -170,7 +177,7 @@ async def _signed_in(request: Request, svc: Services) -> tuple[UserRecord, Sessi
 @access.authenticated
 async def me(request: Request, svc: ServicesDep) -> Session:
     user, record = await _signed_in(request, svc)
-    return _session_body(user, record)
+    return await _session_body(svc, user, record)
 
 
 @router.put('/auth/me/preferences', response_model=Preferences, operation_id='updatePreferences')
