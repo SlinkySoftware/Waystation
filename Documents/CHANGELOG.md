@@ -3,6 +3,16 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-F05 (M0 slice): containers and dev stack. Server/worker images (uv, non-editable venv, UID/GID 10001), web image
+  (nginx-unprivileged, SPA build stage with placeholder fallback, `nginx.conf.template`: `/` → `/ui/`, SPA with
+  immutable assets, unbuffered proxy of the dynamic paths with no body limit, SSE location, internal `/_blobs/`).
+  `compose.yaml` (hardening anchor, healthchecks, `service_healthy` ordering, frontend/backend networks, only web
+  publishes a port), `compose.dev.yaml` (hot reload), `make dev-up/dev-down/dev-clean/dev-logs/dev-ps/images`.
+  Minimal `waystation_server.app:create_app()` and worker main with a heartbeat-file healthcheck; `init` prepares
+  the data dir (ownership/modes, then drops root) and initiates the replica set. Third-party loggers (pymongo,
+  httpx...) are clamped to WARNING because their debug output includes commands and URLs.
+  Doc fix: ARCHITECTURE §4.5 no longer says `default_type` comes from `$upstream_http_x_ws_content_type` (nginx
+  cannot do that); the server's own `Content-Type` survives the internal redirect, verified with a real probe.
 - T-F04: `waystation_common` core: settings (pydantic-settings, `WAYSTATION_` prefix, `<NAME>_FILE` for every secret
   including the Mongo/Valkey URIs, `make env-example` regenerates `.env.example` and a test fails when it is stale),
   JSON logging with contextvars request context and secret redaction, ULIDs, error types, `paths.normalise`

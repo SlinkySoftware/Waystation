@@ -1,0 +1,216 @@
+# Waystation all-in-one reference stack (SPECIFICATION §8). Run from this directory with your env file:
+#   docker compose --env-file /path/to/waystation.env up -d
+# The env file lives outside the repo. Variables listed below without a value are passed through from it.
+# Only `web` publishes a port. MongoDB and Valkey sit on the internal `backend` network.
+name: waystation
+
+x-hardening: &hardening
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+
+x-app-env: &app-env
+  WAYSTATION_BASE_URL:
+  WAYSTATION_LOG_LEVEL:
+  WAYSTATION_LOG_FORMAT:
+  WAYSTATION_DATA_DIR: /var/lib/waystation
+  WAYSTATION_UID: ${WAYSTATION_UID:-10001}
+  WAYSTATION_GID: ${WAYSTATION_GID:-10001}
+  WAYSTATION_MAX_UPLOAD_GB:
+  WAYSTATION_MIN_FREE_GB:
+  WAYSTATION_COALESCE_TAIL:
+  WAYSTATION_MONGO_URI:
+  WAYSTATION_MONGO_URI_FILE:
+  WAYSTATION_MONGO_DB:
+  WAYSTATION_VALKEY_URL:
+  WAYSTATION_VALKEY_URL_FILE:
+  WAYSTATION_SECRET_KEYS:
+  WAYSTATION_SECRET_KEYS_FILE:
+  WAYSTATION_SESSION_SECRET:
+  WAYSTATION_SESSION_SECRET_FILE:
+  WAYSTATION_TRUST_FORWARDED:
+  WAYSTATION_TRUSTED_PROXIES:
+  WAYSTATION_METRICS_ALLOW_CIDRS:
+  WAYSTATION_SSRF_ALLOW_CIDRS:
+  WAYSTATION_HTTP_PROXY:
+  WAYSTATION_NO_PROXY:
+  WAYSTATION_EXTRA_CA_FILE:
+  WAYSTATION_SERVER_WORKERS:
+  WAYSTATION_WORKER_QUEUES:
+  WAYSTATION_WORKER_CONCURRENCY:
+
+x-data-rw: &data-rw
+  type: ${WAYSTATION_DATA_MOUNT_TYPE:-volume}
+  source: ${WAYSTATION_DATA_SOURCE:-data}
+  target: /var/lib/waystation
+
+services:
+  web:
+    <<: *hardening
+    image: ${WAYSTATION_IMAGE_PREFIX:?set WAYSTATION_IMAGE_PREFIX}/waystation-web:${WAYSTATION_IMAGE_TAG:?set WAYSTATION_IMAGE_TAG}
+    container_name: waystation-web
+    read_only: true
+    tmpfs: [/tmp]
+    group_add: ["${WAYSTATION_GID:-10001}"]
+    ports:
+      - "${WAYSTATION_HTTP_BIND:-0.0.0.0}:${WAYSTATION_HTTP_PORT:-8080}:8080"
+    volumes:
+      - <<: *data-rw
+        read_only: true
+    networks:
+      frontend:
+        aliases: [waystation-web]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/ui/"]
+      interval: 15s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    depends_on:
+      server:
+        condition: service_healthy
+        restart: true
+
+  server:
+    <<: *hardening
+    image: ${WAYSTATION_IMAGE_PREFIX:?set WAYSTATION_IMAGE_PREFIX}/waystation-server:${WAYSTATION_IMAGE_TAG:?set WAYSTATION_IMAGE_TAG}
+    container_name: waystation-server
+    read_only: true
+    tmpfs: [/tmp]
+    environment: *app-env
+    volumes:
+      - *data-rw
+    networks:
+      frontend:
+        aliases: [waystation-server]
+      backend:
+        aliases: [waystation-server]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request as u; sys.exit(u.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status != 200)"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      mongodb:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+
+  worker:
+    <<: *hardening
+    image: ${WAYSTATION_IMAGE_PREFIX:?set WAYSTATION_IMAGE_PREFIX}/waystation-worker:${WAYSTATION_IMAGE_TAG:?set WAYSTATION_IMAGE_TAG}
+    container_name: waystation-worker
+    read_only: true
+    tmpfs: [/tmp]
+    environment: *app-env
+    volumes:
+      - *data-rw
+    networks:
+      frontend:
+        aliases: [waystation-worker]
+      backend:
+        aliases: [waystation-worker]
+    healthcheck:
+      test: ["CMD", "python", "-m", "waystation_worker.health"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      mongodb:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+
+  # One-shot: data dir ownership/modes, replica set, schema (SPECIFICATION §8.1). Starts as root with only the
+  # capabilities needed to fix ownership, then drops to WAYSTATION_UID:GID.
+  init:
+    <<: *hardening
+    image: ${WAYSTATION_IMAGE_PREFIX:?set WAYSTATION_IMAGE_PREFIX}/waystation-server:${WAYSTATION_IMAGE_TAG:?set WAYSTATION_IMAGE_TAG}
+    container_name: waystation-init
+    restart: "no"
+    user: "0:0"
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID]
+    read_only: true
+    tmpfs: [/tmp]
+    command: ["python", "-m", "waystation_server.init"]
+    environment:
+      <<: *app-env
+      WAYSTATION_MONGO_REPLSET_INIT: ${WAYSTATION_MONGO_REPLSET_INIT:-true}
+    volumes:
+      - *data-rw
+    networks:
+      backend:
+        aliases: [waystation-init]
+    healthcheck:
+      disable: true
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  mongodb:
+    <<: *hardening
+    image: mongo:8
+    container_name: waystation-mongodb
+    user: "999:999"
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--quiet"]
+    volumes:
+      - type: ${WAYSTATION_MONGO_MOUNT_TYPE:-volume}
+        source: ${WAYSTATION_MONGO_DIR:-mongodb}
+        target: /data/db
+    tmpfs: [/tmp]
+    networks:
+      backend:
+        aliases: [waystation-mongodb]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--norc", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
+
+  valkey:
+    <<: *hardening
+    image: valkey/valkey:8-alpine
+    container_name: waystation-valkey
+    user: "999:1000"
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction",
+              "--save", ""]
+    read_only: true
+    volumes:
+      - type: volume
+        source: valkey
+        target: /data
+    networks:
+      backend:
+        aliases: [waystation-valkey]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 6
+
+networks:
+  frontend:
+    ipam:
+      config:
+        - subnet: ${WAYSTATION_SUBNET:-}
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${WAYSTATION_BACKEND_SUBNET:-}
+
+volumes:
+  data:
+  mongodb:
+  valkey:

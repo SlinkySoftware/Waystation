@@ -74,6 +74,7 @@ markers = ["integration: needs MongoDB/Valkey containers (make test-integration)
 [tool.coverage.run]
 branch = true
 source = ["waystation_common", "waystation_server", "waystation_worker"]
+omit = ["*/__main__.py"]
 
 # ---------------------------------------------------------------- import-linter (ARCHITECTURE §3)
 [tool.importlinter]

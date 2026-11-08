@@ -68,9 +68,11 @@
    - The **server answers conditional requests itself** (`If-None-Match` against the digest ETag → 304) before
      issuing X-Accel; nginx only handles byte ranges.
    - The server sends `X-Ws-Content-Type`, `X-Ws-Etag`, `X-Ws-Digest` (and any format headers such as
-     `Docker-Content-Digest`); the `/_blobs/` location sets `etag off`, `default_type` from
-     `$upstream_http_x_ws_content_type`, and `add_header ETag $upstream_http_x_ws_etag always` /
+     `Docker-Content-Digest`); the `/_blobs/` location sets `etag off`, an empty `types {}` map, and
+     `add_header ETag $upstream_http_x_ws_etag always` /
      `add_header Docker-Content-Digest $upstream_http_docker_content_digest always` (etc.), `internal`, `sendfile on`.
+     The server also sets its normal `Content-Type` on the X-Accel response: nginx keeps it across the internal
+     redirect (verified in T-F05; `default_type` cannot take a variable, so `X-Ws-Content-Type` is informational).
    - File access: server/worker and web share a GID (`waystation`, default 10001); blob dirs are setgid (2750),
      files 0640, processes run with umask 0027; the unprivileged nginx user is a member of that group. The `init`
      container fixes ownership/modes on the data dir at start (idempotent, only when wrong).

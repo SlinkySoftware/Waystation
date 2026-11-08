@@ -1,0 +1,67 @@
+"""Worker process: runs the background loops until SIGTERM/SIGINT.
+
+Minimal for M0: a heartbeat loop (container health). Background loops register in ``LOOPS``; the job system on
+Valkey Streams (ARCHITECTURE §10) is T-F08.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+import os
+import signal
+from collections.abc import Callable, Coroutine
+from typing import Any
+
+from waystation_common.logs import configure_logging
+from waystation_common.settings import Settings, get_settings
+from waystation_worker import health
+
+log = logging.getLogger('waystation.worker')
+
+Loop = Callable[[Settings, asyncio.Event], Coroutine[Any, Any, None]]
+
+
+async def heartbeat_loop(settings: Settings, stop: asyncio.Event) -> None:
+    while not stop.is_set():
+        await asyncio.to_thread(health.beat)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=health.INTERVAL_S)
+
+
+LOOPS: list[Loop] = [heartbeat_loop]
+
+
+async def run(settings: Settings, stop: asyncio.Event, loops: list[Loop] | None = None) -> None:
+    """Run every loop until ``stop`` is set; a crashing loop stops the worker (the container restarts it)."""
+    tasks = [
+        asyncio.create_task(loop(settings, stop), name=getattr(loop, '__name__', 'loop')) for loop in loops or LOOPS
+    ]
+    log.info('worker started', extra={'loops': [t.get_name() for t in tasks]})
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        for task in done:
+            task.result()  # re-raise a loop's failure
+    finally:
+        stop.set()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        log.info('worker stopped')
+
+
+async def _main() -> None:  # pragma: no cover - process entry point
+    settings = get_settings()
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, stop.set)
+    await run(settings, stop)
+
+
+def main() -> None:  # pragma: no cover - process entry point
+    os.umask(0o027)
+    settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
+    asyncio.run(_main())
