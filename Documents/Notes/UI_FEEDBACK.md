@@ -45,5 +45,7 @@ Folders, files, download URLs.
 
 ## Browse (all repositories)
 
+## Profile and API tokens
+
 ## Placeholders ("soon" items)
 Search, Activity, Storage, Cleanup, Tasks, and the Administration pages. Note any you want sooner.

@@ -43,14 +43,21 @@ managers work.
 
 ## Authentication
 
-M0: proxy repositories are readable anonymously (the built-in `anonymous` role has browse + read on proxies), so no
-client configuration is needed. When an administrator removes anonymous access, clients authenticate with HTTP basic
-auth using a username and an API token once API tokens land (T-S04):
+Proxy repositories are readable anonymously by default (the built-in `anonymous` role has browse + read on
+proxies), so no client configuration is needed. When an administrator removes anonymous access, or to write to a
+hosted repository, send an API token: as the password of HTTP basic auth (any username), or as a bearer token.
+Create an API token on your profile page (avatar menu → Profile → API tokens; shown once, copy it then) or, for
+CI, on a service account. Give it only the `read` scope and, ideally, restrict it to the repositories the client
+needs: a token only ever narrows what its owner may do. A revoked or expired token is refused at once (401); it
+never falls back to anonymous access.
 
 ```sh
 curl -fSLO -u alice:<your-api-token> https://registry.example.com/repository/files/path/to/file
+curl -fSLO -H 'Authorization: Bearer <your-api-token>' https://registry.example.com/repository/files/path/to/file
 wget --user=alice --password='<your-api-token>' https://registry.example.com/repository/files/path/to/file
 ```
+
+Basic auth with an account password is refused (401): format clients always use API tokens.
 
 Prefer a `~/.netrc` entry (`machine registry.example.com login alice password <token>`, `chmod 600`) with
 `curl -n` / wget's built-in netrc support over tokens on the command line.

@@ -5,6 +5,7 @@ cancels its tasks without any cleanup: nothing is acked or recorded, exactly lik
 """
 
 import asyncio
+import dataclasses
 import inspect
 import math
 import os
@@ -34,6 +35,7 @@ VALKEY_URL = os.environ.get('WAYSTATION_TEST_VALKEY_URL', '')
 FAST = JobConfig(
     visibility_s=0.6, block_ms=50, tick_s=0.05, lease_ttl_s=1.0, retry_base_s=0.0, shutdown_grace_s=2.0, presence_s=0.1
 )
+SLOW_STOP = dataclasses.replace(FAST, visibility_s=5.0, lease_ttl_s=5.0, shutdown_grace_s=30.0)
 STREAM = keys.stream('maintenance')
 
 
@@ -94,6 +96,7 @@ async def worker(
     definitions: Sequence[jobs_db.Definition] = (),
     clock: Callable[[], float] = time.time,
     emitter: EventEmitter | None = None,
+    config: JobConfig = FAST,
 ) -> AsyncIterator[Running]:
     redis: Redis = Redis.from_url(VALKEY_URL, decode_responses=True)
     system = JobSystem(
@@ -103,7 +106,7 @@ async def worker(
         worker_id=worker_id,
         queues=queues,
         definitions=definitions,
-        config=FAST,
+        config=config,
         clock=clock,
         emitter=emitter,
     )
@@ -341,13 +344,15 @@ async def test_progress_log_events_presence_and_graceful_stop(db: Database, valk
     jobs = JobClient(valkey, db)
     async with (
         EventEmitter(valkey, flush_interval_s=0.05) as emitter,
-        worker(db, {Work.kind: work}, 'w-i', emitter=emitter) as w,
+        # Generous lease and grace: on a loaded machine the 2 s of FAST could abandon the job, which is correct
+        # behaviour but not what this test is about.
+        worker(db, {Work.kind: work}, 'w-i', emitter=emitter, config=SLOW_STOP) as w,
     ):
         job = await jobs.enqueue(Work(key='p'))
         await until(lambda: _eq(statuses(db, job.job_id), ['running']))
         await until(lambda: db[WORKERS].find_one({'_id': 'w-i', 'running_jobs.job_id': job.job_id}))
         w.stop.set()  # graceful: the running job finishes first
-        await asyncio.wait_for(w.task, 5)
+        await asyncio.wait_for(w.task, 35)
     (run,) = await jobs_db.runs_for_job(db, job.job_id)
     assert run['status'] == 'succeeded'
     assert run['progress'] == {'done': 10, 'total': 10, 'message': 'done'}

@@ -28,6 +28,7 @@ from waystation_common.errors import WaystationError
 log = logging.getLogger('waystation.errors')
 
 PROBLEM_JSON = 'application/problem+json'
+BASIC_CHALLENGE = 'Basic realm="Waystation", charset="UTF-8"'
 
 TITLES = {
     400: 'Bad Request',
@@ -174,6 +175,9 @@ def install(app: FastAPI) -> None:
         if field and _style(request.url.path) == 'problem':
             errors = [FieldError(field=field, message=exc.detail, code=exc.code)]
             return problem(exc.status, exc.detail, errors=errors, headers=headers)
+        if exc.status == 401 and _style(request.url.path) == 'native':
+            # Format clients (apt, pip, Maven, curl --anyauth...) send credentials after a Basic challenge.
+            headers = {**(headers or {}), 'WWW-Authenticate': BASIC_CHALLENGE}
         return error_response(request, exc.status, exc.detail, headers=headers)
 
     @app.exception_handler(RequestValidationError)

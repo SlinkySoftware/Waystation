@@ -145,11 +145,16 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   Every route declares its required action (decorator); a test enumerates all routes and fails if one lacks it.
 - Grants are materialised per principal (roles ∪ group roles ∪ anonymous) into a compact table cached in Valkey
   keyed by `grant_version` (incremented on any RBAC change; change stream invalidation across replicas).
-- Token and session revocation: revoked ids are added to a Valkey set and announced on pub/sub (`revocations`);
-  replicas drop cached entries immediately (< 1 s). MongoDB stays authoritative: on a Valkey miss or outage the
-  server checks MongoDB (cached ≤ 5 s per token).
-- Tokens: API tokens are random 32-byte values, stored as sha256 + prefix for display; docker registry tokens are
-  short-lived (5 min) JWT (EdDSA) signed with a key in `keys/`, scoped per the Docker token spec.
+- Token revocation: revoking an API token (or changing/disabling/deleting a service account) is announced on the
+  Valkey pub/sub channel `revocations` (a token id, or `*` = drop everything); every replica's listener drops the
+  cached entry at once (< 1 s), and clears its whole cache whenever it (re)subscribes. MongoDB stays
+  authoritative: resolved tokens are cached ≤ 5 s per process, so a lost announcement is bounded by that.
+- Tokens: API tokens are `wst_` + 32 random bytes, stored as HMAC-SHA256 under a key derived from each
+  `SECRET_KEYS` entry (first key hashes, all keys are tried on lookup; unkeyed sha256 without secret keys) + a
+  display prefix. A token narrows its owner's grants (scopes → actions, repository patterns → repositories);
+  `access.check` applies the narrowing, so no route can forget it. Docker registry tokens are short-lived (5 min)
+  JWT (EdDSA) signed with a key in `keys/`, scoped per the Docker token spec; one issued for an API token carries
+  its id (`tid`) and the API token is re-checked on every `/v2/` request.
 - Credentials for upstreams and LDAP/OIDC secrets are AES-GCM encrypted with `SECRET_KEYS` (first key encrypts,
   all keys decrypt; rotation job re-encrypts).
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and
