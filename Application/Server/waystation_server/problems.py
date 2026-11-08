@@ -170,6 +170,10 @@ def install(app: FastAPI) -> None:
         if exc.status >= 500:
             log.warning('request failed', extra={'error_code': exc.code, 'status': exc.status})
         headers = getattr(exc, 'headers', None)
+        field = getattr(exc, 'field', None)
+        if field and _style(request.url.path) == 'problem':
+            errors = [FieldError(field=field, message=exc.detail, code=exc.code)]
+            return problem(exc.status, exc.detail, errors=errors, headers=headers)
         return error_response(request, exc.status, exc.detail, headers=headers)
 
     @app.exception_handler(RequestValidationError)

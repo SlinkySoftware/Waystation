@@ -149,7 +149,7 @@ def _who(event: ActivityEvent) -> str | None:
 
 def activity_view(stream_id: str, event: ActivityEvent) -> dict[str, Any] | None:
     """An ``activity`` stream entry in the API shape; None for entries the feed does not show (transfer starts)."""
-    artifact = (event.path or '').rsplit('/', 1)[-1] or event.path
+    artifact = event.artifact or (event.path or '').rsplit('/', 1)[-1] or event.path
     who = _who(event) or 'someone'
     repo = event.repo or '?'
     kind: str

@@ -86,6 +86,7 @@ async def test_name_rules(admin: httpx.AsyncClient) -> None:
     taken = await admin.post(API, json=docker_hub(name='DOCKER-HUB', format_options={}))
     assert taken.status_code == 409
     assert taken.headers['content-type'] == 'application/problem+json'
+    assert fields(taken) == {'name': 'conflict'}
     reserved = await admin.post(API, json=docker_hub(name='V2', format_options={}))
     assert reserved.status_code == 422
     assert fields(reserved) == {'name': 'reserved'}

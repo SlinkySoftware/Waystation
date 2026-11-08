@@ -35,7 +35,7 @@ async def insert(db: Database, repo: RepoConfig) -> None:
     try:
         await db[REPOSITORIES].insert_one(repo.to_doc())
     except DuplicateKeyError:
-        raise Conflict('a repository with this name already exists') from None
+        raise Conflict('A repository with this name already exists.', field='name') from None
 
 
 async def replace(db: Database, repo: RepoConfig, *, expected_version: int) -> bool:
