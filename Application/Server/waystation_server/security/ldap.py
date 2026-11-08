@@ -32,6 +32,7 @@ import contextlib
 import hashlib
 import hmac
 import logging
+import math
 import secrets
 import ssl
 import threading
@@ -292,7 +293,7 @@ class LdapDirectory:
             user=user,
             password=password,
             authentication=SIMPLE if user else ANONYMOUS,
-            receive_timeout=cfg.timeout_s,
+            receive_timeout=math.ceil(cfg.timeout_s),  # ldap3 packs it as an integer (SO_RCVTIMEO)
             read_only=True,
             raise_exceptions=False,
             auto_referrals=False,

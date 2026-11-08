@@ -19,7 +19,7 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -32,6 +32,10 @@ CATALOG_TTL_S = 5.0
 def secret_aad(provider_id: str) -> bytes:
     """Associated data binding an encrypted provider secret to its provider."""
     return f'{SECRET_AAD_PREFIX}{provider_id}'.encode()
+
+
+class ProviderKind(StrEnum):
+    LDAP = 'ldap'
 
 
 class LdapSecurity(StrEnum):
@@ -137,7 +141,7 @@ class GroupMapping(_Model):
 
 
 class AuthProviderWrite(_Model):
-    kind: Literal['ldap']
+    kind: ProviderKind
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
     enabled: bool = True
     order: int = Field(100, ge=0, le=1000)
@@ -151,7 +155,7 @@ class ProviderRecord(BaseModel):
     model_config = ConfigDict(extra='ignore', populate_by_name=True)
 
     id: str = Field(alias='_id')
-    kind: Literal['ldap']
+    kind: ProviderKind
     name: str
     enabled: bool = True
     order: int = 100
@@ -165,7 +169,7 @@ class ProviderRecord(BaseModel):
     @property
     def source(self) -> str:
         """``users.source`` / ``external_groups.provider`` value of this provider's users."""
-        return f'{self.kind}:{self.id}'
+        return f'{self.kind.value}:{self.id}'
 
 
 def decrypt_bind_password(keyring: Keyring | None, record: ProviderRecord) -> str | None:

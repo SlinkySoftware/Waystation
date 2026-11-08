@@ -44,7 +44,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/users', name: 'admin-users', component: placeholder, meta: { title: 'nav.users', planned: 'T-U08' } },
       { path: 'admin/groups', name: 'admin-groups', component: placeholder, meta: { title: 'nav.groups', planned: 'T-U08' } },
       { path: 'admin/roles', name: 'admin-roles', component: placeholder, meta: { title: 'nav.roles', planned: 'T-U08' } },
-      { path: 'admin/auth-providers', name: 'admin-auth', component: placeholder, meta: { title: 'nav.authProviders', planned: 'T-A03' } },
+      { path: 'admin/auth-providers', name: 'admin-auth', component: () => import('@/pages/AuthProvidersPage.vue'), meta: { title: 'nav.authProviders' } },
       { path: 'admin/tokens', name: 'admin-tokens', component: placeholder, meta: { title: 'nav.apiTokens', planned: 'T-U08' } },
       { path: 'admin/audit', name: 'admin-audit', component: placeholder, meta: { title: 'nav.audit', planned: 'T-U08' } },
       { path: 'admin/settings', name: 'admin-settings', component: placeholder, meta: { title: 'nav.settings', planned: 'T-U08' } },

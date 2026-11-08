@@ -4,10 +4,11 @@
 // CSRF header on unsafe methods, cursor pagination, realistic latency.
 import { delay, http, HttpResponse } from 'msw'
 
-import type { FieldError, Format, Preferences, Problem, Repository, RepositoryWrite, Session, StatsRange } from '@/api/types'
+import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, Preferences, Problem, Repository, RepositoryWrite, Session, StatsRange } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
+import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { genericTree, rawListing } from './fixtures/raw'
@@ -22,6 +23,7 @@ const CSRF = 'mock-csrf-7f3a9c'
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$/
 
 let preferences: Preferences = { theme: 'system', density: 'comfortable' }
+const providers = seedProviders()
 
 function signedInUser(): string | null {
   try {
@@ -152,11 +154,20 @@ export const handlers = [
     await latency()
     return HttpResponse.json({ instance_name: 'Waystation', base_url: BASE_URL, version: '0.1.0-m0 (mock)', docker: { registry_host: REGISTRY_HOST, default_repo: world.repos.find((r) => (r.format_options as { default_repo?: boolean } | undefined)?.default_repo)?.name ?? null } })
   }),
-  http.get(`${API}/auth/providers`, () => HttpResponse.json([{ id: 'local', kind: 'local', name: 'Waystation account' }])),
+  http.get(`${API}/auth/providers`, () =>
+    HttpResponse.json([
+      { id: 'local', kind: 'local', name: 'Waystation account' },
+      ...providers
+        .filter((p) => p.enabled)
+        .sort((a, b) => a.order - b.order)
+        .map((p) => ({ id: p.id, kind: p.kind, name: p.name })),
+    ]),
+  ),
   http.post(`${API}/auth/login`, async ({ request }) => {
     await delay(350)
-    const body = (await request.json()) as { username?: string; password?: string }
-    if (!body.username || !body.password || body.password === 'wrong') return problem(401, 'Unauthorized', 'Invalid username or password.')
+    const body = (await request.json()) as { username?: string; password?: string; provider?: string }
+    const knownProvider = !body.provider || body.provider === 'local' || providers.some((p) => p.id === body.provider && p.enabled)
+    if (!body.username || !body.password || body.password === 'wrong' || !knownProvider) return problem(401, 'Unauthorized', 'Invalid username or password.')
     localStorage.setItem(SESSION_KEY, body.username)
     world.addActivity({ kind: 'auth', summary: `${body.username} signed in`, outcome: 'info', repository: null, format: null, artifact: null, principal: body.username, cache: null, bytes: null, duration_ms: null })
     return HttpResponse.json(session(body.username))
@@ -430,5 +441,73 @@ export const handlers = [
     const kind = url.searchParams.get('kind')
     const items = world.activity.filter((a) => (!repo || a.repository === repo) && (!kind || a.kind === kind))
     return HttpResponse.json(paginate(items, url))
+  }),
+
+  // ---------------------------------------------------------------- administration: sign-in providers, roles
+  http.get(`${API}/roles`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    return HttpResponse.json(ROLES)
+  }),
+  http.get(`${API}/auth-providers`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    return HttpResponse.json([...providers].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name)))
+  }),
+  http.post(`${API}/auth-providers`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const body = (await request.json()) as AuthProviderWrite
+    const errors = validateProvider(body, providers)
+    if (errors.length) return problem(422, 'Unprocessable Content', 'The request has invalid fields.', errors)
+    const created = toConfig(body)
+    providers.push(created)
+    return HttpResponse.json(created, { status: 201 })
+  }),
+  http.post(`${API}/auth-providers/test-connection`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    const body = (await request.json()) as AuthProviderTestRequest
+    if (!body.provider?.ldap?.connection?.servers?.length) return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'provider.ldap.connection.servers', message: 'Add at least one server.', code: 'required' }])
+    await delay(400 + Math.random() * 500)
+    return HttpResponse.json(testConnection(body.provider, providers.find((p) => p.id === body.id)))
+  }),
+  http.post(`${API}/auth-providers/test-user`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    const body = (await request.json()) as AuthProviderTestRequest
+    if (!body.username?.trim()) return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'username', message: 'Enter a username to look up.', code: 'required' }])
+    await delay(300 + Math.random() * 400)
+    return HttpResponse.json(testUser(body.provider, body.username, body.password))
+  }),
+  http.get(`${API}/auth-providers/:id`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    const found = providers.find((p) => p.id === params.id)
+    return found ? HttpResponse.json(found) : notFound()
+  }),
+  http.put(`${API}/auth-providers/:id`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const index = providers.findIndex((p) => p.id === params.id)
+    if (index < 0) return notFound()
+    const body = (await request.json()) as AuthProviderWrite
+    const errors = validateProvider(body, providers.filter((p) => p.id !== params.id))
+    if (errors.length) return problem(422, 'Unprocessable Content', 'The request has invalid fields.', errors)
+    const updated = toConfig(body, providers[index])
+    providers[index] = updated
+    return HttpResponse.json(updated)
+  }),
+  http.delete(`${API}/auth-providers/:id`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const index = providers.findIndex((p) => p.id === params.id)
+    if (index < 0) return notFound()
+    providers.splice(index, 1)
+    return new HttpResponse(null, { status: 204 })
   }),
 ]
