@@ -77,4 +77,31 @@ grep -q '"name":"README.mirrors.txt","path":"README.mirrors.txt","kind":"file"' 
 curl -fsS "$api?path=project/trace" | grep -q '"path":"project/trace/master","kind":"file"' \
   || fail 'browse project/trace'
 
+status() {  # status <curl args...>: the HTTP status of a request
+  curl -sS -o /dev/null -w '%{http_code}' "$@"
+}
+
+step 'API token: basic auth (username + token, token as password) and bearer'
+ws_login
+ws_token '["read"]'
+read_token=$WS_TOKEN read_id=$WS_TOKEN_ID
+[ "$(status -u "ci-bot:$read_token" "$repo/README.mirrors.txt")" = 200 ] || fail 'basic auth with username + token'
+[ "$(status -u ":$read_token" "$repo/README.mirrors.txt")" = 200 ] || fail 'basic auth with the token as password'
+[ "$(status -H "Authorization: Bearer $read_token" "$repo/README.mirrors.txt")" = 200 ] || fail 'bearer token'
+
+step 'API token: a read-only token cannot write (403, where anonymous gets 401)'
+code=$(status -u "ci-bot:$read_token" -T README "$repo/upload.txt")
+[ "$code" = 403 ] || fail "PUT with a read-only token returned $code"
+
+step 'API token: a token limited to other repositories does not see this one (404)'
+ws_token '["read"]' '["npm-*"]'
+code=$(status -u "ci-bot:$WS_TOKEN" "$repo/README.mirrors.txt")
+[ "$code" = 404 ] || fail "token limited to npm-* returned $code"
+
+step 'API token: a revoked token is refused at once (401 with a Basic challenge)'
+ws_revoke "$read_id"
+curl -sS -o /dev/null -D h4 -u "ci-bot:$read_token" "$repo/README.mirrors.txt"
+head -1 h4 | grep -q ' 401' || fail "revoked token: $(head -1 h4)"
+header www-authenticate h4 | grep -q '^Basic realm="Waystation"' || fail 'no Basic challenge'
+
 pass

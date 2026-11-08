@@ -1,20 +1,20 @@
 """Docker registry authentication plumbing (T-S12; FORMATS.md "Docker / OCI"; Docker token authentication spec).
 
-- ``GET /auth/token``: the token service (``security.registry_token``): anonymous, or HTTP basic credentials of a
-  local user (``docker login``). Grants per scope = what RBAC allows on the repository the name resolves to.
+- ``GET /auth/token``: the token service (``security.registry_token``): anonymous, or HTTP basic credentials
+  (``docker login``): a local user's password, or an API token as the password (any username; the registry token
+  then carries the API token's id and its scopes/repository patterns narrow the grants). Grants per scope = what
+  RBAC allows on the repository the name resolves to.
 - ``/v2/`` only accepts registry tokens. Without one (or with one that does not cover the repository) the answer is
   ``401`` with ``WWW-Authenticate: Bearer realm="<base>/auth/token",service="<host>",scope="repository:<name>:pull"``
   (``error="insufficient_scope"`` when a token was sent), which makes clients fetch a token and retry; ``GET /v2/``
   without a token is the version check that starts this dance.
-- The bearer authenticator turns a valid token into the principal it was issued to (re-resolved every request)
-  limited to the token's grants, mapped from Docker actions to repository actions (pull → read, push → write,
-  delete → delete).
+- The bearer authenticator turns a valid token into the principal it was issued to (re-resolved every request;
+  for an API token: the token itself, so revocation is immediate) limited to the token's grants, mapped from Docker
+  actions to repository actions (pull → read, push → write, delete → delete).
 """
 
 from __future__ import annotations
 
-import base64
-import binascii
 import dataclasses
 import logging
 import re
@@ -27,16 +27,16 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from waystation_common.errors import Unauthorized
 from waystation_server.db import users as users_db
 from waystation_server.problems import oci_error
 from waystation_server.security import access
 from waystation_server.security.access import Action
-from waystation_server.security.authn import user_principal
+from waystation_server.security.authn import basic_credentials, client_address, user_principal
 from waystation_server.security.identity import UserRecord
 from waystation_server.security.login import verify_login
 from waystation_server.security.principal import ANONYMOUS, AuthMethod, Principal
 from waystation_server.security.registry_token import Scope, parse_scopes
+from waystation_server.security.tokens import looks_like_token
 from waystation_server.services import Services
 
 log = logging.getLogger('waystation.registry_auth')
@@ -109,19 +109,6 @@ async def _grant(services: Services, principal: Principal, scope: Scope) -> Scop
 DOCKER_ACTIONS_ALL = ('pull', 'push', 'delete')
 
 
-def _basic(request: Request) -> tuple[str, str] | None:
-    scheme, _, credentials = request.headers.get('authorization', '').partition(' ')
-    if scheme.lower() != 'basic' or not credentials:
-        return None
-    try:
-        username, sep, password = base64.b64decode(credentials.strip(), validate=True).decode('utf-8').partition(':')
-    except binascii.Error, UnicodeDecodeError:
-        raise Unauthorized('invalid credentials') from None
-    if not sep:
-        raise Unauthorized('invalid credentials')
-    return username, password
-
-
 @router.get('/auth/token')
 @access.public  # the token service authenticates the caller itself (anonymous or basic credentials)
 async def token(
@@ -134,22 +121,26 @@ async def token(
     if service and service != host:
         return oci_error(400, f'unknown service {service!r}', code='UNSUPPORTED')
     principal: Principal = ANONYMOUS
-    credentials = _basic(request)
-    if credentials is not None:
+    credentials = basic_credentials(request.headers.get('authorization', ''))
+    if credentials is not None and looks_like_token(credentials[1]):
+        # ``docker login`` with an API token as the password (any username)
+        principal = await services.tokens.authenticate(credentials[1], client_ip=client_address(request))
+    elif credentials is not None:
         user = await verify_login(
             services.db,
             services.valkey,
             services.settings,
             username=credentials[0],
             password=credentials[1],
-            client_ip=str(getattr(request.state, 'client_ip', '') or 'unknown'),
+            client_ip=client_address(request),
         )
         principal = user_principal(user, AuthMethod.BASIC)
     scopes = parse_scopes(scope or [])[:20]
     granted = [await _grant(services, principal, s) for s in scopes]
     signer = await services.registry_signer.get()
     subject = 'anonymous' if principal.is_anonymous else principal.id
-    jwt, ttl = signer.issue(subject=subject, audience=host, access=granted)
+    token_id = principal.token.token_id if principal.token is not None else None
+    jwt, ttl = signer.issue(subject=subject, audience=host, access=granted, token_id=token_id)
     request.state.log['principal'] = principal.display
     return JSONResponse(
         {
@@ -188,7 +179,12 @@ async def authenticate_bearer(request: Request, token: str) -> Principal | None:
     claims = signer.verify(token, audience=registry_host(services))
     if claims is None:
         return None
-    if claims.subject == 'anonymous':
+    if claims.token_id is not None:
+        owner = await services.tokens.by_id(claims.token_id)
+        if owner is None or owner.id != claims.subject:
+            return None
+        base = dataclasses.replace(owner, method=AuthMethod.REGISTRY_TOKEN)
+    elif claims.subject == 'anonymous':
         base = dataclasses.replace(ANONYMOUS, method=AuthMethod.REGISTRY_TOKEN)
     else:
         user = await _users.get(services, claims.subject)
