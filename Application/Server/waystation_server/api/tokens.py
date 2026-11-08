@@ -23,7 +23,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from waystation_common.errors import Forbidden, NotFound
 from waystation_common.ids import new_id
+from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
+from waystation_server.audit import AuditAction
 from waystation_server.db import service_accounts as accounts_db
 from waystation_server.db import tokens as tokens_db
 from waystation_server.db import users as users_db
@@ -229,14 +231,39 @@ async def _create(
         expires_at=_aware(body.expires_at) if body.expires_at else None,
         created_by=created_by,
     )
-    return ApiTokenCreated(token=(await _bodies(svc, [record]))[0], secret=secret)
+    body_out = (await _bodies(svc, [record]))[0]
+    audit.record(
+        AuditAction.TOKEN_CREATE,
+        target=_token_target(record),
+        details={
+            'owner': body_out.owner.model_dump(),
+            'scopes': record.scopes,
+            'repositories': record.repo_globs,
+            'expires_at': record.expires_at,
+            'prefix': record.prefix,
+        },
+    )
+    return ApiTokenCreated(token=body_out, secret=secret)
+
+
+def _token_target(record: ApiTokenRecord) -> audit.AuditTarget:
+    return audit.target('api_token', record.id, record.name)
+
+
+async def _revoke(svc: Services, record: ApiTokenRecord, by: str) -> None:
+    await svc.tokens.revoke(record.id, by=by)
+    audit.record(
+        AuditAction.TOKEN_REVOKE,
+        target=_token_target(record),
+        details={'owner': record.principal.model_dump(), 'prefix': record.prefix},
+    )
 
 
 async def _revoke_owned(svc: Services, owner: TokenOwner, token_id: str, by: str) -> None:
     record = await tokens_db.get(svc.db, token_id)
     if record is None or record.principal != owner:
         raise NotFound('token not found')
-    await svc.tokens.revoke(token_id, by=by)
+    await _revoke(svc, record, by)
 
 
 # ---------------------------------------------------------------------------- own tokens
@@ -284,9 +311,10 @@ async def list_all_tokens(svc: ServicesDep) -> list[ApiToken]:
 @access.requires(Action.USER_ADMIN)
 async def revoke_token(token_id: TokenId, request: Request, svc: ServicesDep) -> Response:
     principal = await authenticate(request)
-    if await tokens_db.get(svc.db, token_id) is None:
+    record = await tokens_db.get(svc.db, token_id)
+    if record is None:
         raise NotFound('token not found')
-    await svc.tokens.revoke(token_id, by=principal.id)
+    await _revoke(svc, record, principal.id)
     return Response(status_code=204)
 
 
@@ -314,6 +342,10 @@ async def _account_body(svc: Services, account: ServiceAccountRecord) -> Service
         active_tokens=await tokens_db.count_active(svc.db, owner, datetime.now(UTC)),
         created_at=account.created_at,
     )
+
+
+def _account_target(account: ServiceAccountRecord) -> audit.AuditTarget:
+    return audit.target('service_account', account.id, account.name)
 
 
 async def _account(svc: Services, account_id: str) -> ServiceAccountRecord:
@@ -351,6 +383,7 @@ async def create_service_account(body: ServiceAccountCreate, request: Request, s
         created_at=datetime.now(UTC),
     )
     await accounts_db.insert(svc.db, record)
+    audit.record(AuditAction.SERVICE_ACCOUNT_CREATE, target=_account_target(record), changes=audit.diff(None, record))
     return await _account_body(svc, record)
 
 
@@ -365,7 +398,7 @@ async def update_service_account(
     account_id: AccountId, body: ServiceAccountUpdate, request: Request, svc: ServicesDep
 ) -> ServiceAccount:
     principal = await authenticate(request)
-    await _account(svc, account_id)
+    before = await _account(svc, account_id)
     changes: dict[str, object] = {'updated_at': datetime.now(UTC)}
     if body.description is not None:
         changes['description'] = body.description.strip()
@@ -377,6 +410,9 @@ async def update_service_account(
     if updated is None:
         raise NotFound('service account not found')
     await svc.tokens.announce(REVOKE_ALL)  # cached token principals carry the account's roles and status
+    audit.record(
+        AuditAction.SERVICE_ACCOUNT_UPDATE, target=_account_target(updated), changes=audit.diff(before, updated)
+    )
     return await _account_body(svc, updated)
 
 
@@ -387,8 +423,14 @@ async def update_service_account(
 async def delete_service_account(account_id: AccountId, request: Request, svc: ServicesDep) -> Response:
     principal = await authenticate(request)
     account = await _account(svc, account_id)
-    await svc.tokens.revoke_all(TokenOwner(kind='service_account', id=account.id), by=principal.id)
+    revoked = await svc.tokens.revoke_all(TokenOwner(kind='service_account', id=account.id), by=principal.id)
     await accounts_db.delete(svc.db, account.id)
+    audit.record(
+        AuditAction.SERVICE_ACCOUNT_DELETE,
+        target=_account_target(account),
+        details={'tokens_revoked': revoked},
+        changes=audit.diff(account, None),
+    )
     return Response(status_code=204)
 
 
