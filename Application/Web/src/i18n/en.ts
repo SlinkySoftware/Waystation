@@ -405,7 +405,7 @@ export const en = {
     lastDownloaded: 'Last downloaded',
     copyUrl: 'Copy download URL',
     url: 'Download URL',
-    artifactCount: '{count} artifacts',
+    artifactCount: '{n} artifact|{n} artifacts',
     docker: {
       images: 'Images',
       image: 'Image',

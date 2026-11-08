@@ -8,6 +8,13 @@ import type { Session } from '@/api/types'
 
 import { useThemeStore } from './theme'
 
+const MOCK = import.meta.env.WAYSTATION_MOCK === '1'
+
+function hasSessionHint(): boolean {
+  if (MOCK || typeof document === 'undefined') return true
+  return document.cookie.split(';').some((c) => c.trim().startsWith('ws_csrf='))
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const session = ref<Session | null>(null)
   /** True once the initial session check has completed (signed in or not). */
@@ -27,9 +34,15 @@ export const useAuthStore = defineStore('auth', () => {
     if (next) useThemeStore().adopt(next.preferences)
   }
 
-  /** Load the current session once (router guard). A 401 just means "not signed in". */
+  /** Load the current session once (router guard). A 401 just means "not signed in". Without the readable
+   * `ws_csrf` cookie (set with the session cookie at sign-in) there is no session to check, so no request is made. */
   async function ensureChecked(): Promise<void> {
     if (checked.value) return
+    if (!hasSessionHint()) {
+      adopt(null)
+      checked.value = true
+      return
+    }
     try {
       adopt(await call(api.GET('/auth/me')))
     } catch (error) {

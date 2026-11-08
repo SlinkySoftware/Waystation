@@ -17,7 +17,7 @@
           <q-tab v-for="c in guide.data.value.clients" :key="c.id" :name="c.id" :label="c.label" />
         </q-tabs>
 
-        <div class="setup__token">
+        <div v-if="usesToken" class="setup__token">
           <q-icon :name="iconToken" size="18px" />
           <div class="col">
             {{ t('setup.tokenNote') }}
@@ -64,7 +64,7 @@ import { useAuthStore } from '@/stores/auth'
 import { formatLabel, repoMark } from '@/utils/domain'
 import { iconClose, iconCopy, iconFile, iconToken } from '@/utils/icons'
 
-import { fillSnippet } from './snippets'
+import { fillSnippet, needsToken } from './snippets'
 
 const props = defineProps<{ repo: Repository }>()
 const open = defineModel<boolean>({ required: true })
@@ -83,6 +83,7 @@ watch(
 )
 
 const current = computed(() => guide.data.value?.clients.find((c) => c.id === client.value))
+const usesToken = computed(() => (current.value?.snippets ?? []).some((s) => needsToken(s.content)))
 const fill = (content: string) => fillSnippet(content, auth.user?.username ?? null)
 </script>
 

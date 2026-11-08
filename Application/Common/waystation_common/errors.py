@@ -52,8 +52,14 @@ class NotFound(WaystationError):
 
 
 class Conflict(WaystationError):
+    """``field``: the request field that conflicts (REST answers then carry it in ``errors[]``)."""
+
     code = 'conflict'
     status = 409
+
+    def __init__(self, detail: str = '', *, field: str | None = None) -> None:
+        super().__init__(detail)
+        self.field = field
 
 
 class RateLimited(WaystationError):
