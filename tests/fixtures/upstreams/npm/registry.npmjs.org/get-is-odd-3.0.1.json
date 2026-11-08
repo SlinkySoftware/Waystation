@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.npmjs.org/is-odd/-/is-odd-3.0.1.tgz"
+  },
+  "response": {
+    "body_sha256": "13c23b3f1f3a5c146b8906e23c8e674f8e4a6ff44b77720e1d4bddb7b2caf312",
+    "body_size": 2774,
+    "headers": [
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "content-length",
+        "2774"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, immutable, max-age=31557600"
+      ],
+      [
+        "etag",
+        "\"72202ddfef0f4a837b5483dfefaf662d\""
+      ],
+      [
+        "last-modified",
+        "Thu, 31 May 2018 20:16:49 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

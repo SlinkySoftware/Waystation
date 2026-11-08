@@ -1,2 +1,2 @@
-"""npm format (FORMATS.md "npm"). M0 server lane: descriptor and options only; the protocol plugin is the Formats
-lane's T-P2-NPM."""
+"""npm format (FORMATS.md "npm"): descriptor and options (``descriptor``), the proxy plugin (``plugin``, T-P2-NPM
+M0 slice) and its protocol helpers (``metadata``)."""

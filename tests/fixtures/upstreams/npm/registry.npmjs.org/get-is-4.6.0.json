@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.npmjs.org/@sindresorhus/is/-/is-4.6.0.tgz"
+  },
+  "response": {
+    "body_sha256": "3970eccc80741b86f3ca838c46b56c5303d0b827a4ce6c0681941ff5256e24f7",
+    "body_size": 14287,
+    "headers": [
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "content-length",
+        "14287"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, must-revalidate, max-age=31557600"
+      ],
+      [
+        "etag",
+        "\"26594120953d525c25b108ead7e1f937\""
+      ],
+      [
+        "last-modified",
+        "Sun, 27 Feb 2022 09:06:20 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

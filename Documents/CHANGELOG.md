@@ -15,6 +15,19 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   2.3 MB of fixtures, 32 MiB budget per the owner's fixture decision); `CLIENT` in `format.env` may list several
   clients (run in turn, `HARNESS_CLIENT` set); `lib.sh`'s `wait_for`/`ws_login`/`ws_api` work without curl (bash
   `/dev/tcp`). Client guide `Documents/Operations/clients/apt.md`.
+- T-P2-NPM (M0 slice): npm proxy plugin. Packuments full and abbreviated (`application/vnd.npm.install-v1+json`) cached
+  separately as metadata and revalidated, scoped names as `@scope%2fname` or `@scope/name`, every
+  `versions.*.dist.tarball` rewritten to `<base>/repository/<repo>/` in a thread; tarballs cached as content and
+  verified while streaming against `dist.integrity` (SRI) or `dist.shasum`, looked up in the cached abbreviated
+  packument (fetched on a miss, refreshed once for an unlisted version, otherwise 404). `/-/ping` answered locally,
+  `/-/v1/search` cached 5 minutes per query, audit POSTs relayed uncached when `audit_passthrough` is on. Engine:
+  `AssetSpec.expect` (expected digests resolved only on an upstream fetch) and `ProxyEngine.relay` (bounded, uncached
+  pass-through); `FormatDescriptor.read_posts` lets a format declare query-only POST paths that the router authorises as
+  `read`. Real-client harness: `tests/clients/npm/` (npm 11, lockfile-pinned and lockfile-free installs incl. a scoped
+  package, `npm audit`) with recorded registry.npmjs.org fixtures; `setup.sh` scripts can create repositories as a
+  random per-run bootstrap admin; new `DROP_JSON_KEYS` format setting removes personal and registry-internal fields
+  (readmes, maintainer e-mails, `_npmOperationalInternal`) from recorded JSON. Client guide
+  `Documents/Operations/clients/npm.md`.
 - T-P2-RAW (M0 slice): raw proxy plugin (`formats/raw/plugin.py`, registered in `plugins.py`): `GET`/`HEAD
   /repository/<repo>/<path>` cached by path; `metadata_path_regex` (searched in `/<path>`) selects revalidated
   metadata, everything else is immutable content; Content-Type by extension from Python's built-in table, else the

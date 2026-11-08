@@ -1,0 +1,20 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": "b10e41085916ac05f49be50d0e8f476109a6d552e50f962ac611f19f0066851f",
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "POST",
+    "url": "https://registry.npmjs.org/-/npm/v1/security/advisories/bulk"
+  },
+  "response": {
+    "body_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "body_size": 2,
+    "headers": [],
+    "status": 200
+  }
+}

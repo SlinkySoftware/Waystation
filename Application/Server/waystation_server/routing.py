@@ -23,6 +23,7 @@ from waystation_server.formats.base import FormatRequest, Root
 from waystation_server.problems import native_error, oci_error
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security import access
+from waystation_server.security.actions import Action
 from waystation_server.security.authn import authenticate
 from waystation_server.security.principal import AuthMethod
 from waystation_server.services import Services
@@ -63,7 +64,11 @@ async def resolve_docker(services: Services, name_path: str) -> DockerRoute | No
 async def _dispatch(request: Request, repo: RepoConfig, root: Root, path: str) -> Response:
     services = services_of(request)
     request.state.log.update(repo=repo.name, format=repo.format)
-    principal = await access.authorize_repo(request, repo, access.method_action(request.method))
+    action = access.method_action(request.method)
+    descriptor = services.formats.descriptor(repo.format)
+    if request.method == 'POST' and descriptor is not None and path in descriptor.read_posts:
+        action = Action.READ  # a query sent as POST (npm audit), declared by the format
+    principal = await access.authorize_repo(request, repo, action)
     if not repo.online:
         if root == 'v2':
             return oci_error(503, 'repository is offline', code='UNAVAILABLE', headers=DOCKER_API_VERSION)

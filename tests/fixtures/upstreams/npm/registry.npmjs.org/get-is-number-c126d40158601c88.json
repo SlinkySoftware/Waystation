@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.npmjs.org/is-number"
+  },
+  "response": {
+    "body_sha256": "6349bc63a22af726dda304587581b3446abf1abd094e4700bbfa522f0a707300",
+    "body_size": 9995,
+    "headers": [
+      [
+        "content-type",
+        "application/vnd.npm.install-v1+json"
+      ],
+      [
+        "content-length",
+        "9995"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, max-age=300"
+      ],
+      [
+        "etag",
+        "\"47deffbfb71a701056c86b6f4e7acfd8\""
+      ],
+      [
+        "last-modified",
+        "Fri, 26 May 2023 16:12:34 GMT"
+      ],
+      [
+        "vary",
+        "accept-encoding, accept"
+      ]
+    ],
+    "status": 200
+  }
+}
