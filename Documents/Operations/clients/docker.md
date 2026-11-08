@@ -98,13 +98,21 @@ skopeo is tested; podman and crane are not yet covered by the client harness.
 
 ## Authentication
 
-M0: proxy repositories are readable anonymously. Clients get an anonymous pull token from Waystation's token
+Proxy repositories are readable anonymously by default. Clients get an anonymous pull token from Waystation's token
 service (`/auth/token`, announced in the `WWW-Authenticate` challenge of `/v2/`) automatically; no `docker login`
-is needed. When an administrator removes anonymous access, sign in with an API token once they land (T-S04):
+is needed. When an administrator removes anonymous access, sign in with an API token as the password (any
+username). Create an API token on your profile page (avatar menu → Profile → API tokens; shown once, copy it then) or, for
+CI, on a service account. Give it only the `read` scope and, ideally, restrict it to the repositories the client
+needs: a token only ever narrows what its owner may do. A revoked or expired token is refused at once (401); it
+never falls back to anonymous access.
 
 ```sh
-echo "<your-api-token>" | docker login registry.example.com --username alice --password-stdin
+echo "$WAYSTATION_TOKEN" | docker login registry.example.com --username alice --password-stdin
 ```
+
+The registry tokens Docker then fetches carry the API token's id and the API token is re-checked on every request,
+so revoking it stops pulls at once, not when the 5-minute registry token expires. `docker login` with your account
+password also works (local accounts); prefer a token for CI.
 
 Upstream credentials (Docker Hub account, GHCR PAT) are set on the repository, never on the clients. They are sent
 only to the upstream registry and its token service, never to blob CDNs the upstream redirects to.

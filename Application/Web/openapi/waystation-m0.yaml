@@ -33,6 +33,7 @@ servers:
 tags:
   - name: auth
   - name: config
+  - name: tokens
   - name: repositories
   - name: browse
   - name: stats
@@ -136,6 +137,182 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Preferences' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/me/tokens:
+    get:
+      tags: [tokens]
+      operationId: listMyTokens
+      summary: The caller's API tokens (newest first; secrets are never returned) and the scopes it may grant
+      responses:
+        '200':
+          description: Tokens, including expired and revoked ones
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiTokenList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [tokens]
+      operationId: createMyToken
+      summary: Create an API token (needs a signed-in session; the secret is in this response only)
+      description: |
+        Scopes may only be ones the owner holds (`available_scopes`); a token only ever narrows the owner's grants.
+        `repositories` limits it further to matching repositories (names, globs, `format:<f>`, `type:<t>`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApiTokenCreate' }
+      responses:
+        '201':
+          description: Created. Show `secret` once; it cannot be retrieved again.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiTokenCreated' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /auth/me/tokens/{token_id}:
+    parameters:
+      - $ref: '#/components/parameters/TokenId'
+    delete:
+      tags: [tokens]
+      operationId: revokeMyToken
+      summary: Revoke one of the caller's tokens (refused on every replica within a second)
+      responses:
+        '204': { description: Revoked (also when it was already revoked) }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tokens:
+    get:
+      tags: [tokens]
+      operationId: listAllTokens
+      summary: Every API token (newest first, up to 500); needs `user-admin`
+      responses:
+        '200':
+          description: Tokens of all users and service accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ApiToken' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tokens/{token_id}:
+    parameters:
+      - $ref: '#/components/parameters/TokenId'
+    delete:
+      tags: [tokens]
+      operationId: revokeToken
+      summary: Revoke any token; needs `user-admin`
+      responses:
+        '204': { description: Revoked }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /service-accounts:
+    get:
+      tags: [tokens]
+      operationId: listServiceAccounts
+      summary: Service accounts (non-human principals that authenticate with API tokens); needs `user-admin`
+      responses:
+        '200':
+          description: Service accounts by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ServiceAccount' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [tokens]
+      operationId: createServiceAccount
+      summary: Create a service account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceAccountCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceAccount' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /service-accounts/{account_id}:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+    patch:
+      tags: [tokens]
+      operationId: updateServiceAccount
+      summary: Change a service account's description, roles or disabled flag (effective at once)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServiceAccountUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceAccount' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [tokens]
+      operationId: deleteServiceAccount
+      summary: Delete a service account and revoke its tokens
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /service-accounts/{account_id}/tokens:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+    get:
+      tags: [tokens]
+      operationId: listServiceAccountTokens
+      summary: A service account's tokens and the scopes it may grant
+      responses:
+        '200':
+          description: Tokens
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiTokenList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [tokens]
+      operationId: createServiceAccountToken
+      summary: Create a token for a service account (the secret is in this response only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApiTokenCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiTokenCreated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /service-accounts/{account_id}/tokens/{token_id}:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+      - $ref: '#/components/parameters/TokenId'
+    delete:
+      tags: [tokens]
+      operationId: revokeServiceAccountToken
+      summary: Revoke a service account's token
+      responses:
+        '204': { description: Revoked }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /repositories:
     get:
@@ -619,6 +796,16 @@ components:
       name: metric
       in: query
       schema: { type: string, enum: [bytes, requests], default: bytes }
+    TokenId:
+      name: token_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
+    AccountId:
+      name: account_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
     DockerImage:
       name: image
       in: query
@@ -760,6 +947,111 @@ components:
         preferences: { $ref: '#/components/schemas/Preferences' }
         expires_at: { $ref: '#/components/schemas/Timestamp' }
 
+    # ---------------------------------------------------------------- API tokens and service accounts
+    TokenScope:
+      type: string
+      description: |
+        What a token may be used for; it never exceeds the owner's own grants. `read`: browse, pull, download,
+        install. `write`: + push/upload. `delete`: + delete. `manage`: + repository settings. `stats-read`:
+        dashboards and stats API. `metrics`: the Prometheus `/metrics` endpoint. `admin`: everything the owner may do.
+      enum: [read, write, delete, manage, stats-read, metrics, admin]
+    TokenOwnerRef:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind: { type: string, enum: [user, service_account] }
+        id: { type: string }
+        name: { type: string }
+    ApiToken:
+      type: object
+      required: [id, name, prefix, owner, scopes, repositories, status, expires_at, created_at, last_used_at, last_used_ip, revoked_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix: { type: string, description: 'The first characters of the token, for recognising it (`wst_` + 8)' }
+        owner: { $ref: '#/components/schemas/TokenOwnerRef' }
+        scopes:
+          type: array
+          items: { $ref: '#/components/schemas/TokenScope' }
+        repositories:
+          type: array
+          description: Repository patterns the token is limited to; empty = all
+          items: { type: string }
+        status: { type: string, enum: [active, expired, revoked] }
+        expires_at: { type: [string, 'null'], format: date-time, description: null = never expires }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        last_used_at: { type: [string, 'null'], format: date-time, description: Recorded at most once a minute }
+        last_used_ip: { type: [string, 'null'] }
+        revoked_at: { type: [string, 'null'], format: date-time }
+    ApiTokenList:
+      type: object
+      required: [items, available_scopes]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ApiToken' }
+        available_scopes:
+          type: array
+          description: Scopes the owner may put on a new token
+          items: { $ref: '#/components/schemas/TokenScope' }
+    ApiTokenCreate:
+      type: object
+      required: [name, scopes]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64, description: 'What the token is for, e.g. `CI pipeline`' }
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 7
+          items: { $ref: '#/components/schemas/TokenScope' }
+        repositories:
+          type: array
+          maxItems: 20
+          description: 'Limit the token to these repositories: names, globs (`docker-*`), `format:<f>`, `type:<t>`'
+          items: { type: string }
+        expires_at: { type: [string, 'null'], format: date-time, description: null = never expires }
+    ApiTokenCreated:
+      type: object
+      required: [token, secret]
+      properties:
+        token: { $ref: '#/components/schemas/ApiToken' }
+        secret: { type: string, description: The token. Shown only in this response; store it now }
+    ServiceAccount:
+      type: object
+      required: [id, name, description, roles, disabled, active_tokens, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+        disabled: { type: boolean }
+        active_tokens: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    ServiceAccountCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 2, maxLength: 63, description: 'Lower case letters, digits, `.`, `_`, `-`' }
+        description: { type: string, maxLength: 500, default: '' }
+        roles:
+          type: array
+          maxItems: 20
+          items: { type: string, description: 'Built-in roles: `admin`, `reader`, `deployer`, `viewer`' }
+    ServiceAccountUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        description: { type: [string, 'null'], maxLength: 500 }
+        roles:
+          type: [array, 'null']
+          maxItems: 20
+          items: { type: string }
+        disabled: { type: [boolean, 'null'] }
+
     # ---------------------------------------------------------------- repositories
     UpstreamAuth:
       type: object
@@ -806,6 +1098,11 @@ components:
       properties:
         metadata_path_regex: { type: [string, 'null'], maxLength: 512, description: 'Paths matching this regex are mutable metadata (revalidated)' }
         content_disposition: { type: string, enum: [inline, attachment], default: attachment }
+    YumOptions:
+      type: object
+      properties:
+        repo_path: { type: string, maxLength: 200, default: '', description: 'Path of the yum repository (the directory holding `repodata/`) below the upstream URL, e.g. `$releasever/BaseOS/$basearch/os/`. Empty: derived for well-known upstreams, else the repository root. Only used by "Set me up" and "test upstream"' }
+        gpg_key: { type: [string, 'null'], maxLength: 500, description: '`gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams' }
     FormatOptions:
       description: Format-specific options; the shape follows the repository's `format`
       oneOf:
@@ -813,6 +1110,7 @@ components:
         - $ref: '#/components/schemas/NpmOptions'
         - $ref: '#/components/schemas/AptOptions'
         - $ref: '#/components/schemas/RawOptions'
+        - $ref: '#/components/schemas/YumOptions'
     RepositoryWrite:
       type: object
       required: [name, format, type, online]

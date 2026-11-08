@@ -31,8 +31,52 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `SLOW=1` adds a 75 s idle response and an 80 s upload) and checks the doc blocks equal the files. `compose.yaml`
   now passes `WAYSTATION_INSTANCE_NAME`, `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD[_FILE]`, the session lifetimes and the
   sign-in limits through to the containers (they were silently ignored before).
+- T-P2-YUM (proxy min): yum/dnf proxy repositories (`formats/yum`: descriptor, `repodata.py` parsers, plugin;
+  `db/yum.py`; registered in `plugins.py`). The upstream layout is kept, so one repository serves every `repodata/`
+  directory below its upstream URL. `repomd.xml` is metadata, passed through untouched after a defused parse (expat
+  with no DTD, entity or notation declarations; bounded sizes, entries and text) and refused with 502 when invalid;
+  a newly stored `repomd.xml` drops the cached `repomd.xml.asc`. Files `repomd.xml` lists are served only by its
+  SHA-1/256/512 checksum and size (by-checksum names cached forever, plain names keyed by checksum), with one
+  `repomd.xml` revalidation on a mismatch, then 502; unlisted by-checksum names are self-validating, other unlisted
+  files 404. Cached `primary` files are decompressed in bounded chunks and parsed in a thread into the new
+  `yum_packages` collection; packages are validated against their entry (a package requested before its `primary`
+  makes Waystation fetch and index the enclosing directory's `primary` first), else served `unverified` and dropped
+  when a later listing disagrees. Options `repo_path`/`gpg_key` (`YumOptions` in the contract and generated client;
+  the repository form keeps them on save); "Set me up" `.repo` files for Rocky Linux, AlmaLinux, Oracle Linux, EPEL,
+  Fedora and generic upstreams. Mirrorlist/metalink upstreams are not proxied. Browse uses the generic folder tree
+  (the UI's "coming" card for yum is gone). Real-client harness `tests/clients/yum/`: dnf on Rocky Linux 10 and
+  AlmaLinux 10 against their `extras` repositories with `repo_gpgcheck=1` (makecache, install, cache hit + `rpm -K`,
+  reinstall from an empty dnf cache, browse API), 52 KB of fixtures. `Documents/Operations/clients/yum.md`.
+  `linux.duke.edu` (the repodata XML namespace) added to the host allowlist.
+- T-U02: brand. An original mark (a waypoint marker with a hexagonal head holding a stack: slab and two layers) and a
+  monoline geometric "waystation" wordmark, both defined once in `Application/Web/src/assets/brand/geometry.ts`.
+  `BrandMark` draws from it (theme colours, `mono` variant with the glyph cut out, a 16 px-tuned glyph below 20 px,
+  optional accessible label). `make brand` (`scripts/gen-brand.mjs`, `@resvg/resvg-js` dev dependency, runs in the dev
+  image) writes the master SVGs (mark light/dark/mono/small, wordmark, lockups, app tile) and the favicon set in
+  `public/` (theme-following `favicon.svg`, PNG 16/32/48, `favicon.ico`, `apple-touch-icon.png`, `icon-192/512.png`,
+  `icon-maskable-512.png`, `manifest.webmanifest`), wired into `index.html` with `theme-color`; `make brand-check` runs
+  in `make frontend-check`. Empty-state illustrations (`EmptyIllustration.vue`: repositories, cache, search,
+  activity, error, notFound, soon), painted only through theme variables, replace the icon tiles in every
+  `EmptyState` use; the repository page distinguishes a load failure (error illustration, retry) from a missing
+  repository. `Application/Web/branding/` is gone (UI_DESIGN §8 now names `src/assets/brand/`).
 
 ## 2026-11-08
+- T-S04: API tokens and service accounts. `security.tokens.TokenService`: `wst_` tokens shown once, stored as
+  HMAC-SHA256 under a `SECRET_KEYS`-derived key (all keys tried, so key rotation keeps tokens), per-process cache
+  ≤ 5 s, revocation announced on the Valkey `revocations` channel (every replica drops the token at once; tested
+  across two app instances < 1 s), rejected tokens rate-limited per client address (`WAYSTATION_TOKEN_FAILURE_LIMIT`).
+  Scopes (`read`, `write`, `delete`, `manage`, `stats-read`, `metrics`, `admin`) and repository patterns only narrow
+  the owner's RBAC, applied inside `access.check`; a token can only get scopes its owner holds. Authentication:
+  `Bearer`/`Token` API tokens and basic auth with the token as the password on `/repository/*` and the API; invalid
+  credentials are refused instead of falling back to anonymous; `docker login` with a token (the registry token
+  carries `tid`, re-checked on every `/v2/` request); `/metrics` with a `metrics` token. Last used recorded in
+  Valkey (`seen:tokens`) and flushed in bulk by the `stats.rollup` job together with session last-seen
+  (`waystation_common.db.seen`). New collection `service_accounts`. REST: `/auth/me/tokens` (list, create with an
+  interactive session only, revoke), `/tokens` (all, revoke), `/service-accounts` (CRUD, tokens) in the server
+  OpenAPI, the M0 contract, generated client and MSW mocks. UI: profile page with an "API tokens" card (create
+  dialog with scopes, repositories and expiry; copy-once secret dialog; list with status and last used; revoke).
+  Real-client harness steps for raw (curl basic and bearer, narrowed, revoked), npm (`.npmrc` `_authToken`), apt
+  (`auth.conf`) and docker (`docker login`); client docs' authentication sections updated.
 - T-F08: job system on Valkey Streams (ARCHITECTURE §10). `waystation_common.jobs`: typed payloads (`JobPayload`
   with `kind`, `queue`, `max_attempts`, `dedupe_key()`, `routine`; `JOB_TYPES` registry), `JobEnvelope`, the queue
   state machine as atomic Lua scripts (`JobQueue`: enqueue with dirty-flag dedupe, start, finish/retry/dead, heartbeat,
