@@ -205,6 +205,7 @@ async def _build(
         description=body.description,
         proxy=proxy,
         format_options=options,
+        cleanup_policy_ids=existing.cleanup_policy_ids if existing else (),
         created_at=existing.created_at if existing else now,
         updated_at=now,
         created_by=existing.created_by if existing else principal.id,

@@ -76,6 +76,9 @@ test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 1
 # One throwaway MongoDB/Valkey project per checkout, so parallel worktrees don't collide.
 TEST_PROJECT := waystation-test-$(shell printf '%s' '$(CURDIR)' | md5sum | cut -c1-8)
 COMPOSE_TEST  = docker compose -p $(TEST_PROJECT) -f Build/Containers/compose.test.yaml
+# Each run starts MongoDB, Valkey, OpenLDAP and Samba AD, so parallel runs can exhaust a dev box's RAM.
+# Runs from every checkout and worktree on one machine queue on this lock. TEST_LOCK= turns it off.
+TEST_LOCK    ?= /tmp/waystation-test-integration.lock
 .PHONY: test-integration
 test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
   -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
@@ -83,8 +86,10 @@ test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
   -v $(TEST_PROJECT)_ldap-tls:/ldap-tls:ro -e WAYSTATION_TEST_LDAP_CA=/ldap-tls/ca.crt \
   -e WAYSTATION_TEST_OPENLDAP_HOST=ldap1.example.com -e WAYSTATION_TEST_SAMBA_HOST=dc1.example.com
 test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey/OpenLDAP/Samba AD containers
+	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
+	  flock -n 9 || { echo "test-integration: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
 	$(COMPOSE_TEST) up -d --wait --build --quiet-pull || { $(COMPOSE_TEST) logs --no-color --tail 80; \
-	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }
+	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }; \
 	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 

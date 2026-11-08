@@ -8,8 +8,9 @@ from datetime import datetime
 from pymongo import ReturnDocument
 
 from waystation_common.db.client import Database
-from waystation_common.db.collections import ASSETS, BLOBS
+from waystation_common.db.collections import ASSETS
 from waystation_common.ids import new_id
+from waystation_common.searchkeys import file_keys
 from waystation_server.proxy.records import StoredAsset, UpstreamMeta
 
 
@@ -21,6 +22,8 @@ async def get(db: Database, repo_id: str, path: str) -> StoredAsset | None:
 async def save(db: Database, asset: StoredAsset) -> StoredAsset:
     """Insert or replace the asset at ``(repo_id, path)``; keeps the original ``_id`` and ``created_at``."""
     fields = asset.model_dump(by_alias=True, exclude={'id', 'created_at'})
+    if asset.kind == 'content':
+        fields |= file_keys(asset.path)  # global search (waystation_common.searchkeys)
     doc = await db[ASSETS].find_one_and_update(
         {'repo_id': asset.repo_id, 'path': asset.path},
         {'$set': fields, '$setOnInsert': {'_id': new_id(), 'created_at': asset.created_at}},
@@ -38,7 +41,3 @@ async def mark_revalidated(db: Database, asset_id: str, upstream: UpstreamMeta, 
 
 async def delete(db: Database, asset_id: str) -> None:
     await db[ASSETS].delete_one({'_id': asset_id})
-
-
-async def record_blob(db: Database, sha256: str, size: int, now: datetime) -> None:
-    await db[BLOBS].update_one({'_id': sha256}, {'$setOnInsert': {'size': size, 'first_seen': now}}, upsert=True)

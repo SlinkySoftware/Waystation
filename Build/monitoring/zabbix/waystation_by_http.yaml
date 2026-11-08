@@ -14,11 +14,10 @@ zabbix_export:
         Setup: set {$WAYSTATION.URL} to the base URL (e.g. https://registry.example.com). For /metrics either add
         the Zabbix server's or proxy's address (as the Waystation web container sees it) to
         WAYSTATION_METRICS_ALLOW_CIDRS, or set {$WAYSTATION.METRICS.TOKEN} to an API token with the "metrics"
-        scope; otherwise /metrics answers 404. Run the server with WAYSTATION_SERVER_WORKERS=1 (the default): with more
-        processes each scrape reaches one process and the rates jump.
+        scope; otherwise /metrics answers 404.
       vendor:
         name: Waystation
-        version: 7.0-1
+        version: 7.0-3
       groups:
         - name: Templates/Applications
       items:
@@ -355,6 +354,576 @@ zabbix_export:
           tags:
             - tag: component
               value: requests
+        - uuid: 938934014abe41129e9f11f044d752a1
+          name: 'Waystation: Workers'
+          type: DEPENDENT
+          key: waystation.workers
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Workers with a heartbeat in the last 60 s (waystation_workers). No value while MongoDB is unavailable to the server.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_workers
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: jobs
+          triggers:
+            - uuid: bdbb3d6d335844ed9bc6b1f3e55733f6
+              expression: 'max(/Waystation by HTTP/waystation.workers,5m)<{$WAYSTATION.WORKERS.MIN}'
+              name: 'Waystation: fewer than {$WAYSTATION.WORKERS.MIN} workers for 5 minutes'
+              event_name: 'Waystation: {ITEM.LASTVALUE1} live workers for 5 minutes'
+              priority: HIGH
+              description: 'Indexes, cleanup, statistics rollups and prefetch run in the workers. Check the worker containers (docker ps, their health status and logs).'
+              tags:
+                - tag: scope
+                  value: availability
+        - uuid: eec2b30bd1a046a1b335fae6a0e5d8a9
+          name: 'Waystation: Scheduler leaders'
+          type: DEPENDENT
+          key: waystation.scheduler.leaders
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Live workers holding the scheduler lease (1 expected).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_scheduler_leaders
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: jobs
+          triggers:
+            - uuid: 2e4097d8abd54b51a8cdeca553bafe72
+              expression: 'max(/Waystation by HTTP/waystation.scheduler.leaders,5m)=0'
+              name: 'Waystation: no scheduler leader for 5 minutes'
+              priority: AVERAGE
+              description: 'No live worker holds the scheduler lease, so scheduled jobs (statistics rollups, cleanup) do not start.'
+              dependencies:
+                - name: 'Waystation: fewer than {$WAYSTATION.WORKERS.MIN} workers for 5 minutes'
+                  expression: 'max(/Waystation by HTTP/waystation.workers,5m)<{$WAYSTATION.WORKERS.MIN}'
+              tags:
+                - tag: scope
+                  value: availability
+        - uuid: 36bc92db2a73404486529c78c08d4585
+          name: 'Waystation: Jobs waiting'
+          type: DEPENDENT
+          key: waystation.jobs.waiting
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Jobs queued and not yet picked up by a worker, all queues.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_jobs_waiting
+                - function
+                - sum
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: jobs
+        - uuid: 8a4404e6ef044c7ca138795792008829
+          name: 'Waystation: Jobs running'
+          type: DEPENDENT
+          key: waystation.jobs.running
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Jobs delivered to a worker and not finished, all queues.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_jobs_running
+                - function
+                - sum
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: jobs
+        - uuid: 39330e4251ab460184d915db684e068f
+          name: 'Waystation: Oldest waiting job'
+          type: DEPENDENT
+          key: waystation.jobs.oldest
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: s
+          description: 'Age of the oldest job not yet picked up, any queue (0 when none waits).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_jobs_oldest_waiting_seconds
+                - function
+                - max
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: jobs
+          triggers:
+            - uuid: 0879c005c2e449b3affb399d71eb7f79
+              expression: 'min(/Waystation by HTTP/waystation.jobs.oldest,10m)>{$WAYSTATION.JOBS.AGE.WARN}'
+              name: 'Waystation: jobs waiting longer than {$WAYSTATION.JOBS.AGE.WARN}s'
+              event_name: 'Waystation: oldest waiting job is {ITEM.LASTVALUE1} old'
+              priority: WARNING
+              description: 'Jobs are queued but not picked up: the workers are down, stuck or overloaded (see the Workers item and the worker logs).'
+              dependencies:
+                - name: 'Waystation: fewer than {$WAYSTATION.WORKERS.MIN} workers for 5 minutes'
+                  expression: 'max(/Waystation by HTTP/waystation.workers,5m)<{$WAYSTATION.WORKERS.MIN}'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 02f5b59c161141fa8afa6245225551a9
+          name: 'Waystation: Dead letters'
+          type: DEPENDENT
+          key: waystation.jobs.dead
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Entries in the dead-letter stream: jobs that failed every attempt (kept up to about 10000).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_jobs_dead_letters
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: jobs
+          triggers:
+            - uuid: 19626d11d9184e29a6c4a98dd164ec77
+              expression: 'change(/Waystation by HTTP/waystation.jobs.dead)>0'
+              name: 'Waystation: a job was dead-lettered'
+              event_name: 'Waystation: {ITEM.LASTVALUE1} dead-lettered jobs'
+              priority: WARNING
+              manual_close: 'YES'
+              description: 'A job failed every attempt and was moved to the dead-letter stream. The worker logs say why.'
+              tags:
+                - tag: scope
+                  value: notice
+        - uuid: e85635376d3e4b799af22a618a841f27
+          name: 'Waystation: Blob store free space'
+          type: DEPENDENT
+          key: waystation.blobstore.free
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: B
+          description: 'Free bytes on the data directory filesystem.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_blobstore_free_bytes
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: ee558c3456e64da4b5b10e8b0ed41066
+          name: 'Waystation: Blob store filesystem size'
+          type: DEPENDENT
+          key: waystation.blobstore.size
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: B
+          description: 'Size of the data directory filesystem.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_blobstore_size_bytes
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: 278c77fa2a58470ebb1c1be510d8f057
+          name: 'Waystation: Blob store free-space guard'
+          type: DEPENDENT
+          key: waystation.blobstore.min_free
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: B
+          description: 'WAYSTATION_MIN_FREE_GB in bytes: new cache and upload writes are refused below this much free space.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_blobstore_min_free_bytes
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+          triggers:
+            - uuid: c0db76b87a004a78bff622ec2b95557c
+              expression: 'last(/Waystation by HTTP/waystation.blobstore.free)<=last(/Waystation by HTTP/waystation.blobstore.min_free)'
+              name: 'Waystation: blob store full (below the free-space guard)'
+              priority: HIGH
+              description: 'Free space on the data directory is at or below WAYSTATION_MIN_FREE_GB: new cache fills and uploads are refused (clients get errors for content not cached yet). Free space, run cleanup or grow the filesystem.'
+              tags:
+                - tag: scope
+                  value: capacity
+        - uuid: cc49921db9944e22af160c73cdb81ac4
+          name: 'Waystation: Blob store free space %'
+          type: CALCULATED
+          key: waystation.blobstore.free.pct
+          delay: '{$WAYSTATION.METRICS.INTERVAL}'
+          history: 7d
+          value_type: FLOAT
+          units: '%'
+          params: '100*last(//waystation.blobstore.free)/max(last(//waystation.blobstore.size),1)'
+          description: 'Free share of the data directory filesystem.'
+          tags:
+            - tag: component
+              value: storage
+          triggers:
+            - uuid: a8fcb26003564d0f8c13ef0f2675fd17
+              expression: 'max(/Waystation by HTTP/waystation.blobstore.free.pct,5m)<{$WAYSTATION.DISK.FREE.WARN}'
+              name: 'Waystation: low disk space (below {$WAYSTATION.DISK.FREE.WARN}% free)'
+              event_name: 'Waystation: low disk space ({ITEM.LASTVALUE1} free)'
+              priority: WARNING
+              description: 'The data directory filesystem has less than {$WAYSTATION.DISK.FREE.WARN}% free. Below WAYSTATION_MIN_FREE_GB new writes are refused.'
+              dependencies:
+                - name: 'Waystation: blob store full (below the free-space guard)'
+                  expression: 'last(/Waystation by HTTP/waystation.blobstore.free)<=last(/Waystation by HTTP/waystation.blobstore.min_free)'
+              tags:
+                - tag: scope
+                  value: capacity
+        - uuid: 15d5e921099f46a59e878e7bde0d2f47
+          name: 'Waystation: Blob store used'
+          type: DEPENDENT
+          key: waystation.blobstore.used
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: B
+          description: 'Bytes held by blobs (each stored once).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_blobstore_used_bytes
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: 6d5cfd16422346feb34feaa73a6717a7
+          name: 'Waystation: Blobs'
+          type: DEPENDENT
+          key: waystation.blobstore.blobs
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Blobs in the blob store.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_blobstore_blobs
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: c32ad2f96e4a42e49fb08cef56197827
+          name: 'Waystation: Blob GC runs'
+          type: DEPENDENT
+          key: waystation.gc.runs
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Blob GC runs completed (running total of the installation, from Valkey maintenance:totals).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_gc_runs_total
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+          triggers:
+            - uuid: 3d78a842236e4d2395526e65c26b3451
+              expression: 'count(/Waystation by HTTP/waystation.gc.runs,1h:now-1d)>0 and (max(/Waystation by HTTP/waystation.gc.runs,1d)-min(/Waystation by HTTP/waystation.gc.runs,1d))<1'
+              name: 'Waystation: blob GC has not run for a day'
+              priority: WARNING
+              description: 'No blob GC run completed in the last 24 hours (the built-in schedule runs it every 6 hours), so deleted and unreferenced blobs are not freed. Check the workers, the scheduler leader and the blob.gc job runs. Disable this trigger if the GC schedule was deliberately set longer than a day.'
+              tags:
+                - tag: scope
+                  value: capacity
+        - uuid: 8460ed00f1394128868701e10b601199
+          name: 'Waystation: Bytes freed by blob GC per second'
+          type: DEPENDENT
+          key: waystation.gc.freed.bytes.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: Bps
+          description: 'Blob bytes deleted by blob GC.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_gc_freed_bytes_total
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: d4f2e32e31bb4aa6ac34a5a442b3a231
+          name: 'Waystation: Bytes removed by cleanup policies per second'
+          type: DEPENDENT
+          key: waystation.cleanup.removed.bytes.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: Bps
+          description: 'Asset bytes removed by cleanup policies (freed on disk once blob GC deletes the unreferenced blobs).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_cleanup_removed_bytes_total
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: 0254cad4c38a49858c6061f525ad2d8c
+          name: 'Waystation: Writes refused by the free-space guard per second'
+          type: DEPENDENT
+          key: waystation.storage.refusals.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: '/s'
+          description: 'Cache and upload writes refused because free space would drop below WAYSTATION_MIN_FREE_GB.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_storage_refusals_total
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+          triggers:
+            - uuid: 3376144b6884469c80e1e45a5ef4e08a
+              expression: 'max(/Waystation by HTTP/waystation.storage.refusals.rate,5m)>0'
+              name: 'Waystation: writes refused for lack of disk space'
+              priority: AVERAGE
+              description: 'The free-space guard refused cache or upload writes in the last 5 minutes.'
+              dependencies:
+                - name: 'Waystation: blob store full (below the free-space guard)'
+                  expression: 'last(/Waystation by HTTP/waystation.blobstore.free)<=last(/Waystation by HTTP/waystation.blobstore.min_free)'
+              tags:
+                - tag: scope
+                  value: capacity
+        - uuid: df8be31ce8b442a6b3398dabb75ac686
+          name: 'Waystation: Event-stream clients'
+          type: DEPENDENT
+          key: waystation.sse.clients
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Connected live event-stream (SSE) clients: open Waystation UI pages.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_sse_clients
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: http
+        - uuid: 83dcec8a22314e05a8a9f373533838d2
+          name: 'Waystation: HTTP 5xx per second'
+          type: DEPENDENT
+          key: waystation.http.5xx.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: req/s
+          description: 'Requests the server answered with a 5xx status (any route; upstream failures of format requests included).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_http_request_duration_seconds_count{status="5xx"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: http
+        - uuid: 5cf977eaf2bd4aba88a4a38bfba5598c
+          name: 'Waystation: API latency sum per second'
+          type: DEPENDENT
+          key: waystation.api.latency.sum.rate
+          delay: '0'
+          history: 1d
+          value_type: FLOAT
+          description: 'Helper for the average API latency.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_http_request_duration_seconds_sum{route=~"/api/.*"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: http
+        - uuid: 2f121de6e543468a8cd1f7986caad549
+          name: 'Waystation: API requests per second'
+          type: DEPENDENT
+          key: waystation.api.requests.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: req/s
+          description: 'REST API requests (/api/...) per second.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_http_request_duration_seconds_count{route=~"/api/.*"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: http
+        - uuid: 3498463ea42049f8880f210d6a743eae
+          name: 'Waystation: API latency (average)'
+          type: CALCULATED
+          key: waystation.api.latency.avg
+          delay: '{$WAYSTATION.METRICS.INTERVAL}'
+          history: 7d
+          value_type: FLOAT
+          units: s
+          params: 'last(//waystation.api.latency.sum.rate)/max(last(//waystation.api.requests.rate),0.000001)'
+          description: 'Average server time of REST API requests over the last interval (0 when idle).'
+          tags:
+            - tag: component
+              value: http
+          triggers:
+            - uuid: 57e54bbde1b34cc4921de67a49b3a83a
+              expression: 'min(/Waystation by HTTP/waystation.api.latency.avg,10m)>{$WAYSTATION.API.LATENCY.WARN}'
+              name: 'Waystation: API slower than {$WAYSTATION.API.LATENCY.WARN}s on average for 10 minutes'
+              event_name: 'Waystation: API latency {ITEM.LASTVALUE1} for 10 minutes'
+              priority: WARNING
+              description: 'REST API requests take longer than usual: MongoDB or Valkey slow or overloaded, or the server is CPU-bound.'
+              tags:
+                - tag: scope
+                  value: performance
+        - uuid: 1a0eb27b31084ce89f8b4fbfd6ca20a4
+          name: 'Waystation: Metric sources up'
+          type: DEPENDENT
+          key: waystation.metrics.sources.up
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: '1 when Valkey, MongoDB and the data filesystem all answered the last /metrics scrape; 0 when one did not (its figures are missing from that scrape).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_metrics_source_up
+                - function
+                - min
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: raw
+          triggers:
+            - uuid: 863a0131e85046c6b12bcd1442c78191
+              expression: 'max(/Waystation by HTTP/waystation.metrics.sources.up,10m)=0'
+              name: 'Waystation: cluster figures unavailable for 10 minutes'
+              priority: WARNING
+              description: 'The server could not read Valkey, MongoDB or the data filesystem while answering /metrics, so worker, job, storage or upstream figures are missing.'
+              dependencies:
+                - name: 'Waystation: MongoDB or Valkey unavailable'
+                  expression: 'count(/Waystation by HTTP/waystation.readyz,3m,"ne","ok")>=2'
+              tags:
+                - tag: scope
+                  value: availability
       discovery_rules:
         - uuid: e29d3f9490224ca89109f6bffaa0e93a
           name: 'Repositories discovery'
@@ -639,6 +1208,282 @@ zabbix_export:
                   value: upstream
                 - tag: repository
                   value: '{#REPO}'
+        - uuid: 1455973f83894983ad1bc58c36300d20
+          name: 'Upstreams discovery'
+          type: DEPENDENT
+          key: waystation.upstream.discovery
+          delay: '0'
+          description: 'Proxy repositories (labels of waystation_upstream_state), whether or not they answered requests yet.'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - waystation_upstream_state
+              error_handler: DISCARD_VALUE
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var out = [];
+                  JSON.parse(value).forEach(function (m) {
+                      if (m.labels && m.labels.repo) {
+                          out.push({'{#REPO}': m.labels.repo});
+                      }
+                  });
+                  return JSON.stringify(out);
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: waystation.metrics.get
+          item_prototypes:
+            - uuid: f929412218154e0da990e01c996c6f18
+              name: 'Waystation: {#REPO}: Upstream state'
+              type: DEPENDENT
+              key: 'waystation.upstream.state["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              description: 'Upstream state as shown in the Waystation UI: 0 ok, 1 degraded (failed in the last 10 minutes, no success since), 2 blocked, 3 offline (switched offline by an administrator).'
+              valuemap:
+                name: 'Waystation upstream state'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_upstream_state{repo="{#REPO}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: upstream
+                - tag: repository
+                  value: '{#REPO}'
+              trigger_prototypes:
+                - uuid: af2a3029edda43b180aecc7b2b555f4a
+                  expression: 'last(/Waystation by HTTP/waystation.upstream.state["{#REPO}"])=2'
+                  name: 'Waystation: upstream of {#REPO} is blocked'
+                  priority: HIGH
+                  description: 'Waystation stopped contacting the upstream of {#REPO}. Cached content is still served; new content is not.'
+                  tags:
+                    - tag: scope
+                      value: availability
+                    - tag: repository
+                      value: '{#REPO}'
+                - uuid: 4591982633734dbe93fcc8ac9f5adb0c
+                  expression: 'min(/Waystation by HTTP/waystation.upstream.state["{#REPO}"],{$WAYSTATION.UPSTREAM.STATE.PERIOD})=1'
+                  name: 'Waystation: upstream of {#REPO} is failing'
+                  event_name: 'Waystation: upstream of {#REPO} is failing for {$WAYSTATION.UPSTREAM.STATE.PERIOD}'
+                  priority: WARNING
+                  description: 'Requests to the upstream of {#REPO} have failed, without a success since, for {$WAYSTATION.UPSTREAM.STATE.PERIOD} (state degraded). The repository''s Upstream health in the Waystation UI shows the last error.'
+                  tags:
+                    - tag: scope
+                      value: availability
+                    - tag: repository
+                      value: '{#REPO}'
+                - uuid: e01aa59f0646437db65aaef2e0e80084
+                  expression: 'last(/Waystation by HTTP/waystation.upstream.state["{#REPO}"])=3'
+                  name: 'Waystation: {#REPO} is offline'
+                  priority: INFO
+                  description: 'An administrator switched {#REPO} offline: it serves only what is cached.'
+                  tags:
+                    - tag: scope
+                      value: notice
+                    - tag: repository
+                      value: '{#REPO}'
+            - uuid: 91d68cfec01e4f548c92f5541f93d39d
+              name: 'Waystation: {#REPO}: Upstream consecutive failures'
+              type: DEPENDENT
+              key: 'waystation.upstream.failures["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              description: 'Upstream failures since its last success.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_upstream_consecutive_failures{repo="{#REPO}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: upstream
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 82d00fbd9c2542d094062609da6af2d0
+              name: 'Waystation: {#REPO}: Upstream rate limit'
+              type: DEPENDENT
+              key: 'waystation.upstream.ratelimit.limit["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              description: 'Latest rate limit the upstream reported (Docker Hub ratelimit-limit). No data when the upstream reports none.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_upstream_ratelimit_limit{repo="{#REPO}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: upstream
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: d4bcb20f43bf4a5e97d80461e93ebb6b
+              name: 'Waystation: {#REPO}: Upstream rate limit remaining'
+              type: DEPENDENT
+              key: 'waystation.upstream.ratelimit.remaining["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              description: 'Latest remaining requests the upstream reported (Docker Hub ratelimit-remaining). No data when the upstream reports none.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_upstream_ratelimit_remaining{repo="{#REPO}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: upstream
+                - tag: repository
+                  value: '{#REPO}'
+              trigger_prototypes:
+                - uuid: a72ceedb78f34262bfa31990762ea17d
+                  expression: 'last(/Waystation by HTTP/waystation.upstream.ratelimit.remaining["{#REPO}"])<last(/Waystation by HTTP/waystation.upstream.ratelimit.limit["{#REPO}"])*{$WAYSTATION.RATELIMIT.REMAINING.WARN}/100'
+                  name: 'Waystation: {#REPO}: upstream rate limit below {$WAYSTATION.RATELIMIT.REMAINING.WARN}%'
+                  event_name: 'Waystation: {#REPO}: {ITEM.LASTVALUE1} upstream requests left of {ITEM.LASTVALUE2}'
+                  priority: WARNING
+                  description: 'The upstream (Docker Hub) will soon refuse pulls of content not cached yet. Configure upstream credentials with a higher limit, or prefetch less.'
+                  tags:
+                    - tag: scope
+                      value: capacity
+                    - tag: repository
+                      value: '{#REPO}'
+        - uuid: 56ff597c1fef45ce98b24ac394984482
+          name: 'Job queues discovery'
+          type: DEPENDENT
+          key: waystation.queue.discovery
+          delay: '0'
+          description: 'Job queues (labels of waystation_jobs_waiting).'
+          lifetime: 7d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - waystation_jobs_waiting
+              error_handler: DISCARD_VALUE
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var out = [];
+                  JSON.parse(value).forEach(function (m) {
+                      if (m.labels && m.labels.queue) {
+                          out.push({'{#QUEUE}': m.labels.queue});
+                      }
+                  });
+                  return JSON.stringify(out);
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: waystation.metrics.get
+          item_prototypes:
+            - uuid: bc05cfa87e7a493aa70c38712f5ef5d3
+              name: 'Waystation: queue {#QUEUE}: Jobs waiting'
+              type: DEPENDENT
+              key: 'waystation.queue.waiting["{#QUEUE}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_jobs_waiting{queue="{#QUEUE}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: jobs
+                - tag: queue
+                  value: '{#QUEUE}'
+            - uuid: 26aafbbee1aa4f23a61fd4b664b5a55b
+              name: 'Waystation: queue {#QUEUE}: Jobs running'
+              type: DEPENDENT
+              key: 'waystation.queue.running["{#QUEUE}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_jobs_running{queue="{#QUEUE}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: jobs
+                - tag: queue
+                  value: '{#QUEUE}'
+            - uuid: 90d2bead039440b6878a53733fd729d2
+              name: 'Waystation: queue {#QUEUE}: Jobs delayed'
+              type: DEPENDENT
+              key: 'waystation.queue.delayed["{#QUEUE}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              description: 'Jobs waiting for a retry backoff or a later start time.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_jobs_delayed{queue="{#QUEUE}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: jobs
+                - tag: queue
+                  value: '{#QUEUE}'
+            - uuid: 127b7d984ce94e65af5becb061b95300
+              name: 'Waystation: queue {#QUEUE}: Oldest waiting job'
+              type: DEPENDENT
+              key: 'waystation.queue.oldest["{#QUEUE}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: s
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_jobs_oldest_waiting_seconds{queue="{#QUEUE}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: jobs
+                - tag: queue
+                  value: '{#QUEUE}'
       tags:
         - tag: class
           value: application
@@ -663,3 +1508,33 @@ zabbix_export:
         - macro: '{$WAYSTATION.UPSTREAM.ERROR.HIGH}'
           value: '50'
           description: 'Per-repository upstream error ratio (%) for "down" after 5 minutes.'
+        - macro: '{$WAYSTATION.UPSTREAM.STATE.PERIOD}'
+          value: 10m
+          description: 'How long an upstream must stay degraded (failing, no success since) before "upstream is failing" fires.'
+        - macro: '{$WAYSTATION.RATELIMIT.REMAINING.WARN}'
+          value: '10'
+          description: 'Upstream rate limit left (% of the limit) below which a trigger fires (Docker Hub).'
+        - macro: '{$WAYSTATION.WORKERS.MIN}'
+          value: '1'
+          description: 'Fewest live workers expected.'
+        - macro: '{$WAYSTATION.JOBS.AGE.WARN}'
+          value: '1800'
+          description: 'Age (seconds) of the oldest waiting job that raises a trigger after 10 minutes.'
+        - macro: '{$WAYSTATION.DISK.FREE.WARN}'
+          value: '15'
+          description: 'Free space (% of the data filesystem) below which "low disk space" fires.'
+        - macro: '{$WAYSTATION.API.LATENCY.WARN}'
+          value: '1'
+          description: 'Average REST API latency (seconds) that raises a trigger after 10 minutes.'
+      valuemaps:
+        - uuid: 7da7e917e11a46649a3a5f45d22a001b
+          name: 'Waystation upstream state'
+          mappings:
+            - value: '0'
+              newvalue: OK
+            - value: '1'
+              newvalue: Degraded
+            - value: '2'
+              newvalue: Blocked
+            - value: '3'
+              newvalue: Offline
