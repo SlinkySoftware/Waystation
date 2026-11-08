@@ -11,6 +11,8 @@ VERSION     := $(shell cat VERSION)
 TTY         := $(shell [ -t 0 ] && echo -t)
 DEV_RUN      = docker run --rm -i $(TTY) --user $(UID):$(GID) -v $(CURDIR):/src -w /src $(DEV_ENV) $(DEV_IMAGE)
 PY_SRC      := Application/Common Application/Server Application/Worker
+# Modules held to 100% branch coverage (TASKS T-F04 acceptance).
+FULL_COVERAGE := --include="*/waystation_common/paths.py,*/waystation_common/crypto.py"
 
 define not_yet
 	@echo "make $@: not yet implemented ($(1))"; exit 2
@@ -65,8 +67,9 @@ typecheck: sync ## mypy --strict
 	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker
 
 .PHONY: test
-test: sync ## Unit tests (pytest) with coverage
-	$(DEV_RUN) uv run --frozen pytest --cov --cov-report=term-missing:skip-covered $(ARGS)
+test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 100% branch coverage
+	$(DEV_RUN) uv run --frozen pytest -m "not integration" --cov --cov-report=term-missing:skip-covered $(ARGS)
+	$(DEV_RUN) uv run --frozen coverage report --fail-under=100 $(FULL_COVERAGE)
 
 .PHONY: test-integration
 test-integration: ## Integration tests against MongoDB/Valkey containers
@@ -76,8 +79,8 @@ test-integration: ## Integration tests against MongoDB/Valkey containers
 check: fmt-check lint typecheck test ## Everything CI runs on a PR (grows as tasks land)
 
 .PHONY: env-example
-env-example: ## Regenerate .env.example from settings
-	$(call not_yet,T-F04)
+env-example: sync ## Regenerate .env.example from waystation_common.settings (idempotent)
+	$(DEV_RUN) sh -c "uv run --frozen python -m waystation_common.settings env-example > .env.example.tmp && mv .env.example.tmp .env.example"
 
 .PHONY: set-version
 set-version: ## Set the version everywhere: make set-version V=X.Y.Z
