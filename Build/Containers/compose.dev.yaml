@@ -1,0 +1,52 @@
+# Development override (`make dev-up`): builds the images locally, bind-mounts the Python source read-only and
+# hot-reloads server (uvicorn --reload) and worker (watchfiles). Used together with compose.yaml:
+#   docker compose -p waystation-dev -f compose.yaml -f compose.dev.yaml ...
+# Dev worker and init run on the server image with the source on PYTHONPATH (it has every Python dependency).
+x-dev-python: &dev-python
+  build:
+    context: ../..
+    dockerfile: Build/Containers/server/Dockerfile
+  image: ${WAYSTATION_IMAGE_PREFIX}/waystation-server:${WAYSTATION_IMAGE_TAG}
+  volumes:
+    - type: volume
+      source: data
+      target: /var/lib/waystation
+    - type: bind
+      source: ../../Application
+      target: /src/Application
+      read_only: true
+
+x-dev-pythonpath: &dev-pythonpath /src/Application/Common:/src/Application/Server:/src/Application/Worker
+
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: Build/Containers/web/Dockerfile
+    container_name: waystation-dev-web
+
+  server:
+    <<: *dev-python
+    container_name: waystation-dev-server
+    command: ["python", "-m", "waystation_server", "--reload", "--reload-dir", "/src/Application"]
+    environment:
+      PYTHONPATH: *dev-pythonpath
+
+  worker:
+    <<: *dev-python
+    container_name: waystation-dev-worker
+    command: ["watchfiles", "--filter", "python", "python -m waystation_worker", "/src/Application"]
+    environment:
+      PYTHONPATH: *dev-pythonpath
+
+  init:
+    <<: *dev-python
+    container_name: waystation-dev-init
+    environment:
+      PYTHONPATH: *dev-pythonpath
+
+  mongodb:
+    container_name: waystation-dev-mongodb
+
+  valkey:
+    container_name: waystation-dev-valkey

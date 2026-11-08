@@ -107,6 +107,7 @@ def test_configure_logging(capsys: pytest.CaptureFixture[str]) -> None:
         assert isinstance(root.handlers[0].formatter, ConsoleFormatter)
         assert root.level == logging.INFO
         assert logging.getLogger('uvicorn.access').propagate
+        assert logging.getLogger('pymongo').level == logging.WARNING
     finally:
         root.handlers[:] = saved[0]
         root.setLevel(saved[1])

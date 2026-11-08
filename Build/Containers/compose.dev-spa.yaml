@@ -1,0 +1,9 @@
+# Added by `make dev-up` when Application/Web/dist/spa exists: serve the locally built SPA instead of the copy
+# baked into the web image (rebuild with `npm run build`; no restart needed).
+services:
+  web:
+    volumes:
+      - type: bind
+        source: ../../Application/Web/dist/spa
+        target: /usr/share/nginx/html/ui
+        read_only: true

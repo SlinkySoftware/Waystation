@@ -30,6 +30,7 @@ from pydantic import SecretBytes, SecretStr
 
 CONTEXT_KEYS: Final = ('request_id', 'principal', 'repo', 'format', 'op', 'job_id', 'worker_id')
 REDACTED: Final = '[redacted]'
+QUIET_LOGGERS: Final = ('pymongo', 'httpx', 'httpcore', 'hpack', 'watchfiles', 'asyncio')
 _SENSITIVE = re.compile(
     r'pass(word|wd)?|secret|token|authori[sz]ation|cookie|credential|api[_-]?key|private[_-]?key', re.I
 )
@@ -119,3 +120,6 @@ def configure_logging(level: str = 'INFO', fmt: str = 'json') -> None:
         uv = logging.getLogger(name)
         uv.handlers.clear()
         uv.propagate = True
+    # Third-party debug logs dump commands, documents and URLs (which can carry secrets): never below WARNING.
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
