@@ -122,7 +122,7 @@ WEB_RUN      = $(DEV_RUN) sh -c
 WEB_SERVE    = docker run --rm -i $(TTY) --init --user $(UID):$(GID) -v $(CURDIR):/src -w /src/$(WEB_DIR) \
                -p $(WEB_PORT):9000 $(DEV_ENV) $(DEV_IMAGE)
 
-.PHONY: frontend-install frontend-dev frontend-mock frontend-lint frontend-test frontend-build frontend-build-mock gen-api gen-api-check
+.PHONY: frontend-install frontend-dev frontend-mock frontend-lint frontend-test frontend-build frontend-build-mock gen-api gen-api-check brand brand-check
 $(WEB_DIR)/node_modules/.installed: $(WEB_DIR)/package.json $(WEB_DIR)/package-lock.json | dev-image
 	$(WEB_RUN) 'cd $(WEB_DIR) && npm ci --no-audit --no-fund'
 	@touch $@
@@ -153,8 +153,14 @@ gen-api: frontend-install ## Regenerate src/api/schema.d.ts from openapi/waystat
 gen-api-check: frontend-install ## Fail if the generated API types are stale (CI)
 	$(WEB_RUN) 'cd $(WEB_DIR) && npm run gen-api:check'
 
+brand: frontend-install ## Regenerate the brand masters and favicon set from src/assets/brand/geometry.ts (UI_DESIGN §8)
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm run brand'
+
+brand-check: frontend-install ## Fail if the committed brand SVGs or web manifest are stale (CI)
+	$(WEB_RUN) 'cd $(WEB_DIR) && npm run brand:check'
+
 .PHONY: frontend-check
-frontend-check: gen-api-check frontend-lint frontend-test frontend-build ## Everything CI runs for the SPA
+frontend-check: gen-api-check brand-check frontend-lint frontend-test frontend-build ## Everything CI runs for the SPA
 
 ##@ Stack
 COMPOSE_DIR    := Build/Containers
