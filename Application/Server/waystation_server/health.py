@@ -4,7 +4,7 @@
 - ``/readyz``: MongoDB and Valkey answer a ping within 2 s; 503 otherwise. Reveals only ``ok``/``unavailable``.
 - ``/metrics``: Prometheus text format, only for clients in ``WAYSTATION_METRICS_ALLOW_CIDRS`` (default loopback);
   or with an API token carrying the ``metrics`` scope whose owner holds ``stats-read`` (``Authorization: Bearer``);
-  everyone else gets 404.
+  everyone else gets 404. Process metrics (``metrics.Metrics``) plus the cluster figures (``stats.prometheus``).
 """
 
 from __future__ import annotations
@@ -17,13 +17,13 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 from waystation_common.errors import WaystationError
-from waystation_common.events import keys as event_keys
 from waystation_server.clientip import in_networks, parse_ip, parse_networks
 from waystation_server.metrics import CONTENT_TYPE
 from waystation_server.problems import native_error
 from waystation_server.security import access
 from waystation_server.security.authn import authenticate
 from waystation_server.services import Services
+from waystation_server.stats.prometheus import ClusterMetrics
 
 log = logging.getLogger('waystation.health')
 
@@ -79,8 +79,8 @@ async def metrics(request: Request) -> Response:
             return native_error(404, 'Not Found')
         if not access.may_scrape_metrics(principal):
             return native_error(404, 'Not Found')
-    try:  # cluster-wide cleanup/GC totals; a Valkey hiccup keeps the last values
-        services.metrics.maintenance.update(await services.valkey.hgetall(event_keys.MAINTENANCE_TOTALS))
-    except Exception as exc:
-        log.warning('could not read maintenance totals', extra={'error': type(exc).__name__})
-    return Response(services.metrics.render(), media_type=CONTENT_TYPE)
+    cluster: ClusterMetrics | None = getattr(request.app.state, 'cluster_metrics', None)
+    if cluster is None:
+        cluster = request.app.state.cluster_metrics = ClusterMetrics(services)
+    extra = await cluster.families()
+    return Response(services.metrics.render(extra), media_type=CONTENT_TYPE)

@@ -3,6 +3,25 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-O06: metrics gaps filled. The server now exports, besides the format traffic metrics: route latency for every
+  HTTP request (`waystation_http_request_duration_seconds{route,method,status}`, route template and status class
+  only), free-space guard refusals (`waystation_storage_refusals_total`), connected event-stream clients
+  (`waystation_sse_clients`), and cluster figures read from Valkey, MongoDB and the data filesystem when `/metrics` is
+  scraped (10 s cache, 2 s per source, `waystation_metrics_source_up{source}` when one fails): upstream state per
+  proxy repository (`waystation_upstream_state`, now set, the UI's rule) and consecutive failures, the latest
+  upstream rate limit (Docker Hub limit, remaining, window, when), jobs waiting, running and delayed and the oldest
+  waiting age per queue, dead letters, live workers and scheduler leaders, blob store used bytes and blobs, free and
+  total bytes of the data filesystem and the free-space guard. With `WAYSTATION_SERVER_WORKERS > 1` the processes'
+  metrics are merged (`PROMETHEUS_MULTIPROC_DIR` on the server tmpfs, prepared by `python -m waystation_server`), so
+  every scrape is complete. Grafana dashboard: new Upstreams, Jobs and workers, Storage and HTTP rows. Zabbix
+  template: items for all of them, upstream and job-queue discovery, and triggers for blob store full (below the
+  guard), low disk space, refused writes, too few workers, no scheduler leader, old waiting jobs, dead letters,
+  blocked/failing/offline upstreams, upstream rate limit and API latency. Both re-checked in Grafana 12.2 /
+  Prometheus 3.7 and Zabbix 7.0. `Documents/Operations/MONITORING.md` and SPECIFICATION §10 describe the metrics.
+  After merging T-O01/T-O02: the cleanup and blob GC totals (`waystation_cleanup_*_total`, `waystation_gc_*_total`,
+  from Valkey `maintenance:totals`) moved from a collector on the process registry into the cluster figures, so
+  they are also exported with several server processes; new dashboard panels (bytes freed, cleanup/GC activity),
+  Zabbix items (GC runs, bytes freed by GC and removed by cleanup) and a "blob GC has not run for a day" trigger.
 - T-O02: blob garbage collection. Worker job `blob.gc` (`waystation_worker.gc`; built-in schedule `0 */6 * * *`,
   `grace_s` and `upload_age_s` 24 h): removes orphan upload files, adopts blob files that have no `blobs` document,
   then marks unreferenced blobs and deletes those unreferenced and unclaimed for the grace period. Writers and GC

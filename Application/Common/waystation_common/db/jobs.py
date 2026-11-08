@@ -190,3 +190,11 @@ async def worker_remove(db: Database, worker_id: str) -> None:
 
 async def list_workers(db: Database) -> list[Document]:
     return [doc async for doc in db[WORKERS].find({}).sort('started_at', 1)]
+
+
+async def worker_presence(db: Database, *, alive_since: datetime) -> tuple[int, int]:
+    """``(live workers, live scheduler leaders)``: workers whose heartbeat is newer than ``alive_since``."""
+    query: dict[str, Any] = {'heartbeat_at': {'$gte': alive_since}}
+    live = await db[WORKERS].count_documents(query)
+    leaders = await db[WORKERS].count_documents({**query, 'leader': True}) if live else 0
+    return live, leaders
