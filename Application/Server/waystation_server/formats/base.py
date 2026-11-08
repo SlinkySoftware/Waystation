@@ -36,7 +36,7 @@ from waystation_server.security.principal import Principal
 
 if TYPE_CHECKING:
     from waystation_server.proxy.engine import ProxyEngine
-    from waystation_server.security.access import Action
+    from waystation_server.security.actions import Action
 
 Root = Literal['repository', 'v2']
 

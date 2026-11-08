@@ -213,9 +213,12 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - **Permissions** are `(action, scope)`: actions `browse`, `read` (download/pull), `write` (upload/push),
   `delete`, `manage` (repo settings, cleanup, run tasks), plus global `admin`, `user-admin`, `audit-read`,
   `stats-read`, `settings-admin`.
-- **Scopes**: `*`, a repository name, a repository name glob (`docker-*`), a format (`format:npm`).
+- **Scopes**: `*`, a repository name, a repository name glob (`docker-*`), a format (`format:npm`), a repository
+  type (`type:proxy`). Global actions are granted only with scope `*`; `write`, `delete` and `manage` imply `browse`
+  and `read` on the same scope. A repository the principal can neither browse nor read is hidden (404 everywhere).
 - **Roles** bundle permissions; built-ins: `admin`, `reader` (browse+read all), `deployer` (read+write on scope),
-  `viewer` (browse + stats), `anonymous`. Custom roles via UI/API.
+  `viewer` (browse + stats), `anonymous` (browse + read on `type:proxy`). Custom roles via UI/API (not yet: M0 has
+  the built-in roles only, assigned on the user record).
 - **Groups** (local, or mapped from LDAP groups / OIDC claims) hold roles; users hold roles directly or via groups.
 - Effective permissions are computed per request from a cached, versioned grant table (ARCHITECTURE §7) and
   checked in one place. Content listings and search are filtered, never just hidden.
@@ -436,6 +439,7 @@ Waystation/
 | Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once. Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
+| RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Custom roles, groups and the grant cache pending |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

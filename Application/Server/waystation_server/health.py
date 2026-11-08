@@ -18,6 +18,7 @@ from starlette.responses import Response
 from waystation_server.clientip import in_networks, parse_ip, parse_networks
 from waystation_server.metrics import CONTENT_TYPE
 from waystation_server.problems import native_error
+from waystation_server.security import access
 from waystation_server.services import Services
 
 log = logging.getLogger('waystation.health')
@@ -33,6 +34,7 @@ def _services(request: Request) -> Services:
 
 
 @router.get('/healthz')
+@access.public
 async def healthz() -> dict[str, str]:
     return {'status': 'ok'}
 
@@ -54,12 +56,14 @@ async def _ready(services: Services) -> bool:
 
 
 @router.get('/readyz')
+@access.public
 async def readyz(request: Request) -> JSONResponse:
     ok = await _ready(_services(request))
     return JSONResponse({'status': 'ok' if ok else 'unavailable'}, status_code=200 if ok else 503)
 
 
 @router.get('/metrics')
+@access.public  # restricted by client address in the handler
 async def metrics(request: Request) -> Response:
     services = _services(request)
     allowed = parse_networks(services.settings.metrics_allow_cidrs)

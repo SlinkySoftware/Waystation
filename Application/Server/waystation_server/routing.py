@@ -83,6 +83,7 @@ async def _dispatch(request: Request, repo: RepoConfig, root: Root, path: str) -
 
 @router.api_route('/repository/{repo_name}', methods=FORMAT_METHODS)
 @router.api_route('/repository/{repo_name}/{path:path}', methods=FORMAT_METHODS)
+@access.handler_checked
 async def repository(request: Request, repo_name: str, path: str = '') -> Response:
     services = services_of(request)
     repo = await services.catalog.get(repo_name)
@@ -102,6 +103,7 @@ async def v2_base(request: Request) -> Response:
 
 @router.api_route('/v2', methods=FORMAT_METHODS)
 @router.api_route('/v2/{name_path:path}', methods=FORMAT_METHODS)
+@access.handler_checked
 async def docker_v2(request: Request, name_path: str = '') -> Response:
     services = services_of(request)
     try:
