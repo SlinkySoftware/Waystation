@@ -16,6 +16,7 @@ from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel
 REPOSITORIES = 'repositories'
 CLEANUP_POLICIES = 'cleanup_policies'
 SETTINGS = 'settings'
+AUTH_PROVIDERS = 'auth_providers'
 # --- identity and access
 USERS = 'users'
 GROUPS = 'groups'
@@ -79,6 +80,7 @@ SPECS: tuple[CollectionSpec, ...] = (
         (_ix('name_unique', [('name', ASCENDING)], unique=True, collation=CASE_INSENSITIVE),),
     ),
     CollectionSpec(SETTINGS),
+    CollectionSpec(AUTH_PROVIDERS, (_ix('order', [('order', ASCENDING)]),)),
     CollectionSpec(
         USERS,
         (
@@ -91,6 +93,7 @@ SPECS: tuple[CollectionSpec, ...] = (
         (
             _ix('name_unique', [('name', ASCENDING)], unique=True),
             _ix('source_external_id', [('source', ASCENDING), ('external_id', ASCENDING)]),
+            _ix('provider_id', [('provider_id', ASCENDING)]),
         ),
     ),
     CollectionSpec(ROLES),

@@ -24,6 +24,8 @@ from waystation_common.jobs import JobClient
 from waystation_common.settings import Settings
 from waystation_common.storage import BlobStore
 from waystation_common.valkey import create_valkey
+from waystation_server.db import auth_providers as auth_providers_db
+from waystation_server.db import groups as groups_db
 from waystation_server.db import repositories as repos_db
 from waystation_server.formats.registry import FormatRegistry
 from waystation_server.metrics import Metrics
@@ -31,7 +33,10 @@ from waystation_server.proxy.engine import ProxyEngine
 from waystation_server.proxy.http import UpstreamClients
 from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import RepoConfig
+from waystation_server.security.groups import GroupDirectory
+from waystation_server.security.ldap import LdapAuthenticator
 from waystation_server.security.principal import Principal
+from waystation_server.security.providers import ProviderCatalog
 from waystation_server.security.registry_token import SignerHolder
 from waystation_server.security.sessions import SessionManager
 from waystation_server.security.tokens import TokenService
@@ -60,6 +65,9 @@ class Services:
     storage: StorageStats
     hub: Hub
     registry_signer: SignerHolder
+    auth_providers: ProviderCatalog  # external sign-in providers (security.providers)
+    groups: GroupDirectory  # group → roles (security.groups)
+    ldap: LdapAuthenticator  # LDAP thread pool front end + bind cache (security.ldap)
     jobs: JobClient  # enqueue worker jobs (durable via the outbox inside a transaction, or best effort; ARCH §10)
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
@@ -96,6 +104,7 @@ class Services:
         blobs.guard = MongoBlobGuard(db)  # commits claim their blob against GC (waystation_common.db.blobs)
         storage = StorageStats(db, settings.data_dir)
         catalog = RepoCatalog(load)
+        groups = GroupDirectory(lambda: groups_db.list_all(db))
 
         async def visible(principal: Principal) -> set[str]:
             from waystation_server.security import access
@@ -117,11 +126,14 @@ class Services:
             formats=formats,
             metrics=metrics,
             sessions=SessionManager(db, redis, settings),
-            tokens=TokenService(db, redis, settings),
+            tokens=TokenService(db, redis, settings, roles_for=groups.roles_for),
             upstream=upstream,
             storage=storage,
             hub=Hub(redis, visible, figures),
             registry_signer=SignerHolder(settings.data_dir, keyring),
+            auth_providers=ProviderCatalog(lambda: auth_providers_db.list_all(db)),
+            groups=groups,
+            ldap=LdapAuthenticator(),
             jobs=JobClient(redis, db),
             proxy=ProxyEngine(
                 settings=settings,

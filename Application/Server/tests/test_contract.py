@@ -31,6 +31,14 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/auth/logout', 'post'),
     ('/auth/me', 'get'),
     ('/auth/me/preferences', 'put'),
+    ('/auth-providers', 'get'),
+    ('/auth-providers', 'post'),
+    ('/auth-providers/test-connection', 'post'),
+    ('/auth-providers/test-user', 'post'),
+    ('/auth-providers/{id}', 'get'),
+    ('/auth-providers/{id}', 'put'),
+    ('/auth-providers/{id}', 'delete'),
+    ('/roles', 'get'),
     ('/auth/me/tokens', 'get'),
     ('/auth/me/tokens', 'post'),
     ('/auth/me/tokens/{token_id}', 'delete'),
@@ -77,6 +85,7 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/stats/upstreams', 'get'),
     ('/transfers', 'get'),
     ('/activity', 'get'),
+    ('/activity/export', 'get'),
     ('/events/stream', 'get'),
 }
 
