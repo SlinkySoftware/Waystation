@@ -35,14 +35,18 @@ const DEBIAN_BASE = 'ADD rootfs.tar.xz / # buildkit'
 const ALPINE_BASE = 'ADD alpine-minirootfs-3.22.2-x86_64.tar.gz / # buildkit'
 
 export const DOCKER_IMAGES: Record<string, ImageSeed[]> = {
-  'docker-hub': [
+  'dockerhub-proxy': [
     { name: 'library/nginx', tags: ['1.29.3', '1.29', 'mainline', 'latest', '1.28.0', 'stable', '1.29.3-alpine', 'alpine'], mib: 68.4, layers: 7, platforms: OFFICIAL, history: [DEBIAN_BASE, 'ENV NGINX_VERSION=1.29.3', 'RUN /bin/sh -c set -x && groupadd --system --gid 101 nginx && apt-get update && apt-get install …', 'COPY docker-entrypoint.sh / # buildkit', 'COPY 10-listen-on-ipv6-by-default.sh /docker-entrypoint.d # buildkit', 'COPY 20-envsubst-on-templates.sh /docker-entrypoint.d # buildkit', 'COPY 30-tune-worker-processes.sh /docker-entrypoint.d # buildkit'] },
     { name: 'library/postgres', tags: ['18.1', '18', 'latest', '17.7', '17', '16.11'], mib: 151.2, layers: 14, platforms: OFFICIAL },
     { name: 'library/python', tags: ['3.14-slim', '3.14.0-slim-trixie', '3.13-slim', '3.14'], mib: 41.7, layers: 4, platforms: OFFICIAL },
     { name: 'library/node', tags: ['26-slim', '24-alpine', '24', 'lts-slim'], mib: 72.9, layers: 5, platforms: TWO },
     { name: 'library/alpine', tags: ['3.22', '3.22.2', 'latest', '3.21'], mib: 3.6, layers: 1, platforms: OFFICIAL, history: [ALPINE_BASE] },
     { name: 'library/debian', tags: ['trixie-slim', 'trixie', '13', 'bookworm-slim'], mib: 28.2, layers: 1, platforms: OFFICIAL, history: [DEBIAN_BASE] },
-    { name: 'library/ubuntu', tags: ['24.04', 'noble', 'latest', '26.04'], mib: 28.9, layers: 1, platforms: TWO },
+    { name: 'library/ubuntu', tags: ['26.04', 'resolute', 'latest', '24.04'], mib: 29.4, layers: 1, platforms: TWO },
+    { name: 'library/almalinux', tags: ['10', '10.1', '10-minimal', '9'], mib: 72.6, layers: 1, platforms: TWO },
+    { name: 'library/oraclelinux', tags: ['9', '9-slim', '10'], mib: 81.9, layers: 1, platforms: TWO },
+    { name: 'library/eclipse-mosquitto', tags: ['2.0.22', '2', 'latest'], mib: 10.3, layers: 3, platforms: OFFICIAL },
+    { name: 'pihole/pihole', tags: ['2025.11.0', 'latest'], mib: 41.8, layers: 8, platforms: OFFICIAL },
     { name: 'library/golang', tags: ['1.25', '1.25.4-trixie', '1.25-alpine'], mib: 285.3, layers: 6, platforms: TWO },
     { name: 'library/mongo', tags: ['8.0', '8.0.15', '7.0'], mib: 260.8, layers: 10, platforms: TWO },
     { name: 'library/traefik', tags: ['v3.5', 'v3.5.4', 'latest'], mib: 48.6, layers: 4, platforms: TWO },
@@ -53,23 +57,22 @@ export const DOCKER_IMAGES: Record<string, ImageSeed[]> = {
     { name: 'prom/prometheus', tags: ['v3.7.3', 'latest'], mib: 112.8, layers: 9, platforms: TWO },
     { name: 'gitea/act_runner', tags: ['0.2.13', 'latest'], mib: 18.4, layers: 5, platforms: TWO },
   ],
-  ghcr: [
+  'ghcr-proxy': [
     { name: 'home-assistant/home-assistant', tags: ['2026.11', 'stable', '2026.10.4'], mib: 642.7, layers: 18, platforms: TWO },
-    { name: 'astral-sh/uv', tags: ['0.9.8', 'latest', 'python3.14-trixie-slim'], mib: 19.8, layers: 2, platforms: TWO },
+    { name: 'immich-app/immich-server', tags: ['v2.2.3', 'release', 'v2.2.2'], mib: 734.9, layers: 21, platforms: TWO },
+    { name: 'immich-app/immich-machine-learning', tags: ['v2.2.3', 'release'], mib: 1106.2, layers: 14, platforms: TWO },
+    { name: 'paperless-ngx/paperless-ngx', tags: ['2.19.5', 'latest'], mib: 581.4, layers: 16, platforms: TWO },
+    { name: 'open-webui/open-webui', tags: ['v0.6.36', 'main'], mib: 1720.6, layers: 19, platforms: TWO },
+    { name: 'gethomepage/homepage', tags: ['v1.7.0', 'latest'], mib: 92.3, layers: 9, platforms: TWO },
     { name: 'linuxserver/jellyfin', tags: ['10.11.2', 'latest'], mib: 297.1, layers: 9, platforms: TWO },
     { name: 'goauthentik/server', tags: ['2025.10.1', '2025.10'], mib: 344.6, layers: 12, platforms: TWO },
+    { name: 'astral-sh/uv', tags: ['0.9.8', 'latest', 'python3.14-trixie-slim'], mib: 19.8, layers: 2, platforms: TWO },
     { name: 'actions/actions-runner', tags: ['2.329.0', 'latest'], mib: 412.3, layers: 13, platforms: ONE },
   ],
-  quay: [
-    { name: 'prometheus/node-exporter', tags: ['v1.10.2', 'latest'], mib: 11.9, layers: 3, platforms: TWO },
-    { name: 'keycloak/keycloak', tags: ['26.4', '26.4.2'], mib: 221.4, layers: 4, platforms: TWO },
-  ],
-  'k8s-registry': [
-    { name: 'pause', tags: ['3.10.1', '3.10'], mib: 0.3, layers: 1, platforms: OFFICIAL },
-    { name: 'coredns/coredns', tags: ['v1.12.4'], mib: 21.6, layers: 3, platforms: TWO },
-    { name: 'kube-proxy', tags: ['v1.34.1', 'v1.33.5'], mib: 27.3, layers: 4, platforms: TWO },
-  ],
 }
+
+/** How a docker repository is addressed in pull commands: unprefixed for the default repo, by alias, else by name. */
+export const PULL_PREFIX: Record<string, string> = { 'dockerhub-proxy': '', 'ghcr-proxy': 'ghcr.io/' }
 
 function platformKey(p: Platform): string {
   return `${p.os}/${p.architecture}${p.variant ? `/${p.variant}` : ''}`
@@ -162,8 +165,8 @@ export function dockerManifestFor(repo: string, image: string, reference: string
     labels: image.startsWith('library/')
       ? { maintainer: 'Docker Official Images', 'org.opencontainers.image.version': tag.tag }
       : { 'org.opencontainers.image.source': `https://github.com/${image}`, 'org.opencontainers.image.version': tag.tag },
-    pull_by_tag: `docker pull ${REGISTRY_HOST}/${repo === 'docker-hub' ? '' : `${repo}/`}${image.replace(/^library\//, '')}:${tag.tag}`,
-    pull_by_digest: `docker pull ${REGISTRY_HOST}/${repo === 'docker-hub' ? '' : `${repo}/`}${image.replace(/^library\//, '')}@${tag.digest}`,
+    pull_by_tag: `docker pull ${REGISTRY_HOST}/${PULL_PREFIX[repo] ?? `${repo}/`}${image.replace(/^library\//, '')}:${tag.tag}`,
+    pull_by_digest: `docker pull ${REGISTRY_HOST}/${PULL_PREFIX[repo] ?? `${repo}/`}${image.replace(/^library\//, '')}@${tag.digest}`,
   }
 }
 
