@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl.rockylinux.org/pub/rocky/10/extras/x86_64/os/Packages/r/rocky-release-core-10-1.el10.noarch.rpm"
+  },
+  "response": {
+    "body_sha256": "d6faf9f93022919e52f266f192d9f33b2f52c70f0151451d664f5f4ccb0bd157",
+    "body_size": 9230,
+    "headers": [
+      [
+        "content-length",
+        "9230"
+      ],
+      [
+        "content-type",
+        "application/x-redhat-package-manager"
+      ],
+      [
+        "last-modified",
+        "Fri, 23 May 2025 02:33:11 GMT"
+      ],
+      [
+        "etag",
+        "\"682fde67-240e\""
+      ],
+      [
+        "cache-control",
+        "public, max-age=11059200, immutable"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

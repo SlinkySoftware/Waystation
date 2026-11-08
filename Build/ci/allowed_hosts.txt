@@ -57,6 +57,8 @@ yum.oracle.com
 # Standards, licences and tooling referenced in code and docs
 w3.org
 gnu.org
+# XML namespace URIs of yum repodata (repomd.xml, primary.xml: xmlns="http://linux.duke.edu/metadata/...")
+linux.duke.edu
 fsf.org
 quasar.dev
 simpleicons.org
