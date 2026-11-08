@@ -6,8 +6,9 @@ All notable changes, newest first. Each entry: date, task ID, summary.
 - T-S08: fix a second upstream fetch under load. The owner's publisher task ran `fdatasync` on the upload file
   (while followers are attached) before renewing its lease; on a busy disk one sync took 3.2 s, longer than the
   test's 2 s lease, so the lease expired, a follower on the other replica claimed the fill and fetched again. The
-  sync now runs in its own task (one at a time, `synced` rises when it completes), the renewal never waits on it,
-  and the upload descriptor is closed only after an in-flight sync finishes. Regression test with a stuck
+  sync now runs in the background on the thread pool (one at a time, `synced` rises when it completes), the
+  renewal never waits on it, and the upload descriptor is closed only after an in-flight sync has returned (also
+  when the fill ends first). Regression test with a stuck
   `fdatasync`. The 200-client test now runs with the production 15 s lease (a Valkey or event-loop stall longer
   than the lease legitimately costs a takeover, ARCHITECTURE §6.3), the owner-gone test with a read timeout that
   cannot end the first fetch before its client goes away, and every wait in both suites is bounded with a message.
