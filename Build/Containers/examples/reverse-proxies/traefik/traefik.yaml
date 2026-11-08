@@ -1,0 +1,43 @@
+# Traefik v3 static configuration for Waystation (Documents/Operations/REVERSE_PROXIES.md). Routes come either from
+# the file provider (dynamic/waystation.yaml) or from Docker labels (../../traefik.override.example.yaml); keep the
+# provider you use. Checked by Build/Containers/examples/reverse-proxies/check/check.sh.
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+    transport:
+      respondingTimeouts:
+        # Traefik v3 defaults readTimeout to 60 s, which cuts any upload (docker push of a large layer) that takes
+        # longer. 0 = no limit; idle connections are still closed after idleTimeout.
+        readTimeout: 0s
+        writeTimeout: 0s
+        idleTimeout: 180s
+    # Only list proxies that sit in front of Traefik itself (a load balancer, a CDN); clients' own X-Forwarded-*
+    # headers are replaced otherwise.
+    # forwardedHeaders:
+    #   trustedIPs: ["192.0.2.0/24"]
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+  docker:
+    exposedByDefault: false
+    network: proxy
+
+# Certificates: either static files (dynamic/waystation.yaml, "tls.certificates") or ACME:
+# certificatesResolvers:
+#   letsencrypt:
+#     acme:
+#       email: admin@example.com
+#       storage: /etc/traefik/acme/acme.json
+#       tlsChallenge: {}
+
+log:
+  level: INFO

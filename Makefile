@@ -79,9 +79,11 @@ COMPOSE_TEST  = docker compose -p $(TEST_PROJECT) -f Build/Containers/compose.te
 .PHONY: test-integration
 test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
   -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
-  -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0'
-test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey containers
-	$(COMPOSE_TEST) up -d --wait --quiet-pull || { $(COMPOSE_TEST) logs --no-color --tail 80; \
+  -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0' \
+  -v $(TEST_PROJECT)_ldap-tls:/ldap-tls:ro -e WAYSTATION_TEST_LDAP_CA=/ldap-tls/ca.crt \
+  -e WAYSTATION_TEST_OPENLDAP_HOST=ldap1.example.com -e WAYSTATION_TEST_SAMBA_HOST=dc1.example.com
+test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey/OpenLDAP/Samba AD containers
+	$(COMPOSE_TEST) up -d --wait --build --quiet-pull || { $(COMPOSE_TEST) logs --no-color --tail 80; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }
 	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
@@ -216,5 +218,8 @@ clients-test: dev-image ## Real-client format tests: FORMAT=<name|all> MODE=repl
 	tests/clients/run.sh $(FORMAT) $(MODE)
 clients-check: dev-image ## Forbidden-strings + size check on upstream fixtures and the client harness
 	tests/clients/check_fixtures.sh
+.PHONY: proxies-check
+proxies-check: ## Reverse-proxy examples in containers (REVERSE_PROXIES.md; SIZE_MB=1024, SLOW=1 for 60 s timeouts)
+	Build/Containers/examples/reverse-proxies/check/check.sh
 perf: ## k6 performance budgets
 	$(call not_yet,T-P2-PERF)
