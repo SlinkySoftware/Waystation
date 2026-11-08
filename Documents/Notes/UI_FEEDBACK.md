@@ -45,7 +45,16 @@ Folders, files, download URLs.
 
 ## Browse (all repositories)
 
+## Activity
+Live tail, filters, CSV export.
+
+## Storage
+Volume usage, usage by format, largest repositories.
+
+## Administration: auth providers
+Local and LDAP sign-in providers, test connection.
+
 ## Profile and API tokens
 
 ## Placeholders ("soon" items)
-Search, Activity, Storage, Cleanup, Tasks, and the Administration pages. Note any you want sooner.
+Search, Cleanup, Tasks, and the Administration pages other than auth providers. Note any you want sooner.

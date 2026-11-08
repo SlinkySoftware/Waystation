@@ -70,7 +70,10 @@ const REAL_SHOTS = [
   { name: 'browse-apt-packages', path: 'repositories/debian/browse?suite=trixie', full: true },
   { name: 'browse-raw', path: 'repositories/raw-releases/browse?path=jqlang%2Fjq%2Freleases%2Fdownload%2Fjq-1.8.1', full: true },
   { name: 'browse-all', path: 'browse', full: true },
+  { name: 'activity', path: 'activity', settle: 2500, full: true },
+  { name: 'storage', path: 'storage', settle: 2500, full: true },
   { name: 'repo-settings', path: 'repositories/dockerhub-proxy/settings', full: true },
+  { name: 'auth-providers', path: 'admin/auth-providers' },
   { name: 'profile-tokens', path: 'profile', full: true }, // no token creation: it would put a live secret on screen
 ]
 const SHOTS = REAL ? REAL_SHOTS : MOCK_SHOTS
