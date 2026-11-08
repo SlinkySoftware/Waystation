@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-V01: npm `overrides` pin `minimatch` ≥ 11.0.1 and `glob` ≥ 14.0.2 (dev-only transitive dependencies of eslint,
+  `@vue/test-utils` and `openapi-typescript`) for two moderate advisories; `npm audit` clean.
 - T-U03: mock data mirrors the owner's repository set: 13 proxies (`dockerhub-proxy` default/mirror + `docker.io`
   alias with the Hub rate-limit gauge, `ghcr-proxy` with the `ghcr.io` alias, apt `debian`, `debian-security`,
   `ubuntu` (resolute), `ubuntu-security`, `raspberrypi` (arm64/armhf), yum `rocky`, `almalinux`, `epel` (auto-blocked
