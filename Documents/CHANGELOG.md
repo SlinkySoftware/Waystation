@@ -3,6 +3,21 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-O02: blob garbage collection. Worker job `blob.gc` (`waystation_worker.gc`; built-in schedule `0 */6 * * *`,
+  `grace_s` and `upload_age_s` 24 h): removes orphan upload files, adopts blob files that have no `blobs` document,
+  then marks unreferenced blobs and deletes those unreferenced and unclaimed for the grace period. Writers and GC
+  coordinate through the `blobs` document (`waystation_common.db.blobs`): `BlobStore.commit` claims its blob through
+  the new `BlobStore.guard` (`MongoBlobGuard`, wired in the server's `Services`) before the rename, also when the
+  file is already there; GC deletes only after a compare-and-set to `deleting` and a re-check of references, and a
+  claim during a deletion waits and writes the file again (stale deletions are taken over after 10 min). The claim
+  replaces the separate `record_blob` write after a fill. Referenced blobs without a file are counted and logged
+  (proxies re-fetch them). `GET /api/v1/maintenance/gc`, `POST /api/v1/maintenance/gc/run` (admin) and a Blob GC
+  card on the Cleanup page; freed bytes as an activity event and on `/metrics` (`waystation_gc_freed_bytes_total`,
+  `..._freed_blobs_total`, `..._orphan_uploads_removed_total`, `..._runs_total`, plus `waystation_cleanup_*_total`,
+  from the Valkey hash `maintenance:totals`). `BlobStore` gained `prefixes`/`scan`/`existing` and a `keep` set for
+  `sweep_uploads`. Tests: a Hypothesis property test (never deletes a referenced, recently claimed or recently
+  marked blob; always deletes an eligible one) and a real cache fill through the proxy engine racing the sweep in
+  every interleaving (`Application/Worker/tests/test_gc_integration.py`). ARCHITECTURE §5 documents the protocol.
 - T-O01: cleanup policies. `waystation_common.cleanup` holds the criteria (`last_downloaded_older_than_days`,
   `published_older_than_days`, `keep_latest_n_versions`, name/version include/exclude regexes, `prerelease_only`,
   docker `untagged_older_than_days`; ANDed), version order per format (semver precedence, dpkg, rpm `rpmvercmp`,

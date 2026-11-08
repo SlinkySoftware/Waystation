@@ -94,6 +94,16 @@
   by mark-and-sweep, SPEC §4.8). Never mutate a blob; never hard-link.
 - Free-space guard checked before opening writers (SPEC §4.8).
 
+As implemented (T-O02): mark-and-sweep runs as the worker job `blob.gc` (`waystation_worker.gc`) over the `blobs`
+collection. To make a cache fill racing the sweep safe, `BlobStore.commit` **claims** the blob through
+`BlobStore.guard` (`waystation_common.db.blobs.MongoBlobGuard`) before the rename, also when identical content is
+already in place: the claim sets `claimed_at` and clears the mark, and cannot happen while GC holds the blob in state
+`deleting` (it waits, then writes the file again). GC deletes only after a compare-and-set to `deleting` that needs
+both the mark and the last claim to be older than the grace period, then re-checks that no asset references the
+blob. Code that makes a new reference to an existing blob without a commit must claim it first. nginx may be sending
+a blob GC unlinks: the open file stays readable on POSIX, and a blob served moments ago was referenced, so it is not
+deleted before the grace period ends.
+
 ## 6. Proxy engine
 ### 6.1 Upstream client
 One shared `httpx.AsyncClient` per upstream host (HTTP/2, connection pooling, limits per host), per-repo auth

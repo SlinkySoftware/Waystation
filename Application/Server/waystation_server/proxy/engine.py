@@ -1201,9 +1201,8 @@ class ProxyEngine:
             created_at=now,
             updated_at=now,
         )
-        saved = await assets_db.save(self.db, asset)
-        await assets_db.record_blob(self.db, ref.sha256, ref.size, now)
-        return saved
+        # The blobs document was written by the commit's GC claim (``BlobStore.guard``), before the rename.
+        return await assets_db.save(self.db, asset)
 
     def _stored_headers(self, spec: AssetSpec, info: UpstreamInfo) -> dict[str, str]:
         return {name: info.headers[name.lower()] for name in spec.store_headers if name.lower() in info.headers}
