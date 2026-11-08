@@ -230,6 +230,13 @@ settings changes. Searchable in the UI, exported via API; retention configurable
 
 ### 4.12 Administration
 - Repository CRUD with format-aware forms and validation, test-upstream button, clone repo, enable/disable.
+  Names: §3 pattern; not a reserved top-level path (`api`, `ui`, `v2`, `auth`, `repository`, `healthz`, `readyz`,
+  `metrics`) and not a docker upstream alias (case-insensitive). Upstream URLs: http(s), no credentials in the URL,
+  literal private addresses only with `allow_private_upstream`. Upstream secrets are write-only (reads return
+  `secret_set`) and kept when an update omits them. Name, format and type cannot change. Setting a docker repository
+  as `default_repo` clears it on the others. "Test upstream" checks DNS, the SSRF guard, TLS, HTTP and
+  authentication of the format's probe path (docker `v2/`, npm `-/ping`, apt `dists/<distribution>/Release`, raw the
+  URL itself) and always answers 200 with the findings.
 - **Set me up** per repo per client: generated config snippets (docker daemon.json, `docker login`, `.npmrc`,
   `pip.conf`, `settings.xml`, `sources.list`/`.sources`, `.repo`, Go env, Helm repo add, Terraform CLI config,
   `ansible.cfg`, Swift registry commands) with the current user's token placeholder.
@@ -440,6 +447,7 @@ Waystation/
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
 | RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Custom roles, groups and the grant cache pending |
+| Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Hosted/group, clone and audit pending |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

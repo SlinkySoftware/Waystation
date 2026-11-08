@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Preferences(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', json_schema_serialization_defaults_required=True)
 
     theme: Literal['light', 'dark', 'system'] = 'system'
     density: Literal['comfortable', 'compact'] = 'comfortable'

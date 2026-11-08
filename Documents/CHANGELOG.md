@@ -3,6 +3,16 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S05 (M0 slice): repositories. Format descriptors with option models and "Set me up" snippets for docker
+  (aliases, Docker Hub, default repo), npm, apt (distribution, flat) and raw (metadata regex) proxies, registered by
+  `waystation_server.plugins`. `repos.service` validates names (reserved words, docker aliases, case-insensitive
+  uniqueness → 409), formats/types, upstream URLs and options (422 field errors), encrypts upstream secrets
+  (write-only, kept on update) and keeps one default docker repository. REST: list (filters, cursor paging,
+  RBAC-filtered), create, read, replace, delete, test upstream, setup guide, per the M0 contract; OpenAPI
+  `FormatOptions` is `oneOf` the registered option models. Upstream HTTP clients (`proxy.http`: HTTP/2, pooled per
+  host, no automatic redirects) with the SSRF guard enforced at connect time (`proxy.ssrf`). Contract test compares
+  the generated OpenAPI with `Application/Web/openapi/waystation-m0.yaml`. DATA_MODEL `repositories.proxy` fields
+  aligned with the API.
 - T-S03 (M0 slice): RBAC decision point `waystation_server.security.access`: `check`, `can_see`, `filter_repos`,
   `require`, `require_repo`, `capabilities`; built-in roles (`admin`, `reader`, `deployer`, `viewer`,
   `anonymous` = browse + read on proxy repositories); scopes `*`, name, glob, `format:`, `type:` (new, SPEC §4.10).

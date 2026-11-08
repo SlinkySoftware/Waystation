@@ -26,6 +26,7 @@ from waystation_server.db import repositories as repos_db
 from waystation_server.formats.registry import FormatRegistry
 from waystation_server.metrics import Metrics
 from waystation_server.proxy.engine import ProxyEngine
+from waystation_server.proxy.http import UpstreamClients
 from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security.principal import Principal
@@ -47,6 +48,7 @@ class Services:
     formats: FormatRegistry
     metrics: Metrics
     sessions: SessionManager
+    upstream: UpstreamClients
     proxy: ProxyEngine = field(default_factory=ProxyEngine)
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
@@ -89,6 +91,7 @@ class Services:
             formats=formats,
             metrics=metrics,
             sessions=SessionManager(db, redis, settings),
+            upstream=UpstreamClients(settings),
             keyring=keyring,
             mongo_client=client,
             check_schema_on_start=check_schema_on_start,
@@ -113,6 +116,7 @@ class Services:
             return
         self._started = False
         await self.emitter.aclose()
+        await self.upstream.aclose()
         await self.valkey.aclose()
         if self.mongo_client is not None:
             await self.mongo_client.close()
