@@ -62,9 +62,16 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     (`service=registry.docker.io`, `scope=repository:<name>:pull`), optional Hub credentials for higher limits.
     Single-segment names get `library/` prepended. Track `ratelimit-limit/remaining` headers per repo.
   - Generic OCI (GHCR, Quay, gcr, ECR public, Gitea registries): follow the upstream's `WWW-Authenticate` challenge,
-    anonymous token or configured credentials.
+    anonymous token or configured credentials. Ping the upstream's `GET /v2/` once to learn the challenge, so every
+    request carries its token up front (a first anonymous request per image would make record/replay and upstream
+    request counts depend on which server process answers); re-learn on a later `401`.
   - Tag → digest resolution is metadata (`metadata_max_age`); digest-addressed manifests and blobs are content.
   - Blob redirects: upstreams often 307 to a CDN; follow (SSRF-checked) without forwarding Authorization to other hosts.
+    Docker Hub uses more than one CDN host (`production.cloudflare.docker.com`, `production.cloudfront.docker.com`),
+    GHCR uses `pkg-containers.githubusercontent.com`: outbound allowlists must include them.
+  - Docker Hub answers `401` (not `404`) for image names that do not exist; map an upstream 401/403 after token
+    negotiation to `NAME_UNKNOWN`. Proxies without a referrers API answer `404`, and clients fall back to the
+    `sha256-<hex>` tag schema (an extra tag lookup per pull).
   - Mirror mode: Docker daemon `registry-mirrors` sends Hub names (`library/nginx`) to `/v2/` → default repo.
 - Hosted: tag immutability patterns, overwrite policy, manifest validation (all referenced blobs/manifests exist
   in the repo or are mountable), size limit, `subject` field for referrers (cosign/notation signatures, SBOMs).
