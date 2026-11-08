@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.npmjs.org/@sindresorhus%2Fis"
+  },
+  "response": {
+    "body_sha256": "2fe668f8b19ce8f17812ccbab233acd559a022e6ed46669eef51a2b4b765f803",
+    "body_size": 88286,
+    "headers": [
+      [
+        "content-type",
+        "application/vnd.npm.install-v1+json"
+      ],
+      [
+        "content-length",
+        "88286"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, max-age=300"
+      ],
+      [
+        "etag",
+        "\"7c7d4b461ea18390ab2064f8315598a7\""
+      ],
+      [
+        "last-modified",
+        "Mon, 11 May 2026 11:22:37 GMT"
+      ],
+      [
+        "vary",
+        "accept-encoding, accept"
+      ]
+    ],
+    "status": 200
+  }
+}

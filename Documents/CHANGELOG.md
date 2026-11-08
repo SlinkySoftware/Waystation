@@ -3,6 +3,19 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-P2-NPM (M0 slice): npm proxy plugin. Packuments full and abbreviated (`application/vnd.npm.install-v1+json`) cached
+  separately as metadata and revalidated, scoped names as `@scope%2fname` or `@scope/name`, every
+  `versions.*.dist.tarball` rewritten to `<base>/repository/<repo>/` in a thread; tarballs cached as content and
+  verified while streaming against `dist.integrity` (SRI) or `dist.shasum`, looked up in the cached abbreviated
+  packument (fetched on a miss, refreshed once for an unlisted version, otherwise 404). `/-/ping` answered locally,
+  `/-/v1/search` cached 5 minutes per query, audit POSTs relayed uncached when `audit_passthrough` is on. Engine:
+  `AssetSpec.expect` (expected digests resolved only on an upstream fetch) and `ProxyEngine.relay` (bounded, uncached
+  pass-through); `FormatDescriptor.read_posts` lets a format declare query-only POST paths that the router authorises as
+  `read`. Real-client harness: `tests/clients/npm/` (npm 11, lockfile-pinned and lockfile-free installs incl. a scoped
+  package, `npm audit`) with recorded registry.npmjs.org fixtures; `setup.sh` scripts can create repositories as a
+  random per-run bootstrap admin; new `DROP_JSON_KEYS` format setting removes personal and registry-internal fields
+  (readmes, maintainer e-mails, `_npmOperationalInternal`) from recorded JSON. Client guide
+  `Documents/Operations/clients/npm.md`.
 - T-V01: npm `overrides` pin `minimatch` ≥ 11.0.1 and `glob` ≥ 14.0.2 (dev-only transitive dependencies of eslint,
   `@vue/test-utils` and `openapi-typescript`) for two moderate advisories; `npm audit` clean.
 - T-U03: mock data mirrors the owner's repository set: 13 proxies (`dockerhub-proxy` default/mirror + `docker.io`

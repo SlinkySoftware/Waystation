@@ -28,6 +28,8 @@ Every outcome is recorded without blocking (ARCH §8): live transfers and activi
 per-minute counters, upstream health, Prometheus metrics and the access-log fields. MongoDB is written on fills
 and revalidations only, never on hits.
 
+``relay`` forwards a request that must not be cached (npm audit POSTs) and answers with the upstream's bounded body.
+
 Not yet (later tasks): request coalescing (T-S08), auto-block (T-S07 full), download counters (T-S09).
 """
 
@@ -39,7 +41,7 @@ import hashlib
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import urljoin, urlsplit
@@ -90,6 +92,7 @@ log = logging.getLogger('waystation.proxy')
 
 CHUNK = 256 * 1024
 METADATA_MAX_BYTES = 128 * 1024 * 1024
+RELAY_MAX_BYTES = 32 * 1024 * 1024
 MAX_REDIRECTS = 5
 REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 GONE_CODES = frozenset({404, 410})
@@ -164,6 +167,7 @@ class StaticAuth:
 Transform = Callable[[bytes, UpstreamInfo], bytes]
 Validate = Callable[[bytes, UpstreamInfo], None]
 OnStored = Callable[[StoredAsset, bytes | None], Awaitable[None]]
+Expect = Callable[[], Awaitable[Expected | None]]
 
 
 @dataclass(frozen=True)
@@ -181,6 +185,9 @@ class AssetSpec:
     upstream_url: str | None = None
     upstream_headers: Mapping[str, str] = field(default_factory=dict)
     expected: Expected | None = None
+    # Resolved only when the engine is about to GET the asset from upstream (never on a hit): for formats whose
+    # expected digests live in other metadata (npm tarballs -> the packument). Replaces ``expected`` when set.
+    expect: Expect | None = None
     content_type: str | None = None  # default: the upstream's Content-Type
     store_headers: tuple[str, ...] = ()  # upstream response headers kept and replayed (e.g. Docker-Content-Digest)
     response_headers: Mapping[str, str] = field(default_factory=dict)
@@ -264,6 +271,7 @@ class ProxyEngine:
             if proxy.offline or self._fresh(asset, spec, proxy):
                 return self._hit(req, asset, CacheState.HIT, started)
             try:
+                spec = await self._expect(spec)
                 response, info = await self._open(req, spec, proxy, conditional=asset)
             except (UpstreamError, DigestMismatch) as exc:
                 if proxy.stale_on_error:
@@ -294,6 +302,8 @@ class ProxyEngine:
         )
         method = 'HEAD' if req.is_head and head_passthrough else 'GET'
         try:
+            if method == 'GET':
+                spec = await self._expect(spec)
             response, info = await self._open(req, spec, proxy, method=method)
         except UpstreamError, DigestMismatch:
             self._account_error(req, started)
@@ -324,6 +334,7 @@ class ProxyEngine:
             raise NotFound('Not Found')
         started = time.perf_counter()
         try:
+            spec = await self._expect(spec)
             response, info = await self._open(req, spec, proxy, conditional=asset)
         except UpstreamError, DigestMismatch:
             if asset is not None and proxy.stale_on_error:
@@ -349,6 +360,83 @@ class ProxyEngine:
             raise UpstreamError('cached metadata is too large to parse')
         path = self.blobs.blob_path(asset.blob_sha256)
         return await asyncio.to_thread(path.read_bytes)
+
+    async def relay(
+        self,
+        req: FormatRequest,
+        *,
+        upstream_path: str,
+        body: bytes = b'',
+        headers: Mapping[str, str] | None = None,
+        max_size: int = RELAY_MAX_BYTES,
+    ) -> Response:
+        """Forward one request (the client's method, ``body`` and ``headers``) to the repository's upstream and
+        answer with the upstream's status and body: nothing is cached and redirects are not followed (e.g. npm
+        audit, a POST that only queries). The response is bounded by ``max_size``; upstream 5xx answer 502."""
+        started = time.perf_counter()
+        proxy = self._proxy(req.repo)
+        if proxy.offline:
+            raise NotFound('Not Found')
+        url = _join(proxy.upstream_url, upstream_path)
+        try:
+            client = self.clients.client_for(url, allow_private=proxy.allow_private_upstream)
+        except ValueError:
+            raise UpstreamError('unsupported upstream URL') from None
+        if self.clients.proxy:
+            await self.clients.precheck(url, allow_private=proxy.allow_private_upstream)
+        auth = self._auth(req.repo, proxy, AssetSpec(path=upstream_path))
+        send = {'Accept-Encoding': 'gzip, deflate', **(headers or {})}
+        if auth is not None:
+            send.update(await auth.headers(url))
+        try:
+            request = client.build_request(req.method, url, headers=send, content=body or None)
+            response = await client.send(request, stream=True)
+        except httpx.TimeoutException:
+            self._upstream_failed(req, 'upstream timed out')
+            self._account_error(req, started)
+            raise UpstreamTimeout('upstream timed out') from None
+        except httpx.HTTPError as exc:
+            self._upstream_failed(req, _describe(exc))
+            self._account_error(req, started)
+            raise UpstreamError('upstream connection failed') from None
+        except UpstreamError as exc:
+            self._upstream_failed(req, exc.detail)
+            self._account_error(req, started)
+            raise
+        try:
+            status = response.status_code
+            ok = status < 500 and status not in (401, 403, 429)
+            latency = round((time.perf_counter() - started) * 1000, 1)
+            self.emitter.upstream(
+                repo_id=req.repo.id,
+                format=req.repo.format,
+                ok=ok,
+                error=None if ok else f'upstream answered {status}',
+                latency_ms=latency,
+            )
+            if status >= 500 or status in REDIRECT_CODES:
+                self._account_error(req, started)
+                raise UpstreamError(f'upstream answered {status}')
+            chunks: list[bytes] = []
+            done = 0
+            async for chunk in response.aiter_bytes(CHUNK):
+                done += len(chunk)
+                if done > max_size:
+                    self._account_error(req, started)
+                    raise UpstreamError('upstream response exceeds the size limit')
+                chunks.append(chunk)
+        except httpx.HTTPError as exc:
+            self._upstream_failed(req, _describe(exc), after_response=True)
+            self._account_error(req, started)
+            raise UpstreamError('upstream transfer failed') from None
+        finally:
+            with anyio.CancelScope(shield=True):
+                await response.aclose()
+        content = b''.join(chunks)
+        self.metrics.add_bytes(repo=req.repo.name, direction='in_upstream', count=done)
+        self._account(req, CacheState.FETCHING, status, len(content), started)
+        out = {'Content-Type': response.headers.get('content-type', DEFAULT_TYPE), 'X-Ws-Cache': 'BYPASS'}
+        return Response(content, status_code=status, headers=out)
 
     def record_rate_limit(
         self,
@@ -434,6 +522,12 @@ class ProxyEngine:
         else:
             header = f'Bearer {secret}'
         return StaticAuth(origin=_origin(proxy.upstream_url), header=header)
+
+    @staticmethod
+    async def _expect(spec: AssetSpec) -> AssetSpec:
+        if spec.expect is None:
+            return spec
+        return replace(spec, expected=await spec.expect(), expect=None)
 
     def _url(self, proxy: StoredProxy, spec: AssetSpec) -> str:
         if spec.upstream_url:
