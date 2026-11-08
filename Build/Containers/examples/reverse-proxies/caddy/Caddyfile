@@ -1,0 +1,21 @@
+# Waystation behind Caddy 2 (Documents/Operations/REVERSE_PROXIES.md). Caddy obtains a certificate automatically
+# for the site name. Checked by Build/Containers/examples/reverse-proxies/check/check.sh.
+#
+# Caddy streams request and response bodies, sets no body size limit and no proxy timeouts by default, and sends
+# X-Forwarded-For/-Proto/-Host itself, so very little is needed here.
+registry.example.com {
+	# Own certificate instead of ACME:
+	# tls /etc/caddy/tls/fullchain.pem /etc/caddy/tls/privkey.pem
+
+	reverse_proxy waystation-web:8080 {
+		# Flush every write immediately: the live event stream and blob downloads are never held back.
+		flush_interval -1
+
+		health_uri /healthz
+		health_interval 15s
+
+		transport http {
+			dial_timeout 10s
+		}
+	}
+}

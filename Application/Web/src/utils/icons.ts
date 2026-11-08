@@ -16,6 +16,7 @@ export {
   symOutlinedDashboard as iconDashboard,
   symOutlinedDatabase as iconStorage,
   symOutlinedDelete as iconDelete,
+  symOutlinedEdit as iconEdit,
   symOutlinedDeleteSweep as iconCleanup,
   symOutlinedDescription as iconFile,
   symOutlinedError as iconError,

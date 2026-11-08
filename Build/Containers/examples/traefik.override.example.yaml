@@ -1,0 +1,27 @@
+# Site override: Waystation behind Traefik with Docker labels (Documents/Operations/REVERSE_PROXIES.md).
+# Copy next to compose.yaml on the host as compose.override.yaml (or pass it with -f) and adapt the names.
+# Assumes Traefik runs on this host with the Docker provider (exposedByDefault: false), an entry point "websecure"
+# and an external network "proxy" shared with it (Build/Containers/examples/reverse-proxies/traefik/traefik.yaml).
+# Requires Docker Compose 2.24+ for !reset.
+services:
+  web:
+    # No published port: Traefik reaches web over the shared network.
+    ports: !reset []
+    networks:
+      proxy:
+        aliases: [waystation-web]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: proxy
+      traefik.http.routers.waystation.rule: Host(`registry.example.com`)
+      traefik.http.routers.waystation.entrypoints: websecure
+      traefik.http.routers.waystation.tls: "true"
+      # With ACME instead of a static certificate:
+      # traefik.http.routers.waystation.tls.certresolver: letsencrypt
+      traefik.http.services.waystation.loadbalancer.server.port: "8080"
+      traefik.http.services.waystation.loadbalancer.healthcheck.path: /healthz
+      traefik.http.services.waystation.loadbalancer.healthcheck.interval: 15s
+
+networks:
+  proxy:
+    external: true

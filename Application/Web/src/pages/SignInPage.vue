@@ -15,6 +15,21 @@
         <h1 class="sign-in__title">{{ t('signIn.title') }}</h1>
         <div v-if="expired" class="sign-in__note" role="status">{{ t('signIn.expired') }}</div>
         <q-form class="sign-in__form" @submit="submit">
+          <template v-if="passwordProviders.length > 1">
+            <label class="sign-in__label" for="provider">{{ t('signIn.provider') }}</label>
+            <q-select
+              id="provider"
+              v-model="provider"
+              outlined
+              dense
+              emit-value
+              map-options
+              options-dense
+              :options="providerOptions"
+              :disable="busy"
+              :hint="provider ? undefined : t('signIn.providerAutoHint')"
+            />
+          </template>
           <label class="sign-in__label" for="username">{{ t('signIn.username') }}</label>
           <q-input
             id="username"
@@ -90,12 +105,16 @@ const expired = computed(() => route.query.expired === '1' && !error.value)
 
 const providers = useAsync<AuthProvider[]>(() => call(api.GET('/auth/providers')))
 const oidc = computed(() => (providers.data.value ?? []).filter((p) => p.kind === 'oidc' && p.login_url))
+// Local and LDAP share the username/password form (UI_DESIGN §4.1): a select appears only when there are several.
+const passwordProviders = computed(() => (providers.data.value ?? []).filter((p) => p.kind === 'local' || p.kind === 'ldap'))
+const provider = ref<string | null>(null)
+const providerOptions = computed(() => [{ label: t('signIn.providerAuto'), value: null }, ...passwordProviders.value.map((p) => ({ label: p.name, value: p.id }))])
 
 async function submit(): Promise<void> {
   busy.value = true
   error.value = null
   try {
-    await auth.login(username.value.trim(), password.value)
+    await auth.login(username.value.trim(), password.value, provider.value ?? undefined)
     await router.replace(safeNext(route.query.next))
   } catch (cause) {
     password.value = ''

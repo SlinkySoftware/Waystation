@@ -38,6 +38,7 @@ tags:
   - name: browse
   - name: stats
   - name: live
+  - name: admin
 security:
   - session: []
   - bearer: []
@@ -313,6 +314,139 @@ paths:
       responses:
         '204': { description: Revoked }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /auth-providers:
+    get:
+      tags: [admin]
+      operationId: listAuthProviderConfigs
+      summary: Configured external sign-in providers (LDAP), in sign-in order
+      description: Needs `settings-admin`. Secrets are never returned (`bind_password_set` instead).
+      responses:
+        '200':
+          description: Providers ordered by `order`, then name
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AuthProviderConfig' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [admin]
+      operationId: createAuthProvider
+      summary: Add an external sign-in provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthProviderWrite' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthProviderConfig' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /auth-providers/test-connection:
+    post:
+      tags: [admin]
+      operationId: testAuthProviderConnection
+      summary: Check every LDAP server of a (possibly unsaved) provider; connect, TLS, service bind, search bases
+      description: Always 200 with the findings. Pass `id` to reuse the stored bind password when it is omitted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthProviderTestRequest' }
+      responses:
+        '200':
+          description: Result per server
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthProviderConnectionTest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /auth-providers/test-user:
+    post:
+      tags: [admin]
+      operationId: testAuthProviderUser
+      summary: Look a user up (and optionally check a password) with a (possibly unsaved) provider
+      description: |
+        Shows the attributes and groups the provider would sync, whether the require-group gate passes and the
+        roles the group mapping gives. Needs `username`; `password` is optional (a bind is attempted only when
+        given). Always 200 with the findings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthProviderTestRequest' }
+      responses:
+        '200':
+          description: Lookup result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthProviderUserTest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /auth-providers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProviderId'
+    get:
+      tags: [admin]
+      operationId: getAuthProviderConfig
+      summary: One provider's configuration
+      responses:
+        '200':
+          description: Provider
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthProviderConfig' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [admin]
+      operationId: updateAuthProvider
+      summary: Replace a provider's configuration and group mapping (`kind` cannot change)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AuthProviderWrite' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthProviderConfig' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [admin]
+      operationId: deleteAuthProvider
+      summary: Delete a provider and its group mapping (its users stay but cannot sign in through it)
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /roles:
+    get:
+      tags: [admin]
+      operationId: listRoles
+      summary: Roles that can be granted (built-in roles; custom roles come later)
+      responses:
+        '200':
+          description: Roles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Role' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /repositories:
     get:
@@ -779,6 +913,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/RepositoryName' }
+    ProviderId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, maxLength: 64 }
     Cursor:
       name: cursor
       in: query
@@ -1051,6 +1190,169 @@ components:
           maxItems: 20
           items: { type: string }
         disabled: { type: [boolean, 'null'] }
+
+    # ---------------------------------------------------------------- administration: sign-in providers, roles
+    Role:
+      type: object
+      required: [id, name, description, builtin]
+      properties:
+        id: { type: string, description: 'Role id used in grants and group mappings, e.g. `deployer`' }
+        name: { type: string }
+        description: { type: string }
+        builtin: { type: boolean }
+    LdapConnection:
+      type: object
+      required: [servers, security]
+      description: Servers are tried in order; one that cannot be reached is skipped for 30 s (failover).
+      properties:
+        servers:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items: { type: string, minLength: 1, maxLength: 512 }
+          description: '`host`, `host:port`, `ldap://host[:port]` or `ldaps://host[:port]`'
+        security: { type: string, enum: [ldaps, starttls, none], description: '`none` sends passwords in clear text (testing only)' }
+        ca_pem: { type: [string, 'null'], maxLength: 65536, description: 'PEM CA bundle to trust instead of the system store' }
+        bind_dn: { type: [string, 'null'], maxLength: 1024, description: 'Service account for searches; empty = anonymous search' }
+        bind_password: { type: [string, 'null'], writeOnly: true, maxLength: 1024, description: 'Omit or null on update to keep the stored password' }
+        bind_password_set: { type: boolean, readOnly: true }
+        connect_timeout_s: { type: number, minimum: 1, maximum: 30, default: 5 }
+        timeout_s: { type: number, minimum: 1, maximum: 60, default: 10 }
+    LdapUsers:
+      type: object
+      required: [base_dn]
+      properties:
+        base_dn: { type: string, minLength: 1, maxLength: 1024 }
+        filter: { type: string, maxLength: 1024, default: '(objectClass=person)', description: 'ANDed with `(<username_attribute>=<name>)`' }
+        username_attribute: { type: string, maxLength: 128, default: uid }
+        display_name_attribute: { type: string, maxLength: 128, default: cn }
+        email_attribute: { type: string, maxLength: 128, default: mail }
+    LdapGroups:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [none, member_of, search], description: '`member_of` reads the user''s `member_of_attribute`; `search` finds groups that list the user' }
+        base_dn: { type: [string, 'null'], maxLength: 1024, description: Needed for `search` }
+        filter: { type: string, maxLength: 1024, default: '(objectClass=groupOfNames)' }
+        member_attribute: { type: string, maxLength: 128, default: member }
+        member_value: { type: string, enum: [dn, username], default: dn, description: '`username` for `posixGroup` / `memberUid`' }
+        name_attribute: { type: string, maxLength: 128, default: cn }
+        member_of_attribute: { type: string, maxLength: 128, default: memberOf }
+        nested: { type: boolean, default: false, description: Also follow groups that are members of groups }
+        require_group: { type: [string, 'null'], maxLength: 1024, description: 'Only members of this group (DN or name) may sign in' }
+    LdapConfig:
+      type: object
+      required: [connection, users, groups]
+      properties:
+        connection: { $ref: '#/components/schemas/LdapConnection' }
+        users: { $ref: '#/components/schemas/LdapUsers' }
+        groups: { $ref: '#/components/schemas/LdapGroups' }
+        cache_ttl_s: { type: integer, minimum: 0, maximum: 900, default: 60, description: 'How long a successful password check is reused by format clients (0 = never)' }
+    GroupMapping:
+      type: object
+      required: [external_group, roles]
+      properties:
+        external_group: { type: string, minLength: 1, maxLength: 1024, description: 'Group DN or name (case-insensitive)' }
+        roles:
+          type: array
+          maxItems: 20
+          items: { type: string }
+    AuthProviderWrite:
+      type: object
+      required: [kind, name, ldap]
+      properties:
+        kind: { type: string, enum: [ldap] }
+        name: { type: string, minLength: 1, maxLength: 64, description: Shown on the sign-in page }
+        enabled: { type: boolean, default: true }
+        order: { type: integer, minimum: 0, maximum: 1000, default: 100, description: Sign-in order (lowest first) }
+        ldap: { $ref: '#/components/schemas/LdapConfig' }
+        group_mapping:
+          type: array
+          maxItems: 500
+          items: { $ref: '#/components/schemas/GroupMapping' }
+    AuthProviderConfig:
+      type: object
+      required: [id, kind, name, enabled, order, ldap, group_mapping, created_at, updated_at]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [ldap] }
+        name: { type: string }
+        enabled: { type: boolean }
+        order: { type: integer }
+        ldap: { $ref: '#/components/schemas/LdapConfig' }
+        group_mapping:
+          type: array
+          items: { $ref: '#/components/schemas/GroupMapping' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    AuthProviderTestRequest:
+      type: object
+      required: [provider]
+      properties:
+        id: { type: [string, 'null'], maxLength: 64, description: 'Saved provider whose bind password is reused when `provider` omits it' }
+        provider: { $ref: '#/components/schemas/AuthProviderWrite' }
+        username: { type: [string, 'null'], maxLength: 256, description: Needed by test-user }
+        password: { type: [string, 'null'], writeOnly: true, maxLength: 1024, description: 'test-user only; also check this password' }
+    ProviderCheck:
+      type: object
+      required: [name, ok, message]
+      properties:
+        name: { type: string, description: '`connect`, `tls`, `bind`, `user_base`, `group_base`, `search`, `password`, `groups`, `require_group`' }
+        ok: { type: boolean }
+        message: { type: string }
+    LdapServerTest:
+      type: object
+      required: [server, ok, latency_ms, checks]
+      properties:
+        server: { type: string }
+        ok: { type: boolean }
+        latency_ms: { type: [number, 'null'] }
+        tls: { type: [string, 'null'], description: 'Negotiated protocol and certificate subject' }
+        checks:
+          type: array
+          items: { $ref: '#/components/schemas/ProviderCheck' }
+    AuthProviderConnectionTest:
+      type: object
+      required: [ok, servers]
+      properties:
+        ok: { type: boolean, description: Every server passed }
+        servers:
+          type: array
+          items: { $ref: '#/components/schemas/LdapServerTest' }
+    ExternalGroup:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, description: Group DN (LDAP) or claim value (OIDC) }
+        name: { type: string }
+    DirectoryUser:
+      type: object
+      required: [dn, username, display_name, email]
+      properties:
+        dn: { type: string }
+        username: { type: string }
+        display_name: { type: string }
+        email: { type: [string, 'null'] }
+    AuthProviderUserTest:
+      type: object
+      required: [ok, found, server, user, groups, require_group_ok, password, roles, checks]
+      properties:
+        ok: { type: boolean, description: 'Found, the password matched (when given) and the require-group gate passed' }
+        found: { type: boolean }
+        server: { type: [string, 'null'], description: The server that answered }
+        user: { oneOf: [{ $ref: '#/components/schemas/DirectoryUser' }, { type: 'null' }] }
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/ExternalGroup' }
+        require_group_ok: { type: [boolean, 'null'], description: null when no group is required }
+        password: { type: string, enum: [not_tested, ok, failed] }
+        roles:
+          type: array
+          description: Roles the group mapping gives this user
+          items: { type: string }
+        checks:
+          type: array
+          items: { $ref: '#/components/schemas/ProviderCheck' }
 
     # ---------------------------------------------------------------- repositories
     UpstreamAuth:

@@ -16,6 +16,55 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   sign-in, the four repositories, clients, stop/reset). `scripts/screenshots.mjs` gains `REAL=1` (signs in, tours
   real cached content); the M0 tour is now taken against the real server (`Documents/Notes/UI_TOUR_M0.md`, 72 shots,
   pngquant). Feedback log `Documents/Notes/UI_FEEDBACK.md`.
+- T-O06: monitoring. Grafana dashboard `Build/monitoring/grafana/waystation-dashboard.json` (Prometheus data
+  source as a variable; job, instance and repository filters; stat tiles for request rate, cache hit ratio, bytes
+  served from cache and fetched from upstream, upstream error ratio and transfers in flight; requests by cache state,
+  throughput by direction, hit ratio and upstream errors per repository, upstream latency p95, coalescing, and a
+  per-repository table). Zabbix 7.0 template `Build/monitoring/zabbix/waystation_by_http.yaml` ("Waystation by
+  HTTP": HTTP agent items on `/healthz`, `/readyz` and `/metrics`, dependent Prometheus-pattern items, repository
+  discovery with per-repository rates, ratios and average upstream latency; triggers for server down, unreachable,
+  MongoDB/Valkey unavailable, no metrics, overall upstream error ratio and per-repository upstream down/degraded).
+  Both use only metrics the server exports today; the dashboard was loaded into Grafana 12.2 against Prometheus 3.7
+  scraping real `Metrics` output, and the template imported into Zabbix 7.0 with its items and triggers exercised.
+  `Documents/Operations/MONITORING.md` lists every exported metric and the useful ones still missing (upstream
+  state, Docker Hub rate limit, job queues, worker health, disk space). SPECIFICATION §10 now lists the metrics as
+  exported.
+- T-M03: deployment and reverse-proxy guides. `Documents/Operations/DEPLOYMENT.md` describes the single-host
+  `compose.yaml` as it works today: containers and networks, requirements (Waystation owns the root of its host
+  name), sizing, images, host layout and storage, the env file (with a compose override for `*_FILE` secrets), the
+  environment reference (application settings from `.env.example` plus compose-only variables), start-up and first
+  sign-in, health checks, TLS options, scaling and split-deployment status, manual backup/restore commands, upgrades
+  and troubleshooting; planned pieces are marked with their task IDs. `Documents/Operations/REVERSE_PROXIES.md`:
+  requirements for any proxy (no body limit, no request/response buffering, unbuffered event stream, long idle
+  timeouts, keep-alive), `X-Forwarded-For` trust, and example configurations for nginx, Traefik v3 (static config,
+  file provider, Docker labels in the new `Build/Containers/examples/traefik.override.example.yaml`), Caddy and
+  HAProxy under `Build/Containers/examples/reverse-proxies/`, plus Synology DSM notes. `make proxies-check` runs each
+  example in containers (`nginx -t`, `caddy validate`, `haproxy -c`, Traefik start-up, `docker compose config`), then
+  against a stand-in web tier over TLS (redirect, unbuffered SSE, 1 GiB download and upload, forwarded headers;
+  `SLOW=1` adds a 75 s idle response and an 80 s upload) and checks the doc blocks equal the files. `compose.yaml`
+  now passes `WAYSTATION_INSTANCE_NAME`, `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD[_FILE]`, the session lifetimes and the
+  sign-in limits through to the containers (they were silently ignored before).
+- T-A01: LDAP sign-in provider. `security.ldap` (ldap3 in a dedicated thread pool, connect/response timeouts and an
+  overall ceiling): ordered server list with failover (unreachable or TLS-failing servers skipped for 30 s), LDAPS,
+  StartTLS or clear text, custom CA with host-name verification by Python `ssl`, service bind with a write-only
+  encrypted password, user search (base + filter, escaped username), user bind on its own connection (empty passwords
+  refused), attribute mapping, groups by `memberOf` or group search with optional nested walk, require-group gate,
+  and a bind cache (HMAC of provider, config version, username, password; per-process key) used by `docker login`.
+  `security.login.verify_login` now takes the services and an optional provider: local accounts with a password are
+  only checked locally; everyone else goes to the enabled LDAP providers in order. Admin API `/api/v1/auth-providers`
+  (CRUD with 422 field errors and 409 on a taken name, test-connection per server, test-user with groups, gate and
+  mapped roles; `settings-admin`) and `GET /api/v1/roles`; `/auth/providers` lists enabled providers. New collection
+  `auth_providers`. UI: "Authentication providers" admin page (FreeIPA / AD / OpenLDAP presets, connection, users,
+  groups, caching sections, test buttons, group-mapping table) with MSW mocks, and a provider select on the sign-in
+  page. `make test-integration` now also builds and starts an OpenLDAP server with a FreeIPA-style tree and a Samba
+  AD DC with a throwaway CA (`Build/Containers/test/`); integration tests cover TLS modes, wrong CA/host name,
+  failover, wrong password, locked/disabled accounts, require-group, nested groups, group sync, the same-username
+  rules, the docker token service with an LDAP password and the admin API. New dependencies: `ldap3`, `types-ldap3`.
+- T-A03 (LDAP half): provider-neutral identity linking and group sync (`security.external.link_identity`):
+  provisioning, same-username rules (never link to an account with a local password; password-less local accounts
+  and other providers' users are linked; `users.identities[]`), `users.external_groups[]` replaced per provider at each
+  sign-in. T-S03 groups: `groups` documents hold roles; a provider's group mapping is stored as groups; effective roles
+  (own ∪ local groups ∪ mapped external groups) resolved per request by `security.groups.GroupDirectory`, also for API tokens of users.
 - T-P2-YUM (proxy min): yum/dnf proxy repositories (`formats/yum`: descriptor, `repodata.py` parsers, plugin;
   `db/yum.py`; registered in `plugins.py`). The upstream layout is kept, so one repository serves every `repodata/`
   directory below its upstream URL. `repomd.xml` is metadata, passed through untouched after a defused parse (expat
