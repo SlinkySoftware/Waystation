@@ -19,7 +19,8 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 
 from waystation_common.settings import Settings, get_settings
-from waystation_server import api, health, problems, routing
+from waystation_server import api, health, plugins, problems, routing
+from waystation_server.api import openapi
 from waystation_server.clientip import ClientResolver
 from waystation_server.middleware import HeadMiddleware, RequestContextMiddleware
 from waystation_server.security import access
@@ -59,6 +60,7 @@ def create_app(settings: Settings | None = None, *, services: Services | None = 
     app.include_router(health.router)
     app.include_router(routing.router)
     app.include_router(api.build_router())
+    openapi.install(app, services.formats if services is not None else plugins.default_registry())
     app.add_middleware(HeadMiddleware)
     app.add_middleware(RequestContextMiddleware, resolver=ClientResolver.from_settings(settings))
     return app
