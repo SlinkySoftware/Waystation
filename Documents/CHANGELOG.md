@@ -3,6 +3,13 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S11 (M0 slice): stats and live APIs per the M0 contract: `GET /api/v1/stats/summary`, `/stats/traffic`,
+  `/stats/storage`, `/stats/upstreams`, `/repositories/{name}/stats/traffic`, `/transfers`, `/activity`, and the
+  repository list's 24 h `stats` and `degraded` status. Series merge rolled-up minutes with the live Valkey counters
+  (a minute present in both counts once). `GET /api/v1/events/stream`: one hub per process (pub/sub `live`, blocking
+  `XREAD` on `activity`, 1 Hz `stats.tick`), per-subscriber topic and RBAC filtering, bounded queues,
+  `transfers.snapshot` on connect, `Last-Event-ID` resume without gaps or duplicates, 15 s heartbeats. OpenAPI now
+  documents the SSE payloads (`LiveEvent`); the contract test covers every M0 operation the server implements.
 - T-S07 (M0 slice): proxy engine `waystation_server.proxy.engine`. Formats describe files as `AssetSpec` (kind,
   upstream path/URL/headers, `Expected` digests incl. npm SRI, stored/response headers, size and age limits,
   `validate`/`transform` hooks run in a thread, `on_stored`, pluggable `UpstreamAuthenticator`) and call

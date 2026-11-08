@@ -31,6 +31,8 @@ from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security.principal import Principal
 from waystation_server.security.sessions import SessionManager
+from waystation_server.sse.hub import Hub
+from waystation_server.stats.storage import StorageStats
 
 log = logging.getLogger('waystation.server')
 
@@ -50,6 +52,8 @@ class Services:
     sessions: SessionManager
     upstream: UpstreamClients
     proxy: ProxyEngine
+    storage: StorageStats
+    hub: Hub
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
@@ -82,6 +86,18 @@ class Services:
             return await repos_db.list_all(db)
 
         blobs = BlobStore.from_settings(settings)
+        storage = StorageStats(db, settings.data_dir)
+        catalog = RepoCatalog(load)
+
+        async def visible(principal: Principal) -> set[str]:
+            from waystation_server.security import access
+
+            return {r.name for r in await catalog.all() if access.can_see(principal, r)}
+
+        async def figures() -> tuple[int, int]:
+            current = await storage.get()
+            return current.used_bytes, current.artifacts
+
         upstream = UpstreamClients(settings)
         return cls(
             settings=settings,
@@ -89,11 +105,13 @@ class Services:
             valkey=redis,
             emitter=emitter,
             blobs=blobs,
-            catalog=RepoCatalog(load),
+            catalog=catalog,
             formats=formats,
             metrics=metrics,
             sessions=SessionManager(db, redis, settings),
             upstream=upstream,
+            storage=storage,
+            hub=Hub(redis, visible, figures),
             proxy=ProxyEngine(
                 settings=settings,
                 db=db,
@@ -127,6 +145,7 @@ class Services:
         if not self._started:
             return
         self._started = False
+        await self.hub.stop()
         await self.emitter.aclose()
         await self.upstream.aclose()
         await self.valkey.aclose()

@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import httpx
+from starlette.responses import Response
 
+from waystation_common.db.collections import REPOSITORIES
 from waystation_common.settings import Settings
 from waystation_server.app import create_app
+from waystation_server.formats.base import FormatRequest
+from waystation_server.proxy.engine import AssetSpec
 from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import RepoConfig, RepoType
 from waystation_server.services import Services
@@ -50,6 +55,40 @@ def make_repo(name: str, fmt: str = 'raw', **fields: Any) -> RepoConfig:
     }
     doc.update(fields)
     return RepoConfig.model_validate(doc)
+
+
+class FilesPlugin:
+    """A minimal raw-like plugin on the proxy engine: the request path is the asset; ``make_spec`` shapes it."""
+
+    def __init__(self, services: Services) -> None:
+        descriptor = services.formats.descriptor('raw')
+        assert descriptor is not None
+        self.descriptor = descriptor
+        self.make_spec: Callable[[str], AssetSpec] = lambda path: AssetSpec(path=path)
+
+    async def handle(self, req: FormatRequest) -> Response:
+        return await req.proxy.serve(req, self.make_spec(req.path))
+
+
+async def add_repo(services: Services, url: str, *, name: str = 'files', repo_type: str = 'proxy', **proxy: Any) -> str:
+    """Insert a raw repository straight into MongoDB (tests) and refresh the catalog."""
+    repo_id = f'repo-{name}'
+    now = datetime.now(UTC)
+    await services.db[REPOSITORIES].insert_one(
+        {
+            '_id': repo_id,
+            'name': name,
+            'format': 'raw',
+            'type': repo_type,
+            'online': True,
+            'proxy': {'upstream_url': url, **proxy} if repo_type == 'proxy' else None,
+            'format_options': {},
+            'created_at': now,
+            'updated_at': now,
+        }
+    )
+    services.catalog.invalidate()
+    return repo_id
 
 
 def static_catalog(repos: list[RepoConfig]) -> RepoCatalog:

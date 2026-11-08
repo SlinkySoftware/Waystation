@@ -38,6 +38,14 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}', 'put'),
     ('/repositories/{name}', 'delete'),
     ('/repositories/{name}/setup', 'get'),
+    ('/repositories/{name}/stats/traffic', 'get'),
+    ('/stats/summary', 'get'),
+    ('/stats/traffic', 'get'),
+    ('/stats/storage', 'get'),
+    ('/stats/upstreams', 'get'),
+    ('/transfers', 'get'),
+    ('/activity', 'get'),
+    ('/events/stream', 'get'),
 }
 
 # Deliberate, reviewed differences: (path, method, where) -> reason. Keep this short.
@@ -76,7 +84,7 @@ class Doc:
                 unique = {repr(s): s for s in (self.shape(v, mode, depth + 1) for v in real)}
                 if len(unique) == 1:
                     return next(iter(unique.values()))
-                return ('union', tuple(sorted(unique)))
+                return ('union', tuple(sorted(unique.values(), key=_union_key)))
         if 'const' in schema:
             return ('const', schema['const'])
         if 'enum' in schema:
@@ -105,8 +113,26 @@ class Doc:
         return 'any'
 
 
+def _union_key(shape: Shape) -> str:
+    """Order union variants by their ``type`` constant (discriminated unions), else by their structure."""
+    if isinstance(shape, tuple) and shape[0] == 'object':
+        props = dict(shape[1])
+        kind = props.get('type')
+        if isinstance(kind, tuple) and kind[0] == 'const':
+            return f'0:{kind[1]}'
+        return f'1:{sorted(props)}'
+    return f'2:{shape!r}'
+
+
 def compare(contract: Shape, server: Shape, mode: str, where: str, out: list[str]) -> None:
     if contract == server:
+        return
+    if isinstance(contract, tuple) and isinstance(server, tuple) and contract[0] == server[0] == 'union':
+        if len(contract[1]) != len(server[1]):
+            out.append(f'{where}: union of {len(contract[1])} in the contract, {len(server[1])} on the server')
+            return
+        for i, (c, s) in enumerate(zip(contract[1], server[1], strict=True)):
+            compare(c, s, mode, f'{where}<{_union_key(c)[2:] or i}>', out)
         return
     if isinstance(contract, tuple) and isinstance(server, tuple) and contract[0] == server[0] == 'object':
         c_props, s_props = dict(contract[1]), dict(server[1])

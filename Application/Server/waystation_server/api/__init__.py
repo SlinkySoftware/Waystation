@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from waystation_server.api import auth, repositories
+from waystation_server.api import auth, live, repositories, stats
 
 API_PREFIX = '/api/v1'
 
@@ -14,4 +14,6 @@ def build_router() -> APIRouter:
     router.include_router(auth.config_router)
     router.include_router(auth.router)
     router.include_router(repositories.router)
+    router.include_router(stats.router)
+    router.include_router(live.router)
     return router
