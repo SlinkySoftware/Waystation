@@ -488,6 +488,34 @@ async def test_docker_login_with_ldap_password_uses_the_bind_cache(
     assert wrong.status_code == 401
 
 
+async def test_ldap_user_api_token_carries_mapped_roles(
+    services: Services, client: httpx.AsyncClient, admin: dict[str, str]
+) -> None:
+    """Format clients use API tokens (T-S04): an LDAP user's token narrows its effective roles, groups included."""
+    mapping = [{'external_group': 'developers', 'roles': ['viewer']}]
+    provider = await create(client, admin, openldap(group_mapping=mapping))
+    async with asgi_client(services) as alice:
+        login = await alice.post('/api/v1/auth/login', json={'username': 'alice', 'password': PASSWORDS['alice']})
+        csrf = {'X-CSRF-Token': login.json()['csrf_token']}
+        body = {'name': 'ci', 'scopes': ['stats-read']}
+        created = await alice.post('/api/v1/auth/me/tokens', json=body, headers=csrf)
+        assert created.status_code == 201, created.text
+        secret = created.json()['secret']
+    async with asgi_client(services) as script:
+        bearer = {'Authorization': f'Bearer {secret}'}
+        assert (await script.get('/api/v1/stats/summary', headers=bearer)).status_code == 200
+        # LDAP passwords are not accepted as basic credentials by format clients and the API
+        assert (
+            await script.get('/api/v1/stats/summary', headers=basic('alice', PASSWORDS['alice']))
+        ).status_code == 401
+    body = openldap(group_mapping=[])
+    del body['ldap']['connection']['bind_password']
+    assert (await client.put(f'/api/v1/auth-providers/{provider["id"]}', json=body, headers=admin)).status_code == 200
+    await services.tokens.announce('*')
+    async with asgi_client(services) as script:
+        assert (await script.get('/api/v1/stats/summary', headers=bearer)).status_code == 403
+
+
 # ---------------------------------------------------------------------------- admin API
 async def test_admin_api_crud_and_secrets(services: Services, client: httpx.AsyncClient, admin: dict[str, str]) -> None:
     created = await create(client, admin, openldap(group_mapping=[{'external_group': 'ops', 'roles': ['reader']}]))

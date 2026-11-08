@@ -163,6 +163,9 @@ class Settings(BaseSettings):
     )
     login_lockout_failures: int = Field(10, ge=1, description='Consecutive failed sign-ins that lock a local account.')
     login_lockout_minutes: int = Field(15, ge=1, description='How long a locked local account stays locked.')
+    token_failure_limit: int = Field(
+        60, ge=1, description='Rejected API tokens allowed per client address per 5 minutes (then 429).'
+    )
 
     # --- network and proxies
     trust_forwarded: bool = Field(default=False, description='Trust X-Forwarded-* from TRUSTED_PROXIES.')
