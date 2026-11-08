@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Waystation pre-commit hook (install with `make hooks`). Runs in the dev image via make.
+set -euo pipefail
+make --no-print-directory fmt-check lint

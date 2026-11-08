@@ -17,3 +17,4 @@ tests/fixtures
 .data
 .dev-data
 .claude
+.cache
