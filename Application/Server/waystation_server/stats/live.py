@@ -78,7 +78,7 @@ def transfer_view(t: Transfer, *, state: str = 'active') -> dict[str, Any]:
         'component': t.component,
         'client': {'ip': t.client_ip or 'unknown', 'user': t.principal, 'agent': t.client_agent},
         'cache': t.cache.value,
-        'followers': 0,
+        'followers': t.followers,
         'bytes_done': t.bytes_done,
         'bytes_total': t.bytes_total,
         'rate_bps': round(t.rate_bps, 1),
@@ -117,7 +117,7 @@ def live_event(message: LiveMessage) -> dict[str, Any] | None:
             'bytes_total': t.bytes_total,
             'rate_bps': round(t.rate_bps, 1),
             'cache': t.cache.value,
-            'followers': 0,
+            'followers': t.followers,
             'upstream_latency_ms': t.upstream_latency_ms,
         }
     if message.type is EventType.TRANSFER_FINISHED:

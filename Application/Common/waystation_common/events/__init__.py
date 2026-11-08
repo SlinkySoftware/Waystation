@@ -7,6 +7,7 @@ Producer API (server; one ``EventEmitter`` per process, started in the app lifes
     emitter.transfer_started(Transfer(id=new_id(), repo_id=..., repo='npm-proxy', format='npm', path=...,
                                       cache=CacheState.FETCHING, started_at=now, updated_at=now))
     emitter.transfer_progress(tid, bytes_done, bytes_total=n)   # call as often as you like
+    emitter.transfer_followers(tid, 3)                      # requests coalesced onto this fetch
     emitter.transfer_finished(tid, status=200)                  # or error='upstream reset'
     emitter.request(repo_id=..., format='npm', cache=CacheState.HIT, duration_ms=3.2, bytes_out=1234)
     emitter.activity(ActivityEvent(type=EventType.ASSET_DELETED, ts=now, ...))
