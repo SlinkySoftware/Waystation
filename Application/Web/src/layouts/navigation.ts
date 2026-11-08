@@ -42,7 +42,7 @@ export const navigation: NavGroup[] = [
       { label: 'nav.dashboard', icon: iconDashboard, to: '/', name: 'dashboard' },
       { label: 'nav.repositories', icon: iconRepositories, to: '/repositories', name: 'repositories' },
       { label: 'nav.browse', icon: iconBrowse, to: '/browse', name: 'browse' },
-      { label: 'nav.search', icon: iconSearch, to: '/search', name: 'search', planned: true },
+      { label: 'nav.search', icon: iconSearch, to: '/search', name: 'search' },
       { label: 'nav.activity', icon: iconActivity, to: '/activity', name: 'activity' },
       { label: 'nav.storage', icon: iconStorage, to: '/storage', name: 'storage' },
       { label: 'nav.cleanup', icon: iconCleanup, to: '/cleanup', name: 'cleanup' },

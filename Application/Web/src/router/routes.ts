@@ -36,7 +36,7 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'nav.repositories' },
       },
       { path: 'browse', name: 'browse', component: () => import('@/pages/BrowsePage.vue'), meta: { title: 'nav.browse' } },
-      { path: 'search', name: 'search', component: placeholder, meta: { title: 'nav.search', planned: 'T-U06' } },
+      { path: 'search', name: 'search', component: () => import('@/pages/SearchPage.vue'), meta: { title: 'nav.search' } },
       { path: 'activity', name: 'activity', component: () => import('@/pages/ActivityPage.vue'), meta: { title: 'nav.activity' } },
       { path: 'storage', name: 'storage', component: () => import('@/pages/StoragePage.vue'), meta: { title: 'nav.storage' } },
       { path: 'cleanup', name: 'cleanup', component: () => import('@/pages/CleanupPage.vue'), meta: { title: 'nav.cleanup' } },
