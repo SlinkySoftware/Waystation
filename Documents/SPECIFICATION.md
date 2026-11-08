@@ -419,6 +419,7 @@ Waystation/
 | Common core (T-F04) | Done 2026-11-08: `waystation_common.settings` (env `WAYSTATION_*`, `<NAME>_FILE` for secrets, generated `.env.example`), `logs` (JSON lines + contextvars request context, redaction), `ids` (ULID), `errors`, `paths.normalise`, `crypto` (AES-256-GCM keyring, rotation) |
 | Containers and compose (T-F05) | M0 slice 2026-11-08: server/worker/web images, `compose.yaml` + dev override, `make dev-up` brings web, server, worker, mongodb (rs0), valkey and init up healthy; server answers only `/healthz` and `/readyz`; web serves a placeholder page until the SPA is built. Standalone compose files and TLS pending |
 | MongoDB layer (T-F06) | M0 slice 2026-11-08: async client factory, collection registry and indexes for the M0 collections, declarative schema + forward-only migrations run by `init` (idempotent), `make test-integration` against real MongoDB/Valkey |
+| Blob store (T-F07) | M0 slice 2026-11-08: local-filesystem `BlobStore` (streaming sha256, size limits, verified atomic commit, X-Accel paths, orphan sweeper, free-space guard); NFS CI scenario pending |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

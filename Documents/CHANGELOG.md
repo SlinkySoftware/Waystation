@@ -3,6 +3,11 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-F07 (M0 slice): `waystation_common.storage.BlobStore` per ARCHITECTURE §5: streaming `BlobWriter` (incremental
+  sha256, writes and hashing in a worker thread in 1 MiB chunks, size limit, expected size/digest), `commit`
+  (fsync, atomic rename into `blobs/sha256/aa/bb/<hex>`, fsync dirs; 0640 files, 2750 dirs), `exists`, `stat`,
+  `path_for_xaccel`, `delete`, `sweep_uploads`, free-space guard. Tests cover kill -9 mid-write, concurrent
+  identical commits (placed once) and event-loop responsiveness during a 64 MiB write. NFS CI scenario pending.
 - T-F06 (M0 slice): MongoDB layer in `waystation_common.db`: `create_client` (PyMongo `AsyncMongoClient`,
   tz-aware), collection registry with named indexes for the M0 collections (new: `apt_pool_index` for apt pool
   validation, added to DATA_MODEL), `ensure_schema` (creates only what is missing, reports index conflicts),
