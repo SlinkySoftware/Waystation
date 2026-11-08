@@ -30,6 +30,7 @@ from waystation_server.proxy.http import UpstreamClients
 from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security.principal import Principal
+from waystation_server.security.registry_token import SignerHolder
 from waystation_server.security.sessions import SessionManager
 from waystation_server.sse.hub import Hub
 from waystation_server.stats.storage import StorageStats
@@ -54,6 +55,7 @@ class Services:
     proxy: ProxyEngine
     storage: StorageStats
     hub: Hub
+    registry_signer: SignerHolder
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
@@ -112,6 +114,7 @@ class Services:
             upstream=upstream,
             storage=storage,
             hub=Hub(redis, visible, figures),
+            registry_signer=SignerHolder(settings.data_dir, keyring),
             proxy=ProxyEngine(
                 settings=settings,
                 db=db,

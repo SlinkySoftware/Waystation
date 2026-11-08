@@ -3,6 +3,12 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S12 (M0 slice): Docker token service `GET /auth/token` (`security.registry_token`, `registry_auth`): 5-minute
+  EdDSA JWTs signed with an Ed25519 key kept encrypted in `keys/registry-token.key`; Docker scope grammar; grants are
+  what RBAC allows on the repository each name resolves to (prefix, alias, default repo); anonymous tokens and
+  `docker login` with a local password. `/v2/` now requires a registry token and otherwise answers the Bearer
+  challenge (`realm`, `service`, `scope`, `error="insufficient_scope"`); token principals are limited to token
+  grants ∩ current RBAC (`access.check`). Verified with a real `docker login` against the dev stack.
 - T-S11 (M0 slice): stats and live APIs per the M0 contract: `GET /api/v1/stats/summary`, `/stats/traffic`,
   `/stats/storage`, `/stats/upstreams`, `/repositories/{name}/stats/traffic`, `/transfers`, `/activity`, and the
   repository list's 24 h `stats` and `degraded` status. Series merge rolled-up minutes with the live Valkey counters

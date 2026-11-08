@@ -18,10 +18,13 @@ from starlette.responses import Response
 
 from waystation_common.errors import NotFound, PathRejected
 from waystation_common.paths import normalise
+from waystation_server import registry_auth
 from waystation_server.formats.base import FormatRequest, Root
 from waystation_server.problems import native_error, oci_error
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security import access
+from waystation_server.security.authn import authenticate
+from waystation_server.security.principal import AuthMethod
 from waystation_server.services import Services
 
 FORMAT_METHODS = ['GET', 'HEAD', 'PUT', 'POST', 'PATCH', 'DELETE']
@@ -97,7 +100,7 @@ async def repository(request: Request, repo_name: str, path: str = '') -> Respon
 
 
 async def v2_base(request: Request) -> Response:
-    """``GET /v2/``: API version check."""
+    """``GET /v2/``: API version check (only reached with a valid registry token)."""
     return Response('{}', media_type='application/json', headers=DOCKER_API_VERSION)
 
 
@@ -105,14 +108,24 @@ async def v2_base(request: Request) -> Response:
 @router.api_route('/v2/{name_path:path}', methods=FORMAT_METHODS)
 @access.handler_checked
 async def docker_v2(request: Request, name_path: str = '') -> Response:
+    """Docker registry API. Requires a registry token (``registry_auth``): without one, or with one that does not
+    cover the repository, the answer is the 401 challenge naming the scope to request."""
     services = services_of(request)
     try:
         clean = normalise(name_path, allow_empty=True)
     except PathRejected:
         return oci_error(400, 'invalid repository name', code='NAME_INVALID', headers=DOCKER_API_VERSION)
+    principal = await authenticate(request)
+    scope = registry_auth.request_scope(clean, request.method)
+    if principal.method is not AuthMethod.REGISTRY_TOKEN:
+        return registry_auth.challenge(services, scope=scope)
     if clean == '':
         return await v2_base(request)
+    if clean == '_catalog':
+        return oci_error(404, 'catalog is not available yet', code='UNSUPPORTED', headers=DOCKER_API_VERSION)
     route = await resolve_docker(services, clean)
     if route is None:
         return oci_error(404, 'repository name not known to registry', headers=DOCKER_API_VERSION)
+    if not registry_auth.token_allows(principal, route.repo.name, access.method_action(request.method)):
+        return registry_auth.challenge(services, scope=scope, error='insufficient_scope')
     return await _dispatch(request, route.repo, 'v2', route.path)

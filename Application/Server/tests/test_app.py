@@ -92,19 +92,23 @@ async def test_offline_repository(unit_client: httpx.AsyncClient) -> None:
     assert (await unit_client.get('/repository/files/x')).status_code == 503
 
 
-async def test_v2_base(unit_client: httpx.AsyncClient) -> None:
-    response = await unit_client.get('/v2/')
-    assert response.headers['docker-distribution-api-version'] == 'registry/2.0'
-
-
-async def test_v2_unknown_name_is_oci_error(unit_client: httpx.AsyncClient) -> None:
-    response = await unit_client.get('/v2/library/nginx/manifests/latest')
-    assert response.status_code == 404
-    assert response.json()['errors'][0]['code'] == 'NAME_UNKNOWN'
-
-
 async def test_api_unknown_path_is_problem_json(unit_client: httpx.AsyncClient) -> None:
     response = await unit_client.get('/api/v1/nope')
     assert response.status_code == 404
     assert response.headers['content-type'] == 'application/problem+json'
     assert response.json()['status'] == 404
+
+
+async def test_v2_without_token_is_challenged(unit_client: httpx.AsyncClient) -> None:
+    base = await unit_client.get('/v2/')
+    assert base.status_code == 401
+    assert base.headers['docker-distribution-api-version'] == 'registry/2.0'
+    assert base.headers['www-authenticate'] == (
+        'Bearer realm="https://registry.example.com/auth/token",service="registry.example.com"'
+    )
+    named = await unit_client.get('/v2/library/nginx/manifests/latest')
+    assert named.status_code == 401
+    assert named.json()['errors'][0]['code'] == 'UNAUTHORIZED'
+    assert 'scope="repository:library/nginx:pull"' in named.headers['www-authenticate']
+    push = await unit_client.put('/v2/org/app/manifests/1.0')
+    assert 'scope="repository:org/app:pull,push"' in push.headers['www-authenticate']
