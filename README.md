@@ -10,9 +10,11 @@ public package ecosystems and a private registry for the things you build, with 
 - **See it happen**: live transfers, cache hit ratios, bandwidth saved, upstream health and per-package stats.
 - **Sign in** with local accounts, LDAP or OIDC; role-based access control down to the repository.
 - **No caps**: no component or request limits, no mandatory telemetry.
-- **Nexus-compatible URLs** (`/repository/<name>/...`) so existing clients can switch without reconfiguration.
 
-Status: planning. See `Documents/SPECIFICATION.md` and `Documents/TASKS.md`.
+Status: early development, not yet ready for production. The first feedback build (milestone M0) is nearly
+complete: pull-through caching for Docker (Docker Hub and other OCI registries), npm, apt and raw files, with the live
+dashboard, repository management and browsing working end to end. See `Documents/SPECIFICATION.md` for what the app
+does today and `Documents/TASKS.md` for what comes next.
 
 ## Architecture at a glance
 

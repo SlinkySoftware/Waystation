@@ -67,4 +67,3 @@ colorjs.io
 # Code tokens the host-name pattern would otherwise match
 not-a-host nav.home
 not-a-host detail.upstream.private
-not-a-host coalescetail.local

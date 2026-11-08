@@ -18,9 +18,7 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   OpenAPI, the M0 contract, generated client and MSW mocks. UI: profile page with an "API tokens" card (create
   dialog with scopes, repositories and expiry; copy-once secret dialog; list with status and last used; revoke).
   Real-client harness steps for raw (curl basic and bearer, narrowed, revoked), npm (`.npmrc` `_authToken`), apt
-  (`auth.conf`) and docker (`docker login`); client docs' authentication sections updated. Also fixes on main's
-  T-S08 code for `make check`: forbidden-strings false positives (`not-a-host coalescetail.local`, a slice pragma)
-  and three ruff findings in the coalescing tests.
+  (`auth.conf`) and docker (`docker login`); client docs' authentication sections updated.
 - T-F08: job system on Valkey Streams (ARCHITECTURE §10). `waystation_common.jobs`: typed payloads (`JobPayload`
   with `kind`, `queue`, `max_attempts`, `dedupe_key()`, `routine`; `JOB_TYPES` registry), `JobEnvelope`, the queue
   state machine as atomic Lua scripts (`JobQueue`: enqueue with dirty-flag dedupe, start, finish/retry/dead, heartbeat,
