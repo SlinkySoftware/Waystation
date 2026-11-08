@@ -71,7 +71,10 @@ Windows containers support for the server.
   protocol allows to avoid consuming quota.
 - Content validation: verify digests/checksums the protocol provides (OCI digests, npm `integrity`, PyPI
   `#sha256=`, Maven `.sha1/.sha256`, apt `Packages` hashes, yum `primary.xml` checksums, Go sumdb) before an asset
-  is committed to the cache. Mismatch = not cached, client gets 502, event logged.
+  is committed to the cache. Mismatch = not cached, client gets 502, event logged. Content streamed to the client
+  during the fetch (tee) has its status already sent: the last chunk is held back until the bytes are verified and a
+  mismatch cuts the connection, so the client never receives a complete wrong file (an incomplete transfer instead
+  of a 502). A `HEAD` for content that is not cached is answered from an upstream `HEAD` without downloading.
 - Rewrite URLs inside metadata so clients fetch content through Waystation (npm `dist.tarball`, PyPI file links,
   Helm `index.yaml` URLs, Terraform download URLs).
 - SSRF guard: upstream URLs and redirects may not resolve to loopback/link-local/private ranges unless the repo
@@ -111,8 +114,15 @@ Windows containers support for the server.
   `/.well-known/` (Terraform service discovery), `/auth/` (OIDC callbacks, docker token service).
 - The UI lives under `/ui/` (SPA history routes `/ui/...`, hashed assets `/ui/assets/...`); `/` redirects to `/ui/`.
   API at `/api/v1/`.
-- `/metrics` is restricted: allowed source CIDRs (`WAYSTATION_METRICS_ALLOW_CIDRS`, default loopback + the compose
-  network) or a bearer token with the `metrics` scope. `/healthz` and `/readyz` reveal nothing beyond status.
+- `/metrics` is restricted: allowed source CIDRs (`WAYSTATION_METRICS_ALLOW_CIDRS`, default loopback only; add the
+  scraper's network) or a bearer token with the `metrics` scope (T-S04); everyone else gets 404. The client address
+  is the web tier's `X-Real-IP` when the request comes from a container network (loopback, RFC 1918, ULA), extended
+  through `X-Forwarded-For` only when `WAYSTATION_TRUST_FORWARDED` is on and the hop is a `TRUSTED_PROXIES` address.
+  `/healthz` (liveness) and `/readyz` (MongoDB and Valkey answer within 2 s, else 503) reveal nothing beyond status.
+- The server refuses to start against a database with an unknown newer or a pending migration (`check_schema`).
+- Errors: format endpoints answer natively (OCI error JSON under `/v2/` and `/auth/token`, plain text under
+  `/repository/`); everything else uses RFC 9457 problem+json (422 with `errors[]` for invalid fields).
+  `HEAD` is answered for every API `GET`. Each response carries `X-Request-Id` (the web tier's id when present).
 
 ### 4.5 Formats and delivery phases
 Phase 2 = parity with the owner's current Nexus (required for cutover). Detail per format in FORMATS.md.
@@ -186,23 +196,34 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - **API tokens**: per user and per service account; scopes (`read`, `write`, `delete`, `admin`) and optional
   repo restriction; expiry; last used; shown once at creation, stored hashed.
 - **Format client auth**: docker (Bearer token service at `/auth/token` per Docker token spec; `docker login` with
-  username + password or API token), npm (`npm login --auth-type=legacy` and `_authToken` = API token), PyPI/twine
+  username + password or API token; today: anonymous tokens and local passwords. `/v2/` accepts only these
+  5-minute EdDSA tokens and answers everything else with the `401` Bearer challenge naming the scope; a token's
+  grants are re-checked against RBAC on every request), npm (`npm login --auth-type=legacy` and `_authToken` = API token), PyPI/twine
   (basic: username + token), Maven (basic in `settings.xml`), Helm classic repos (basic: `helm repo add --username
   --password`), Terraform/OpenTofu (`credentials` block → `Authorization: Bearer`), Ansible Galaxy
   (`Authorization: Token <api-token>`), Swift (`swift package-registry login`: basic or token), NuGet
   (`X-NuGet-ApiKey` for push, basic for read), apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic).
   Each format's auth is part of its Definition of Done (FORMATS.md).
 - Anonymous access: a configurable `anonymous` principal with its own roles (default: read on proxy repos only).
-- Sessions: HttpOnly, Secure, SameSite=Lax cookies; CSRF on unsafe methods; idle and absolute timeouts; login
-  rate limiting; account lockout after N failures (local only).
+- Sessions: HttpOnly, Secure (https base URL), SameSite=Lax cookie `ws_session`; a new session on every sign-in;
+  stored as a sha256 of the token; CSRF on unsafe methods (double submit: readable cookie `ws_csrf`, header
+  `X-CSRF-Token`; bearer requests exempt); idle (`SESSION_IDLE_MINUTES`, default 8 h) and absolute
+  (`SESSION_MAX_HOURS`, default 7 days) timeouts; login rate limiting per client address (`LOGIN_RATE_LIMIT` per
+  5 min, then 429 + `Retry-After`); account lockout after `LOGIN_LOCKOUT_FAILURES` failures for
+  `LOGIN_LOCKOUT_MINUTES` (local only). Sign-in failures never say which part was wrong.
+- First administrator: `init` creates local user `admin` (role `admin`) when there are no users, with
+  `BOOTSTRAP_ADMIN_PASSWORD[_FILE]` or a one-time password printed once to the init container's stderr.
 
 ### 4.10 RBAC
 - **Permissions** are `(action, scope)`: actions `browse`, `read` (download/pull), `write` (upload/push),
   `delete`, `manage` (repo settings, cleanup, run tasks), plus global `admin`, `user-admin`, `audit-read`,
   `stats-read`, `settings-admin`.
-- **Scopes**: `*`, a repository name, a repository name glob (`docker-*`), a format (`format:npm`).
+- **Scopes**: `*`, a repository name, a repository name glob (`docker-*`), a format (`format:npm`), a repository
+  type (`type:proxy`). Global actions are granted only with scope `*`; `write`, `delete` and `manage` imply `browse`
+  and `read` on the same scope. A repository the principal can neither browse nor read is hidden (404 everywhere).
 - **Roles** bundle permissions; built-ins: `admin`, `reader` (browse+read all), `deployer` (read+write on scope),
-  `viewer` (browse + stats), `anonymous`. Custom roles via UI/API.
+  `viewer` (browse + stats), `anonymous` (browse + read on `type:proxy`). Custom roles via UI/API (not yet: M0 has
+  the built-in roles only, assigned on the user record).
 - **Groups** (local, or mapped from LDAP groups / OIDC claims) hold roles; users hold roles directly or via groups.
 - Effective permissions are computed per request from a cached, versioned grant table (ARCHITECTURE §7) and
   checked in one place. Content listings and search are filtered, never just hidden.
@@ -214,6 +235,13 @@ settings changes. Searchable in the UI, exported via API; retention configurable
 
 ### 4.12 Administration
 - Repository CRUD with format-aware forms and validation, test-upstream button, clone repo, enable/disable.
+  Names: §3 pattern; not a reserved top-level path (`api`, `ui`, `v2`, `auth`, `repository`, `healthz`, `readyz`,
+  `metrics`) and not a docker upstream alias (case-insensitive). Upstream URLs: http(s), no credentials in the URL,
+  literal private addresses only with `allow_private_upstream`. Upstream secrets are write-only (reads return
+  `secret_set`) and kept when an update omits them. Name, format and type cannot change. Setting a docker repository
+  as `default_repo` clears it on the others. "Test upstream" checks DNS, the SSRF guard, TLS, HTTP and
+  authentication of the format's probe path (docker `v2/`, npm `-/ping`, apt `dists/<distribution>/Release`, raw the
+  URL itself) and always answers 200 with the findings.
 - **Set me up** per repo per client: generated config snippets (docker daemon.json, `docker login`, `.npmrc`,
   `pip.conf`, `settings.xml`, `sources.list`/`.sources`, `.repo`, Go env, Helm repo add, Terraform CLI config,
   `ansible.cfg`, Swift registry commands) with the current user's token placeholder.
@@ -269,6 +297,11 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
   The UI uses only this API. Pagination by opaque cursor; filtering and sorting params documented.
 - **Event stream**: `GET /api/v1/events/stream` (Server-Sent Events) with topic filters (`transfers`, `stats`,
   `repo:<name>`, `tasks`, `workers`); RBAC-filtered per subscriber; heartbeat 15 s; resumable with `Last-Event-ID`.
+  Now: topics `transfers`, `stats`, `activity`, `repo:<name>` (comma-separated `topics`; needs `stats-read`); on
+  connect `retry: 3000` and a `transfers.snapshot`; `activity` events carry the stream id as `id:` and are replayed
+  after `Last-Event-ID` (header or `last_event_id` query parameter, up to 1000); `stats.tick` at 1 Hz (rates over the
+  last 10 s from the live counters). Stats endpoints (`/stats/*`, `/transfers`, `/activity`) need `stats-read` and
+  only cover repositories the principal can see; series buckets are 1 min (15m, 1h), 10 min (24h), 1 h (7d), 6 h (30d).
 - Auth: session cookie (UI) or `Authorization: Bearer <api-token>`. CSRF for cookie sessions is a double-submit
   token: `POST /auth/login` and `GET /auth/me` return `csrf_token` (also set in the readable `ws_csrf` cookie);
   unsafe methods must echo it in `X-CSRF-Token`. Bearer requests are exempt.
@@ -436,13 +469,21 @@ Waystation/
 | MongoDB layer (T-F06) | M0 slice 2026-11-08: async client factory, collection registry and indexes for the M0 collections, declarative schema + forward-only migrations run by `init` (idempotent), `make test-integration` against real MongoDB/Valkey |
 | Blob store (T-F07) | M0 slice 2026-11-08: local-filesystem `BlobStore` (streaming sha256, size limits, verified atomic commit, X-Accel paths, orphan sweeper, free-space guard); NFS CI scenario pending |
 | Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once. Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
+| Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
+| Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
+| RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Custom roles, groups and the grant cache pending |
+| Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Hosted/group, clone and audit pending |
 | Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Only the `echo` self-test format exists so far; nightly live smoke workflow stub |
-| M0 API contract + mocks (T-V01) | Done 2026-11-08: OpenAPI 3.1 contract (`Application/Web/openapi/waystation-m0.yaml`), generated TS types + `openapi-fetch` client, MSW handlers with seeded fixtures (11 proxy repos: Docker Hub, GHCR, Quay, registry.k8s.io, npmjs, Debian, Debian security, Ubuntu, Raspberry Pi OS, two raw) and a live-event generator (bursty docker pulls, npm installs, apt runs, raw downloads, coalescing, failures); `npm run dev:mock` / `make frontend-mock`. Server-side contract test pending (server lane) |
+| M0 API contract + mocks (T-V01) | Done 2026-11-08: OpenAPI 3.1 contract (`Application/Web/openapi/waystation-m0.yaml`), generated TS types + `openapi-fetch` client, MSW handlers with seeded fixtures (11 proxy repos: Docker Hub, GHCR, Quay, registry.k8s.io, npmjs, Debian, Debian security, Ubuntu, Raspberry Pi OS, two raw) and a live-event generator (bursty docker pulls, npm installs, apt runs, raw downloads, coalescing, failures); `npm run dev:mock` / `make frontend-mock`. Server-side contract test: `Application/Server/tests/test_contract.py` compares the server's generated OpenAPI with it for every implemented operation (T-S05, T-S11) |
 | Web shell (T-F10) | Done 2026-11-08: Quasar 2 / Vue 3 / TS strict SPA under `/ui/` (build output `Application/Web/dist/spa`), light/dark/system themes, self-hosted Inter + JetBrains Mono, SVG Material Symbols (no icon font), collapsible rail, top bar with live indicator, router + auth guard, local sign-in, shared live store (one stream, topic ref-counting, reconnect + Last-Event-ID, 4 Hz flush), `make frontend-build` with bundle budget (initial route 158 kB gzip of 250) |
 | Design system (T-U01 min) | M0 slice 2026-11-08: tokens, themes, format icon sprite, base components, SVG charts. Density toggle and showcase route still to do |
 | Dashboard (T-U03 min) | M0 slice 2026-11-08 on mocks: KPIs, live transfers, traffic chart, storage donut, upstream health, activity feed, all live from the event stream. Top artifacts / recently added still to do |
 | Repositories UI (T-U04 min) | M0 slice 2026-11-08 on mocks: list + filters, create/edit/delete docker/npm/apt/raw proxies with test upstream and field errors, detail page (Overview, Browse, Settings), Set me up panel. Snippets shown with a `<your-api-token>` placeholder (tokens are shown once at creation, T-S04) |
 | Browse UI (T-U05 min) | M0 slice 2026-11-08 on mocks: docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour (both themes, desktop + mobile) in `Documents/Notes/screenshots/m0/` |
+| Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
+| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block, per-repo CA/proxy and coalescing (T-S08) pending; no format plugin uses it yet (Formats lane) |
+| Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
+| Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified. API-token login pending (T-S04) |
 | Everything else | Not started |
 
 ## 15. Open decisions (owner)

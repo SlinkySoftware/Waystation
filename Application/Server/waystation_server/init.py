@@ -6,6 +6,7 @@ Steps, each idempotent (a re-run changes nothing):
    CHOWN, FOWNER, DAC_OVERRIDE, SETUID and SETGID; after this step it drops to ``WAYSTATION_UID:GID``.
 2. Replica set initiation when ``WAYSTATION_MONGO_REPLSET_INIT=true`` (bundled MongoDB).
 3. Collections and indexes (``waystation_common.db.schema``), then pending migrations (``db.migrations``).
+4. The first administrator when there are no users (``waystation_server.bootstrap``).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from waystation_common.db.replset import ensure_replica_set
 from waystation_common.db.schema import ensure_schema
 from waystation_common.logs import configure_logging
 from waystation_common.settings import Settings, get_settings
+from waystation_server.bootstrap import banner, ensure_bootstrap_admin
 
 log = logging.getLogger('waystation.init')
 
@@ -52,6 +54,11 @@ async def run(settings: Settings, *, recursive_perms: bool = False) -> None:
         )
         applied = await apply_migrations(db)
         log.info('migrations applied', extra={'migrations': applied})
+        result = await ensure_bootstrap_admin(db, settings)
+        if result.generated_password is not None:
+            # Printed once, straight to stderr: never through the (JSON, shipped) logger.
+            sys.stderr.write(banner(result.generated_password))
+            sys.stderr.flush()
     finally:
         await client.close()
 

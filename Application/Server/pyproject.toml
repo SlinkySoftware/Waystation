@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Waystation server: format protocols, REST API, SSE, data plane."
 requires-python = ">=3.14"
 license = "GPL-3.0-or-later"
-dependencies = ["waystation-common", "fastapi>=0.120", "uvicorn[standard]>=0.38", "httpx[http2]>=0.28", "argon2-cffi>=25.1"]
+dependencies = ["waystation-common", "fastapi>=0.120", "uvicorn[standard]>=0.38", "httpx[http2]>=0.28", "argon2-cffi>=25.1", "prometheus-client>=0.23"]
 
 [build-system]
 requires = ["uv_build>=0.13,<0.14"]

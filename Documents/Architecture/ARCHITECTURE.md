@@ -73,6 +73,8 @@
      `add_header Docker-Content-Digest $upstream_http_docker_content_digest always` (etc.), `internal`, `sendfile on`.
      The server also sets its normal `Content-Type` on the X-Accel response: nginx keeps it across the internal
      redirect (verified in T-F05; `default_type` cannot take a variable, so `X-Ws-Content-Type` is informational).
+     Implemented by `waystation_server.dataplane.xaccel.serve_blob` (ETag `"sha256:<hex>"`; `HEAD` is answered by
+     the server with `Content-Length`; `Content-Disposition` passes through nginx unchanged).
    - File access: server/worker and web share a GID (`waystation`, default 10001); blob dirs are setgid (2750),
      files 0640, processes run with umask 0027; the unprivileged nginx user is a member of that group. The `init`
      container fixes ownership/modes on the data dir at start (idempotent, only when wrong).
@@ -194,6 +196,12 @@ and any format-specific roots such as `/v2/`), `resolve(request, repo) -> Resolu
 `setup_snippets(repo, user) -> list[Snippet]`, `config_schema` (pydantic model for format-specific repo options),
 `ui_descriptor` (icon, labels, browse renderer hints). Shared helpers for metadata rewriting, checksum
 validation and URL building live in `formats/common/`.
+
+As implemented (M0): a format is a `FormatDescriptor` (name, supported types, `options_model` = `config_schema`,
+probe path, "Set me up" snippets, UI hints) plus a plugin with `handle(req: FormatRequest) -> Response`, registered in
+`waystation_server.plugins`. The router has already resolved the repository, normalised the path and authorised the
+request. Proxy formats describe each file as a `proxy.engine.AssetSpec` and return `await req.proxy.serve(req, spec)`
+(`ensure`/`read` give them cached metadata to parse); the engine implements §5, §6.1, §6.2 and §6.4 for them.
 
 ## 12. Errors and logging
 Format endpoints return the format's native error shape (OCI JSON errors, npm JSON errors, plain 404 for file

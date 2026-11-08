@@ -63,6 +63,10 @@ class Transfer(_Model):
     cache: CacheState
     principal: str | None = None
     client_ip: str | None = None
+    client_agent: str | None = None  # client product, e.g. 'docker/27.3'
+    artifact: str | None = None  # display name (default: the last path segment)
+    component: str | None = None  # component coordinates when known, e.g. 'nginx:1.27'
+    error: str | None = None  # set on transfer.failed
     bytes_done: int = 0
     bytes_total: int | None = None
     rate_bps: float = 0.0
