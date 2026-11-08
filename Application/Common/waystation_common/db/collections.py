@@ -29,6 +29,8 @@ BLOBS = 'blobs'
 DOCKER_TAGS = 'docker_tags'
 DOCKER_MANIFESTS = 'docker_manifests'
 APT_POOL_INDEX = 'apt_pool_index'
+APT_PACKAGES = 'apt_packages'
+NPM_PACKAGES = 'npm_packages'
 # --- operations, stats, audit
 AUDIT = 'audit'
 STATS_MINUTE = 'stats_minute'
@@ -125,6 +127,11 @@ SPECS: tuple[CollectionSpec, ...] = (
                 'repo_image_tag_unique', [('repo_id', ASCENDING), ('image', ASCENDING), ('tag', ASCENDING)], unique=True
             ),
             _ix('repo_manifest_digest', [('repo_id', ASCENDING), ('manifest_digest', ASCENDING)]),
+            # Browse: an image's tags, most recently updated first.
+            _ix(
+                'repo_image_updated',
+                [('repo_id', ASCENDING), ('image', ASCENDING), ('updated_at', DESCENDING), ('tag', ASCENDING)],
+            ),
         ),
     ),
     CollectionSpec(
@@ -145,6 +152,40 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('repo_suite', [('repo_id', ASCENDING), ('suite', ASCENDING), ('component', ASCENDING)]),
             _ix('repo_verified', [('repo_id', ASCENDING), ('verified', ASCENDING)]),
         ),
+    ),
+    CollectionSpec(
+        APT_PACKAGES,
+        (
+            # One document per stanza of a cached Packages index (suite, component, arch); replaced per index.
+            _ix(
+                'repo_listing_filename_unique',
+                [
+                    ('repo_id', ASCENDING),
+                    ('suite', ASCENDING),
+                    ('component', ASCENDING),
+                    ('arch', ASCENDING),
+                    ('filename', ASCENDING),
+                ],
+                unique=True,
+            ),
+            # Browse: a suite's packages by name (arch, component and name filters evaluated on index keys).
+            _ix(
+                'repo_suite_name',
+                [
+                    ('repo_id', ASCENDING),
+                    ('suite', ASCENDING),
+                    ('name', ASCENDING),
+                    ('filename', ASCENDING),
+                    ('arch', ASCENDING),
+                    ('component', ASCENDING),
+                ],
+            ),
+            # Cached pool files -> the listings that name them ($lookup from assets).
+            _ix('filename_repo', [('filename', ASCENDING), ('repo_id', ASCENDING)]),
+        ),
+    ),
+    CollectionSpec(
+        NPM_PACKAGES, (_ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),)
     ),
     CollectionSpec(
         AUDIT,

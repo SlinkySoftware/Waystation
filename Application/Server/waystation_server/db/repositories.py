@@ -5,9 +5,21 @@ from __future__ import annotations
 from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db.client import Database
-from waystation_common.db.collections import ASSETS, CASE_INSENSITIVE, REPOSITORIES
+from waystation_common.db.collections import (
+    APT_PACKAGES,
+    APT_POOL_INDEX,
+    ASSETS,
+    CASE_INSENSITIVE,
+    DOCKER_MANIFESTS,
+    DOCKER_TAGS,
+    NPM_PACKAGES,
+    REPOSITORIES,
+)
 from waystation_common.errors import Conflict
 from waystation_server.repos.model import RepoConfig
+
+# Per-repository content records dropped with the repository (blobs are reclaimed later by GC).
+CONTENT_COLLECTIONS = (ASSETS, APT_POOL_INDEX, APT_PACKAGES, NPM_PACKAGES, DOCKER_TAGS, DOCKER_MANIFESTS)
 
 
 async def list_all(db: Database) -> list[RepoConfig]:
@@ -42,6 +54,7 @@ async def unset_default_docker(db: Database, *, except_id: str) -> None:
 async def delete(db: Database, repo_id: str) -> bool:
     result = await db[REPOSITORIES].delete_one({'_id': repo_id})
     if result.deleted_count:
-        # Blobs are reclaimed later by GC (mark-and-sweep); the asset records go now.
-        await db[ASSETS].delete_many({'repo_id': repo_id})
+        # Blobs are reclaimed later by GC (mark-and-sweep); the content records go now.
+        for name in CONTENT_COLLECTIONS:
+            await db[name].delete_many({'repo_id': repo_id})
     return bool(result.deleted_count)

@@ -17,7 +17,7 @@ import lzma
 import re
 import zlib
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from waystation_common.errors import PathRejected, ValidationFailed
@@ -34,6 +34,12 @@ _HASH_FIELDS = {b'sha256': 'sha256', b'sha512': 'sha512'}
 _SIGNED = b'-----BEGIN PGP SIGNED MESSAGE-----'
 _SIGNATURE = b'-----BEGIN PGP SIGNATURE-----'
 COMPRESSIONS = ('', '.xz', '.gz', '.bz2', '.lzma', '.zst')
+# Descriptive Release fields kept for browsing (lower-case name -> bounded value).
+RELEASE_INFO_FIELDS = frozenset({b'origin', b'label', b'suite', b'codename', b'date', b'components', b'architectures'})
+INFO_MAX = 4096
+# Packages stanza fields read: the pool index ones and the descriptive ones (browse), each bounded.
+_STANZA_FIELDS = frozenset({b'filename', b'sha256', b'size', b'package', b'version', b'architecture', b'section'})
+_STANZA_MAX = 1024
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,7 @@ class Release:
     files: dict[str, IndexEntry]  # relative path -> SHA256 entry
     sha512: dict[str, str]  # relative path -> SHA512 hex (when listed)
     by_hash: bool  # Acquire-By-Hash: yes
+    info: dict[str, str] = field(default_factory=dict)  # Origin, Suite, Codename, Date, Components... (lower-case)
 
     def path_for(self, algorithm: str, digest: str) -> str | None:
         """The listed path whose ``algorithm`` digest is ``digest`` (first match), for ``by-hash`` requests."""
@@ -68,6 +75,10 @@ class PoolEntry:
     filename: str
     sha256: str
     size: int
+    package: str = ''
+    version: str = ''
+    architecture: str = ''
+    section: str = ''
 
 
 def strip_clearsign(data: bytes) -> bytes:
@@ -94,6 +105,7 @@ def parse_release(data: bytes) -> Release:
     files: dict[str, IndexEntry] = {}
     sha512: dict[str, str] = {}
     by_hash = False
+    info: dict[str, str] = {}
     current: str | None = None  # the multi-line hash field being read
     count = 0
     for raw in text.split(b'\n'):
@@ -131,7 +143,9 @@ def parse_release(data: bytes) -> Release:
         current = _HASH_FIELDS.get(key)
         if key == b'acquire-by-hash':
             by_hash = value.strip().lower() == b'yes'
-    return Release(files=files, sha512=sha512, by_hash=by_hash)
+        elif key in RELEASE_INFO_FIELDS:
+            info[key.decode('ascii')] = value.strip()[:INFO_MAX].decode('utf-8', errors='replace')
+    return Release(files=files, sha512=sha512, by_hash=by_hash, info=info)
 
 
 def compression_of(path: str) -> str | None:
@@ -204,10 +218,14 @@ def _paragraph_fields(data: bytes) -> Iterator[dict[bytes, bytes]]:
         if not sep:
             continue
         key = name.lower()
-        if key in (b'filename', b'sha256', b'size'):
-            fields[key] = value.strip()
+        if key in _STANZA_FIELDS:
+            fields[key] = value.strip()[:_STANZA_MAX]
     if fields:
         yield fields
+
+
+def _text(value: bytes | None) -> str:
+    return value.decode('utf-8', errors='replace') if value else ''
 
 
 def parse_packages(data: bytes) -> list[PoolEntry]:
@@ -228,7 +246,17 @@ def parse_packages(data: bytes) -> list[PoolEntry]:
             path = normalise(filename.decode('utf-8'))
         except PathRejected, UnicodeDecodeError:
             continue
-        entries.append(PoolEntry(filename=path, sha256=digest.decode('ascii'), size=int(size)))
+        entries.append(
+            PoolEntry(
+                filename=path,
+                sha256=digest.decode('ascii'),
+                size=int(size),
+                package=_text(fields.get(b'package')),
+                version=_text(fields.get(b'version')),
+                architecture=_text(fields.get(b'architecture')),
+                section=_text(fields.get(b'section')),
+            )
+        )
         if len(entries) > PACKAGES_MAX_ENTRIES:
             raise ValidationFailed('Packages lists too many files')
     return entries
