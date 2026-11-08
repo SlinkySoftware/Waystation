@@ -37,8 +37,8 @@ import { useAsync } from '@/composables/useAsync'
 import { t } from '@/i18n'
 import { useLiveStore } from '@/stores/live'
 import { useRepositoriesStore } from '@/stores/repositories'
+import { activityTone, kindMeta } from '@/utils/activity'
 import { formatBytes } from '@/utils/format'
-import { iconCleanup, iconError, iconFetching, iconHit, iconInfo, iconLock, iconRepositories, iconWarning } from '@/utils/icons'
 
 const props = withDefaults(defineProps<{ limit?: number; repository?: string | null }>(), { limit: 8, repository: null })
 
@@ -57,33 +57,8 @@ const items = computed(() => {
   return merged.sort((a, b) => (a.ts < b.ts ? 1 : -1)).slice(0, props.limit)
 })
 
-function icon(e: ActivityEvent): string {
-  switch (e.kind) {
-    case 'cache_miss':
-      return iconFetching
-    case 'download':
-      return iconHit
-    case 'error':
-      return iconError
-    case 'upstream_state':
-      return iconWarning
-    case 'cleanup':
-      return iconCleanup
-    case 'auth':
-      return iconLock
-    case 'repository':
-      return iconRepositories
-    default:
-      return iconInfo
-  }
-}
-
-function tone(e: ActivityEvent): string {
-  if (e.outcome === 'failure') return 'tone-error'
-  if (e.kind === 'cache_miss') return 'tone-miss'
-  if (e.kind === 'download') return 'tone-hit'
-  return 'tone-offline'
-}
+const icon = (e: ActivityEvent) => kindMeta(e.kind).icon
+const tone = (e: ActivityEvent) => activityTone(e)
 </script>
 
 <style scoped>

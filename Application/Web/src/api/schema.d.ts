@@ -713,8 +713,35 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Recent activity, newest first */
+        /**
+         * Recent activity, newest first
+         * @description Filters combine (AND). A page holds at most `limit` events; with a sparse filter it may hold fewer while
+         *     `next_cursor` is still set (the server bounds how much history one call reads), so keep paging until
+         *     `next_cursor` is null. Only repositories the caller may see are included.
+         */
         get: operations["listActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/activity/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The filtered activity as CSV (download)
+         * @description Same filters as `GET /activity`, streamed newest first as `text/csv` (UTF-8, CRLF, header row:
+         *     `time,kind,outcome,repository,format,artifact,path,principal,cache,bytes,duration_ms,summary,id`), at most
+         *     100,000 rows. Text cells that a spreadsheet would read as a formula are prefixed with `'`.
+         */
+        get: operations["exportActivity"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1697,6 +1724,8 @@ export interface components {
             repository?: string | null;
             format?: components["schemas"]["Format"] | null;
             artifact?: string | null;
+            /** @description Full path of the asset in the repository */
+            path?: string | null;
             /** @description Username, `anonymous`, or a client IP */
             principal?: string | null;
             cache?: components["schemas"]["CacheState"] | null;
@@ -1860,6 +1889,18 @@ export interface components {
         Cursor: string;
         Limit: number;
         Range: components["schemas"]["StatsRange"];
+        /** @description Repository name (exact) */
+        ActivityRepo: string;
+        ActivityKindParam: components["schemas"]["ActivityKind"];
+        ActivityFormat: components["schemas"]["Format"];
+        /** @description User name or client address (case-insensitive substring) */
+        ActivityPrincipal: string;
+        ActivityCache: components["schemas"]["CacheState"];
+        ActivityOutcome: "success" | "failure" | "info";
+        /** @description Only events at or after this time (RFC 3339) */
+        Since: string;
+        /** @description Only events at or before this time (RFC 3339) */
+        Until: string;
         TrafficMetric: "bytes" | "requests";
         TokenId: string;
         AccountId: string;
@@ -3047,8 +3088,18 @@ export interface operations {
     listActivity: {
         parameters: {
             query?: {
-                repo?: string;
-                kind?: components["schemas"]["ActivityKind"];
+                /** @description Repository name (exact) */
+                repo?: components["parameters"]["ActivityRepo"];
+                kind?: components["parameters"]["ActivityKindParam"];
+                format?: components["parameters"]["ActivityFormat"];
+                /** @description User name or client address (case-insensitive substring) */
+                principal?: components["parameters"]["ActivityPrincipal"];
+                cache?: components["parameters"]["ActivityCache"];
+                outcome?: components["parameters"]["ActivityOutcome"];
+                /** @description Only events at or after this time (RFC 3339) */
+                since?: components["parameters"]["Since"];
+                /** @description Only events at or before this time (RFC 3339) */
+                until?: components["parameters"]["Until"];
                 /** @description Opaque cursor from a previous page's `next_cursor` */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
@@ -3068,6 +3119,41 @@ export interface operations {
                     "application/json": components["schemas"]["ActivityPage"];
                 };
             };
+            400: components["responses"]["ValidationFailed"];
+        };
+    };
+    exportActivity: {
+        parameters: {
+            query?: {
+                /** @description Repository name (exact) */
+                repo?: components["parameters"]["ActivityRepo"];
+                kind?: components["parameters"]["ActivityKindParam"];
+                format?: components["parameters"]["ActivityFormat"];
+                /** @description User name or client address (case-insensitive substring) */
+                principal?: components["parameters"]["ActivityPrincipal"];
+                cache?: components["parameters"]["ActivityCache"];
+                outcome?: components["parameters"]["ActivityOutcome"];
+                /** @description Only events at or after this time (RFC 3339) */
+                since?: components["parameters"]["Since"];
+                /** @description Only events at or before this time (RFC 3339) */
+                until?: components["parameters"]["Until"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV file, sent as an attachment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
         };
     };
     streamEvents: {

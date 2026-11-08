@@ -22,6 +22,46 @@ All notable changes, newest first. Each entry: date, task ID, summary.
 - T-A03 (OIDC half): OIDC sign-ins go through `security.external.link_identity` (`oidc:<provider>`, auto-provision
   toggle, never linked to an account with a local password) and sync the group claim into `external_groups`, so
   provider group mappings apply; OIDC provider admin form. Left: Users/Groups admin pages (T-U08).
+- T-O06: monitoring. Grafana dashboard `Build/monitoring/grafana/waystation-dashboard.json` (Prometheus data
+  source as a variable; job, instance and repository filters; stat tiles for request rate, cache hit ratio, bytes
+  served from cache and fetched from upstream, upstream error ratio and transfers in flight; requests by cache state,
+  throughput by direction, hit ratio and upstream errors per repository, upstream latency p95, coalescing, and a
+  per-repository table). Zabbix 7.0 template `Build/monitoring/zabbix/waystation_by_http.yaml` ("Waystation by
+  HTTP": HTTP agent items on `/healthz`, `/readyz` and `/metrics`, dependent Prometheus-pattern items, repository
+  discovery with per-repository rates, ratios and average upstream latency; triggers for server down, unreachable,
+  MongoDB/Valkey unavailable, no metrics, overall upstream error ratio and per-repository upstream down/degraded).
+  Both use only metrics the server exports today; the dashboard was loaded into Grafana 12.2 against Prometheus 3.7
+  scraping real `Metrics` output, and the template imported into Zabbix 7.0 with its items and triggers exercised.
+  `Documents/Operations/MONITORING.md` lists every exported metric and the useful ones still missing (upstream
+  state, Docker Hub rate limit, job queues, worker health, disk space). SPECIFICATION §10 now lists the metrics as
+  exported.
+- T-M03: deployment and reverse-proxy guides. `Documents/Operations/DEPLOYMENT.md` describes the single-host
+  `compose.yaml` as it works today: containers and networks, requirements (Waystation owns the root of its host
+  name), sizing, images, host layout and storage, the env file (with a compose override for `*_FILE` secrets), the
+  environment reference (application settings from `.env.example` plus compose-only variables), start-up and first
+  sign-in, health checks, TLS options, scaling and split-deployment status, manual backup/restore commands, upgrades
+  and troubleshooting; planned pieces are marked with their task IDs. `Documents/Operations/REVERSE_PROXIES.md`:
+  requirements for any proxy (no body limit, no request/response buffering, unbuffered event stream, long idle
+  timeouts, keep-alive), `X-Forwarded-For` trust, and example configurations for nginx, Traefik v3 (static config,
+  file provider, Docker labels in the new `Build/Containers/examples/traefik.override.example.yaml`), Caddy and
+  HAProxy under `Build/Containers/examples/reverse-proxies/`, plus Synology DSM notes. `make proxies-check` runs each
+  example in containers (`nginx -t`, `caddy validate`, `haproxy -c`, Traefik start-up, `docker compose config`), then
+  against a stand-in web tier over TLS (redirect, unbuffered SSE, 1 GiB download and upload, forwarded headers;
+  `SLOW=1` adds a 75 s idle response and an 80 s upload) and checks the doc blocks equal the files. `compose.yaml`
+  now passes `WAYSTATION_INSTANCE_NAME`, `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD[_FILE]`, the session lifetimes and the
+  sign-in limits through to the containers (they were silently ignored before).
+- T-U07: Activity and Storage pages. Activity (`/activity`): the live event log, following the `activity` SSE topic
+  (applied in 4 Hz batches; holds new events while paused or scrolled down, with an "N new events" pill), filters for
+  event kind, repository, format, user or address, cache state, outcome and time (presets or a custom window), all in
+  the URL; a virtualised list that pages back through history; a detail drawer (every field, copy path/id, narrow the
+  log to this repository/user/kind or to the 10 minutes around the event); CSV export of the current filter. Server:
+  `GET /activity` gains `format`, `principal`, `cache`, `outcome`, `since`, `until` (time windows are stream-id
+  ranges) and `ActivityEvent.path`; new `GET /activity/export` streams CSV (≤ 100,000 rows, formula-looking cells
+  prefixed `'`, `stats-read`, visible repositories only). Storage (`/storage`): stored/free/de-duplication/blob KPIs
+  (stored bytes live from stats ticks), data volume bar, storage by format, largest repositories (new `BarList`
+  chart), a sortable, filterable repository table (sort and filter in the URL), and a placeholder for growth until
+  storage snapshots exist. Contract, generated client and MSW mocks updated (mock activity: stream-id cursors, the
+  same filters, a day of seeded history, CSV export).
 - T-A01: LDAP sign-in provider. `security.ldap` (ldap3 in a dedicated thread pool, connect/response timeouts and an
   overall ceiling): ordered server list with failover (unreachable or TLS-failing servers skipped for 30 s), LDAPS,
   StartTLS or clear text, custom CA with host-name verification by Python `ssl`, service bind with a write-only
