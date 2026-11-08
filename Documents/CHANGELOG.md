@@ -3,6 +3,15 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-S01: server app factory. `Services` (MongoDB, Valkey, event emitter, blob store, keyring, repository catalog,
+  format registry, metrics) created and started in the lifespan; start-up refuses an unknown or unmigrated schema.
+  Routing for `/repository/<repo>/<path>` and `/v2/<name>/...` (SPEC §4.4 name resolution) hands requests to format
+  plugins (`formats.base.FormatPlugin`, `formats.registry`); unknown repositories get the native 404. Pure ASGI
+  middleware for request id, client address (`X-Real-IP` from the web tier, `X-Forwarded-For` only through trusted
+  proxies) and the access log; `HEAD` for API routes. Errors: problem+json for the API, OCI JSON under `/v2/`, plain
+  text under `/repository/`. `/readyz` checks MongoDB and Valkey; `/metrics` serves Prometheus metrics to
+  `WAYSTATION_METRICS_ALLOW_CIDRS` only (SPEC §4.4 default corrected to loopback). New `repositories.name_ci_unique`
+  index (case-insensitive uniqueness, SPEC §3). Dependencies: `prometheus-client`; dev: `pyyaml`.
 - T-F09 (M0 slice): `waystation_common.events`: SPEC §4.7 cache states, `Transfer`/`ActivityEvent`/`LiveMessage`
   models, Valkey key helpers and fixed log-scale latency buckets with query-time percentiles, and a non-blocking
   `EventEmitter` (synchronous O(1) producer calls, bounded queue, one pipeline per 250 ms flush, progress coalesced to
