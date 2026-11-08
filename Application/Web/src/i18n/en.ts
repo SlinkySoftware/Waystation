@@ -791,6 +791,7 @@ export const en = {
       system: 'System',
     },
     provider: { local: 'Local', ldap: 'LDAP', oidc: 'OIDC' },
+  },
   search: {
     caption: 'Packages, images and files across every repository you can browse',
     placeholder: 'Search by name, "name version" or sha256 digest',
