@@ -14,6 +14,7 @@ from pymongo import ASCENDING, DESCENDING, TEXT, IndexModel
 
 # --- configuration
 REPOSITORIES = 'repositories'
+CLEANUP_POLICIES = 'cleanup_policies'
 SETTINGS = 'settings'
 # --- identity and access
 USERS = 'users'
@@ -72,6 +73,10 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('name_ci_unique', [('name', ASCENDING)], unique=True, collation=CASE_INSENSITIVE),
             _ix('format_type', [('format', ASCENDING), ('type', ASCENDING)]),
         ),
+    ),
+    CollectionSpec(
+        CLEANUP_POLICIES,
+        (_ix('name_unique', [('name', ASCENDING)], unique=True, collation=CASE_INSENSITIVE),),
     ),
     CollectionSpec(SETTINGS),
     CollectionSpec(
@@ -230,6 +235,9 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
             _ix('job_id', [('job_id', ASCENDING), ('started_at', DESCENDING)]),
             _ix('definition_started', [('definition_id', ASCENDING), ('started_at', DESCENDING)]),
+            # A cleanup policy's runs (manual and scheduled share the dedupe key ``cleanup:<policy id>``).
+            _ix('dedupe_started', [('dedupe_key', ASCENDING), ('started_at', DESCENDING)]),
+            _ix('kind_started', [('kind', ASCENDING), ('started_at', DESCENDING)]),
         ),
     ),
     CollectionSpec(

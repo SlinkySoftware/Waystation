@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from waystation_common.db.jobs import Definition
-from waystation_common.jobs.model import StatsRollup
-from waystation_worker import rollup
+from waystation_common.jobs.model import CleanupRun, StatsRollup
+from waystation_worker import cleanup, rollup
 from waystation_worker.jobs.context import JobContext
 from waystation_worker.jobs.registry import handles
 
@@ -22,3 +22,14 @@ async def stats_rollup(job: StatsRollup, ctx: JobContext) -> dict[str, Any]:
     if inserted is None:
         return {'skipped': 'another rollup holds lease:rollup'}
     return {'minutes': inserted}
+
+
+@handles(CleanupRun)
+async def cleanup_run(job: CleanupRun, ctx: JobContext) -> dict[str, Any]:
+    """Apply a cleanup policy to its attached repositories (``waystation_worker.cleanup``)."""
+    now = ctx.now()
+    policy, outcomes = await cleanup.run_policy(ctx.db, job.policy_id, now=now, progress=ctx.progress, log_line=ctx.log)
+    if policy is None:
+        return {'policy_id': job.policy_id, 'skipped': 'the policy was deleted', 'removed': 0, 'bytes': 0}
+    await cleanup.record(ctx.valkey, ctx.emitter, policy, outcomes, now)
+    return cleanup.summarise(policy, outcomes)

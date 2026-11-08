@@ -3,6 +3,25 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-O01: cleanup policies. `waystation_common.cleanup` holds the criteria (`last_downloaded_older_than_days`,
+  `published_older_than_days`, `keep_latest_n_versions`, name/version include/exclude regexes, `prerelease_only`,
+  docker `untagged_older_than_days`; ANDed), version order per format (semver precedence, dpkg, rpm `rpmvercmp`,
+  natural order otherwise), coordinates from asset paths (npm tarballs, apt pool `.deb`, yum `.rpm`, others by path
+  per folder) and `plan_repository`, which the server's dry run and the worker's run both call. Docker policies
+  select tags and cascade to the manifests only those tags reached and the layers no remaining manifest uses;
+  untagged manifests go by age. Only records are removed (assets, docker tags/manifests), never metadata or blobs.
+  `waystation_common.db.cleanup` (policies, `job_definitions` sync for schedules, attachment, loading, idempotent
+  removal that skips assets changed since planning). Worker job `cleanup.run` (progress and log in `job_runs`,
+  one activity event per repository, totals for `/metrics`). REST (contract + MSW + generated client):
+  `/cleanup-policies` CRUD (admin; readable with `manage` on any repository), `/cleanup-policies/preview` (paged
+  candidates with reasons, per-repository totals, `limit: 0` for counts; capped at 100k assets per repository with
+  `truncated`), `/cleanup-policies/{id}/run` and `/runs`, `/repositories/{name}/cleanup` (attach in run order;
+  format-checked). New collection `cleanup_policies`; `repositories.cleanup_policy_ids` kept across updates;
+  `job_runs` indexes `dedupe_started`, `kind_started`. Downloads are now recorded off the hot path: the proxy engine
+  calls `EventEmitter.asset_downloaded` (Valkey `seen:assets`/`dl:assets`) and `stats.rollup` flushes them to
+  `assets.last_downloaded_at`/`download_count`. UI: the `/cleanup` page (policy table, editor with criteria builder,
+  schedule presets and a live impact panel, paged preview, run history) and a Cleanup tab on the repository page.
+  "Preview equals execution" is tested on npm and docker fixtures for five criteria sets.
 - T-P2-YUM (proxy min): yum/dnf proxy repositories (`formats/yum`: descriptor, `repodata.py` parsers, plugin;
   `db/yum.py`; registered in `plugins.py`). The upstream layout is kept, so one repository serves every `repodata/`
   directory below its upstream URL. `repomd.xml` is metadata, passed through untouched after a defused parse (expat

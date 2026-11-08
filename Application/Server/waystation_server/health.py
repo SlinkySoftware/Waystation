@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 from waystation_common.errors import WaystationError
+from waystation_common.events import keys as event_keys
 from waystation_server.clientip import in_networks, parse_ip, parse_networks
 from waystation_server.metrics import CONTENT_TYPE
 from waystation_server.problems import native_error
@@ -78,4 +79,8 @@ async def metrics(request: Request) -> Response:
             return native_error(404, 'Not Found')
         if not access.may_scrape_metrics(principal):
             return native_error(404, 'Not Found')
+    try:  # cluster-wide cleanup/GC totals; a Valkey hiccup keeps the last values
+        services.metrics.maintenance.update(await services.valkey.hgetall(event_keys.MAINTENANCE_TOTALS))
+    except Exception as exc:
+        log.warning('could not read maintenance totals', extra={'error': type(exc).__name__})
     return Response(services.metrics.render(), media_type=CONTENT_TYPE)

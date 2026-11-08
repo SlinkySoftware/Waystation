@@ -65,4 +65,10 @@ export {
   symOutlinedFilterList as iconFilter,
   symOutlinedKeyboardArrowDown as iconExpand,
   symOutlinedTimer as iconTimer,
+  symOutlinedEdit as iconEdit,
+  symOutlinedHistory as iconHistory,
+  symOutlinedArrowUpward as iconUp,
+  symOutlinedArrowDownward as iconDown,
+  symOutlinedLinkOff as iconDetach,
+  symOutlinedMoreVert as iconMore,
 } from '@quasar/extras/material-symbols-outlined'
