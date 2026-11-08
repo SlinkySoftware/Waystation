@@ -16,7 +16,6 @@ import random
 import signal
 import socket
 import sys
-import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -267,11 +266,6 @@ async def test_200_clients_on_two_replicas_cause_one_upstream_fetch(
         digests = await finished([owner, *tasks], [first, *downloads], 'downloads')
 
     hits = upstream.hits(f'/{PATH}')
-    import shutil  # DIAG
-    _d = Path('/src/.diag') / f'{time.time():.0f}-{hits}'
-    _d.mkdir(parents=True)
-    for _n in ('a', 'b'):
-        shutil.copy(tmp_path / f'{_n}.log', _d / f'{_n}.log')
     assert hits == 1, f'{hits} upstream fetches for {CLIENTS} coalesced requests; replica logs:\n{logs(tmp_path)}'
     assert digests == [expected] * CLIENTS
     everyone = [first, *downloads]

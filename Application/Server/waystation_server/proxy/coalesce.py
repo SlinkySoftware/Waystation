@@ -17,9 +17,10 @@ Lua ``claim`` script (``HSET`` + ``PEXPIRE`` only when no active fill exists, ot
 
 The owner's ``Lease`` runs a small publisher task: it renews the lease (``lease_s``, renewed every third) and
 publishes progress (every 20 ms while followers are attached, else every 250 ms). While followers are attached a
-separate sync task ``fdatasync``s the upload file and only then raises ``synced``, so tailers on other hosts can rely
-on it. The renewal never waits on that sync (or on the thread pool): on a busy disk one ``fdatasync`` can take
-seconds, longer than the lease, and an owner that is alive and fetching must not lose its lease to a slow disk.
+background thread-pool job ``fdatasync``s the upload file and only then raises ``synced``, so tailers on other hosts
+can rely on it. The renewal never waits on that sync (or on the thread pool): on a busy disk one ``fdatasync`` can
+take seconds, longer than the lease, and an owner that is alive and fetching must not lose its lease to a slow disk.
+The upload descriptor is closed only after an in-flight sync has returned.
 Nothing on the tee path waits on Valkey: ``advance`` is O(1) in memory. Terminal states are kept for ``LINGER_MS``
 so late pollers see them. A fill that makes no progress for ``stall_s`` stops being renewed (it expires and is taken
 over).
@@ -281,7 +282,7 @@ class Lease:
         self.signal = _Signal()
         self._wake = asyncio.Event()
         self._sync_fd: int | None = None
-        self._syncing: asyncio.Task[None] | None = None  # the in-flight fdatasync (never awaited by the renewal)
+        self._syncing: asyncio.Future[None] | None = None  # the in-flight fdatasync (never awaited by the renewal)
         self._last_sync = 0.0
         self._task: asyncio.Task[None] | None = None
         self._last_change = time.monotonic()
@@ -396,7 +397,7 @@ class Lease:
             syncing = self._syncing
             if syncing is not None and not syncing.done():
                 # Never close a descriptor a sync thread is still using (its number could be reused); and don't hold
-                # up the outcome for a slow disk either: the sync task closes it when it is done.
+                # up the outcome for a slow disk either: it is closed when the thread's fdatasync returns.
                 syncing.add_done_callback(lambda _: _close_later(fd))
             else:
                 with contextlib.suppress(OSError):
@@ -404,8 +405,7 @@ class Lease:
         if self.solo or self.lost:
             return
         try:
-            _r = await self._send(LINGER_MS)
-            log.warning('DIAG close %s', {'tok': self.token, 'status': self.status, 'result': _r, 't': time.monotonic()})
+            await self._send(LINGER_MS)
         except Exception as exc:  # Valkey down: followers notice through lease expiry
             self.coalescer._warn('could not publish the fill outcome', exc)
 
@@ -419,20 +419,25 @@ class Lease:
             and self.written > self.synced
             and time.monotonic() - self._last_sync >= SYNC_INTERVAL_S
         ):
-            self._syncing = asyncio.create_task(
-                self._sync(self._sync_fd, self.written), name=f'coalesce-sync-{self.key}'
-            )
+            # The executor future itself (not a task awaiting it, and never cancelled): it is done only when the
+            # thread's fdatasync has returned, so ``_close`` can safely close the fd after it.
+            target = self.written
+            syncing = asyncio.get_running_loop().run_in_executor(None, os.fdatasync, self._sync_fd)
+            self._syncing = syncing
+            syncing.add_done_callback(lambda done: self._synced(done, target))
 
-    async def _sync(self, fd: int, target: int) -> None:
-        try:
-            await asyncio.to_thread(os.fdatasync, fd)
-            self.synced = max(self.synced, target)
-        except OSError as exc:
+    def _synced(self, done: asyncio.Future[None], target: int) -> None:
+        """The background ``fdatasync`` returned: everything written before it started is durable."""
+        self._last_sync = time.monotonic()
+        self._syncing = None
+        if done.cancelled():
+            return
+        exc = done.exception()
+        if exc is not None:
             self.coalescer._warn('could not sync an upload file', exc)
-        finally:
-            self._last_sync = time.monotonic()
-            self._syncing = None
-            self._wake.set()  # publish the new ``synced``
+            return
+        self.synced = max(self.synced, target)
+        self._wake.set()  # publish the new ``synced``
 
     async def _publish(self) -> None:
         c = self.coalescer

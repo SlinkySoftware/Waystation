@@ -351,3 +351,53 @@ async def test_a_slow_fdatasync_does_not_cost_the_owner_its_lease(
         release.set()
         os.close(fd)
         await coalescer.aclose()
+
+
+async def test_the_upload_descriptor_outlives_a_sync_still_running_at_finish(
+    valkey: Redis, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fill may end while an ``fdatasync`` is still running: the outcome is published at once, and the sync's
+    descriptor is closed only after the sync returns (never under a thread that is using it)."""
+    started, release = threading.Event(), threading.Event()
+    real_sync = os.fdatasync
+
+    def slow_sync(fd: int) -> None:
+        started.set()
+        release.wait(10)
+        real_sync(fd)
+
+    monkeypatch.setattr(os, 'fdatasync', slow_sync)
+    coalescer = Coalescer(valkey, data_dir=tmp_path, lease_s=1)
+    key = Coalescer.key('repo', 'big.bin')
+    lease = await coalescer.claim('repo', 'big.bin')
+    assert isinstance(lease, Lease)
+    follower = await coalescer.claim('repo', 'big.bin')
+    assert isinstance(follower, Follower)
+    upload = tmp_path / 'upload'
+    fd = os.open(upload, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, b'x' * 1000)
+        lease.streaming(upload='upload', total=None, content_type='application/octet-stream', headers={}, fd=fd)
+        sync_fd = lease._sync_fd
+        assert sync_fd is not None
+        lease.advance(1000)
+        assert await asyncio.to_thread(started.wait, 5), 'the owner never synced the upload file'
+        await asyncio.wait_for(lease.finish(sha256='0' * 64, size=1000), 5)  # not held up by the stuck sync
+        assert (await valkey.hgetall(key))['status'] == 'done'
+        await asyncio.sleep(0.2)
+        os.fstat(sync_fd)  # still open: the sync thread is using it
+        release.set()
+
+        async def closed() -> bool:
+            try:
+                os.fstat(sync_fd)
+            except OSError:
+                return True
+            return False
+
+        await eventually(closed)
+        await follower.leave()
+    finally:
+        release.set()
+        os.close(fd)
+        await coalescer.aclose()

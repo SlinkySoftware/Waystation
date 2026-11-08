@@ -786,7 +786,6 @@ class ProxyEngine:
                 if asset is not None and self._fresh(asset, spec, proxy):
                     await lease.finish(outcome=CacheState.HIT.value)
                     return self._hit(req, asset, CacheState.HIT, started)
-            log.warning('DIAG owner-fetch %s', {'tok': lease.token, 'replaced': lease.replaced, 'solo': lease.solo, 't': time.monotonic()})
             response = await self._fetch(req, spec, proxy, asset, lease, started)
         except BaseException as exc:
             with anyio.CancelScope(shield=True):
@@ -880,7 +879,6 @@ class ProxyEngine:
         while True:
             state = follower.state()
             if state is None or not follower.mine(state) or state.status is Status.ABORTED or follower.stalled():
-                log.warning('DIAG await-none %s', {'state': state and (state.owner, state.status, state.written), 'tok': follower.token, 'stalled': follower.stalled(), 't': time.monotonic()})
                 return None
             if state.status in (Status.DONE, Status.FAILED):
                 return state
@@ -916,7 +914,6 @@ class ProxyEngine:
                 raise error
             asset = await self._cached(req.repo, spec)
             if asset is None:
-                log.warning('DIAG done-no-asset %s', {'state': (state.owner, state.status, state.outcome), 't': time.monotonic()})
                 return None
             self.metrics.coalesce(repo=req.repo.name, event='wait')
             if state.outcome in (CacheState.REVALIDATED.value, CacheState.HIT.value):
@@ -1022,7 +1019,6 @@ class ProxyEngine:
         while True:
             state = follower.state()
             if state is None or not follower.mine(state) or state.status is Status.ABORTED or follower.stalled():
-                log.warning('DIAG read-abandon %s', {'state': state and (state.owner, state.status, state.written), 'tok': follower.token, 'stalled': follower.stalled(), 'pos': pos, 't': time.monotonic()})
                 raise _Abandoned
             if state.status is Status.FAILED:
                 raise _failure(state)
