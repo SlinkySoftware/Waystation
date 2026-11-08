@@ -420,11 +420,17 @@ See §5.5. Metric names: `waystation_requests_total{repo,format,status,cache}`, 
 - Security tests: path traversal corpus, SSRF corpus, auth bypass matrix (every route × principal type).
 
 ## 12. CI/CD and release
-- GitHub Actions (primary): `make check` on every PR (lint, typecheck, unit, integration, client tests for changed
-  formats, budgets); nightly full client matrix + live-upstream smoke; `release.yml` on `vX.Y.Z` tags builds
-  multi-arch (amd64, arm64) images, SBOMs and provenance, publishes to GHCR.
-- Gitea Actions (secondary) mirror workflow `.gitea/workflows/` building images on every push to the Gitea
-  registry. Registry credentials only from org secrets (`REGISTRY_USER` / `REGISTRY_TOKEN`).
+- GitHub Actions (primary, `.github/workflows/ci.yml`): on every PR and push to `main`, `make check` (forbidden
+  strings, workflow lint, format, lint, typecheck, unit, integration, fixture scan, SPA checks and build, budget
+  report), the stale-generated-client check and the budget table in the job summary, plus every format's real-client
+  tests in replay mode (`make clients-test FORMAT=all`); nightly live-upstream smoke (`clients-live.yml`);
+  `release.yml` on `vX.Y.Z` tags (must match `VERSION`) builds multi-arch (amd64, arm64) server/worker/web images
+  with SBOMs and provenance attestations and publishes them to GHCR using only `GITHUB_TOKEN`.
+- Gitea Actions (secondary) `.gitea/workflows/images.yml` builds the images on every push to `main` and pushes them
+  to the Gitea registry. Registry host and credentials only from org settings (`vars.REGISTRY_HOST`,
+  `secrets.REGISTRY_USER` / `secrets.REGISTRY_TOKEN`). Details: `Documents/Operations/CI.md`.
+- The forbidden-strings check (`make forbidden-strings`, in `make check`) keeps environment details out of the
+  public repository: host names outside `Build/ci/allowed_hosts.txt`, non-documentation IPs, keys and tokens fail.
 - `VERSION` file at the root is the single source; `make set-version V=X.Y.Z` updates everything.
 - Semantic versioning; CHANGELOG kept by hand per task.
 
@@ -470,6 +476,7 @@ Waystation/
 | Plan and documents | Drafted 2026-11-08 |
 | Repository bootstrap (T-F01) | Done 2026-11-08: skeleton, LICENSE (GPL-3.0-or-later), VERSION 0.1.0; pushed to both remotes |
 | Dev tooling (T-F02) | Done 2026-11-08: dev image (Python 3.14, uv, Node 26 LTS), Makefile, uv workspace (`waystation_common`, `waystation_server`, `waystation_worker`), ruff, mypy strict, import-linter contracts (ARCH §3), pre-commit hook |
+| CI (T-F03) | Implemented 2026-11-08, first hosted runs pending: GitHub `ci.yml` (`make check`, generated-client check, budget report, client tests in replay), `release.yml` (tagged multi-arch images to GHCR with SBOM and provenance), Gitea `images.yml` (images to the Gitea registry from org variables/secrets); repository-wide forbidden-strings check with `Build/ci/allowed_hosts.txt`; `Build/ci/budgets.json` and `make budgets` (warnings until M2); `make workflow-lint` (actionlint) |
 | Common core (T-F04) | Done 2026-11-08: `waystation_common.settings` (env `WAYSTATION_*`, `<NAME>_FILE` for secrets, generated `.env.example`), `logs` (JSON lines + contextvars request context, redaction), `ids` (ULID), `errors`, `paths.normalise`, `crypto` (AES-256-GCM keyring, rotation) |
 | Containers and compose (T-F05) | M0 slice 2026-11-08: server/worker/web images, `compose.yaml` + dev override, `make dev-up` brings web, server, worker, mongodb (rs0), valkey and init up healthy; server answers only `/healthz` and `/readyz`; web serves a placeholder page until the SPA is built. Standalone compose files and TLS pending |
 | MongoDB layer (T-F06) | M0 slice 2026-11-08: async client factory, collection registry and indexes for the M0 collections, declarative schema + forward-only migrations run by `init` (idempotent), `make test-integration` against real MongoDB/Valkey |

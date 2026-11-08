@@ -3,6 +3,21 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-F03: CI. `.github/workflows/ci.yml` runs `make check`, the stale-generated-client check (`make gen-api` +
+  `git diff --exit-code`), the budget report (job summary) and, in a parallel job, `make clients-test FORMAT=all
+  MODE=replay`; the dev image is built once per job with the GitHub Actions layer cache (`SKIP_DEV_IMAGE_BUILD=1`
+  stops make rebuilding it). `release.yml` builds server/worker/web for amd64 and arm64 on `v*` tags (checked against
+  `VERSION`) and pushes them to GHCR with SBOM, `mode=max` provenance and a GitHub artifact attestation, using only
+  `GITHUB_TOKEN`; the web image now builds its SPA stage on the build platform. `.gitea/workflows/images.yml` pushes
+  images to the Gitea registry on every push to `main` (`vars.REGISTRY_HOST`, `secrets.REGISTRY_USER`/
+  `REGISTRY_TOKEN`). Actions pinned by commit SHA; `make workflow-lint` (actionlint + shellcheck). Repository-wide
+  forbidden-strings check `make forbidden-strings` (`Build/ci/forbidden_strings.sh`): the `clients-check` scanner now
+  also scans every tracked/untracked file, with the base allowlist moved to `Build/ci/allowed_hosts.txt` (adds `url`
+  and `not-a-host` entries), CIDR definitions of the special ranges accepted, lockfiles host-checked on download
+  lines only, SVG path data ignored, and a `# forbidden-strings: allow` line marker used by the SSRF and client-IP
+  tests. `Build/ci/budgets.json` (SPEC §5.1) + `make budgets` report; the SPA bundle budget reads its limit there and
+  records the measured size. Both `forbidden-strings`, `workflow-lint` and `budgets` are part of `make check`.
+  `Documents/Operations/CI.md`.
 - T-S09 (M0 slice): browse API to the M0 contract (`api/browse.py`, contract test extended):
   `GET /api/v1/repositories/{name}/browse` (generic folder tree of cached assets, every format: folders first, keyset
   cursors, one index seek per sub-folder, 404 for a missing folder), npm `packages`/`versions`, apt

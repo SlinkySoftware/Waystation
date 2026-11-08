@@ -171,7 +171,8 @@ Formats without upstream checksums record the computed sha256 and serve consiste
 - Responses for metadata assets carry `ETag` and support conditional GET.
 - SPA: route-level code splitting, virtual scroll for long lists, no blocking third-party scripts, hashed
   immutable assets with long cache lifetime, HTTP/2.
-- Budgets in `Build/ci/budgets.json` (SPEC §5.1) enforced by `make perf` and the bundle check.
+- Budgets in `Build/ci/budgets.json` (SPEC §5.1) enforced by `make perf` and the bundle check; `make budgets`
+  reports them in CI (warnings until M2).
 
 ## 10. Workers and jobs
 - Queue transport: Valkey Streams with consumer groups (`jobs:<queue>`), at-least-once delivery, visibility
