@@ -2,6 +2,29 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-09
+- T-A01: LDAP sign-in provider. `security.ldap` (ldap3 in a dedicated thread pool, connect/response timeouts and an
+  overall ceiling): ordered server list with failover (unreachable or TLS-failing servers skipped for 30 s), LDAPS,
+  StartTLS or clear text, custom CA with host-name verification by Python `ssl`, service bind with a write-only
+  encrypted password, user search (base + filter, escaped username), user bind on its own connection (empty passwords
+  refused), attribute mapping, groups by `memberOf` or group search with optional nested walk, require-group gate,
+  and a bind cache (HMAC of provider, config version, username, password; per-process key) used by `docker login`.
+  `security.login.verify_login` now takes the services and an optional provider: local accounts with a password are
+  only checked locally; everyone else goes to the enabled LDAP providers in order. Admin API `/api/v1/auth-providers`
+  (CRUD with 422 field errors and 409 on a taken name, test-connection per server, test-user with groups, gate and
+  mapped roles; `settings-admin`) and `GET /api/v1/roles`; `/auth/providers` lists enabled providers. New collection
+  `auth_providers`. UI: "Authentication providers" admin page (FreeIPA / AD / OpenLDAP presets, connection, users,
+  groups, caching sections, test buttons, group-mapping table) with MSW mocks, and a provider select on the sign-in
+  page. `make test-integration` now also builds and starts an OpenLDAP server with a FreeIPA-style tree and a Samba
+  AD DC with a throwaway CA (`Build/Containers/test/`); integration tests cover TLS modes, wrong CA/host name,
+  failover, wrong password, locked/disabled accounts, require-group, nested groups, group sync, the same-username
+  rules, the docker token service with an LDAP password and the admin API. New dependencies: `ldap3`, `types-ldap3`.
+- T-A03 (LDAP half): provider-neutral identity linking and group sync (`security.external.link_identity`):
+  provisioning, same-username rules (never link to an account with a local password; password-less local accounts
+  and other providers' users are linked; `users.identities[]`), `users.external_groups[]` replaced per provider at each
+  sign-in. T-S03 groups: `groups` documents hold roles; a provider's group mapping is stored as groups; effective roles
+  (own ∪ local groups ∪ mapped external groups) resolved per request by `security.groups.GroupDirectory`.
+
 ## 2026-11-08
 - T-F08: job system on Valkey Streams (ARCHITECTURE §10). `waystation_common.jobs`: typed payloads (`JobPayload`
   with `kind`, `queue`, `max_attempts`, `dedupe_key()`, `routine`; `JOB_TYPES` registry), `JobEnvelope`, the queue

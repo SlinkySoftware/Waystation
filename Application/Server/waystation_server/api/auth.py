@@ -114,7 +114,7 @@ async def get_config(svc: ServicesDep) -> UiConfig:
 @access.public
 async def list_providers(svc: ServicesDep) -> list[AuthProvider]:
     """Local accounts, then the enabled external providers in sign-in order (LDAP shares the password form)."""
-    external = [AuthProvider(id=p.id, kind=p.kind, name=p.name) for p in await svc.auth_providers.enabled()]
+    external = [AuthProvider(id=p.id, kind=p.kind.value, name=p.name) for p in await svc.auth_providers.enabled()]
     return [AuthProvider(id='local', kind='local', name='Local account'), *external]
 
 

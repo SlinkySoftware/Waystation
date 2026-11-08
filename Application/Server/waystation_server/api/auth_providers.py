@@ -35,6 +35,7 @@ from waystation_server.security.providers import (
     LdapConfigView,
     LdapConfigWrite,
     LdapConnectionView,
+    ProviderKind,
     ProviderRecord,
     decrypt_bind_password,
     dump_stored,
@@ -52,7 +53,7 @@ _ATTRIBUTE = re.compile(r'^(?:[A-Za-z][A-Za-z0-9-]*|\d+(?:\.\d+)+)$')
 # ---------------------------------------------------------------------------- schemas
 class AuthProviderConfig(BaseModel):
     id: str
-    kind: Literal['ldap']
+    kind: ProviderKind
     name: str
     enabled: bool
     order: int
@@ -279,7 +280,7 @@ async def create_auth_provider(
     now = datetime.now(UTC)
     doc = {
         '_id': provider_id,
-        'kind': body.kind,
+        'kind': body.kind.value,
         'name': body.name,
         'enabled': body.enabled,
         'order': body.order,
@@ -292,7 +293,12 @@ async def create_auth_provider(
     }
     record = await providers_db.insert(svc.db, doc)
     await groups_db.replace_mapping(
-        svc.db, kind=record.kind, provider_id=record.id, provider_name=record.name, mapping=body.group_mapping, now=now
+        svc.db,
+        kind=record.kind.value,
+        provider_id=record.id,
+        provider_name=record.name,
+        mapping=body.group_mapping,
+        now=now,
     )
     _changed(svc)
     response.headers['Location'] = f'/api/v1/auth-providers/{record.id}'
@@ -419,7 +425,12 @@ async def update_auth_provider(
     if record is None:
         raise NotFound('provider not found')
     await groups_db.replace_mapping(
-        svc.db, kind=record.kind, provider_id=record.id, provider_name=record.name, mapping=body.group_mapping, now=now
+        svc.db,
+        kind=record.kind.value,
+        provider_id=record.id,
+        provider_name=record.name,
+        mapping=body.group_mapping,
+        now=now,
     )
     _changed(svc)
     return _view(record, await groups_db.for_provider(svc.db, record.id))
