@@ -3,6 +3,16 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-U06: global search and the command palette. `GET /api/v1/search` searches the repositories the principal may
+  browse (hidden repositories never leak, not even in facet counts): `<name prefix>[ <version prefix>]` matched
+  case-insensitively on the full name or its last `/` segment across docker tags, npm packages, apt/yum index
+  listings and cached files, or a `sha256:` digest ("where is this blob used?"). Filters by format, repository,
+  kind, repository type and cached-only, with disjunctive facet counts, exact keyset cursor paging and a Browse deep
+  link per hit. New search keys `name_lc`/`base_lc` (written by the format index writers, backfilled by migration
+  `0002_search_keys`) and partial `search_name`/`search_base` indexes; an integration test explains every query the
+  search issues. UI: Search page (facet sidebar, format icons, keyboard navigation, URL state, empty states) and the
+  `Ctrl/⌘ K` command palette (quick search, recent items, repositories, pages, actions; ARIA combobox/listbox,
+  loaded on first use). Contract, generated client and MSW mocks updated.
 - T-O06: monitoring. Grafana dashboard `Build/monitoring/grafana/waystation-dashboard.json` (Prometheus data
   source as a variable; job, instance and repository filters; stat tiles for request rate, cache hit ratio, bytes
   served from cache and fetched from upstream, upstream error ratio and transfers in flight; requests by cache state,
