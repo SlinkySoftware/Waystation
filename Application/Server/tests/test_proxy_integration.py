@@ -294,7 +294,7 @@ async def test_credentials_only_go_to_the_upstream_origin(
 async def test_redirect_to_private_address_is_blocked(
     client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, repo: str
 ) -> None:
-    upstream.routes['/f'] = Respond(302, {'Location': 'http://10.255.255.1/secret'})
+    upstream.routes['/f'] = Respond(302, {'Location': 'http://10.255.255.1/secret'})  # forbidden-strings: allow
     response = await client.get('/repository/files/f')
     assert response.status_code == 502
     await services.emitter.flush()

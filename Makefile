@@ -10,7 +10,7 @@ GID         := $(shell id -g)
 VERSION     := $(shell cat VERSION)
 TTY         := $(shell [ -t 0 ] && echo -t)
 DEV_RUN      = docker run --rm -i $(TTY) --user $(UID):$(GID) -v $(CURDIR):/src -w /src $(DEV_ENV) $(DEV_IMAGE)
-PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness
+PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness Build/ci
 # Modules held to 100% branch coverage (TASKS T-F04 acceptance).
 FULL_COVERAGE := --include="*/waystation_common/paths.py,*/waystation_common/crypto.py"
 
@@ -23,9 +23,11 @@ endef
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2} /^##@/ {printf "\n\033[1m%s\033[0m\n", substr($$0, 5)}' $(MAKEFILE_LIST)
 
+# CI builds the dev image once with a layer cache and sets SKIP_DEV_IMAGE_BUILD=1 (.github/workflows/ci.yml).
 .PHONY: dev-image
 dev-image: ## Build the dev image (Python 3.14 + uv + Node LTS)
-	@docker build -q -t $(DEV_IMAGE) -f Build/Containers/dev/Dockerfile Build/Containers/dev >/dev/null
+	@if [ -n "$(SKIP_DEV_IMAGE_BUILD)" ] && docker image inspect $(DEV_IMAGE) >/dev/null 2>&1; then exit 0; fi; \
+	  docker build -q -t $(DEV_IMAGE) -f Build/Containers/dev/Dockerfile Build/Containers/dev >/dev/null
 
 .PHONY: shell
 shell: dev-image ## Open a shell in the dev image
@@ -64,7 +66,7 @@ lint: sync ## ruff + import-linter contracts (ARCHITECTURE §3)
 
 .PHONY: typecheck
 typecheck: sync ## mypy --strict
-	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker tests/clients/harness
+	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker tests/clients/harness Build/ci
 
 .PHONY: test
 test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 100% branch coverage
@@ -79,12 +81,25 @@ test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
   -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
   -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0'
 test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey containers
-	$(COMPOSE_TEST) up -d --wait --quiet-pull
+	$(COMPOSE_TEST) up -d --wait --quiet-pull || { $(COMPOSE_TEST) logs --no-color --tail 80; \
+	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }
 	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 
 .PHONY: check
-check: fmt-check lint typecheck test test-integration clients-check frontend-check ## Everything CI runs on a PR (grows as tasks land)
+check: forbidden-strings workflow-lint fmt-check lint typecheck test test-integration clients-check frontend-check budgets ## Everything CI runs on a PR (grows as tasks land)
+
+.PHONY: forbidden-strings budgets workflow-lint
+ACTIONLINT_IMAGE ?= rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+workflow-lint: ## actionlint + shellcheck on the GitHub and Gitea workflows
+	docker run --rm --user $(UID):$(GID) -v $(CURDIR):/repo:ro -w /repo $(ACTIONLINT_IMAGE) -color \
+	  $(wildcard .github/workflows/*.yml .gitea/workflows/*.yml)
+
+forbidden-strings: dev-image ## Fail on non-allowlisted hosts/IPs, keys and tokens anywhere in the repo (Build/ci/allowed_hosts.txt)
+	Build/ci/forbidden_strings.sh
+
+budgets: dev-image ## Report performance budgets (Build/ci/budgets.json); only 'fail' budgets fail, the rest warn until M2
+	@$(DEV_RUN) python Build/ci/budgets.py $(if $(MARKDOWN),--markdown)
 
 .PHONY: env-example
 env-example: sync ## Regenerate .env.example from waystation_common.settings (idempotent)

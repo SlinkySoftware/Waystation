@@ -41,12 +41,23 @@ class Metrics:
         self.inflight = Gauge('waystation_inflight_transfers', 'Transfers in flight.', registry=self.registry)
         if inflight is not None:
             self.inflight.set_function(inflight)
+        self.coalescing = Counter(
+            'waystation_coalesce',
+            'Coalescing (ARCHITECTURE §6.3) by repository and event: owner (owns a fetch), solo (owns it without '
+            'Valkey), tail (followed a fetch by streaming its file), wait (followed it to the commit), takeover (its '
+            'owner went away).',
+            ['repo', 'event'],
+            registry=self.registry,
+        )
         self.upstream_state = Gauge(
             'waystation_upstream_state',
             'Upstream state per proxy repository (0 ok, 1 degraded, 2 blocked, 3 offline).',
             ['repo'],
             registry=self.registry,
         )
+
+    def coalesce(self, *, repo: str, event: str) -> None:
+        self.coalescing.labels(repo, event).inc()
 
     def request(self, *, repo: str, format: str, status: int, cache: str) -> None:
         self.requests.labels(repo, format, str(status), cache).inc()

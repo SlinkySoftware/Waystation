@@ -56,8 +56,11 @@ Windows containers support for the server.
 
 ### 4.1 Proxy repositories
 - Fetch on first request, stream to the client **while** writing to the blob store (no "download then serve").
-- **Request coalescing**: concurrent requests for the same uncached asset cause one upstream fetch; followers
-  stream from the partially written file as it grows (ARCHITECTURE §6.3).
+- **Request coalescing**: concurrent requests for the same uncached (or stale) asset cause one upstream fetch, across
+  every server replica; followers stream from the partially written file as it grows (same host, local filesystem)
+  or are served from the cache once it is committed (ARCHITECTURE §6.3). Followers are reported as `COALESCED` and
+  the owner's live transfer shows how many follow it. A failed or mismatched fetch fails its followers too; if the
+  owner goes away (its client disconnects, its replica dies) a follower takes the fetch over.
 - **Freshness**: `metadata_max_age` (default 30 min, per repo) and `content_max_age` (default: forever for
   immutable assets). Revalidate with `If-None-Match` / `If-Modified-Since` when the upstream supports it.
 - **Negative cache** of 404s (default 10 min, per repo).
@@ -395,7 +398,7 @@ All variables are `WAYSTATION_*`; every secret also accepts `<NAME>_FILE` (setti
 Key ones: `BASE_URL`, `DATA_DIR`, `MONGO_URI`, `MONGO_DB`, `VALKEY_URL`, `SECRET_KEYS` (comma list, first is
 active), `SESSION_SECRET`, `TRUST_FORWARDED`, `TRUSTED_PROXIES`, `LOG_LEVEL`, `LOG_FORMAT`, `SERVER_WORKERS`,
 `WORKER_QUEUES`, `WORKER_CONCURRENCY`, `MAX_UPLOAD_GB`, `MIN_FREE_GB`, `BOOTSTRAP_ADMIN_PASSWORD_FILE`,
-`HTTP_PROXY`/`NO_PROXY`, `EXTRA_CA_FILE`, `SSRF_ALLOW_CIDRS`. Auth providers, repositories and policies are
+`HTTP_PROXY`/`NO_PROXY`, `EXTRA_CA_FILE`, `SSRF_ALLOW_CIDRS`, `COALESCE_TAIL`, `COALESCE_LEASE_S`. Auth providers, repositories and policies are
 configured in the UI/API (stored in MongoDB). Planned (Phase 6, T-O09): optional **declarative provisioning** from
 a YAML file (`WAYSTATION_PROVISION_FILE`, applied idempotently at start; GitOps-friendly).
 
@@ -420,11 +423,17 @@ See §5.5. Metric names: `waystation_requests_total{repo,format,status,cache}`, 
 - Security tests: path traversal corpus, SSRF corpus, auth bypass matrix (every route × principal type).
 
 ## 12. CI/CD and release
-- GitHub Actions (primary): `make check` on every PR (lint, typecheck, unit, integration, client tests for changed
-  formats, budgets); nightly full client matrix + live-upstream smoke; `release.yml` on `vX.Y.Z` tags builds
-  multi-arch (amd64, arm64) images, SBOMs and provenance, publishes to GHCR.
-- Gitea Actions (secondary) mirror workflow `.gitea/workflows/` building images on every push to the Gitea
-  registry. Registry credentials only from org secrets (`REGISTRY_USER` / `REGISTRY_TOKEN`).
+- GitHub Actions (primary, `.github/workflows/ci.yml`): on every PR and push to `main`, `make check` (forbidden
+  strings, workflow lint, format, lint, typecheck, unit, integration, fixture scan, SPA checks and build, budget
+  report), the stale-generated-client check and the budget table in the job summary, plus every format's real-client
+  tests in replay mode (`make clients-test FORMAT=all`); nightly live-upstream smoke (`clients-live.yml`);
+  `release.yml` on `vX.Y.Z` tags (must match `VERSION`) builds multi-arch (amd64, arm64) server/worker/web images
+  with SBOMs and provenance attestations and publishes them to GHCR using only `GITHUB_TOKEN`.
+- Gitea Actions (secondary) `.gitea/workflows/images.yml` builds the images on every push to `main` and pushes them
+  to the Gitea registry. Registry host and credentials only from org settings (`vars.REGISTRY_HOST`,
+  `secrets.REGISTRY_USER` / `secrets.REGISTRY_TOKEN`). Details: `Documents/Operations/CI.md`.
+- The forbidden-strings check (`make forbidden-strings`, in `make check`) keeps environment details out of the
+  public repository: host names outside `Build/ci/allowed_hosts.txt`, non-documentation IPs, keys and tokens fail.
 - `VERSION` file at the root is the single source; `make set-version V=X.Y.Z` updates everything.
 - Semantic versioning; CHANGELOG kept by hand per task.
 
@@ -470,11 +479,13 @@ Waystation/
 | Plan and documents | Drafted 2026-11-08 |
 | Repository bootstrap (T-F01) | Done 2026-11-08: skeleton, LICENSE (GPL-3.0-or-later), VERSION 0.1.0; pushed to both remotes |
 | Dev tooling (T-F02) | Done 2026-11-08: dev image (Python 3.14, uv, Node 26 LTS), Makefile, uv workspace (`waystation_common`, `waystation_server`, `waystation_worker`), ruff, mypy strict, import-linter contracts (ARCH §3), pre-commit hook |
+| CI (T-F03) | Implemented 2026-11-08, first hosted runs pending: GitHub `ci.yml` (`make check`, generated-client check, budget report, client tests in replay), `release.yml` (tagged multi-arch images to GHCR with SBOM and provenance), Gitea `images.yml` (images to the Gitea registry from org variables/secrets); repository-wide forbidden-strings check with `Build/ci/allowed_hosts.txt`; `Build/ci/budgets.json` and `make budgets` (warnings until M2); `make workflow-lint` (actionlint) |
 | Common core (T-F04) | Done 2026-11-08: `waystation_common.settings` (env `WAYSTATION_*`, `<NAME>_FILE` for secrets, generated `.env.example`), `logs` (JSON lines + contextvars request context, redaction), `ids` (ULID), `errors`, `paths.normalise`, `crypto` (AES-256-GCM keyring, rotation) |
 | Containers and compose (T-F05) | M0 slice 2026-11-08: server/worker/web images, `compose.yaml` + dev override, `make dev-up` brings web, server, worker, mongodb (rs0), valkey and init up healthy; server answers only `/healthz` and `/readyz`; web serves a placeholder page until the SPA is built. Standalone compose files and TLS pending |
 | MongoDB layer (T-F06) | M0 slice 2026-11-08: async client factory, collection registry and indexes for the M0 collections, declarative schema + forward-only migrations run by `init` (idempotent), `make test-integration` against real MongoDB/Valkey |
 | Blob store (T-F07) | M0 slice 2026-11-08: local-filesystem `BlobStore` (streaming sha256, size limits, verified atomic commit, X-Accel paths, orphan sweeper, free-space guard); NFS CI scenario pending |
-| Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once. Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
+| Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once (the scheduled job `stats.rollup`, every 10 s, since T-F08). Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
+| Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. No job API/UI yet (Tasks page) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
 | RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Custom roles, groups and the grant cache pending |
@@ -488,7 +499,8 @@ Waystation/
 | Browse UI (T-U05 min) | M0 slice 2026-11-08 (built on mocks, now on the real API, T-S09 min): docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour (both themes, desktop + mobile) in `Documents/Notes/screenshots/m0/` |
 | Browse API (T-S09 min) | M0 slice 2026-11-08: generic folder listing of cached assets for every format, npm packages/versions, apt suites/packages, docker images/tags/manifest, to the M0 contract; indexing in the background after cache fills (`npm_packages`, `apt_packages`, `docker_tags`/`docker_manifests`); every browse query index-backed (explain test); the raw, npm, apt and docker real-client harness runs check it. Components, `version_sort`, download counters and "where used" pending
 | Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
-| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block, per-repo CA/proxy and coalescing (T-S08) pending; used by the raw plugin (T-P2-RAW) |
+| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block and per-repo CA/proxy pending; used by the raw plugin (T-P2-RAW) |
+| Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Followers on a second host against NFS not covered by CI yet |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
 | Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified. API-token login pending (T-S04) |
 | Raw format (T-P2-RAW) | M0 slice 2026-11-08: raw proxy repositories serve `GET`/`HEAD /repository/<repo>/<path>` through the proxy engine (cache by path, metadata regex → revalidated metadata, extension-based Content-Type, `Content-Disposition` + `nosniff`, native 404 with negative cache); curl and wget pass the real-client harness in replay. Directory listings, hosted and group pending |

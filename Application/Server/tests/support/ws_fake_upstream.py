@@ -1,8 +1,8 @@
 """A tiny scriptable HTTP/1.1 upstream on 127.0.0.1 for proxy-engine and fault-injection tests.
 
 Routes map a path to a ``Respond`` (or a function of the ``Seen`` request returning one). ``Respond`` can split
-the body into chunks with delays, cut the connection after N body bytes (``reset_after``) or never answer
-(``hang``). Every request is recorded in ``upstream.seen``.
+the body into chunks with delays, cut the connection after N body bytes (``reset_after``), never answer (``hang``),
+stop after N body bytes until an event is set (``pause_at`` + ``gate``) or for good (``hang_after``). Every request is recorded in ``upstream.seen``.
 """
 
 from __future__ import annotations
@@ -33,6 +33,9 @@ class Respond:
     reset_after: int | None = None  # close the connection after this many body bytes
     hang: bool = False
     content_length: bool = True
+    gate: asyncio.Event | None = None  # wait for this before sending body bytes past ``pause_at``
+    pause_at: int = 0
+    hang_after: int | None = None  # stop sending (keep the connection open) after this many body bytes
 
 
 Route = Respond | tuple[int, dict[str, str], bytes] | Callable[[Seen], Respond]
@@ -121,6 +124,11 @@ class FakeUpstream:
                 step = plan.chunk or max(len(body), 1)
                 for i in range(0, len(body), step):
                     piece = body[i : i + step]
+                    if plan.gate is not None and sent >= plan.pause_at:
+                        await plan.gate.wait()
+                    if plan.hang_after is not None and sent >= plan.hang_after:
+                        await asyncio.sleep(3600)
+                        return
                     if plan.reset_after is not None and sent + len(piece) > plan.reset_after:
                         writer.write(piece[: plan.reset_after - sent])
                         await writer.drain()

@@ -10,6 +10,7 @@ from waystation_common.db import stats as stats_db
 from waystation_common.db.client import Database
 from waystation_common.db.schema import ensure_schema
 from waystation_common.events import CacheState, EventEmitter, Transfer, keys
+from waystation_common.leases import hold_lease, release_lease
 from waystation_worker import rollup
 
 pytestmark = pytest.mark.integration
@@ -71,12 +72,15 @@ async def test_rollup_closed_minutes_exactly_once(valkey: Redis, mongo_db: Datab
 
 async def test_lease_single_roller(valkey: Redis, mongo_db: Database) -> None:
     await ensure_schema(mongo_db)
-    assert await rollup.hold_lease(valkey, 'w1')
-    assert await rollup.hold_lease(valkey, 'w1')  # renew
-    assert not await rollup.hold_lease(valkey, 'w2')
+    lease = {'key': rollup.LEASE_KEY, 'ttl_ms': rollup.LEASE_TTL_MS}
+    assert await hold_lease(valkey, 'w1', **lease)
+    assert await hold_lease(valkey, 'w1', **lease)  # renew
+    assert not await hold_lease(valkey, 'w2', **lease)
     assert await rollup.rollup_once(valkey, mongo_db, 'w2') is None
     await emit_requests(valkey, 'repo-c', 2)
     assert await rollup.rollup_once(valkey, mongo_db, 'w1') == 1
+    assert await valkey.exists(rollup.LEASE_KEY) == 0  # released after the cycle
+    assert not await release_lease(valkey, 'w2', key=rollup.LEASE_KEY)
 
 
 async def test_sweep_stale_transfers(valkey: Redis) -> None:

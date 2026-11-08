@@ -35,6 +35,11 @@ NPM_PACKAGES = 'npm_packages'
 AUDIT = 'audit'
 STATS_MINUTE = 'stats_minute'
 MIGRATIONS = 'migrations'
+# --- jobs (ARCHITECTURE §10)
+JOB_DEFINITIONS = 'job_definitions'
+JOB_RUNS = 'job_runs'
+JOB_OUTBOX = 'job_outbox'
+WORKERS = 'workers'
 
 DAY_S = 86_400
 CASE_INSENSITIVE = {'locale': 'en', 'strength': 2}
@@ -203,6 +208,25 @@ SPECS: tuple[CollectionSpec, ...] = (
         },
     ),
     CollectionSpec(MIGRATIONS),
+    CollectionSpec(JOB_DEFINITIONS),
+    CollectionSpec(
+        JOB_RUNS,
+        (
+            _ix('started_at', [('started_at', DESCENDING)]),
+            # Per-kind retention (90 d; 1 d for routine jobs such as the 10 s stats rollup).
+            _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
+            _ix('job_id', [('job_id', ASCENDING), ('started_at', DESCENDING)]),
+            _ix('definition_started', [('definition_id', ASCENDING), ('started_at', DESCENDING)]),
+        ),
+    ),
+    CollectionSpec(
+        JOB_OUTBOX,
+        (
+            _ix('sent_at', [('sent_at', ASCENDING)]),
+            _ix('done_at_ttl', [('done_at', ASCENDING)], expireAfterSeconds=7 * DAY_S),
+        ),
+    ),
+    CollectionSpec(WORKERS, (_ix('heartbeat_at_ttl', [('heartbeat_at', ASCENDING)], expireAfterSeconds=300),)),
 )
 
 COLLECTIONS: dict[str, CollectionSpec] = {spec.name: spec for spec in SPECS}

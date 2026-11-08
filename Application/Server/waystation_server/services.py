@@ -19,6 +19,7 @@ from waystation_common.crypto import Keyring
 from waystation_common.db.client import Client, Database, create_client, database
 from waystation_common.db.migrations import check_schema
 from waystation_common.events import EventEmitter
+from waystation_common.jobs import JobClient
 from waystation_common.settings import Settings
 from waystation_common.storage import BlobStore
 from waystation_common.valkey import create_valkey
@@ -56,6 +57,7 @@ class Services:
     storage: StorageStats
     hub: Hub
     registry_signer: SignerHolder
+    jobs: JobClient  # enqueue worker jobs (durable via the outbox inside a transaction, or best effort; ARCH §10)
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
@@ -115,6 +117,7 @@ class Services:
             storage=storage,
             hub=Hub(redis, visible, figures),
             registry_signer=SignerHolder(settings.data_dir, keyring),
+            jobs=JobClient(redis, db),
             proxy=ProxyEngine(
                 settings=settings,
                 db=db,
@@ -142,6 +145,7 @@ class Services:
         if self.keyring is None:
             log.warning('WAYSTATION_SECRET_KEYS is not set: upstream credentials cannot be stored')
         await self.emitter.start()
+        await self.proxy.coalescer.start()
         self._started = True
 
     async def stop(self) -> None:
@@ -149,6 +153,7 @@ class Services:
             return
         self._started = False
         await self.hub.stop()
+        await self.proxy.coalescer.aclose()
         await self.emitter.aclose()
         await self.upstream.aclose()
         await self.valkey.aclose()

@@ -95,7 +95,10 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
   trap cleanup EXIT
 
   echo "==> $fmt: mode=$MODE project=$project stack=$stack"
-  "${compose[@]}" up -d --build --quiet-build --wait --quiet-pull fake-upstream
+  # --quiet-build only exists in newer Compose releases (CI runners can lag behind).
+  local quiet_build=()
+  if docker compose up --help 2>/dev/null | grep -q -- '--quiet-build'; then quiet_build=(--quiet-build); fi
+  "${compose[@]}" up -d --build "${quiet_build[@]}" --wait --quiet-pull fake-upstream
   if [ "$MODE" != replay ] && [ -n "$RECORD_SERVICES" ]; then
     # shellcheck disable=SC2086
     "${compose[@]}" up -d --wait --quiet-pull $RECORD_SERVICES
@@ -126,7 +129,7 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
   compose+=(-f "$run_dir/compose.hosts.yaml")
 
   if [ "$stack" = 1 ]; then
-    "${compose[@]}" up -d --build --quiet-build --wait --wait-timeout 300 --quiet-pull web server worker
+    "${compose[@]}" up -d --build "${quiet_build[@]}" --wait --wait-timeout 300 --quiet-pull web server worker
   fi
 
   local rc=0 client

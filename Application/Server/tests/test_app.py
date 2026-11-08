@@ -55,7 +55,7 @@ async def test_metrics_hidden_from_others(unit_services: Services) -> None:
 
 
 async def test_metrics_via_web_tier_uses_real_ip(unit_services: Services) -> None:
-    async with asgi_client(unit_services, client=('10.0.0.2', 4000)) as client:
+    async with asgi_client(unit_services, client=('10.0.0.2', 4000)) as client:  # forbidden-strings: allow
         denied = await client.get('/metrics', headers={'X-Real-IP': '203.0.113.9'})
         allowed = await client.get('/metrics', headers={'X-Real-IP': '127.0.0.1'})
     assert denied.status_code == 404

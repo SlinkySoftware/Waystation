@@ -1,7 +1,8 @@
-"""Worker process: runs the background loops until SIGTERM/SIGINT.
+"""Worker process: runs the job system (ARCHITECTURE §10) and the liveness heartbeat until SIGTERM/SIGINT.
 
-Minimal for M0: a heartbeat loop (container health) and the per-minute stats rollup. Background loops register in
-``LOOPS``; the job system on Valkey Streams (ARCHITECTURE §10) is T-F08.
+``jobs_loop`` connects to MongoDB and Valkey, refuses to run against a database at another migration level, and
+runs ``JobSystem`` for ``WAYSTATION_WORKER_QUEUES`` with ``WAYSTATION_WORKER_CONCURRENCY`` jobs at a time. Every
+worker also competes for the scheduler lease (outbox dispatch, cron schedules incl. the 10 s stats rollup).
 """
 
 from __future__ import annotations
@@ -14,10 +15,14 @@ import signal
 from collections.abc import Callable, Coroutine
 from typing import Any
 
+from waystation_common.db.client import create_client, database
+from waystation_common.db.migrations import check_schema
+from waystation_common.events import EventEmitter
 from waystation_common.logs import configure_logging
 from waystation_common.settings import Settings, get_settings
+from waystation_common.valkey import create_valkey
 from waystation_worker import health
-from waystation_worker.rollup import rollup_loop
+from waystation_worker.jobs import BUILTIN_DEFINITIONS, HANDLERS, JobSystem
 
 log = logging.getLogger('waystation.worker')
 
@@ -26,12 +31,42 @@ Loop = Callable[[Settings, asyncio.Event], Coroutine[Any, Any, None]]
 
 async def heartbeat_loop(settings: Settings, stop: asyncio.Event) -> None:
     while not stop.is_set():
-        await asyncio.to_thread(health.beat)
+        if health.watchdog_ok():
+            await asyncio.to_thread(health.beat)
+        else:
+            log.error('job runner stalled; withholding the liveness heartbeat')
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=health.INTERVAL_S)
 
 
-LOOPS: list[Loop] = [heartbeat_loop, rollup_loop]
+async def jobs_loop(settings: Settings, stop: asyncio.Event) -> None:  # pragma: no cover - wiring, run by the stack
+    redis = create_valkey(settings)
+    client = create_client(settings, app_name='waystation-worker')
+    db = database(client, settings)
+    try:
+        await check_schema(db)
+        async with EventEmitter(redis) as emitter:
+            system = JobSystem(
+                db,
+                redis,
+                handlers=HANDLERS,
+                queues=settings.worker_queues,
+                concurrency=settings.worker_concurrency,
+                definitions=BUILTIN_DEFINITIONS,
+                emitter=emitter,
+                settings=settings,
+            )
+            health.set_watchdog(lambda: system.alive(health.MAX_AGE_S))
+            try:
+                await system.run(stop)
+            finally:
+                health.set_watchdog(None)
+    finally:
+        await redis.aclose()
+        await client.close()
+
+
+LOOPS: list[Loop] = [heartbeat_loop, jobs_loop]
 
 
 async def run(settings: Settings, stop: asyncio.Event, loops: list[Loop] | None = None) -> None:
