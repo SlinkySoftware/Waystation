@@ -37,6 +37,15 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `assets.last_downloaded_at`/`download_count`. UI: the `/cleanup` page (policy table, editor with criteria builder,
   schedule presets and a live impact panel, paged preview, run history) and a Cleanup tab on the repository page.
   "Preview equals execution" is tested on npm and docker fixtures for five criteria sets.
+- T-S08: fix a second upstream fetch under load. The owner's publisher task ran `fdatasync` on the upload file
+  (while followers are attached) before renewing its lease; on a busy disk one sync took 3.2 s, longer than the
+  test's 2 s lease, so the lease expired, a follower on the other replica claimed the fill and fetched again. The
+  sync now runs in the background on the thread pool (one at a time, `synced` rises when it completes), the
+  renewal never waits on it, and the upload descriptor is closed only after an in-flight sync has returned (also
+  when the fill ends first). Regression test with a stuck
+  `fdatasync`. The 200-client test now runs with the production 15 s lease (a Valkey or event-loop stall longer
+  than the lease legitimately costs a takeover, ARCHITECTURE §6.3), the owner-gone test with a read timeout that
+  cannot end the first fetch before its client goes away, and every wait in both suites is bounded with a message.
 - Tooling: `make test-integration` queues on a machine-wide `flock` (`TEST_LOCK`), so parallel worktrees run one
   integration container stack at a time instead of exhausting the dev box's memory.
 - T-S10: audit service. Catalog of audited actions (`waystation_common.audit.AuditAction`, mapped to every SPEC §4.11
