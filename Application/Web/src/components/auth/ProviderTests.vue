@@ -1,16 +1,18 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- "Test connection" and "Test user lookup" against the current, possibly unsaved, form (UI_DESIGN §4.10). -->
+<!-- "Test connection" / "Test discovery" (OIDC) and "Test user lookup" (LDAP) against the current, possibly unsaved,
+     form (UI_DESIGN §4.10). -->
 <template>
   <div class="ptests">
     <div class="ptests__block">
       <div class="ptests__bar">
-        <q-btn outline dense no-caps :icon="iconSync" :label="t('ldapTest.connection')" :loading="connBusy" :disable="!hasServer" @click="runConnection" />
-        <span class="text-caption text-muted">{{ t('ldapTest.connectionHint') }}</span>
+        <q-btn outline dense no-caps :icon="iconSync" :label="isOidc ? t('oidcTest.discovery') : t('ldapTest.connection')" :loading="connBusy" :disable="!hasServer" @click="runConnection" />
+        <span class="text-caption text-muted">{{ isOidc ? t('oidcTest.discoveryHint') : t('ldapTest.connectionHint') }}</span>
       </div>
       <div v-if="conn" class="ptests__result" :class="conn.ok ? 'ptests__result--ok' : 'ptests__result--bad'" role="status">
         <div class="ptests__summary">
           <q-icon :name="conn.ok ? iconOk : iconError" size="18px" />
-          <strong>{{ conn.ok ? t('ldapTest.allOk') : t('ldapTest.someFailed', { failed: conn.servers.filter((s) => !s.ok).length, total: conn.servers.length }) }}</strong>
+          <strong v-if="isOidc">{{ conn.ok ? t('oidcTest.allOk') : t('oidcTest.failed') }}</strong>
+          <strong v-else>{{ conn.ok ? t('ldapTest.allOk') : t('ldapTest.someFailed', { failed: conn.servers.filter((s) => !s.ok).length, total: conn.servers.length }) }}</strong>
         </div>
         <div v-for="s in conn.servers" :key="s.server" class="ptests__server">
           <div class="ptests__server-head">
@@ -21,11 +23,27 @@
           </div>
           <CheckList :checks="s.checks" />
         </div>
+        <dl v-if="conn.discovery" class="ptests__facts">
+          <dt>{{ t('oidcTest.authorization') }}</dt>
+          <dd class="mono">{{ conn.discovery.authorization_endpoint }}</dd>
+          <dt>{{ t('oidcTest.token') }}</dt>
+          <dd class="mono">{{ conn.discovery.token_endpoint }}</dd>
+          <dt>{{ t('oidcTest.userinfo') }}</dt>
+          <dd :class="{ mono: conn.discovery.userinfo_endpoint, 'text-muted': !conn.discovery.userinfo_endpoint }">{{ conn.discovery.userinfo_endpoint ?? t('oidcTest.notOffered') }}</dd>
+          <dt>{{ t('oidcTest.endSession') }}</dt>
+          <dd :class="{ mono: conn.discovery.end_session_endpoint, 'text-muted': !conn.discovery.end_session_endpoint }">{{ conn.discovery.end_session_endpoint ?? t('oidcTest.notOffered') }}</dd>
+          <dt>{{ t('oidcTest.jwks') }}</dt>
+          <dd><span class="mono">{{ conn.discovery.jwks_uri }}</span> · {{ t('oidcTest.keys', { count: conn.discovery.keys }) }}</dd>
+          <template v-if="conn.discovery.signing_algs">
+            <dt>{{ t('oidcTest.algs') }}</dt>
+            <dd class="mono">{{ conn.discovery.signing_algs.join(', ') }}</dd>
+          </template>
+        </dl>
       </div>
       <div v-else-if="connError" class="ptests__result ptests__result--bad" role="alert">{{ connError }}</div>
     </div>
 
-    <div class="ptests__block">
+    <div v-if="!isOidc" class="ptests__block">
       <div class="ptests__user">
         <q-input v-model="username" outlined dense class="col" :label="t('ldapTest.username')" autocomplete="off" spellcheck="false" @keydown.enter.prevent="runUser" />
         <q-input v-model="password" outlined dense class="col" type="password" autocomplete="new-password" :label="t('ldapTest.password')" @keydown.enter.prevent="runUser" />
@@ -70,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { api, ApiError, call, errorMessage } from '@/api/client'
 import type { AuthProviderConnectionTest, AuthProviderUserTest } from '@/api/types'
@@ -82,7 +100,8 @@ import { type ProviderFormModel, toWrite } from './providerForm'
 
 const props = defineProps<{ model: ProviderFormModel; providerId: string | null }>()
 
-const hasServer = computed(() => props.model.write.ldap.connection.servers.some((s) => s.trim()))
+const isOidc = computed(() => props.model.write.kind === 'oidc')
+const hasServer = computed(() => (isOidc.value ? !!props.model.write.oidc.issuer.trim() : props.model.write.ldap.connection.servers.some((s) => s.trim())))
 const connBusy = ref(false)
 const conn = ref<AuthProviderConnectionTest | null>(null)
 const connError = ref<string | null>(null)
@@ -91,6 +110,11 @@ const password = ref('')
 const userBusy = ref(false)
 const user = ref<AuthProviderUserTest | null>(null)
 const userError = ref<string | null>(null)
+
+watch(isOidc, () => {
+  conn.value = null
+  connError.value = null
+})
 
 function describe(cause: unknown): string {
   return cause instanceof ApiError && cause.problem.errors?.length ? cause.problem.errors.map((e) => `${e.field}: ${e.message}`).join(' ') : errorMessage(cause)

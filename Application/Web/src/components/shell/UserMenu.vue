@@ -73,9 +73,11 @@ const themeOptions = computed(() => [
 ])
 
 async function signOut(): Promise<void> {
-  await auth.logout().catch(() => undefined)
+  const endSession = await auth.logout().catch(() => null)
   useLiveStore().reset()
-  await router.replace({ name: 'sign-in' })
+  // OIDC with RP-initiated logout: the provider ends its session too, then sends the browser back to sign-in.
+  if (endSession) window.location.assign(endSession)
+  else await router.replace({ name: 'sign-in' })
 }
 </script>
 

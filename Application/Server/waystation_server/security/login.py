@@ -89,7 +89,7 @@ async def _verify_local(svc: Services, user: UserRecord, password: str) -> UserR
 
 
 async def _ldap_candidates(svc: Services, user: UserRecord | None, provider: str | None) -> list[ProviderRecord]:
-    enabled = await svc.auth_providers.enabled('ldap')
+    enabled = [p for p in await svc.auth_providers.enabled('ldap') if p.ldap is not None]
     if provider is not None:
         return [p for p in enabled if p.id == provider]
     if user is None:
@@ -103,6 +103,7 @@ async def _verify_ldap(
 ) -> UserRecord:
     for record in candidates:
         try:
+            assert record.ldap is not None  # _ldap_candidates
             directory = LdapDirectory(record.source, record.ldap, decrypt_bind_password(svc.keyring, record))
         except ValueError as exc:  # a stored configuration this release cannot use
             log.error('LDAP provider unusable', extra={'provider': record.id, 'error': str(exc)})

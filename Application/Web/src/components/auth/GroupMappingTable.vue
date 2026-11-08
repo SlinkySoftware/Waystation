@@ -3,11 +3,11 @@
 <template>
   <section class="ldap-section">
     <h3 class="section-label">{{ t('ldapForm.mapping') }}</h3>
-    <div class="text-caption text-muted">{{ t('ldapForm.mappingHint') }}</div>
+    <div class="text-caption text-muted">{{ t(k('mappingHint')) }}</div>
 
     <div v-if="rows.length" class="mapping" role="table" :aria-label="t('ldapForm.mapping')">
       <div class="mapping__head" role="row">
-        <span role="columnheader">{{ t('ldapForm.externalGroup') }}</span>
+        <span role="columnheader">{{ t(k('externalGroup')) }}</span>
         <span role="columnheader">{{ t('ldapForm.roles') }}</span>
         <span />
       </div>
@@ -18,8 +18,8 @@
           dense
           class="mono-input"
           role="cell"
-          :placeholder="t('ldapForm.externalGroupPlaceholder')"
-          :aria-label="`${t('ldapForm.externalGroup')} ${i + 1}`"
+          :placeholder="t(k('externalGroupPlaceholder'))"
+          :aria-label="`${t(k('externalGroup'))} ${i + 1}`"
           :error="!!errors[`group_mapping.${i}.external_group`]"
           :error-message="errors[`group_mapping.${i}.external_group`]"
           spellcheck="false"
@@ -53,7 +53,7 @@
         <q-btn flat round dense :icon="iconDelete" :aria-label="t('ldapForm.removeMapping')" @click="rows.splice(i, 1)" />
       </div>
     </div>
-    <div v-else class="mapping__empty text-caption">{{ t('ldapForm.noMappings') }}</div>
+    <div v-else class="mapping__empty text-caption">{{ t(k('noMappings')) }}</div>
     <div>
       <q-btn flat dense no-caps color="primary" :icon="iconAdd" :label="t('ldapForm.addMapping')" :disable="rows.length >= 500" @click="rows.push({ external_group: '', roles: [] })" />
     </div>
@@ -69,8 +69,10 @@ import { useAsync } from '@/composables/useAsync'
 import { t } from '@/i18n'
 import { iconAdd, iconDelete } from '@/utils/icons'
 
-defineProps<{ errors: Record<string, string> }>()
+const props = withDefaults(defineProps<{ errors: Record<string, string>; kind?: 'ldap' | 'oidc' }>(), { kind: 'ldap' })
 const rows = defineModel<GroupMapping[]>({ required: true })
+// OIDC providers map groups-claim values; LDAP providers map directory groups.
+const k = (key: 'mappingHint' | 'externalGroup' | 'externalGroupPlaceholder' | 'noMappings') => (props.kind === 'oidc' ? (`oidcForm.${key}` as const) : (`ldapForm.${key}` as const))
 
 const roles = useAsync<Role[]>(() => call(api.GET('/roles')))
 const roleOptions = computed(() => (roles.data.value ?? []).map((r) => ({ value: r.id, label: r.name, description: r.description })))

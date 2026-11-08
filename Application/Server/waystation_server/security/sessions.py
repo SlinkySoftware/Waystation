@@ -54,7 +54,15 @@ class SessionManager:
         self.secure = settings.base_url.startswith('https://')
         self._touched: dict[str, float] = {}
 
-    async def create(self, user_id: str, *, ip: str | None, user_agent: str | None) -> tuple[str, SessionRecord]:
+    async def create(
+        self,
+        user_id: str,
+        *,
+        ip: str | None,
+        user_agent: str | None,
+        provider_id: str | None = None,
+        id_token_enc: str | None = None,
+    ) -> tuple[str, SessionRecord]:
         token = secrets.token_urlsafe(32)
         now = datetime.now(UTC)
         record = SessionRecord(
@@ -66,6 +74,8 @@ class SessionManager:
             expires_at=now + timedelta(seconds=self.max_s),
             ip=ip,
             user_agent=(user_agent or '')[:256] or None,
+            provider_id=provider_id,
+            id_token_enc=id_token_enc,
         )
         await sessions_db.insert(self._db, record)
         self._touched[record.id] = time.time()

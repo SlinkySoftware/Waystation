@@ -161,7 +161,8 @@ export const handlers = [
       ...providers
         .filter((p) => p.enabled)
         .sort((a, b) => a.order - b.order)
-        .map((p) => ({ id: p.id, kind: p.kind, name: p.name })),
+        // No real identity provider in mock mode: the OIDC button lands on the sign-in error banner.
+        .map((p) => ({ id: p.id, kind: p.kind, name: p.name, login_url: p.kind === 'oidc' ? `${import.meta.env.BASE_URL}sign-in?error=oidc_unavailable` : null })),
     ]),
   ),
   http.post(`${API}/auth/login`, async ({ request }) => {
@@ -175,7 +176,7 @@ export const handlers = [
   }),
   http.post(`${API}/auth/logout`, () => {
     localStorage.removeItem(SESSION_KEY)
-    return new HttpResponse(null, { status: 204 })
+    return HttpResponse.json({ end_session_url: null })
   }),
   http.get(`${API}/auth/me`, async () => {
     await delay(40)
@@ -474,7 +475,9 @@ export const handlers = [
     const denied = guard(request)
     if (denied) return denied
     const body = (await request.json()) as AuthProviderTestRequest
-    if (!body.provider?.ldap?.connection?.servers?.length) return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'provider.ldap.connection.servers', message: 'Add at least one server.', code: 'required' }])
+    const oidcBody = body.provider?.kind === 'oidc'
+    if (oidcBody && !body.provider.oidc?.issuer?.trim()) return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'provider.oidc.issuer', message: 'Enter the issuer URL.', code: 'required' }])
+    if (!oidcBody && !body.provider?.ldap?.connection?.servers?.length) return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'provider.ldap.connection.servers', message: 'Add at least one server.', code: 'required' }])
     await delay(400 + Math.random() * 500)
     return HttpResponse.json(testConnection(body.provider, providers.find((p) => p.id === body.id)))
   }),
@@ -483,6 +486,7 @@ export const handlers = [
     if (denied) return denied
     const body = (await request.json()) as AuthProviderTestRequest
     if (!body.username?.trim()) return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'username', message: 'Enter a username to look up.', code: 'required' }])
+    if (body.provider?.kind !== 'ldap') return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'provider.kind', message: 'OIDC providers are tested with a real sign-in', code: 'kind' }])
     await delay(300 + Math.random() * 400)
     return HttpResponse.json(testUser(body.provider, body.username, body.password))
   }),
@@ -499,7 +503,7 @@ export const handlers = [
     const index = providers.findIndex((p) => p.id === params.id)
     if (index < 0) return notFound()
     const body = (await request.json()) as AuthProviderWrite
-    const errors = validateProvider(body, providers.filter((p) => p.id !== params.id))
+    const errors = validateProvider(body, providers.filter((p) => p.id !== params.id), providers[index])
     if (errors.length) return problem(422, 'Unprocessable Content', 'The request has invalid fields.', errors)
     const updated = toConfig(body, providers[index])
     providers[index] = updated

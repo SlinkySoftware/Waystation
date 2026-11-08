@@ -36,7 +36,8 @@ export default defineConfig(() => ({
     host: '0.0.0.0',
     open: false,
     allowedHosts: true,
-    proxy: mock ? undefined : { '/api': { target: apiTarget, changeOrigin: false } },
+    // /auth carries the OIDC browser flow (login redirect, callback) and the docker token service.
+    proxy: mock ? undefined : { '/api': { target: apiTarget, changeOrigin: false }, '/auth': { target: apiTarget, changeOrigin: false } },
   },
 
   framework: {

@@ -1,10 +1,22 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Create / edit an LDAP sign-in provider: sectioned form, test buttons, group mapping (UI_DESIGN §4.10). -->
+<!-- Create / edit a sign-in provider (LDAP directory or OpenID Connect): sectioned form, tests, group mapping
+     (UI_DESIGN §4.10). The kind is picked on create and cannot change afterwards. -->
 <template>
-  <FormDialog v-model="open" :title="title" :caption="t('ldapForm.caption')" :saving="saving" width="780px" @submit="save">
+  <FormDialog v-model="open" :title="title" :caption="isOidc ? t('oidcForm.caption') : t('ldapForm.caption')" :saving="saving" width="780px" @submit="save">
     <div v-if="formError" class="pdialog__error" role="alert">{{ formError }}</div>
     <div class="pdialog">
-      <div class="pdialog__presets">
+      <div v-if="!provider" class="pdialog__kind">
+        <span class="text-caption">{{ t('oidcForm.kind') }}</span>
+        <q-btn-toggle v-model="model.write.kind" no-caps unelevated dense toggle-color="primary" class="pdialog__kind-toggle" :options="kindOptions" />
+      </div>
+      <div v-if="isOidc" class="pdialog__presets">
+        <span class="text-caption">{{ t('oidcForm.presets') }}</span>
+        <q-chip v-for="p in OIDC_PRESET_IDS" :key="p" clickable outline :label="t(`oidcForm.preset.${p}`)" class="pdialog__preset" @click="applyOidcPreset(model, p)" />
+        <q-icon :name="iconInfo" size="16px" class="text-muted">
+          <q-tooltip>{{ t('oidcForm.presetHint') }}</q-tooltip>
+        </q-icon>
+      </div>
+      <div v-else class="pdialog__presets">
         <span class="text-caption">{{ t('ldapForm.presets') }}</span>
         <q-chip v-for="p in PRESET_IDS" :key="p" clickable outline :label="t(`ldapForm.preset.${p}`)" class="pdialog__preset" @click="applyPreset(model, p)" />
         <q-icon :name="iconInfo" size="16px" class="text-muted">
@@ -45,10 +57,13 @@
         <q-toggle v-model="model.write.enabled" :label="t('ldapForm.enabled')" />
       </section>
 
-      <LdapConnectionSection v-model="model" :errors="fieldErrors" />
-      <LdapDirectorySection v-model="model" :errors="fieldErrors" />
+      <OidcSection v-if="isOidc" v-model="model" :errors="fieldErrors" />
+      <template v-else>
+        <LdapConnectionSection v-model="model" :errors="fieldErrors" />
+        <LdapDirectorySection v-model="model" :errors="fieldErrors" />
+      </template>
       <ProviderTests :model="model" :provider-id="provider?.id ?? null" />
-      <GroupMappingTable v-model="model.write.group_mapping" :errors="fieldErrors" />
+      <GroupMappingTable v-model="model.write.group_mapping" :errors="fieldErrors" :kind="model.write.kind" />
     </div>
   </FormDialog>
 </template>
@@ -66,8 +81,9 @@ import { iconInfo } from '@/utils/icons'
 import GroupMappingTable from './GroupMappingTable.vue'
 import LdapConnectionSection from './LdapConnectionSection.vue'
 import LdapDirectorySection from './LdapDirectorySection.vue'
+import OidcSection from './OidcSection.vue'
 import ProviderTests from './ProviderTests.vue'
-import { applyPreset, emptyProvider, fromConfig, PRESET_IDS, type ProviderFormModel, toWrite } from './providerForm'
+import { applyOidcPreset, applyPreset, emptyProvider, fromConfig, OIDC_PRESET_IDS, PRESET_IDS, type ProviderFormModel, toWrite } from './providerForm'
 
 const props = defineProps<{ provider: AuthProviderConfig | null }>()
 const open = defineModel<boolean>({ required: true })
@@ -86,7 +102,9 @@ watch(open, (isOpen) => {
   formError.value = null
 })
 
-const title = computed(() => (props.provider ? t('ldapForm.editTitle', { name: props.provider.name }) : t('ldapForm.createTitle')))
+const title = computed(() => (props.provider ? t('ldapForm.editTitle', { name: props.provider.name }) : t('oidcForm.createTitle')))
+const isOidc = computed(() => model.value.write.kind === 'oidc')
+const kindOptions = (['ldap', 'oidc'] as const).map((value) => ({ value, label: t(`oidcForm.kindOption.${value}`) }))
 
 async function save(): Promise<void> {
   saving.value = true
@@ -127,6 +145,17 @@ async function save(): Promise<void> {
 
 .pdialog__preset {
   margin: 0;
+}
+
+.pdialog__kind {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.pdialog__kind-toggle {
+  border: 1px solid var(--border-strong);
 }
 
 .pdialog__section {
