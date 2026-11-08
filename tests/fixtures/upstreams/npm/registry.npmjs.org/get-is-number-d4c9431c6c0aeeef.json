@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.npmjs.org/is-number"
+  },
+  "response": {
+    "body_sha256": "782fbfa8f6010b73da35acf843edaa63646990464c3c91515e045419d85b9e91",
+    "body_size": 20166,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "20166"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, max-age=300"
+      ],
+      [
+        "etag",
+        "\"5cefdbc91d0fe57d1c3110d2a0141612\""
+      ],
+      [
+        "last-modified",
+        "Fri, 26 May 2023 16:12:34 GMT"
+      ],
+      [
+        "vary",
+        "accept-encoding, accept"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.npmjs.org/@sindresorhus%2Fis"
+  },
+  "response": {
+    "body_sha256": "daca8f2e0b5bff50d30224376b22172030b9aa271cecfa0443caad3912798aeb",
+    "body_size": 142505,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "142505"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, max-age=300"
+      ],
+      [
+        "etag",
+        "\"92ae2e2053e54557b77f1ba5ddd28dc1\""
+      ],
+      [
+        "last-modified",
+        "Mon, 11 May 2026 11:22:37 GMT"
+      ],
+      [
+        "vary",
+        "accept-encoding, accept"
+      ]
+    ],
+    "status": 200
+  }
+}

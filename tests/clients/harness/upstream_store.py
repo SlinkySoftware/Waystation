@@ -125,8 +125,12 @@ class Exchange:
     body: bytes = b''
 
 
-def scrub_response(status: int, headers: list[tuple[str, str]], body: bytes) -> Exchange:
-    """Keep allowlisted headers (with signed URLs scrubbed) and redact credentials in JSON bodies."""
+def scrub_response(
+    status: int, headers: list[tuple[str, str]], body: bytes, drop_keys: frozenset[str] = frozenset()
+) -> Exchange:
+    """Keep allowlisted headers (with signed URLs scrubbed) and redact credentials in JSON bodies. ``drop_keys``
+    (format.env ``DROP_JSON_KEYS``) are JSON object keys removed at any depth: personal or environment data the
+    test does not need (npm packument readmes, maintainer e-mails, registry-internal host names)."""
     kept: list[tuple[str, str]] = []
     for name, value in headers:
         lname = name.lower()
@@ -137,12 +141,12 @@ def scrub_response(status: int, headers: list[tuple[str, str]], body: bytes) -> 
         kept.append((lname, value))
     ctype = next((v for k, v in kept if k == 'content-type'), '')
     if body and 'json' in ctype.lower():
-        body = _scrub_json_body(body)
+        body = _scrub_json_body(body, drop_keys)
         kept = [(k, str(len(body)) if k == 'content-length' else v) for k, v in kept]
     return Exchange(status, kept, body)
 
 
-def _scrub_json_body(body: bytes) -> bytes:
+def _scrub_json_body(body: bytes, drop_keys: frozenset[str] = frozenset()) -> bytes:
     try:
         doc = json.loads(body)
     except ValueError:  # includes UnicodeDecodeError
@@ -154,7 +158,9 @@ def _scrub_json_body(body: bytes) -> bytes:
         if isinstance(node, dict):
             out: dict[str, object] = {}
             for k, v in node.items():
-                if isinstance(v, str) and _SECRET_JSON_KEY.search(str(k)):
+                if k in drop_keys:
+                    changed = True
+                elif isinstance(v, str) and _SECRET_JSON_KEY.search(str(k)):
                     out[k] = REDACTED
                     changed = changed or v != REDACTED
                 else:
