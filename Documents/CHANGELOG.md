@@ -3,6 +3,10 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-08
+- T-U04 (min): repositories. List with URL-backed filters, create flow (format tiles → type → form with upstream
+  presets and "Test upstream"), problem+json field errors on the form, detail page with KPI strip and Overview /
+  Browse / Settings tabs, delete with typed confirmation, Set me up side panel (docker, containerd, podman, npm,
+  pnpm, yarn, bun, apt, curl, wget). Secrets stay write-only in the form.
 - T-U03 (min): dashboard. KPI tiles, the live transfers panel (also in the top-bar live drawer and per repository),
   traffic chart kept current from stats ticks without polling, storage-by-format donut, upstream health with the
   Docker Hub pull gauge and auto-block countdown, recent activity.
