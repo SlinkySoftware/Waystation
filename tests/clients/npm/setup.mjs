@@ -13,7 +13,7 @@ async function call(method, path, body, headers = {}) {
 }
 
 const login = await call('POST', '/auth/login', {
-  username: process.env.HARNESS_ADMIN_USER,
+  username: 'admin',
   password: process.env.HARNESS_ADMIN_PASSWORD,
 });
 if (login.status !== 200) {

@@ -21,9 +21,8 @@ x-client: &client
     HARNESS_MODE: ${HARNESS_MODE}
     HARNESS_FORMAT: ${HARNESS_FORMAT}
     HARNESS_STACK: ${HARNESS_STACK:-0}
-    WAYSTATION_URL: http://waystation-web:8080
-    HARNESS_ADMIN_USER: admin
     HARNESS_ADMIN_PASSWORD: ${HARNESS_ADMIN_PASSWORD:-}
+    WAYSTATION_URL: http://waystation-web:8080
 
 x-harness-ca: &harness-ca
   type: bind
@@ -128,7 +127,7 @@ services:
   init:
     container_name: ${HARNESS_PROJECT}-init
     environment:
-      WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD: ${HARNESS_ADMIN_PASSWORD:-}
+      WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD: ${HARNESS_ADMIN_PASSWORD:-}  # per-run random, for setup.sh (ws_login)
   mongodb:
     container_name: ${HARNESS_PROJECT}-mongodb
   valkey:

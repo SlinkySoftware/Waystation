@@ -23,9 +23,22 @@ Common rules: all format routes live under `/repository/<repo>/` (Nexus-compatib
 ## Raw (generic) — Phase 2
 - `GET/HEAD /repository/<repo>/<path>`; hosted `PUT` (stream) and `DELETE`; directory listing as HTML/JSON
   (`Accept: application/json`) for browse.
-- Proxy: plain HTTP(S) upstream base URL; cache by path; `metadata` kind for paths matching a per-repo regex
-  (e.g. `.*/(index\.json|latest)$`), else `content`.
+- Proxy: plain HTTP(S) upstream base URL; cache by path (`<repo>/<path>` → `<upstream_url>/<path>`, the path
+  percent-escaped, `:` included, so a segment is never read as a scheme, query or fragment; the query string is
+  ignored); `metadata` kind for paths matching the per-repo `metadata_path_regex`, else `content`. The regex is
+  *searched* in `/<path>` (leading slash added), so `(^|/)latest$`, `.*/(index\.json|latest)$` and `^/dists/` all work
+  and a root-level `latest` matches `.*/latest$`. Metadata is revalidated after `metadata_max_age_s`; content is kept
+  for `content_max_age_s` (default forever).
+- Nothing to verify: a plain web server publishes no digests, so raw files are trusted as fetched (size-bounded,
+  the stored sha256 is the ETag). Upstream 404/410 → native 404 (negative-cached); other failures → 502/504.
+- Content-Type: by extension from Python's built-in table (plus `.deb`, `.rpm`, `.iso`, `.xz`, `.zst`, `.sh`, ...)
+  so a mislabelled upstream cannot change how a known file is served; otherwise the upstream's type when well formed
+  (`charset` kept), else `application/octet-stream`. File answers carry `Content-Disposition` (`content_disposition`
+  option, `attachment` by default) and every answer `X-Content-Type-Options: nosniff`; with `inline`, HTML,
+  XHTML, SVG and XML are served as `text/plain` so upstream content never runs on the Waystation origin.
 - Uses: installers, ISOs, release binaries, `get.docker.com`-style scripts.
+- Built (M0, T-P2-RAW min): proxy `GET`/`HEAD` with curl and wget. Not yet: directory listings (the repository root
+  and paths ending in `/` answer 404), hosted, group.
 
 ## Docker / OCI — Phase 2
 Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API v2, Docker token auth spec.

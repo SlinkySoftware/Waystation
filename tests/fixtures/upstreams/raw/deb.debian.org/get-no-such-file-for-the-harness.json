@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://deb.debian.org/debian/no-such-file-for-the-harness.txt"
+  },
+  "response": {
+    "body_sha256": "891cfae3be3e8ba306e2964836ec2a360058613289d434586ec262d97a12324e",
+    "body_size": 300,
+    "headers": [
+      [
+        "content-length",
+        "300"
+      ],
+      [
+        "content-type",
+        "text/html; charset=iso-8859-1"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 404
+  }
+}
