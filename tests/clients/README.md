@@ -56,9 +56,9 @@ Create `tests/clients/<format>/`:
 
 The client container sees `tests/clients` at `/harness` (read-only), the CA at `/harness-ca/ca.crt`, and
 `HARNESS_MODE`, `HARNESS_FORMAT`, `HARNESS_STACK`, `WAYSTATION_URL=http://waystation-web:8080`. The `docker` client
-image is `docker:*-dind` with the entrypoint cleared: start `dockerd` in `setup.sh` (with the stack in
-`insecure-registries`/`registry-mirrors`). Scripts must behave the same in every mode; assert only on things that
-survive scrubbing. Then `make clients-test FORMAT=<f> MODE=record`, `make clients-test FORMAT=<f>`, commit
+image is `docker:*-dind` plus curl and skopeo, with the entrypoint cleared: start `dockerd` in `setup.sh`
+(with the stack in `insecure-registries`/`registry-mirrors`). Scripts must behave the same in every mode; assert only
+on things that survive scrubbing. Then `make clients-test FORMAT=<f> MODE=record`, `make clients-test FORMAT=<f>`, commit
 `tests/fixtures/upstreams/<f>/`.
 
 `echo/` is the harness self-test: curl straight at a tiny test-only origin (`harness/echo_origin.py`, started

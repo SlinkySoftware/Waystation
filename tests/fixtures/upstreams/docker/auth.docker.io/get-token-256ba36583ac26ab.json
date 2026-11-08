@@ -1,0 +1,25 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/hello-world:pull"
+  },
+  "response": {
+    "body_sha256": "58f133cd7fae0b2ce3f3c440f821a565915ac959a768514ba342d44d53fae414",
+    "body_size": 124,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ]
+    ],
+    "status": 200
+  }
+}
