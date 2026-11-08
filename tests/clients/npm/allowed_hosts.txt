@@ -1,0 +1,4 @@
+# Public hosts that legitimately appear in npm metadata (funding links in packuments and lockfiles; the comment line
+# of legacy dist.npm-signature PGP signatures).
+github.com
+openpgpjs.org

@@ -1,0 +1,11 @@
+{
+  "name": "waystation-harness-npm-pinned",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lockfile-pinned install through a Waystation npm proxy (tests/clients/npm)",
+  "license": "MIT",
+  "dependencies": {
+    "@sindresorhus/is": "4.6.0",
+    "is-odd": "3.0.1"
+  }
+}
