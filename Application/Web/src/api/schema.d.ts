@@ -259,6 +259,107 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Configured external sign-in providers (LDAP), in sign-in order
+         * @description Needs `settings-admin`. Secrets are never returned (`bind_password_set` instead).
+         */
+        get: operations["listAuthProviderConfigs"];
+        put?: never;
+        /** Add an external sign-in provider */
+        post: operations["createAuthProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth-providers/test-connection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check every LDAP server of a (possibly unsaved) provider; connect, TLS, service bind, search bases
+         * @description Always 200 with the findings. Pass `id` to reuse the stored bind password when it is omitted.
+         */
+        post: operations["testAuthProviderConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth-providers/test-user": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look a user up (and optionally check a password) with a (possibly unsaved) provider
+         * @description Shows the attributes and groups the provider would sync, whether the require-group gate passes and the
+         *     roles the group mapping gives. Needs `username`; `password` is optional (a bind is attempted only when
+         *     given). Always 200 with the findings.
+         */
+        post: operations["testAuthProviderUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth-providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProviderId"];
+            };
+            cookie?: never;
+        };
+        /** One provider's configuration */
+        get: operations["getAuthProviderConfig"];
+        /** Replace a provider's configuration and group mapping (`kind` cannot change) */
+        put: operations["updateAuthProvider"];
+        post?: never;
+        /** Delete a provider and its group mapping (its users stay but cannot sign in through it) */
+        delete: operations["deleteAuthProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Roles that can be granted (built-in roles; custom roles come later) */
+        get: operations["listRoles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories": {
         parameters: {
             query?: never;
@@ -828,6 +929,175 @@ export interface components {
             description?: string | null;
             roles?: string[] | null;
             disabled?: boolean | null;
+        };
+        Role: {
+            /** @description Role id used in grants and group mappings, e.g. `deployer` */
+            id: string;
+            name: string;
+            description: string;
+            builtin: boolean;
+        };
+        /** @description Servers are tried in order; one that cannot be reached is skipped for 30 s (failover). */
+        LdapConnection: {
+            /** @description `host`, `host:port`, `ldap://host[:port]` or `ldaps://host[:port]` */
+            servers: string[];
+            /**
+             * @description `none` sends passwords in clear text (testing only)
+             * @enum {string}
+             */
+            security: "ldaps" | "starttls" | "none";
+            /** @description PEM CA bundle to trust instead of the system store */
+            ca_pem?: string | null;
+            /** @description Service account for searches; empty = anonymous search */
+            bind_dn?: string | null;
+            /** @description Omit or null on update to keep the stored password */
+            bind_password?: string | null;
+            readonly bind_password_set?: boolean;
+            /** @default 5 */
+            connect_timeout_s: number;
+            /** @default 10 */
+            timeout_s: number;
+        };
+        LdapUsers: {
+            base_dn: string;
+            /**
+             * @description ANDed with `(<username_attribute>=<name>)`
+             * @default (objectClass=person)
+             */
+            filter: string;
+            /** @default uid */
+            username_attribute: string;
+            /** @default cn */
+            display_name_attribute: string;
+            /** @default mail */
+            email_attribute: string;
+        };
+        LdapGroups: {
+            /**
+             * @description `member_of` reads the user's `member_of_attribute`; `search` finds groups that list the user
+             * @enum {string}
+             */
+            mode: "none" | "member_of" | "search";
+            /** @description Needed for `search` */
+            base_dn?: string | null;
+            /** @default (objectClass=groupOfNames) */
+            filter: string;
+            /** @default member */
+            member_attribute: string;
+            /**
+             * @description `username` for `posixGroup` / `memberUid`
+             * @default dn
+             * @enum {string}
+             */
+            member_value: "dn" | "username";
+            /** @default cn */
+            name_attribute: string;
+            /** @default memberOf */
+            member_of_attribute: string;
+            /**
+             * @description Also follow groups that are members of groups
+             * @default false
+             */
+            nested: boolean;
+            /** @description Only members of this group (DN or name) may sign in */
+            require_group?: string | null;
+        };
+        LdapConfig: {
+            connection: components["schemas"]["LdapConnection"];
+            users: components["schemas"]["LdapUsers"];
+            groups: components["schemas"]["LdapGroups"];
+            /**
+             * @description How long a successful password check is reused by format clients (0 = never)
+             * @default 60
+             */
+            cache_ttl_s: number;
+        };
+        GroupMapping: {
+            /** @description Group DN or name (case-insensitive) */
+            external_group: string;
+            roles: string[];
+        };
+        AuthProviderWrite: {
+            /** @enum {string} */
+            kind: "ldap";
+            /** @description Shown on the sign-in page */
+            name: string;
+            /** @default true */
+            enabled: boolean;
+            /**
+             * @description Sign-in order (lowest first)
+             * @default 100
+             */
+            order: number;
+            ldap: components["schemas"]["LdapConfig"];
+            group_mapping?: components["schemas"]["GroupMapping"][];
+        };
+        AuthProviderConfig: {
+            id: string;
+            /** @enum {string} */
+            kind: "ldap";
+            name: string;
+            enabled: boolean;
+            order: number;
+            ldap: components["schemas"]["LdapConfig"];
+            group_mapping: components["schemas"]["GroupMapping"][];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        AuthProviderTestRequest: {
+            /** @description Saved provider whose bind password is reused when `provider` omits it */
+            id?: string | null;
+            provider: components["schemas"]["AuthProviderWrite"];
+            /** @description Needed by test-user */
+            username?: string | null;
+            /** @description test-user only; also check this password */
+            password?: string | null;
+        };
+        ProviderCheck: {
+            /** @description `connect`, `tls`, `bind`, `user_base`, `group_base`, `search`, `password`, `groups`, `require_group` */
+            name: string;
+            ok: boolean;
+            message: string;
+        };
+        LdapServerTest: {
+            server: string;
+            ok: boolean;
+            latency_ms: number | null;
+            /** @description Negotiated protocol and certificate subject */
+            tls?: string | null;
+            checks: components["schemas"]["ProviderCheck"][];
+        };
+        AuthProviderConnectionTest: {
+            /** @description Every server passed */
+            ok: boolean;
+            servers: components["schemas"]["LdapServerTest"][];
+        };
+        ExternalGroup: {
+            /** @description Group DN (LDAP) or claim value (OIDC) */
+            id: string;
+            name: string;
+        };
+        DirectoryUser: {
+            dn: string;
+            username: string;
+            display_name: string;
+            email: string | null;
+        };
+        AuthProviderUserTest: {
+            /** @description Found, the password matched (when given) and the require-group gate passed */
+            ok: boolean;
+            found: boolean;
+            /** @description The server that answered */
+            server: string | null;
+            user: components["schemas"]["DirectoryUser"] | null;
+            groups: components["schemas"]["ExternalGroup"][];
+            /** @description null when no group is required */
+            require_group_ok: boolean | null;
+            /** @enum {string} */
+            password: "not_tested" | "ok" | "failed";
+            /** @description Roles the group mapping gives this user */
+            roles: string[];
+            checks: components["schemas"]["ProviderCheck"][];
         };
         /** @description Upstream credentials. Secrets are write-only; reads return `secret_set` instead. */
         UpstreamAuth: {
@@ -1486,6 +1756,7 @@ export interface components {
     };
     parameters: {
         RepoName: components["schemas"]["RepositoryName"];
+        ProviderId: string;
         /** @description Opaque cursor from a previous page's `next_cursor` */
         Cursor: string;
         Limit: number;
@@ -1927,6 +2198,201 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listAuthProviderConfigs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Providers ordered by `order`, then name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProviderConfig"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createAuthProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthProviderWrite"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProviderConfig"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    testAuthProviderConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthProviderTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Result per server */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProviderConnectionTest"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    testAuthProviderUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthProviderTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Lookup result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProviderUserTest"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getAuthProviderConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProviderId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProviderConfig"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateAuthProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProviderId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthProviderWrite"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProviderConfig"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteAuthProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ProviderId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Roles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     listRepositories: {
