@@ -235,6 +235,85 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     revoked = await rec.expect(A.TOKEN_REVOKE, **{'target.id': token_id})
     assert revoked['principal']['name'] == 'admin'
 
+    # --- custom roles, groups and users (identity administration)
+    role = await admin.post(
+        f'{api}/roles',
+        json={
+            'id': 'npm-publisher',
+            'name': 'npm publisher',
+            'permissions': [{'action': 'write', 'scope': 'format:npm'}],
+        },
+    )
+    assert role.status_code == 201, role.text
+    role_put = await admin.put(
+        f'{api}/roles/npm-publisher',
+        json={
+            'name': 'npm publisher',
+            'description': 'Publishes npm packages',
+            'permissions': [{'action': 'write', 'scope': 'npm-*'}],
+        },
+    )
+    assert role_put.status_code == 200, role_put.text
+    group = await admin.post(f'{api}/groups', json={'name': 'Publishers', 'roles': ['npm-publisher']})
+    assert group.status_code == 201, group.text
+    group_id = group.json()['id']
+    user = await admin.post(
+        f'{api}/users',
+        json={'username': 'erin', 'display_name': 'Erin', 'password': 'erin-first-Passw0rd', 'roles': ['reader']},
+    )
+    assert user.status_code == 201, user.text
+    erin_id = user.json()['id']
+    assert user.json()['must_change_password'] is True
+    assert (await admin.post(f'{api}/groups/{group_id}/members', json={'user_ids': [erin_id]})).status_code == 204
+    assert (await admin.patch(f'{api}/users/{erin_id}', json={'display_name': 'Erin E.'})).status_code == 200
+    assert (await admin.post(f'{api}/users/id-carol/unlock')).status_code == 200
+    reset = await admin.post(f'{api}/users/{erin_id}/password', json={'password': 'erin-reset-Passw0rd'})
+    assert reset.status_code == 204, reset.text
+    erin = await sign_in(services, 'erin', 'erin-reset-Passw0rd')
+    try:
+        assert (await erin.get(f'{api}/auth/me/tokens')).status_code == 403  # one-time password pending
+        changed_pw = await erin.post(
+            f'{api}/auth/me/password',
+            json={'current_password': 'erin-reset-Passw0rd', 'new_password': 'erin-own-Passw0rd-123'},
+        )
+        assert changed_pw.status_code == 204, changed_pw.text
+        sessions = (await erin.get(f'{api}/auth/sessions')).json()
+        assert len(sessions) == 1 and sessions[0]['current'] is True
+        session_id = sessions[0]['id']
+        assert (await erin.delete(f'{api}/auth/sessions/{session_id}')).status_code == 204
+    finally:
+        await erin.aclose()
+    assert (await admin.delete(f'{api}/groups/{group_id}/members/{erin_id}')).status_code == 204
+    assert (await admin.delete(f'{api}/users/{erin_id}')).status_code == 204
+    assert (await admin.delete(f'{api}/groups/{group_id}')).status_code == 204
+    assert (await admin.delete(f'{api}/roles/npm-publisher')).status_code == 204
+    role_created = await rec.expect(A.ROLE_CREATE, **{'target.id': 'npm-publisher'})
+    assert {c['field'] for c in role_created['changes']} >= {'name', 'permissions'}
+    role_updated = await rec.expect(A.ROLE_UPDATE, **{'target.id': 'npm-publisher'})
+    assert {c['field'] for c in role_updated['changes']} == {'description', 'permissions'}
+    await rec.expect(A.ROLE_DELETE, **{'target.id': 'npm-publisher'})
+    await rec.expect(A.GROUP_CREATE, **{'target.id': group_id})
+    added = await rec.expect(A.GROUP_UPDATE, **{'target.id': group_id, 'details.members_added': [erin_id]})
+    assert added['principal']['name'] == 'admin'
+    await rec.expect(A.GROUP_UPDATE, **{'target.id': group_id, 'details.members_removed': [erin_id]})
+    await rec.expect(A.GROUP_DELETE, **{'target.id': group_id})
+    erin_created = await rec.expect(A.USER_CREATE, **{'target.id': erin_id})
+    assert erin_created['principal']['name'] == 'admin'
+    assert erin_created['details'] == {'password_set': True, 'must_change_password': True}
+    erin_updated = await rec.expect(A.USER_UPDATE, **{'target.id': erin_id})
+    assert erin_updated['changes'] == [
+        {'field': 'display_name', 'before': 'Erin', 'after': 'Erin E.', 'redacted': False}
+    ]
+    await rec.expect(A.USER_UPDATE, **{'target.id': 'id-carol', 'details.unlocked': True})
+    by_admin = await rec.expect(A.AUTH_PASSWORD_CHANGE, **{'target.id': erin_id, 'details.by_admin': True})
+    assert by_admin['principal']['name'] == 'admin'
+    own = await rec.expect(A.AUTH_PASSWORD_CHANGE, **{'target.id': erin_id, 'details.by_admin': False})
+    assert own['principal']['name'] == 'erin' and own['details']['was_one_time'] is True
+    revoked_session = await rec.expect(A.SESSION_REVOKE, **{'principal.name': 'erin'})
+    assert revoked_session['details'] == {'current': True}
+    erin_deleted = await rec.expect(A.USER_DELETE, **{'target.id': erin_id})
+    assert erin_deleted['details'] == {'sessions_ended': 0, 'tokens_revoked': 0}
+
     # --- sign-in providers (configuration, tests) with a write-only bind password
     provider_body: dict[str, Any] = {
         'kind': 'ldap',
@@ -341,6 +420,9 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
         UPSTREAM_SECRET,
         'bind-Passw0rd-secret',
         'bind-Passw0rd-rotated',
+        'erin-first-Passw0rd',
+        'erin-reset-Passw0rd',
+        'erin-own-Passw0rd-123',
     ):
         assert secret not in stored
     assert 'secret_enc' not in stored.replace('"proxy.auth.secret_enc"', '')

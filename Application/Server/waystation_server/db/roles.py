@@ -7,7 +7,7 @@ are keyed by (ARCHITECTURE §7).
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from pymongo import ReturnDocument
@@ -76,11 +76,13 @@ async def bump(db: Database) -> int:
     return int(doc['grant_version']) if doc else 0
 
 
-async def watch(db: Database) -> AsyncIterator[int]:
-    """Yield the new ``grant_version`` whenever another process bumps it (MongoDB change stream on ``rbac_state``;
-    needs a replica set, which every deployment runs)."""
+async def watch(db: Database, opened: Callable[[], None] | None = None) -> AsyncIterator[int]:
+    """Yield the new ``grant_version`` whenever a process bumps it (MongoDB change stream on ``rbac_state``; needs a
+    replica set, which every deployment runs). ``opened`` is called once the stream is open."""
     pipeline = [{'$match': {'documentKey._id': STATE_ID}}]
     async with await db[RBAC_STATE].watch(pipeline, full_document='updateLookup') as stream:
+        if opened is not None:
+            opened()
         async for change in stream:
             doc = change.get('fullDocument') or {}
             yield int(doc.get('grant_version', 0))

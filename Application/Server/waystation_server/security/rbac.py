@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import time
@@ -45,21 +46,27 @@ def grants_key(principal_id: str, version: int) -> str:
     return f'grants:{principal_id}:{version}'
 
 
-def _encode(roles: tuple[str, ...], grants: Grants) -> str:
-    return json.dumps(
-        {'r': list(roles), 'a': grants.is_admin, 'p': [[p.action.value, p.scope] for p in grants.permissions]},
-        separators=(',', ':'),
-    )
+def _encode(roles: tuple[str, ...], table: str, grants: Grants) -> str:
+    perms = [[p.action.value, p.scope] for p in grants.permissions]
+    return json.dumps({'r': list(roles), 't': table, 'a': grants.is_admin, 'p': perms}, separators=(',', ':'))
 
 
-def _decode(raw: str | bytes, roles: tuple[str, ...]) -> Grants | None:
+def _decode(raw: str | bytes, roles: tuple[str, ...], table: str) -> Grants | None:
+    """None when the entry was made for other roles (group sync changed them) or other role definitions (a restored
+    database reusing a version number): the caller materialises again."""
     try:
         data = json.loads(raw)
-        if tuple(data['r']) != roles:
-            return None  # the principal's roles changed (group sync): materialise again
+        if tuple(data['r']) != roles or data['t'] != table:
+            return None
         return Grants(is_admin=bool(data['a']), permissions=tuple(Permission(Action(a), str(s)) for a, s in data['p']))
     except ValueError, KeyError, TypeError:
         return None
+
+
+def fingerprint(table: dict[str, tuple[Permission, ...]]) -> str:
+    """Identifies a set of custom role definitions (stored with every cached grant table)."""
+    canonical = sorted((rid, sorted((p.action.value, p.scope) for p in perms)) for rid, perms in table.items())
+    return hashlib.sha256(json.dumps(canonical, separators=(',', ':')).encode()).hexdigest()[:16]
 
 
 class RbacState:
@@ -73,10 +80,12 @@ class RbacState:
         self._checked_at = -1e18
         self._roles: dict[str, RoleRecord] = {}
         self._table: dict[str, tuple[Permission, ...]] = {}
+        self._table_id = fingerprint({})
         self._cache: dict[tuple[int, tuple[str, ...]], Grants] = {}
         self._lock = asyncio.Lock()
         self._watcher: asyncio.Task[None] | None = None
         self.on_change: list[Callable[[], None]] = []
+        self.watching = asyncio.Event()  # the change stream is open (tests wait for it)
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> None:
@@ -93,11 +102,12 @@ class RbacState:
     async def _watch(self) -> None:
         while True:
             try:
-                async for version in roles_db.watch(self._db):
+                async for version in roles_db.watch(self._db, self.watching.set):
                     self._seen(version)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # no replica set, MongoDB restarting: polling still bounds staleness
+                self.watching.clear()
                 log.warning('rbac change stream lost; retrying', extra={'error': type(exc).__name__})
             await asyncio.sleep(WATCH_RETRY_S)
 
@@ -131,6 +141,7 @@ class RbacState:
             roles = await roles_db.list_all(self._db)
             self._roles = {r.id: r for r in roles}
             self._table = {r.id: _permissions(r) for r in roles}
+            self._table_id = fingerprint(self._table)
             self._cache = {}
             self.groups.invalidate()
             moved = self.version >= 0
@@ -170,7 +181,7 @@ class RbacState:
         key = grants_key(principal_id, version)
         try:
             raw = await self._valkey.get(key)
-            grants = _decode(raw, key_roles) if raw is not None else None
+            grants = _decode(raw, key_roles, self._table_id) if raw is not None else None
         except Exception as exc:  # Valkey down: materialise here
             log.debug('grant cache read failed', extra={'error': type(exc).__name__})
         if grants is None:
@@ -178,7 +189,7 @@ class RbacState:
 
             grants = access.materialise(key_roles, self._table)
             try:
-                await self._valkey.set(key, _encode(key_roles, grants), ex=GRANTS_TTL_S)
+                await self._valkey.set(key, _encode(key_roles, self._table_id, grants), ex=GRANTS_TTL_S)
             except Exception as exc:
                 log.debug('grant cache write failed', extra={'error': type(exc).__name__})
         if len(self._cache) >= MAX_CACHE:
