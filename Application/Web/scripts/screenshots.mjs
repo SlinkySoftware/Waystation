@@ -60,6 +60,9 @@ const MOCK_SHOTS = [
   { name: 'admin-group-members', path: 'admin/groups?open=01JC00000000000000000GRP04', settle: 2000 },
   { name: 'admin-roles', path: 'admin/roles', full: true },
   { name: 'admin-role-editor', path: 'admin/roles', action: editRole },
+  { name: 'admin-tokens', path: 'admin/tokens?status=all', full: true },
+  { name: 'admin-service-accounts', path: 'admin/tokens?tab=accounts' },
+  { name: 'admin-service-account-panel', path: 'admin/tokens?tab=accounts', action: openAccount },
 ]
 
 /** The real-server tour: the demo repositories and the content `make e2e-m0` caches. */
@@ -173,6 +176,11 @@ async function createUser(page) {
 
 async function editRole(page) {
   await page.getByText('npm publisher', { exact: true }).first().click()
+  await page.waitForTimeout(900)
+}
+
+async function openAccount(page) {
+  await page.getByText('ci-runner', { exact: true }).first().click()
   await page.waitForTimeout(900)
 }
 
