@@ -53,6 +53,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/login/totp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Second sign-in step for accounts with two-factor sign-in; sets the session cookie
+         * @description Needs the pending sign-in cookie from `POST /auth/login` (202). `code` is the 6-digit code from the
+         *     authenticator app (each code works once) or a recovery code (single use). Wrong codes count towards the
+         *     account lockout; after 5 the pending sign-in ends. Rate limited like sign-in.
+         */
+        post: operations["loginSecondFactor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/logout": {
         parameters: {
             query?: never;
@@ -111,6 +133,96 @@ export interface paths {
          *     session may only call this, `GET /auth/me` and sign-out (403 otherwise).
          */
         post: operations["changeMyPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me/totp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's two-factor sign-in (TOTP) state */
+        get: operations["getMyTotp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me/totp/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start setting up two-factor sign-in (local accounts; needs the current password)
+         * @description Returns a new secret (once) as base32 and as an `otpauth://` URI, which the UI shows as a QR code rendered in
+         *     the browser. It stays pending for 15 minutes until confirmed; starting again replaces it. 409 when it is
+         *     already on or the account signs in through a provider.
+         */
+        post: operations["startMyTotpSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me/totp/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn two-factor sign-in on with a code from the app; returns the recovery codes once */
+        post: operations["confirmMyTotp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me/totp/recovery-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace the recovery codes (needs a code from the app); the old ones stop working */
+        post: operations["regenerateMyRecoveryCodes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me/totp/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn two-factor sign-in off (current password and a code from the app or a recovery code) */
+        post: operations["disableMyTotp"];
         delete?: never;
         options?: never;
         head?: never;
@@ -449,6 +561,28 @@ export interface paths {
         /** Clear a sign-in lockout */
         post: operations["unlockUser"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{user_id}/totp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a user's two-factor sign-in (lost device); not one's own
+         * @description The user signs in with the password alone and can set it up again. Audited (`auth.totp_disable`).
+         */
+        delete: operations["resetUserTotp"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1154,6 +1288,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/helm/charts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Charts of a Helm repository (hosted uploads, a proxy's cached index, a group's members) */
+        get: operations["listHelmCharts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/helm/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One chart and its versions (newest first) */
+        get: operations["listHelmVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/apt/suites": {
         parameters: {
             query?: never;
@@ -1784,6 +1956,8 @@ export interface components {
             status: number;
             detail?: string;
             instance?: string;
+            /** @description Stable machine code (`password_change_required`, `totp_setup_required`, `second_factor_expired`...) */
+            code?: string;
             errors?: components["schemas"]["FieldError"][];
         };
         FieldError: {
@@ -1878,6 +2052,23 @@ export interface components {
             expires_at: components["schemas"]["Timestamp"];
             /** @description The account holds a one-time password; change it (`POST /auth/me/password`) before anything else */
             must_change_password: boolean;
+            /**
+             * @description Two-factor sign-in is required for this account (local administrators, when the policy is on) and not set
+             *     up yet: set it up (`POST /auth/me/totp/setup`, then `/confirm`) before anything else (403 otherwise)
+             */
+            totp_setup_required: boolean;
+        };
+        SecondFactorRequired: {
+            /**
+             * @description Send the code to `POST /auth/login/totp`
+             * @constant
+             */
+            second_factor: "totp";
+            expires_at: components["schemas"]["Timestamp"];
+        };
+        SecondFactorLogin: {
+            /** @description The 6-digit code from the authenticator app, or a recovery code (`xxxxx-xxxxx`) */
+            code: string;
         };
         /**
          * @description What a token may be used for; it never exceeds the owner's own grants. `read`: browse, pull, download,
@@ -1971,6 +2162,40 @@ export interface components {
             /** @description At least 12 characters */
             new_password: string;
         };
+        TotpStatus: {
+            /** @description The account can use two-factor sign-in (a local account with a password) */
+            available: boolean;
+            enabled: boolean;
+            /** Format: date-time */
+            enabled_at: string | null;
+            /** @description Policy requires it for this account and it is not set up yet */
+            required: boolean;
+            recovery_codes_left: number;
+        };
+        TotpSetupRequest: {
+            password: string;
+        };
+        TotpSetup: {
+            /** @description The shared secret (base32) for typing into an app by hand. Shown once. */
+            secret: string;
+            /** @description `otpauth://totp/...` for a QR code (render it locally, never via a service) */
+            otpauth_uri: string;
+            issuer: string;
+            account: string;
+            expires_at: components["schemas"]["Timestamp"];
+        };
+        TotpCode: {
+            code: string;
+        };
+        TotpDisable: {
+            password: string;
+            /** @description A code from the app or a recovery code */
+            code: string;
+        };
+        TotpRecoveryCodes: {
+            /** @description Single-use codes for when the app is not at hand. Shown once. */
+            recovery_codes: string[];
+        };
         SessionInfo: {
             /** @description Opaque; derived from the stored session id */
             id: string;
@@ -2035,6 +2260,8 @@ export interface components {
             disabled: boolean;
             /** @description Locked out after failed sign-ins (local accounts) */
             locked: boolean;
+            /** @description Two-factor sign-in (TOTP) is on (local accounts) */
+            totp_enabled: boolean;
             /** @description Roles held directly */
             roles: string[];
             /** @description Local group ids */
@@ -2075,6 +2302,8 @@ export interface components {
             source: string;
             disabled: boolean;
             locked: boolean;
+            /** @description Two-factor sign-in (TOTP) is on (local accounts) */
+            totp_enabled: boolean;
             roles: string[];
             groups: string[];
             /** Format: date-time */
@@ -2165,6 +2394,7 @@ export interface components {
         };
         InstanceSettings: {
             general: components["schemas"]["GeneralSettings"];
+            security: components["schemas"]["SecuritySettings"];
             limits: components["schemas"]["EnvironmentLimits"];
             /**
              * Format: date-time
@@ -2176,6 +2406,12 @@ export interface components {
         };
         InstanceSettingsWrite: {
             general: components["schemas"]["GeneralSettings"];
+            /** @description Omit to keep the current security settings */
+            security?: components["schemas"]["SecuritySettings"] | null;
+        };
+        SecuritySettings: {
+            /** @description Local administrators must set up two-factor sign-in (TOTP) before they can do anything else */
+            require_totp_for_admins: boolean;
         };
         GeneralSettings: {
             /** @description Shown in the top bar, the sign-in page and the browser title (default `WAYSTATION_INSTANCE_NAME`) */
@@ -2726,8 +2962,10 @@ export interface components {
             /** @description Module path patterns never looked up in the checksum database (GONOSUMDB syntax: a glob per path prefix, e.g. `example.com/private/*`): private modules */
             nosumdb?: string[];
         };
+        /** @description Helm (classic chart repositories): no options yet */
+        HelmOptions: Record<string, never>;
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -3242,6 +3480,43 @@ export interface components {
             module: components["schemas"]["GoModule"];
             /** @description Newest first (semantic version order) */
             items: components["schemas"]["GoVersion"][];
+            next_cursor: string | null;
+        };
+        HelmChart: {
+            name: string;
+            latest_version: string;
+            app_version?: string | null;
+            description?: string | null;
+            /** @description The chart's icon URL (http/https), as its metadata gives it */
+            icon?: string | null;
+            /** @default false */
+            deprecated: boolean;
+            version_count: number;
+        };
+        HelmChartPage: {
+            items: components["schemas"]["HelmChart"][];
+            next_cursor: string | null;
+        };
+        HelmVersion: {
+            version: string;
+            app_version?: string | null;
+            description?: string | null;
+            /** Format: date-time */
+            created_at?: string | null;
+            /** @description sha256 of the chart package (hex), when known */
+            digest?: string | null;
+            size_bytes?: number | null;
+            /** @description The chart package is stored (always true in hosted repositories) */
+            cached: boolean;
+            /** @default false */
+            deprecated: boolean;
+            /** @description Path of the chart package in the repository */
+            path: string;
+            download_url: string;
+        };
+        HelmVersionPage: {
+            chart: components["schemas"]["HelmChart"];
+            items: components["schemas"]["HelmVersion"][];
             next_cursor: string | null;
         };
         AptSuite: {
@@ -4208,7 +4483,61 @@ export interface operations {
                     "application/json": components["schemas"]["Session"];
                 };
             };
+            /**
+             * @description The password was accepted and the account has two-factor sign-in: no session yet. `Set-Cookie` carries the
+             *     pending sign-in (`ws_mfa`, HttpOnly, SameSite=Strict, a few minutes); send the code to `POST /auth/login/totp`.
+             */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecondFactorRequired"];
+                };
+            };
             /** @description Bad credentials (generic message; never says which part was wrong) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Too many attempts; `Retry-After` header set */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    loginSecondFactor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecondFactorLogin"];
+            };
+        };
+        responses: {
+            /** @description Signed in. `Set-Cookie` carries the session and `ws_csrf` cookies. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Session"];
+                };
+            };
+            /** @description Wrong code, or (problem `code` `second_factor_expired`) the pending sign-in is gone; start again */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -4310,6 +4639,173 @@ export interface operations {
         };
         responses: {
             /** @description Changed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            /** @description Too many attempts; `Retry-After` header set */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMyTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description State */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    startMyTotpSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpSetupRequest"];
+            };
+        };
+        responses: {
+            /** @description The pending secret */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpSetup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            /** @description Too many attempts; `Retry-After` header set */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    confirmMyTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpCode"];
+            };
+        };
+        responses: {
+            /** @description On. The recovery codes are shown only now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpRecoveryCodes"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            /** @description Too many attempts; `Retry-After` header set */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    regenerateMyRecoveryCodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpCode"];
+            };
+        };
+        responses: {
+            /** @description The new recovery codes, shown only now */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpRecoveryCodes"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            /** @description Too many attempts; `Retry-After` header set */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    disableMyTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpDisable"];
+            };
+        };
+        responses: {
+            /** @description Off */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -4953,6 +5449,29 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    resetUserTotp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     getUserPermissions: {
@@ -6294,6 +6813,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GoVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listHelmCharts: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Charts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelmChartPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listHelmVersions: {
+        parameters: {
+            query: {
+                /** @description Chart name */
+                chart: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelmVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];

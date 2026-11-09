@@ -24,6 +24,8 @@ export const useAuthStore = defineStore('auth', () => {
   const signedIn = computed(() => session.value !== null)
   /** The account holds a one-time password: the server allows only changing it (and signing out). */
   const mustChangePassword = computed(() => session.value?.must_change_password ?? false)
+  /** Policy requires two-factor sign-in for this account and it is not set up: the server allows only that. */
+  const totpSetupRequired = computed(() => session.value?.totp_setup_required ?? false)
 
   function can(capability: string): boolean {
     const caps = session.value?.capabilities ?? []
@@ -55,9 +57,25 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function login(username: string, password: string, provider?: string): Promise<void> {
-    adopt(await call(api.POST('/auth/login', { body: { username, password, ...(provider ? { provider } : {}) } })))
+  /** Password step. Resolves to 'signed-in', or 'second-factor' when the account has two-factor sign-in (the
+   * server then holds a pending sign-in for a few minutes; finish it with `loginSecondFactor`). */
+  async function login(username: string, password: string, provider?: string): Promise<'signed-in' | 'second-factor'> {
+    const result = await call(api.POST('/auth/login', { body: { username, password, ...(provider ? { provider } : {}) } }))
+    if ('second_factor' in result) return 'second-factor'
+    adopt(result)
     checked.value = true
+    return 'signed-in'
+  }
+
+  /** Second step: a code from the authenticator app or a recovery code. */
+  async function loginSecondFactor(code: string): Promise<void> {
+    adopt(await call(api.POST('/auth/login/totp', { body: { code } })))
+    checked.value = true
+  }
+
+  /** Reload the session (after enrolling a second factor, which clears `totp_setup_required`). */
+  async function refresh(): Promise<void> {
+    adopt(await call(api.GET('/auth/me')))
   }
 
   /** Sign out. Resolves to the identity provider's sign-out page when the session came from an OIDC provider with
@@ -82,7 +100,7 @@ export const useAuthStore = defineStore('auth', () => {
     adopt(null)
   }
 
-  return { session, checked, user, signedIn, mustChangePassword, can, ensureChecked, login, logout, changePassword, expire }
+  return { session, checked, user, signedIn, mustChangePassword, totpSetupRequired, can, ensureChecked, login, loginSecondFactor, refresh, logout, changePassword, expire }
 })
 
 if (import.meta.hot) import.meta.hot.accept(acceptHMRUpdate(useAuthStore, import.meta.hot))

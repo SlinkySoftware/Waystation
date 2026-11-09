@@ -10,11 +10,11 @@ export type FormFormat = M0Format | 'yum'
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'helm']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'go']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'go', 'helm']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
-export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'pypi']
+export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'pypi', 'helm']
 
 export interface RepoFormModel {
   name: string
@@ -103,6 +103,11 @@ export const PRESETS: Record<M0Format, Preset[]> = {
     { id: 'rpi', label: 'Raspberry Pi OS', apply: { name: 'raspberrypi', upstreamUrl: 'https://archive.raspberrypi.com/debian', distribution: 'trixie' } },
   ],
   raw: [{ id: 'github', label: 'GitHub releases', apply: { name: 'raw-github', upstreamUrl: 'https://github.com' } }],
+  helm: [
+    { id: 'prometheus', label: 'Prometheus community', apply: { name: 'prometheus-community', upstreamUrl: 'https://prometheus-community.github.io/helm-charts' } },
+    { id: 'jetstack', label: 'Jetstack (cert-manager)', apply: { name: 'jetstack', upstreamUrl: 'https://charts.jetstack.io' } },
+    { id: 'ingress-nginx', label: 'ingress-nginx', apply: { name: 'ingress-nginx', upstreamUrl: 'https://kubernetes.github.io/ingress-nginx' } },
+  ],
   maven: [
     { id: 'central', label: 'Maven Central', apply: { name: 'maven-central', upstreamUrl: 'https://repo.maven.apache.org/maven2/' } },
     { id: 'google', label: 'Google Maven', apply: { name: 'maven-google', upstreamUrl: 'https://maven.google.com/' } },
@@ -242,6 +247,8 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       }
     case 'yum':
       return { repo_path: m.repoPath, gpg_key: m.gpgKey }
+    case 'helm':
+      return {}
     case 'maven':
       return { version_policy: m.versionPolicy, layout_policy: m.layoutPolicy }
     case 'raw':

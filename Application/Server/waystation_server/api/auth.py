@@ -5,24 +5,27 @@ OpenAPI contract: ``UiConfig``, ``AuthProvider``, ``LoginRequest``, ``Session``,
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from waystation_common.errors import Forbidden, Unauthorized
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep, client_ip
-from waystation_server.audit import AuditAction
+from waystation_server.audit import AuditAction, Outcome
+from waystation_server.db import login_challenges as login_challenges_db
 from waystation_server.db import users as users_db
 from waystation_server.oidc_auth import login_url, logout_url
-from waystation_server.security import access
+from waystation_server.security import access, ratelimit, second_factor
 from waystation_server.security.authn import authenticate, current_session, principal_for, user_principal
 from waystation_server.security.identity import Preferences, SessionRecord, UserRecord
-from waystation_server.security.login import verify_login
+from waystation_server.security.login import WINDOW_S as LOGIN_WINDOW_S
+from waystation_server.security.login import count_failure, is_locked, verify_login
 from waystation_server.security.principal import AuthMethod
 from waystation_server.security.providers import ProviderKind
 from waystation_server.security.sessions import CSRF_HEADER, csrf_matches
@@ -86,6 +89,29 @@ class Session(BaseModel):
     must_change_password: bool = Field(
         description='The account holds a one-time password: change it (`POST /auth/me/password`) before anything else'
     )
+    totp_setup_required: bool = Field(
+        description='Two-factor sign-in is required for this account and not set up yet: enrol '
+        '(`POST /auth/me/totp/setup`, then `/confirm`) before anything else'
+    )
+
+
+class SecondFactorRequired(BaseModel):
+    second_factor: Literal['totp'] = Field(
+        description='The password was accepted; send a code from the authenticator app (or a recovery code) to '
+        '`POST /auth/login/totp`'
+    )
+    expires_at: datetime = Field(description='Until when the second step can be completed')
+
+
+class SecondFactorLogin(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    code: str = Field(
+        min_length=6,
+        max_length=32,
+        json_schema_extra={'writeOnly': True},
+        description='The 6-digit code from the authenticator app, or a recovery code (`xxxxx-xxxxx`)',
+    )
 
 
 def registry_host(base_url: str) -> str:
@@ -103,6 +129,7 @@ async def _session_body(svc: Services, user: UserRecord, record: SessionRecord) 
         preferences=user.preferences,
         expires_at=record.expires_at,
         must_change_password=user.must_change_password,
+        totp_setup_required=await second_factor.setup_required(svc, user, principal.grants),
     )
 
 
@@ -132,22 +159,9 @@ async def list_providers(svc: ServicesDep) -> list[AuthProvider]:
     return [AuthProvider(id='local', kind='local', name='Local account'), *external]
 
 
-@router.post(
-    '/auth/login',
-    response_model=Session,
-    operation_id='login',
-    responses={401: {'description': 'Bad credentials'}, 429: {'description': 'Too many attempts'}},
-)
-@access.public
-async def login(body: LoginRequest, request: Request, response: Response, svc: ServicesDep) -> Session:
-    user = await verify_login(
-        svc,
-        username=body.username,
-        password=body.password,
-        client_ip=client_ip(request),
-        provider=body.provider or None,
-        interactive=True,
-    )
+async def _open_session(
+    request: Request, response: Response, svc: Services, user: UserRecord, extra: dict[str, object] | None = None
+) -> Session:
     old = request.cookies.get('ws_session')
     if old:  # never keep a pre-login session (fixation)
         record = await svc.sessions.resolve(old)
@@ -162,9 +176,110 @@ async def login(body: LoginRequest, request: Request, response: Response, svc: S
         AuditAction.AUTH_LOGIN,
         actor=user_principal(user, AuthMethod.SESSION),
         target=audit.target('user', user.id, user.username),
-        details={'username': user.username, 'via': 'ui', 'provider': user.source},
+        details={'username': user.username, 'via': 'ui', 'provider': user.source, **(extra or {})},
     )
     return session
+
+
+@router.post(
+    '/auth/login',
+    response_model=Session,
+    operation_id='login',
+    responses={
+        202: {'model': SecondFactorRequired, 'description': 'Password accepted; the second factor is needed'},
+        401: {'description': 'Bad credentials'},
+        429: {'description': 'Too many attempts'},
+    },
+)
+@access.public
+async def login(body: LoginRequest, request: Request, response: Response, svc: ServicesDep) -> Session | JSONResponse:
+    user = await verify_login(
+        svc,
+        username=body.username,
+        password=body.password,
+        client_ip=client_ip(request),
+        provider=body.provider or None,
+        interactive=True,
+    )
+    if second_factor.enrolled(user):
+        challenge = await second_factor.start(svc, user, ip=client_ip(request))
+        pending = JSONResponse(
+            SecondFactorRequired(second_factor='totp', expires_at=challenge.expires_at).model_dump(mode='json'),
+            status_code=202,
+        )
+        pending.set_cookie(
+            second_factor.CHALLENGE_COOKIE,
+            challenge.token,
+            max_age=second_factor.CHALLENGE_TTL_S,
+            path=second_factor.CHALLENGE_PATH,
+            secure=svc.sessions.secure,
+            httponly=True,
+            samesite='strict',
+        )
+        return pending
+    return await _open_session(request, response, svc, user)
+
+
+class SecondFactorExpired(Unauthorized):
+    code = 'second_factor_expired'
+
+
+SECOND_FACTOR_FAILED = 'invalid code'
+
+
+@router.post(
+    '/auth/login/totp',
+    response_model=Session,
+    operation_id='loginSecondFactor',
+    responses={
+        401: {'description': 'Wrong code, or the pending sign-in expired (`code` `second_factor_expired`)'},
+        429: {'description': 'Too many attempts'},
+    },
+)
+@access.public  # the pending sign-in (HttpOnly, SameSite=Strict cookie) is checked here
+async def login_second_factor(
+    body: SecondFactorLogin, request: Request, response: Response, svc: ServicesDep
+) -> Session:
+    """Second sign-in step for accounts with two-factor sign-in: a TOTP code (each one works once) or a recovery
+    code (single use). Wrong codes count towards the account lockout; after a few the pending sign-in ends."""
+    ip = client_ip(request)
+    await ratelimit.check(svc.valkey, 'login', ip, limit=svc.settings.login_rate_limit, window_s=LOGIN_WINDOW_S)
+    challenge = await second_factor.pending(svc, request.cookies.get(second_factor.CHALLENGE_COOKIE))
+    if challenge is None:
+        raise SecondFactorExpired('the sign-in expired; enter your password again')
+    user = await users_db.get(svc.db, challenge.user_id)
+    now = datetime.now(UTC)
+    if user is None or user.disabled or is_locked(user, now) or not second_factor.enrolled(user):
+        await login_challenges_db.take(svc.db, challenge.id)
+        reason = 'disabled' if user is not None and user.disabled else 'locked' if user is not None else 'unknown_user'
+        _second_factor_failed(user, reason)
+        raise SecondFactorExpired('the sign-in expired; enter your password again')
+    method = await second_factor.verify(svc, user, body.code)
+    if method is None:
+        await count_failure(svc, user, 'second_factor')
+        attempts = await login_challenges_db.count_attempt(svc.db, challenge.id)
+        if attempts >= second_factor.MAX_ATTEMPTS:
+            await login_challenges_db.take(svc.db, challenge.id)
+        _second_factor_failed(user, 'bad_second_factor')
+        raise Unauthorized(SECOND_FACTOR_FAILED)
+    if not await login_challenges_db.take(svc.db, challenge.id):  # a concurrent request completed it
+        raise SecondFactorExpired('the sign-in expired; enter your password again')
+    await users_db.record_success(svc.db, user.id, now)
+    out = await _open_session(request, response, svc, user, {'second_factor': method})
+    response.delete_cookie(
+        second_factor.CHALLENGE_COOKIE, path=second_factor.CHALLENGE_PATH, secure=svc.sessions.secure, samesite='strict'
+    )
+    return out
+
+
+def _second_factor_failed(user: UserRecord | None, reason: str) -> None:
+    audit.record(
+        AuditAction.AUTH_LOGIN,
+        outcome=Outcome.FAILURE,
+        reason=reason,
+        target=audit.target('user', user.id if user else None, user.username if user else None),
+        details={'username': user.username if user else None, 'via': 'ui', 'step': 'second_factor'},
+    )
 
 
 def _require_csrf(request: Request, record: SessionRecord) -> None:
@@ -205,6 +320,7 @@ async def _signed_in(request: Request, svc: Services) -> tuple[UserRecord, Sessi
 @router.get('/auth/me', response_model=Session, operation_id='getMe')
 @access.authenticated
 @access.password_change_allowed
+@access.totp_setup_allowed
 async def me(request: Request, svc: ServicesDep) -> Session:
     user, record = await _signed_in(request, svc)
     return await _session_body(svc, user, record)

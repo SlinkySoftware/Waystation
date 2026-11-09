@@ -38,6 +38,7 @@
             <div><dt>{{ t('admin.detail.created') }}</dt><dd><TimeCell :value="user.created_at" /></dd></div>
             <div><dt>{{ t('admin.detail.lastLogin') }}</dt><dd><TimeCell :value="user.last_login" :placeholder="t('admin.users.neverSignedIn')" /></dd></div>
             <div v-if="user.source === 'local'"><dt>{{ t('admin.detail.password') }}</dt><dd>{{ user.has_password ? t('admin.detail.passwordSet') : t('admin.detail.passwordNone') }}</dd></div>
+            <div v-if="user.source === 'local' && user.has_password"><dt>{{ t('admin.detail.twoFactor') }}</dt><dd>{{ user.totp_enabled ? t('admin.detail.twoFactorOn') : t('admin.detail.twoFactorOff') }}</dd></div>
           </dl>
         </PageCard>
 
