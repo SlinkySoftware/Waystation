@@ -48,7 +48,10 @@ Counters also have the usual `_created` series (except with several server proce
 | `waystation_coalesce_total` | counter | `repo`, `event` | Request coalescing: `owner` (fetched for others), `solo` (fetched without Valkey coordination), `tail` (followed a fetch by streaming its file), `wait` (waited for its commit), `takeover` (took over from an owner that went away) |
 | `waystation_http_request_duration_seconds` | histogram | `route`, `method`, `status` | Server time of every HTTP request (format, REST API, health, token service) except the long-lived event stream. `route` is the matched route template (`/api/v1/repositories/{name}`, `/repository/{repo_name}/{path}`; `unmatched` for unknown paths), never the raw path; `method` is the HTTP method (`OTHER` for unusual ones); `status` is the class (`2xx`, `3xx`, `4xx`, `5xx`). Buckets 5 ms to 30 s. For format requests served by `X-Accel-Redirect` this is the server's part only (lookup and headers), not the transfer |
 | `waystation_upstream_autoblock_total` | counter | `repo`, `event` | Auto-block transitions seen by this process: `blocked` (after N consecutive failures), `reblocked` (a probe failed; the period doubled), `resumed` (the upstream answered again) |
-| `waystation_storage_refusals_total` | counter | none | Cache fills and uploads refused by the free-space guard (free space would drop below `WAYSTATION_MIN_FREE_GB`) |
+| `waystation_storage_refusals_total` | counter | none | Cache fills and uploads refused by the low-disk guard (free space would drop below its floor: Storage page or `PUT /api/v1/storage/guard`, default `WAYSTATION_MIN_FREE_GB`) |
+| `waystation_quota_refusals_total` | counter | `repo`, `kind` | Writes refused by a hard repository quota (T-O03): `upload` (refused with the format's error, docker `403 DENIED`) or `fill` (a proxy download served without being cached) |
+| `waystation_fills_not_stored_total` | counter | `repo`, `reason` | Proxy downloads served to the client without being cached: `quota` (hard quota reached) or `low_disk` (low-disk guard). Each one went to the upstream, so a rising rate means lost caching |
+| `waystation_quota_alerts_total` | counter | `repo`, `level` | Quota thresholds reached (announced once each in the activity feed): `80` (warning) and `100` (quota reached) |
 | `waystation_inflight_transfers` | gauge | none | Live transfers right now |
 | `waystation_sse_clients` | gauge | none | Connected event-stream clients (open UI pages) |
 
@@ -76,7 +79,11 @@ never `sum`.
 | `waystation_scheduler_leaders` | none | Live workers holding the scheduler lease (1 expected; 0 means scheduled jobs do not start) |
 | `waystation_blobstore_used_bytes`, `waystation_blobstore_blobs` | none | Bytes held by blobs (each stored once) and their number (MongoDB totals, refreshed at most every 30 s) |
 | `waystation_blobstore_free_bytes`, `waystation_blobstore_size_bytes` | none | Free and total bytes of the filesystem holding the data directory |
-| `waystation_blobstore_min_free_bytes` | none | The free-space guard (`WAYSTATION_MIN_FREE_GB` in bytes) |
+| `waystation_blobstore_min_free_bytes` | none | The low-disk guard's effective floor: the larger of its minimum free bytes and minimum free percent of the filesystem (default `WAYSTATION_MIN_FREE_GB` in bytes) |
+| `waystation_storage_low` | none | 1 while free space is below the low-disk guard: new cache fills are passed through uncached and uploads are refused (`507`); cached content is still served |
+| `waystation_repository_quota_bytes` | `repo`, `mode` | Per repository with a quota: the quota in bytes; `mode` is `soft` (warns) or `hard` (refuses new writes once reached) |
+| `waystation_repository_stored_bytes` | `repo` | Bytes the repository stores, counted against its quota (sum of its assets; a blob shared with other repositories counts in each) |
+| `waystation_repository_quota_used_ratio` | `repo` | Stored bytes / quota (1 = quota reached; above 1 is possible for soft quotas and after a quota was lowered) |
 | `waystation_cleanup_removed_items_total`, `waystation_cleanup_removed_bytes_total` | none | Counters: items (assets, docker tags and manifests) and asset bytes removed by cleanup policies (T-O01), all runs |
 | `waystation_gc_runs_total`, `waystation_gc_freed_blobs_total`, `waystation_gc_freed_bytes_total`, `waystation_gc_orphan_uploads_removed_total` | none | Counters: blob GC runs, blobs and bytes it freed, orphan upload files it removed (T-O02). Read from the Valkey hash `maintenance:totals`, so they survive server restarts and need no multi-process merge |
 | `waystation_metrics_source_up` | `source` | 1 when `valkey`, `mongodb` or `filesystem` answered while building the cluster figures, else 0 |
@@ -88,6 +95,9 @@ Derived figures used by the dashboard and the template:
   `waystation_upstream_state` does not, since one success resets it).
 - **Bandwidth saved** = `waystation_bytes_total{direction="out_cache"}`.
 - **Free space %** = `waystation_blobstore_free_bytes / waystation_blobstore_size_bytes`.
+- **Quota alerts**: `waystation_repository_quota_used_ratio >= 0.8` (warning) and `>= 1` (reached; with
+  `mode="hard"` new content is no longer cached or accepted), `increase(waystation_fills_not_stored_total[1h]) > 0`.
+  The activity feed carries the same events (`quota.warning`, `quota.exceeded`, `storage.low`, `storage.ok`).
 
 **Several server processes** (`WAYSTATION_SERVER_WORKERS` above 1): `python -m waystation_server` points
 `PROMETHEUS_MULTIPROC_DIR` at a fresh, empty directory on the server container's tmpfs (`/tmp/waystation-metrics`)
@@ -215,7 +225,6 @@ check yet.
 |---|---|
 | Docker Hub rate-limit reset time | Docker Hub reports only the window (`w=21600`), exported as `waystation_upstream_ratelimit_window_seconds` |
 | Job retries and failures per job kind | Job runs in MongoDB (`job_runs`); Tasks page planned (T-O04) |
-| Quota hits | Quotas are not built yet (T-O03) |
 | Sign-in failures and lockouts | Audit and logs |
-| Per-repository storage | `/api/v1/stats/storage` and the UI |
+| Per-repository storage | `/api/v1/stats/storage` and the UI (repositories with a quota: `waystation_repository_stored_bytes`) |
 | Process metrics (CPU, memory, open files) | Not exported; use container metrics |

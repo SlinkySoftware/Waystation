@@ -4,6 +4,7 @@
   <q-layout view="hHh Lpr lFf" class="shell">
     <q-header class="shell__header">
       <AppTopBar :rail-open="railOpen" @toggle-rail="toggleRail" @open-live="liveOpen = true" @open-palette="paletteOpen = true" />
+      <LowDiskBanner />
     </q-header>
 
     <q-drawer
@@ -49,6 +50,7 @@ import { useRoute } from 'vue-router'
 import AppRail from '@/components/shell/AppRail.vue'
 import AppTopBar from '@/components/shell/AppTopBar.vue'
 import LiveDrawer from '@/components/shell/LiveDrawer.vue'
+import LowDiskBanner from '@/components/shell/LowDiskBanner.vue'
 import { useLiveTopic } from '@/composables/useLiveTopic'
 import { t } from '@/i18n'
 import { iconMenu, iconMenuOpen } from '@/utils/icons'

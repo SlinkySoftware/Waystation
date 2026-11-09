@@ -15,13 +15,14 @@ import {
   iconInfo,
   iconLock,
   iconRepositories,
+  iconStorage,
   iconUpload,
   iconWarning,
 } from './icons'
 
 export type ActivityOutcome = ActivityEvent['outcome']
 
-export const ACTIVITY_KINDS: readonly ActivityKind[] = ['download', 'cache_miss', 'upload', 'delete', 'error', 'upstream_state', 'repository', 'cleanup', 'auth']
+export const ACTIVITY_KINDS: readonly ActivityKind[] = ['download', 'cache_miss', 'upload', 'delete', 'error', 'upstream_state', 'repository', 'cleanup', 'storage', 'auth']
 export const ACTIVITY_OUTCOMES: readonly ActivityOutcome[] = ['success', 'failure', 'info']
 export const ACTIVITY_CACHE_STATES: readonly CacheState[] = ['HIT', 'FETCHING', 'COALESCED', 'STALE', 'REVALIDATED', 'ERROR']
 const FORMAT_RE = /^[a-z]{2,16}$/
@@ -188,6 +189,8 @@ export function kindMeta(kind: ActivityKind): KindMeta {
       return { label: t('activity.kind.repository'), icon: iconRepositories }
     case 'cleanup':
       return { label: t('activity.kind.cleanup'), icon: iconCleanup }
+    case 'storage':
+      return { label: t('activity.kind.storage'), icon: iconStorage }
     case 'auth':
       return { label: t('activity.kind.auth'), icon: iconLock }
     default:

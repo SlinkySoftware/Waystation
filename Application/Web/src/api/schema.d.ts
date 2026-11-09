@@ -1136,6 +1136,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/import/nexus/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry run of an import from Nexus Repository 3 (nothing is written; needs `admin`)
+         * @description Reads the repository configuration of the Nexus at `url` through its REST API (basic auth with a Nexus
+         *     administrator; the credentials are used for this request only, never stored, logged or returned) and plans
+         *     every repository: `create` (with the repository it would create), `exists` (name taken; never changed;
+         *     field-level `differences`), `unsupported` or `invalid` (with the reason). Nexus errors (unreachable, refused
+         *     credentials, private address without `allow_private`) answer 502 with the reason in `detail`.
+         */
+        post: operations["previewNexusImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/import/nexus/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import repositories from Nexus Repository 3 (needs `admin`)
+         * @description Reads Nexus again (nothing is kept from a preview) and creates the selected `create` repositories (members
+         *     before groups), each audited as `repository.create`. Idempotent: names that exist by then are reported
+         *     `exists` and left alone.
+         */
+        post: operations["applyNexusImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cleanup-policies": {
         parameters: {
             query?: never;
@@ -1517,6 +1563,24 @@ export interface paths {
         /** Data directory usage and stored bytes by format and repository */
         get: operations["getStorage"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/storage/guard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The low-disk guard's settings and live state (any signed-in user; the UI shows a banner while it is tripped) */
+        get: operations["getStorageGuard"];
+        /** Change the low-disk guard (needs `settings-admin`; every replica applies it within seconds) */
+        put: operations["updateStorageGuard"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2517,6 +2581,56 @@ export interface components {
         };
         /** @description Format-specific options; the shape follows the repository's `format` */
         FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["PypiOptions"];
+        /**
+         * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
+         * @enum {string}
+         */
+        QuotaMode: "soft" | "hard";
+        /** @description Stored-bytes quota (proxy and hosted repositories). Usage counts every asset the repository holds; a blob shared with other repositories counts in each of them */
+        StorageConfig: {
+            /** @description Quota in bytes; null = no quota (group repositories: always null) */
+            quota_bytes?: number | null;
+            quota_mode?: components["schemas"]["QuotaMode"];
+        };
+        RepositoryQuota: {
+            quota_bytes: number;
+            mode: components["schemas"]["QuotaMode"];
+            /** @description Sum of the sizes of the assets the repository holds (shared blobs count) */
+            used_bytes: number;
+            /** @description used_bytes / quota_bytes (above 1 when over the quota) */
+            used_ratio: number;
+            /**
+             * @description `warning` from 80 %; `exceeded` at or over the quota (hard: new writes refused)
+             * @enum {string}
+             */
+            state: "ok" | "warning" | "exceeded";
+        };
+        StorageGuardSettings: {
+            /** @description Refuse new cache fills and uploads below this many free bytes */
+            min_free_bytes: number;
+            /**
+             * @description ... or below this percentage of the filesystem (the larger floor wins)
+             * @default 0
+             */
+            min_free_percent: number;
+        };
+        StorageGuard: {
+            min_free_bytes: number;
+            min_free_percent: number;
+            /** @description The effective floor: the larger of the two settings */
+            floor_bytes: number;
+            free_bytes: number;
+            total_bytes: number;
+            /** @description Free space is below the floor: new cache fills and uploads are refused */
+            low: boolean;
+            /**
+             * Format: date-time
+             * @description When the worker first reported low disk (null when it has not)
+             */
+            low_since?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
         RepositoryWrite: {
             name: components["schemas"]["RepositoryName"];
             format: components["schemas"]["Format"];
@@ -2527,6 +2641,7 @@ export interface components {
             proxy?: components["schemas"]["ProxyConfig"];
             hosted?: components["schemas"]["HostedConfig"];
             group?: components["schemas"]["GroupConfig"];
+            storage?: components["schemas"]["StorageConfig"];
             format_options?: components["schemas"]["FormatOptions"];
         };
         RepositorySummaryStats: {
@@ -2557,6 +2672,9 @@ export interface components {
             proxy?: components["schemas"]["ProxyConfig"];
             hosted?: components["schemas"]["HostedConfig"];
             group?: components["schemas"]["GroupConfig"];
+            storage?: components["schemas"]["StorageConfig"];
+            /** @description Stored bytes against the quota; null when the repository has no quota */
+            quota?: components["schemas"]["RepositoryQuota"] | null;
             format_options?: components["schemas"]["FormatOptions"];
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
@@ -2615,6 +2733,106 @@ export interface components {
             format: components["schemas"]["Format"];
             clients: components["schemas"]["SetupClient"][];
             notes?: string[];
+        };
+        NexusImportRequest: {
+            /**
+             * Format: uri
+             * @description Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+             */
+            url: string;
+            /** @description A Nexus administrator (reads the configuration) */
+            username: string;
+            /** Format: password */
+            password: string;
+            /**
+             * @description Allow a Nexus on a private or loopback address (SSRF guard exception)
+             * @default false
+             */
+            allow_private: boolean;
+            /** @description Extra CA certificates (PEM) trusted for the Nexus TLS certificate */
+            ca_pem?: string | null;
+            /**
+             * @description Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+             * @default true
+             */
+            docker_aliases: boolean;
+            /** @description Nexus docker repository to make the default docker repository; null = detect it */
+            default_docker_repo?: string | null;
+        };
+        NexusApplyRequest: {
+            /**
+             * Format: uri
+             * @description Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+             */
+            url: string;
+            /** @description A Nexus administrator (reads the configuration) */
+            username: string;
+            /** Format: password */
+            password: string;
+            /**
+             * @description Allow a Nexus on a private or loopback address (SSRF guard exception)
+             * @default false
+             */
+            allow_private: boolean;
+            /** @description Extra CA certificates (PEM) trusted for the Nexus TLS certificate */
+            ca_pem?: string | null;
+            /**
+             * @description Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+             * @default true
+             */
+            docker_aliases: boolean;
+            /** @description Nexus docker repository to make the default docker repository; null = detect it */
+            default_docker_repo?: string | null;
+            /** @description Names to import (from the preview); null = every repository the preview would create */
+            repositories?: string[] | null;
+        };
+        ImportDifference: {
+            /** @description Waystation field or Nexus setting */
+            field: string;
+            nexus: string | null;
+            waystation: string | null;
+            note: string;
+        };
+        /** @enum {string} */
+        NexusImportAction: "create" | "exists" | "unsupported" | "invalid";
+        /** @enum {string} */
+        NexusImportOutcome: "created" | "exists" | "unsupported" | "invalid" | "failed" | "not_selected";
+        NexusImportItem: {
+            name: string;
+            nexus_format: string;
+            nexus_type: string;
+            format: components["schemas"]["Format"] | null;
+            type: components["schemas"]["RepositoryType"] | null;
+            action: components["schemas"]["NexusImportAction"];
+            /** @description Apply only: what happened */
+            outcome: components["schemas"]["NexusImportOutcome"] | null;
+            reason: string | null;
+            /** @description The Waystation repository; created when `action` is `create`, for `exists` what the import would have created */
+            repository: components["schemas"]["RepositoryWrite"] | null;
+            differences: components["schemas"]["ImportDifference"][];
+            notes: string[];
+        };
+        DefaultDockerChoice: {
+            /** @description Repository that receives unprefixed docker names after the import */
+            name: string | null;
+            reason: string;
+        };
+        ImportSummary: {
+            total: number;
+            create: number;
+            exists: number;
+            unsupported: number;
+            invalid: number;
+            created: number;
+            failed: number;
+        };
+        NexusImportReport: {
+            applied: boolean;
+            /** @description From the Nexus `Server` header */
+            nexus_version: string | null;
+            items: components["schemas"]["NexusImportItem"][];
+            summary: components["schemas"]["ImportSummary"];
+            default_docker_repo: components["schemas"]["DefaultDockerChoice"] | null;
         };
         FolderEntry: {
             name: string;
@@ -3058,7 +3276,7 @@ export interface components {
             as_of: components["schemas"]["Timestamp"];
         };
         /** @enum {string} */
-        ActivityKind: "download" | "upload" | "delete" | "cache_miss" | "upstream_state" | "repository" | "cleanup" | "auth" | "error";
+        ActivityKind: "download" | "upload" | "delete" | "cache_miss" | "upstream_state" | "repository" | "cleanup" | "auth" | "error" | "storage";
         ActivityEvent: {
             /** @description Stream id; also the SSE `id:` */
             id: string;
@@ -3661,6 +3879,15 @@ export interface components {
         };
         /** @description Request body failed validation; `errors[]` has field-level detail */
         ValidationFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description A remote system the request depends on failed (the reason is in `detail`) */
+        BadGateway: {
             headers: {
                 [name: string]: unknown;
             };
@@ -5864,6 +6091,60 @@ export interface operations {
             422: components["responses"]["ValidationFailed"];
         };
     };
+    previewNexusImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NexusImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NexusImportReport"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            502: components["responses"]["BadGateway"];
+        };
+    };
+    applyNexusImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NexusApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description What happened to each repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NexusImportReport"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            502: components["responses"]["BadGateway"];
+        };
+    };
     listCleanupPolicies: {
         parameters: {
             query?: never;
@@ -6433,6 +6714,53 @@ export interface operations {
                     "application/json": components["schemas"]["StorageSummary"];
                 };
             };
+        };
+    };
+    getStorageGuard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Guard settings, free space and whether new writes are refused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageGuard"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    updateStorageGuard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StorageGuardSettings"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageGuard"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     listUpstreamHealth: {

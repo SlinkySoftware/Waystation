@@ -30,7 +30,14 @@ from datetime import UTC, datetime
 from starlette.responses import PlainTextResponse, Response
 
 from waystation_common.cleanup.versions import pep440_parts, pep440_sort_string
-from waystation_common.errors import DigestMismatch, NotFound, PayloadTooLarge, ValidationFailed, WaystationError
+from waystation_common.errors import (
+    DigestMismatch,
+    InsufficientStorage,
+    NotFound,
+    PayloadTooLarge,
+    ValidationFailed,
+    WaystationError,
+)
 from waystation_common.events import CacheState, EventType
 from waystation_common.storage import BlobWriter
 from waystation_server import audit
@@ -54,6 +61,7 @@ from waystation_server.formats.pypi.distmeta import CoreMetadata, read_distribut
 from waystation_server.formats.pypi.multipart import MultipartReader, boundary_of
 from waystation_server.hosted.store import UploadInterrupted
 from waystation_server.repos.model import RepoConfig, StoredHosted, WritePolicy
+from waystation_server.repos.quota import QuotaExceeded
 
 UPLOAD_EXTENSIONS = ('.whl', '.tar.gz', '.zip')
 MAX_INDEX = 1_000_000
@@ -125,11 +133,17 @@ class PypiHosted:
         if hosted.write_policy is WritePolicy.READ_ONLY:
             return pypi_error(403, 'this repository is read-only')
         received: _Received | None = None
+        length = req.request.headers.get('content-length')
         try:
+            await req.hosted.admit(req.repo, int(length) if length is not None and length.isdigit() else None)
             fields, received = await self._read(req)
             response = await self._store(req, hosted, fields, received)
         except Refused as exc:
             response = pypi_error(exc.status, exc.message)
+        except QuotaExceeded as exc:  # a hard repository quota (SPECIFICATION §4.8)
+            response = pypi_error(403, exc.detail)
+        except InsufficientStorage:  # the low-disk guard
+            response = pypi_error(507, 'not enough free space in the blob store')
         except (ValidationFailed, PayloadTooLarge, UploadInterrupted) as exc:  # bad form/archive, too big, cut off
             response = pypi_error(exc.status, exc.detail)
         finally:

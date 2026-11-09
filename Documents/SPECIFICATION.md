@@ -106,7 +106,8 @@ Windows containers support for the server.
   default, `disable_redeploy`, `read_only`) and immutable tag patterns, delete by tag, digest and unreferenced blob,
   the referrers API (with `artifactType` filter), `tags/list` and `/v2/_catalog` (filtered by RBAC). Pushes need
   `write`, deletes `delete`; pushed manifests and deletes are audited. The OCI distribution-spec conformance suite
-  passes (pull, push, content discovery, content management). Quotas are not enforced yet.
+  passes (pull, push, content discovery, content management). A hard quota (§4.8) refuses blob uploads, mounts and
+  manifest pushes with `403 DENIED` and a message naming the quota; the low-disk guard answers `507`.
 - PyPI (T-P5-PYPI): hosted repositories accept twine and `uv publish` (the legacy upload API, `POST` to the repository
   URL, multipart streamed into the blob store): wheels and sdists whose core metadata (read from the archive in a
   thread, bounded, zip/tar-slip checked) agrees with the file name and form, `sha256_digest` verified; a wheel's
@@ -116,7 +117,7 @@ Windows containers support for the server.
   `POST /api/v1/repositories/{name}/pypi/yank` (`write`). Uploads need `write`; uploads and yanks are audited.
 - Index generation for apt and yum hosted repos by workers, signed with a per-repo GPG key (key generated or
   imported; public key downloadable from the repo root and shown in "Set me up").
-- Quotas per repo (soft warn / hard block) on stored bytes.
+- Quotas per repo (soft warn / hard block) on stored bytes (§4.8).
 
 ### 4.3 Group repositories
 - Ordered members of the same format (proxy and hosted mixed). Reads resolve first match in order; metadata that
@@ -252,6 +253,29 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 - Docker: untagged manifest cleanup through cleanup policies; layer GC via blob GC.
 - Quotas per repo (§4.2) and a global low-disk guard (refuse new cache writes below a free-space threshold,
   keep serving hits, alert).
+  Now (T-O03):
+  - **Quota** per proxy or hosted repository (`storage{quota_bytes, quota_mode}` in the REST API and the repository
+    form; groups store nothing, so a quota on a group is a 422 field error). **Usage** is the sum of the sizes of the
+    repository's assets: a blob shared with other repositories counts in **each** of them (de-duplication saves disk,
+    not quota). It is counted incrementally on every asset write and delete (one `$inc` on `repo_usage`) and
+    recounted from `assets` every hour by the worker job `quota.reconcile`, which repairs drift. Repository views
+    carry `quota{quota_bytes, mode, used_bytes, used_ratio, state (ok / warning from 80 % / exceeded at 100 %)}`;
+    the repository list and detail show usage against the quota.
+  - Both modes announce reaching 80 % (`quota.warning`) and 100 % (`quota.exceeded`) once in the activity feed (kind
+    `storage`) and on `/metrics`; falling back below a threshold re-arms it. `soft` only warns. `hard` also refuses
+    new writes once the quota is reached (or when an upload's announced size would exceed it): hosted uploads get the
+    format's native error (docker: `403 DENIED`, "repository ... is over its quota"); proxy cache fills of content
+    are **served to the client without being stored** (verified against the expected digests and size like a normal
+    fill; response header `X-Ws-Not-Stored: quota`), so a client request never fails because of a quota. Metadata
+    (indexes and other small documents a repository needs to work) is still cached. Cached content is always
+    served, and deletes always work.
+  - **Low-disk guard**: `GET/PUT /api/v1/storage/guard` (`settings-admin` to change; audited `settings.update`):
+    `min_free_bytes` and `min_free_percent` (0-90) of the data filesystem; the floor is the larger of the two
+    (default `WAYSTATION_MIN_FREE_GB`). Below it the blob store refuses new writers: proxy fills (content and
+    metadata) are passed through uncached (`X-Ws-Not-Stored: low_disk`), uploads get `507`. Every server replica
+    picks up a change within 5 s. The worker job `storage.check` (every minute) announces `storage.low` /
+    `storage.ok` once per change; the UI shows a banner while the guard is tripped and the Storage page shows and
+    edits the guard.
 
 ### 4.9 Authentication
 - **Local** users (argon2id), optional TOTP 2FA (Phase 6).
@@ -481,9 +505,40 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   (`GET/DELETE /api/v1/users/{id}/sessions`, `user-admin`; not for a user holding more than the caller).
 - UI: Administration → Users (and a page per user), Groups, Roles (with Anonymous access), Auth providers, API tokens
   (with Service accounts), Audit log, Settings, System; each rail item shows only with the matching capability.
-- **Import from Nexus**: read a Nexus instance's repository list via its REST API and create equivalent repos
-  (names, formats, types, upstreams, docker routing); cached content is re-fetched on demand, hosted content
-  can be migrated by a worker job (Phase 6).
+- **Import from Nexus** (`admin`; REST `POST /api/v1/import/nexus/preview` and `/apply`; UI Repositories → "Import
+  from Nexus"): reads a Nexus Repository 3 configuration through its REST API (`/service/rest/v1/repositories`, then
+  `/service/rest/v1/repositories/<format>/<type>/<name>` per repository, `maven` for `maven2`; a repository without
+  a detail endpoint is mapped from its list entry) and creates equivalent repositories; cached content is re-fetched
+  on demand, hosted content can be migrated by a worker job (Phase 6).
+  - **Connection**: the administrator gives the Nexus base URL (http(s), no credentials in it) and a Nexus
+    administrator's username and password, sent as basic auth to that origin only, for that request only: never
+    stored, logged, audited or returned. The SSRF guard applies (a Nexus on a private or loopback address needs
+    `allow_private`), optional extra CA certificates (`ca_pem`), no redirects followed, bodies bounded (list 8 MiB,
+    detail 1 MiB, 1000 repositories, 120 s overall). Unreachable Nexus, refused credentials (401/403), a redirect or
+    a non-Nexus answer → 502 problem with the reason; a bad URL or CA bundle → 422 field errors.
+  - **Mapping**: same name (ADR 0003), format (`maven2` → `maven`; formats Waystation does not serve, or types it
+    does not offer yet, are `unsupported` with the reason), type, `online`; proxy `remoteUrl` → `upstream_url`,
+    `metadataMaxAge` (minutes) → `metadata_max_age_s` (-1 keeps the default), `contentMaxAge` → `content_max_age_s`
+    for raw (docker, npm, apt and yum content is checksum-verified and kept forever), negative cache (disabled = 0),
+    `autoBlock` → `auto_block.enabled`, a blocked Nexus repository → `offline`. Docker: index `HUB` (or a Docker Hub
+    remote) → `docker_hub`; the upstream host becomes an alias (`docker.io` for Docker Hub, `ghcr.io`, ...; option
+    `docker_aliases`, default on; an alias already routed or equal to a repository name is dropped); connector ports
+    and subdomains are reported, not imported. apt `distribution`/`flat`; raw `contentDisposition`; hosted
+    `writePolicy` and group members/writable member when this server has hosted/group repositories of that format.
+    Upstream credentials cannot be imported (Nexus never returns passwords): the repository is created without
+    authentication and the report says so. Settings without an equivalent (cleanup policies, routing rules, blob
+    stores, truststore use, connection tuning, signing keys, ...) are listed as differences.
+  - **Default docker repository**: the one named in the request (`default_docker_repo`), else the Docker Hub proxy
+    behind a Nexus connector (directly, or the first Docker Hub member of a connector group), else the only Docker
+    Hub proxy; never changed when Waystation already has one.
+  - **Preview** (dry run, writes nothing): per Nexus repository `create` (with the exact repository it creates,
+    checked by the same validation as the repositories API), `exists` (a repository with that name exists,
+    case-insensitively: never changed; field-level differences against it), `unsupported` or `invalid` (with the
+    reason); field-level `differences` (setting, Nexus value, Waystation value, why) and notes on every item.
+  - **Apply** reads Nexus again (nothing is kept between the two calls), creates the selected `create` items
+    (all by default) members before groups, each audited as `repository.create` with `details.source`
+    `nexus_import`, and reports each outcome (`created`, `exists`, `failed` with the field errors, `not_selected`,
+    ...). Idempotent: a name that exists by then is reported `exists` and left alone.
 - Webhooks (Phase 6): on push/publish/delete, signed payloads.
 
 ## 5. Non-functional requirements
@@ -640,7 +695,9 @@ See §5.5. `/metrics` on the server exports two kinds of metric (the full list w
   cache}`, `waystation_bytes_total{repo,direction}`, `waystation_upstream_latency_seconds{repo}` (histogram),
   `waystation_coalesce_total{repo,event}`, `waystation_http_request_duration_seconds{route,method,status}` (histogram
   of every HTTP request except the event stream; `route` is the matched route template, `status` the class `2xx`...),
-  `waystation_storage_refusals_total` (writes refused by the free-space guard), and the gauges
+  `waystation_storage_refusals_total` (writes refused by the low-disk guard), `waystation_quota_refusals_total{repo,
+  kind}` (writes refused by a hard quota: `upload` or `fill`), `waystation_fills_not_stored_total{repo,reason}` (proxy
+  downloads served without being cached: `quota`, `low_disk`), `waystation_quota_alerts_total{repo,level}`, and the gauges
   `waystation_inflight_transfers` and `waystation_sse_clients`. With `WAYSTATION_SERVER_WORKERS > 1` the processes
   share them through `PROMETHEUS_MULTIPROC_DIR` (a fresh directory on the server's tmpfs) and every scrape returns
   the sum over all processes.
@@ -650,14 +707,17 @@ See §5.5. `/metrics` on the server exports two kinds of metric (the full list w
   `waystation_upstream_consecutive_failures{repo}`, `waystation_upstream_ratelimit_{limit,remaining,window_seconds,
   updated_timestamp_seconds}{repo}`, `waystation_jobs_{waiting,running,delayed,oldest_waiting_seconds}{queue}`,
   `waystation_jobs_dead_letters`, `waystation_workers`, `waystation_scheduler_leaders`,
-  `waystation_blobstore_{used_bytes,blobs,free_bytes,size_bytes,min_free_bytes}`, and the cleanup and blob GC
+  `waystation_blobstore_{used_bytes,blobs,free_bytes,size_bytes,min_free_bytes}` (`min_free_bytes` = the low-disk
+  guard's effective floor), `waystation_storage_low` (1 while the guard is tripped), per repository with a quota
+  `waystation_repository_quota_bytes{repo,mode}`, `waystation_repository_stored_bytes{repo}` and
+  `waystation_repository_quota_used_ratio{repo}`, and the cleanup and blob GC
   running totals `waystation_cleanup_removed_{items,bytes}_total`, `waystation_gc_{runs,freed_blobs,freed_bytes,
   orphan_uploads_removed}_total` (counters, from the Valkey hash `maintenance:totals` the workers write). Every server
   process and replica reports the same values (aggregate with `max`).
 
 The Grafana dashboard (`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) cover all
 of them plus `/healthz` and `/readyz` (low-disk, guard, workers, scheduler, job age, dead letters, upstream state and
-rate limit, API latency triggers). Not exported yet: process CPU/memory, sign-in failures, quota hits.
+rate limit, API latency triggers). Not exported yet: process CPU/memory, sign-in failures.
 
 ## 11. Testing strategy
 - Unit tests next to code (pytest, Vitest). Property-based tests (hypothesis) for path normalisation, version
@@ -758,7 +818,7 @@ Waystation/
 | Browse UI (T-U05 min) | M0 slice 2026-11-08 (built on mocks, now on the real API, T-S09 min): docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour of the real server (both themes, desktop + mobile): `Documents/Notes/UI_TOUR_M0.md` |
 | Browse API (T-S09 min) | M0 slice 2026-11-08: generic folder listing of cached assets for every format, npm packages/versions, apt suites/packages, docker images/tags/manifest, to the M0 contract; indexing in the background after cache fills (`npm_packages`, `apt_packages`, `docker_tags`/`docker_manifests`); every browse query index-backed (explain test); the raw, npm, apt and docker real-client harness runs check it. Components, `version_sort`, download counters and "where used" pending
 | Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
-| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. 2026-11-09: auto-block with exponential backoff, probes and automatic resume (shared across replicas), per-repo CA bundle and HTTP proxy (SSRF guard still applied through the proxy), all exposed in the repository form and upstream health. Pending: pass-through when the free-space guard trips, continuing a fill after its client disconnects; used by every proxy format |
+| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. 2026-11-09: auto-block with exponential backoff, probes and automatic resume (shared across replicas), per-repo CA bundle and HTTP proxy (SSRF guard still applied through the proxy), all exposed in the repository form and upstream health. 2026-11-10 (T-O03): fills the low-disk guard or a hard quota refuses are passed through to the client verified and uncached (followers fetch on their own). Pending: continuing a fill after its client disconnects; used by every proxy format |
 | Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Lease renewal independent of `fdatasync` (2026-11-09 fix for a second fetch under disk load). Followers on a second host against NFS not covered by CI yet |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
 | Activity and Storage pages (T-U07) | 2026-11-09: Activity page (live tail with pause and scroll-hold, filters in the URL incl. user, cache state, outcome and time window, history paging, detail drawer, CSV export through the new streaming `/activity/export`); Storage page (stored/free/de-duplication/blob KPIs, data volume bar, by-format donut, largest repositories, sortable repository table). Storage growth, largest artifacts, per-repository de-duplication and GC status pending |
@@ -767,7 +827,7 @@ Waystation/
 | apt format (T-P2-APT) | M0 slice 2026-11-08: apt proxy repositories pass `InRelease`/`Release` through untouched, serve index files only by the SHA256 the cached `Release` lists (by-hash fetch, one `Release` revalidation on mismatch, then 502), accept self-validating `by-hash` paths, index cached `Packages` files into `apt_pool_index` and validate pool files against it (or record them `unverified`); several suites per repository. apt on Debian 13 and Ubuntu 26.04 passes the real-client harness in replay (`*-updates` and `*-security` suites). Hosted, Raspberry Pi OS / arm64 clients and worker-side re-verification pending |
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | PyPI (T-P5-PYPI) | Done 2026-11-10: proxy (PEP 503 HTML and PEP 691 JSON pages negotiated by `Accept` and cached per representation, normalised-name and trailing-slash redirects, file URLs rewritten into the repository with hashes, requires-python, yanked and core-metadata kept; files and PEP 658 `.metadata` files verified against the page's hashes before they are cached; legacy JSON API pass-through), hosted (twine / `uv publish` upload API streamed into the blob store, metadata read from wheels and sdists in a thread with zip/tar-slip checks, write policy, `.metadata` for wheels, yank API), group (merged pages, files from members, uploads to the writable member); browse (`pypi/projects`, `pypi/versions`) and search on `pypi_packages`; PEP 440 version order for cleanup; UI create flow, options, browse with yank, "Set me up" (pip, uv, Poetry, PDM, twine, uv publish). Harness: pip 26, uv 0.13, twine 7 against recorded pypi.org fixtures. Poetry/PDM harness runs pending |
-| Docker hosted (T-P2-DOCKERH) | Done 2026-11-09: docker hosted repositories (REST/UI type `hosted` with write policy and immutable tag patterns): chunked/monolithic/resumable uploads into the blob store (sha256-verified, `upload_sessions`), cross-repository mounts with RBAC on the source, manifest validation, tags with immutability, deletes, referrers API, `tags/list`, `/v2/_catalog` for proxies and hosted (RBAC-filtered), audit `content.upload`/`content.delete`, live upload transfers, browse of pushed images, "Set me up" for push/buildx/crane/oras/cosign. docker push and buildx multi-platform, skopeo, crane, oras and cosign 3 (offline, signatures via referrers) pass the client harness, and so does the OCI distribution-spec conformance suite v1.1.1. Quotas pending |
+| Docker hosted (T-P2-DOCKERH) | Done 2026-11-09: docker hosted repositories (REST/UI type `hosted` with write policy and immutable tag patterns): chunked/monolithic/resumable uploads into the blob store (sha256-verified, `upload_sessions`), cross-repository mounts with RBAC on the source, manifest validation, tags with immutability, deletes, referrers API, `tags/list`, `/v2/_catalog` for proxies and hosted (RBAC-filtered), audit `content.upload`/`content.delete`, live upload transfers, browse of pushed images, "Set me up" for push/buildx/crane/oras/cosign. docker push and buildx multi-platform, skopeo, crane, oras and cosign 3 (offline, signatures via referrers) pass the client harness, and so does the OCI distribution-spec conformance suite v1.1.1. Quotas (T-O03): hard quotas refuse pushes with `403 DENIED` |
 | Docker group (T-P2-DOCKERG) | Done 2026-11-09: docker group repositories (REST/UI type `group`: ordered members, optional hosted writable member): reads in member order, blobs from any member's copy first, merged tags and referrers, pushes/uploads/deletes to the writable member with RBAC on it, read-only groups `405`; client harness push through a group, member order and merged tags; the OCI conformance suite passes through a group as well |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted and `_catalog` since T-P2-DOCKERH, groups since T-P2-DOCKERG; referrers for proxies and podman/containerd harness runs pending |
 | Deployment docs (T-M03) | 2026-11-09: `Operations/DEPLOYMENT.md` (single-host compose as it works today, env reference, TLS options, scaling status, manual backups, upgrades) and `Operations/REVERSE_PROXIES.md` (nginx, Traefik labels + file provider, Caddy, HAProxy, Synology DSM) with example files checked in containers by `make proxies-check`. `BACKUP.md` waits for T-O07 |
@@ -778,8 +838,10 @@ Waystation/
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
 | Cleanup policies (T-O01) | Done 2026-11-09: named policies (criteria per SPEC §4.8, per-format version order, docker tag cascade), dry-run preview API (same planning code as runs), `cleanup.run` worker job with progress, per-policy cron schedules, attachment per repository, REST + UI (`/cleanup` page with live impact count, candidate preview and run history; repository Cleanup tab); downloads recorded off the hot path into `assets.last_downloaded_at`/`download_count`. Audit records pending (T-S10) |
 | Blob GC (T-O02) | Done 2026-11-09: `blob.gc` worker job (every 6 h, 24 h grace): orphan uploads, adoption of untracked files, mark-and-sweep with a claim protocol that makes a racing cache fill safe (property test + real fill-vs-sweep race test), missing referenced blobs reported; GC status/run API and UI card; freed bytes as activity events and Prometheus counters (`waystation_gc_*`, `waystation_cleanup_*`) |
+| Quotas and low-disk guard (T-O03) | Done 2026-11-10: per-repository quotas (soft warns, hard refuses new writes) on stored asset bytes (`repo_usage`, incremental + hourly `quota.reconcile`; shared blobs count in each repository), 80 %/100 % alerts in the activity feed and on `/metrics`, docker hosted pushes refused with `403 DENIED`, proxy fills over quota or below the low-disk floor served verified and uncached; low-disk guard settings API (`/api/v1/storage/guard`, bytes and percent), `storage.check` alerts, UI form section, usage meters, shell banner and Storage page card; client harness pushes to a hard-quota docker hosted repository. Pending: Grafana/Zabbix panels for the quota metrics |
 | Tasks and workers (T-O04) | Done 2026-11-09: REST `/api/v1/tasks/*` (admin): scheduled tasks with last/next run, schedule edit (validated cron/macro/`@every` ≥ 10 s; restarts the timer; cleanup-policy schedules stay with the policy) and pause/resume, run now; job runs with filters, keyset cursor and detail with the capped log (`trigger` schedule/manual/retry on runs); workers (heartbeat health, running jobs with run ids, leader) and queue figures; dead letters with atomic, idempotent retry (`jobs:dead:retried`) and discard; all changes audited (`task.*`). Live: the worker publishes `job.progress`/`job.log` on `live:jobs`; SSE topic `tasks` (admin only) carries those plus `job.update`/`worker.update`. UI `/tasks`: summary strip, tabs Scheduled / Runs / Workers / Dead letters, schedule dialog, run drawer with live log viewer, mobile cards; contract + MSW mock job system with live events; Vitest + API integration tests. Later: GC grace/parameter editor, retry-all, per-kind retry metrics (T-O06) |
 | Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Left: substring matching, the 1M-asset p95 benchmark |
+| Import from Nexus (T-M01) | 2026-11-09: `POST /api/v1/import/nexus/preview` (dry run) and `/apply` (admin): reads a Nexus 3 configuration over its REST API (SSRF-guarded, optional CA bundle, bounded; credentials used per request, never stored or logged), maps names, formats, types, upstreams, ages, negative cache, auto-block, docker Hub/aliases/default repository, apt distribution, raw disposition, hosted write policy and group members (where Waystation has those types), reports create / exists / unsupported / invalid with field-level differences, applies the selection idempotently with a `repository.create` audit record per repository; UI page Repositories → "Import from Nexus" (connect, plan table with differences, selection, apply), MSW mocks. Tested against hand-written Nexus 3 REST fixtures (`Application/Server/tests/fixtures/nexus3`); not yet against a live Nexus 3 container |
 | Administration UI (T-U08) | Done 2026-11-09: Users (list, filters, keyset paging, create/edit, reset password, unlock, disable, sign out everywhere, delete) and a page per user (identities, groups, effective permissions, sessions, tokens); Groups (local + members, mapped roles); Roles (permission matrix editor, held by) and Anonymous access; API tokens (all tokens, revoke) and Service accounts (tokens shown once, permissions); Settings (instance name, docker default repository, environment limits); System (version, MongoDB/Valkey health, data volume). New API `GET/DELETE /users/{id}/sessions`, `GET/PUT /settings`, `GET /system`; MSW mocks for every admin endpoint. Editable retention and UI defaults, support bundle (T-O10) pending |
 | Everything else | Not started |
 | M0 feedback build (T-V02) | Done 2026-11-09, tagged `v0.1.0-m0`: `make e2e-m0` runs real docker, npm, apt (Debian 13) and raw clients through a running stack and checks the live stream, stats, activity and browse; `Documents/Operations/TRY_IT.md` (fresh host from images and an env file); real-server screenshot tour `Documents/Notes/UI_TOUR_M0.md`; feedback log `Documents/Notes/UI_FEEDBACK.md` |

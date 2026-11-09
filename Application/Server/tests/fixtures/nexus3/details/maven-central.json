@@ -1,0 +1,40 @@
+{
+  "name": "maven-central",
+  "format": "maven2",
+  "type": "proxy",
+  "url": "https://nexus.example.com/repository/maven-central",
+  "online": true,
+  "storage": {
+    "blobStoreName": "default",
+    "strictContentTypeValidation": true
+  },
+  "cleanup": null,
+  "proxy": {
+    "remoteUrl": "https://repo.maven.apache.org/maven2/",
+    "contentMaxAge": -1,
+    "metadataMaxAge": 1440
+  },
+  "negativeCache": {
+    "enabled": true,
+    "timeToLive": 1440
+  },
+  "httpClient": {
+    "blocked": false,
+    "autoBlock": true,
+    "connection": {
+      "retries": null,
+      "userAgentSuffix": null,
+      "timeout": null,
+      "enableCircularRedirects": false,
+      "enableCookies": false,
+      "useTrustStore": false
+    },
+    "authentication": null
+  },
+  "routingRuleName": null,
+  "maven": {
+    "versionPolicy": "RELEASE",
+    "layoutPolicy": "STRICT",
+    "contentDisposition": "INLINE"
+  }
+}
