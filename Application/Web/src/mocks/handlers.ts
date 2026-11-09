@@ -88,8 +88,24 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!NAME_RE.test(body.name ?? '')) errors.push({ field: 'name', message: 'Use 2-63 letters, digits, dots, dashes or underscores, starting with a letter or digit.', code: 'pattern' })
     else if (world.repos.some((r) => r.name.toLowerCase() === body.name.toLowerCase())) errors.push({ field: 'name', message: 'A repository with this name already exists.', code: 'taken' })
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
-    if (body.type !== 'proxy') errors.push({ field: 'type', message: 'Only proxy repositories are available in this build.', code: 'unsupported' })
+    if (body.type === 'group' || (body.type === 'hosted' && body.format !== 'docker')) {
+      errors.push({ field: 'type', message: body.type === 'hosted' ? 'docker supports: hosted, proxy' : 'Group repositories are not available in this build.', code: 'unsupported' })
+    }
   }
+  if (body.type === 'hosted') {
+    if (body.proxy) errors.push({ field: 'proxy', message: 'only proxy repositories have an upstream', code: 'invalid' })
+    ;(body.hosted?.immutable_tag_patterns ?? []).forEach((pattern, i) => {
+      try {
+        new RegExp(pattern)
+      } catch {
+        errors.push({ field: `hosted.immutable_tag_patterns.${i}`, message: `not a regular expression: ${pattern}`, code: 'format' })
+      }
+    })
+    const opts = (body.format_options ?? {}) as { aliases?: string[]; docker_hub?: boolean }
+    if (opts.aliases?.length) errors.push({ field: 'format_options.aliases', message: 'upstream aliases are for proxy repositories', code: 'invalid' })
+    return errors
+  }
+  if (body.hosted) errors.push({ field: 'hosted', message: 'only hosted repositories have a write policy', code: 'invalid' })
   const url = body.proxy?.upstream_url?.trim() ?? ''
   if (!url) errors.push({ field: 'proxy.upstream_url', message: 'Enter the upstream URL.', code: 'required' })
   else {
@@ -136,6 +152,7 @@ function toRepository(body: RepositoryWrite, existing?: Repository): Repository 
     status: !body.online || body.proxy?.offline ? 'offline' : existing?.status === 'offline' ? 'ok' : (existing?.status ?? 'ok'),
     url: `${BASE_URL}/repository/${existing?.name ?? body.name}/`,
     proxy,
+    hosted: (existing?.type ?? body.type) === 'hosted' ? { write_policy: body.hosted?.write_policy ?? 'allow_redeploy', immutable_tag_patterns: body.hosted?.immutable_tag_patterns ?? [] } : undefined,
     format_options: body.format_options,
     created_at: existing?.created_at ?? now,
     updated_at: now,

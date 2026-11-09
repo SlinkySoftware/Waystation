@@ -14,7 +14,12 @@
       </div>
     </div>
     <div class="xfer__cache" role="cell">
-      <CacheBadge :state="transfer.cache" :followers="transfer.followers ?? 0" />
+      <span v-if="transfer.direction === 'upload' && transfer.cache !== 'ERROR'" class="ws-badge xfer__upload tone-ok">
+        <q-icon :name="iconUpload" />
+        <span>{{ t('live.upload') }}</span>
+        <q-tooltip>{{ t('live.uploadHint') }}</q-tooltip>
+      </span>
+      <CacheBadge v-else :state="transfer.cache" :followers="transfer.followers ?? 0" />
     </div>
     <div class="xfer__progress" role="cell">
       <div class="xfer__bar" :class="`xfer__bar--${barTone}`" role="progressbar" :aria-valuenow="Math.round(pct)" aria-valuemin="0" aria-valuemax="100" :aria-label="t('live.progress')">
@@ -42,6 +47,7 @@ import { t } from '@/i18n'
 import type { LiveTransfer } from '@/stores/live'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { etaSeconds, formatBytes, formatDuration, formatLatency, formatRate, truncateMiddle } from '@/utils/format'
+import { iconUpload } from '@/utils/icons'
 
 const props = withDefaults(defineProps<{ transfer: LiveTransfer; compact?: boolean }>(), { compact: false })
 
@@ -57,6 +63,7 @@ const pct = computed(() => {
 const barTone = computed(() => {
   const t = props.transfer
   if (t.state === 'failed' || t.cache === 'ERROR') return 'error'
+  if (t.direction === 'upload') return 'hit'
   if (t.cache === 'FETCHING' || t.cache === 'COALESCED') return 'miss'
   if (t.cache === 'STALE') return 'stale'
   return 'hit'
@@ -218,6 +225,13 @@ const eta = computed(() => {
 
 .xfer--compact .xfer__main {
   grid-area: main;
+}
+
+.xfer__upload {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  height: 20px;
+  padding: 0 7px;
 }
 
 .xfer--compact .xfer__cache {

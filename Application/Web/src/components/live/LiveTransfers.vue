@@ -119,8 +119,9 @@ const ordered = computed(() => {
 const visible = computed(() => ordered.value.slice(0, props.maxRows))
 const hidden = computed(() => Math.max(0, ordered.value.length - props.maxRows))
 const activeCount = computed(() => source.value.filter((x) => x.state === 'active').length)
-const outRate = computed(() => source.value.filter((x) => x.state === 'active').reduce((a, x) => a + x.rate_bps, 0))
-const upstreamRate = computed(() => source.value.filter((x) => x.state === 'active' && x.cache === 'FETCHING').reduce((a, x) => a + x.rate_bps, 0))
+// Uploads (hosted pushes) flow into the server: neither "to clients" nor "from upstream".
+const outRate = computed(() => source.value.filter((x) => x.state === 'active' && x.direction !== 'upload').reduce((a, x) => a + x.rate_bps, 0))
+const upstreamRate = computed(() => source.value.filter((x) => x.state === 'active' && x.direction !== 'upload' && x.cache === 'FETCHING').reduce((a, x) => a + x.rate_bps, 0))
 
 function togglePause(): void {
   if (!paused.value) frozen.value = live.transfers

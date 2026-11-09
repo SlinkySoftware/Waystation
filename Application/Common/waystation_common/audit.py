@@ -132,8 +132,6 @@ PENDING: dict[AuditAction, str] = {
     A.ROLE_CREATE: 'T-S03',
     A.ROLE_UPDATE: 'T-S03',
     A.ROLE_DELETE: 'T-S03',
-    A.CONTENT_UPLOAD: 'T-P5 (hosted repositories)',
-    A.CONTENT_DELETE: 'T-P5 (hosted repositories)',
     A.CLEANUP_RUN: 'T-O01',
     A.SETTINGS_UPDATE: 'T-U08 (settings API)',
 }

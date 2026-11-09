@@ -13,6 +13,7 @@ import asyncio
 import base64
 import csv
 import dataclasses
+import hashlib
 import io
 import json
 import secrets
@@ -296,6 +297,45 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     assert len(docker_logins) == 1
     assert docker_logins[0]['principal']['auth'] == 'basic'
     await rec.expect(A.AUTH_LOGIN, outcome='failure', **{'details.via': 'docker'})
+
+    # --- uploads and deletes on a hosted repository (docker push of a manifest, delete of its tag)
+    hosted = {'name': 'images', 'format': 'docker', 'type': 'hosted', 'online': True}
+    assert (await admin.post(f'{api}/repositories', json=hosted)).status_code == 201
+    config = b'{"os":"linux","architecture":"amd64"}'
+    config_digest = 'sha256:' + hashlib.sha256(config).hexdigest()
+    image_manifest = json.dumps(
+        {
+            'schemaVersion': 2,
+            'mediaType': 'application/vnd.oci.image.manifest.v1+json',
+            'config': {
+                'mediaType': 'application/vnd.oci.image.config.v1+json',
+                'digest': config_digest,
+                'size': len(config),
+            },
+            'layers': [],
+        }
+    ).encode()
+    async with asgi_client(services) as docker:
+        issued = await docker.get(
+            '/auth/token',
+            params={'service': 'registry.example.com', 'scope': 'repository:images/app:pull,push,delete'},
+            headers=basic('admin', PASSWORD),
+        )
+        auth = {'Authorization': f'Bearer {issued.json()["token"]}'}
+        blob = await docker.post('/v2/images/app/blobs/uploads/', params={'digest': config_digest}, content=config, headers=auth)
+        assert blob.status_code == 201, blob.text
+        pushed = await docker.put(
+            '/v2/images/app/manifests/1.0',
+            content=image_manifest,
+            headers={'Content-Type': 'application/vnd.oci.image.manifest.v1+json', **auth},
+        )
+        assert pushed.status_code == 201, pushed.text
+        assert (await docker.delete('/v2/images/app/manifests/1.0', headers=auth)).status_code == 202
+    upload = await rec.expect(A.CONTENT_UPLOAD, **{'target.name': 'images/app:1.0'})
+    assert upload['principal']['auth'] == 'registry_token'
+    assert upload['details']['digest'] == pushed.headers['docker-content-digest']
+    deleted = await rec.expect(A.CONTENT_DELETE, **{'target.name': 'images/app:1.0'})
+    assert deleted['target']['kind'] == 'docker_tag'
 
     # --- external identities: provisioning, linking, group sync (the code path every provider uses)
     ctx = audit.bind({'client_ip': '203.0.113.9'}, SimpleNamespace(state=SimpleNamespace(services=services)))
