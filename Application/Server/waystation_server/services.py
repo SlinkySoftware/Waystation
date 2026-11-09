@@ -125,7 +125,7 @@ class Services:
         storage = StorageStats(db, settings.data_dir)
         quotas = Quotas(db, emitter, metrics)
         jobs = JobClient(redis, db)
-        catalog = RepoCatalog(load)
+        catalog = RepoCatalog(load, watcher=lambda opened: repos_db.watch(db, opened))
         rbac = RbacState(db, redis)
 
         async def visible(principal: Principal) -> set[str]:
@@ -231,6 +231,7 @@ class Services:
         self.audit.start()
         self.webhooks.start()
         await self.proxy.coalescer.start()
+        self.catalog.start()
         self.tokens.start()
         self.rbac.on_change.append(self.tokens.clear)  # resolved token principals carry materialised grants
         self.rbac.start()
@@ -249,6 +250,7 @@ class Services:
         await self.hub.stop()
         await self.proxy.coalescer.aclose()
         await self.tokens.stop()
+        await self.catalog.stop()
         await self.rbac.stop()
         await self.webhooks.aclose()
         await self.audit.aclose()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Callable
+
 from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db import usage as usage_db
@@ -42,6 +44,18 @@ CONTENT_COLLECTIONS = (
 @read_retry
 async def list_all(db: Database) -> list[RepoConfig]:
     return [RepoConfig.model_validate(doc) async for doc in db[REPOSITORIES].find({})]
+
+
+async def watch(db: Database, opened: Callable[[], None] | None = None) -> AsyncIterator[str]:
+    """Yield the operation type of every change to ``repositories`` (MongoDB change stream; needs a replica set, which
+    every deployment runs). Only the event header is read, never the document. ``opened`` is called once the stream
+    is open."""
+    pipeline = [{'$project': {'operationType': 1}}]
+    async with await db[REPOSITORIES].watch(pipeline) as stream:
+        if opened is not None:
+            opened()
+        async for change in stream:
+            yield str(change.get('operationType', ''))
 
 
 async def get_by_name_ci(db: Database, name: str) -> RepoConfig | None:

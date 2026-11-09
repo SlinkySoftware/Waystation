@@ -52,7 +52,7 @@ async def resolve_docker(services: Services, name_path: str) -> DockerRoute | No
     """Resolve ``/v2/<name_path>`` to a docker repository (SPECIFICATION §4.4)."""
     first, _, rest = name_path.partition('/')
     if rest:
-        repo = await services.catalog.get(first)
+        repo = await services.catalog.get(first, reload_on_miss=True)  # created a moment ago on another process
         if repo is not None and repo.format == 'docker':
             return DockerRoute(repo, rest)
         repo = await services.catalog.docker_alias(first)
@@ -111,7 +111,7 @@ async def _dispatch(
 @access.handler_checked
 async def repository(request: Request, repo_name: str, path: str = '') -> Response:
     services = services_of(request)
-    repo = await services.catalog.get(repo_name)
+    repo = await services.catalog.get(repo_name, reload_on_miss=True)
     if repo is None:
         return native_error(404, 'Not Found')
     try:
