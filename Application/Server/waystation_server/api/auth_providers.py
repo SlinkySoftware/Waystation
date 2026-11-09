@@ -1,4 +1,4 @@
-"""``/api/v1/auth-providers`` (external sign-in providers: CRUD, test connection, test user) and ``/api/v1/roles``.
+"""``/api/v1/auth-providers`` (external sign-in providers: CRUD, test connection, test user).
 
 Needs ``settings-admin`` (``admin`` implies it). Validation errors are 422 field errors with dotted paths into the
 body (``ldap.connection.servers.1``, ``group_mapping.0.roles``); a name already used by another provider is 409.
@@ -37,6 +37,7 @@ from waystation_server.security import oidc as oidc_mod
 from waystation_server.security.access import Action
 from waystation_server.security.authn import authenticate
 from waystation_server.security.groups import GroupRecord, mapped_roles
+from waystation_server.security.principal import Principal
 from waystation_server.security.providers import (
     AuthProviderWrite,
     GroupMapping,
@@ -78,13 +79,6 @@ class AuthProviderConfig(BaseModel):
     group_mapping: list[GroupMapping]
     created_at: datetime
     updated_at: datetime
-
-
-class Role(BaseModel):
-    id: str
-    name: str
-    description: str
-    builtin: bool
 
 
 class AuthProviderTestRequest(BaseModel):
@@ -208,9 +202,17 @@ def _check_ldap(config: LdapConfigWrite, *, stored_secret: bool, keyring_set: bo
     return errors
 
 
-def _check_mapping(mapping: list[GroupMapping]) -> list[FieldError]:
+def _check_mapping(
+    mapping: list[GroupMapping],
+    custom: access.RoleTable,
+    principal: Principal | None = None,
+    existing: list[GroupRecord] | None = None,
+) -> list[FieldError]:
+    """Rows are unique and name grantable roles; roles a row did not hold before must be ones ``principal`` may give
+    away (a ``settings-admin`` cannot map its own group to ``admin``)."""
     errors: list[FieldError] = []
     seen: set[str] = set()
+    before = {g.external_id: set(g.roles) for g in existing or []}
     for i, row in enumerate(mapping):
         key = group_key(row.external_group)
         if key in seen:
@@ -218,10 +220,17 @@ def _check_mapping(mapping: list[GroupMapping]) -> list[FieldError]:
                 FieldError(field=f'group_mapping.{i}.external_group', message='mapped twice', code='duplicate')
             )
         seen.add(key)
-        unknown = [r for r in row.roles if not access.is_role(r)]
+        unknown = [r for r in row.roles if not access.is_role(r, custom)]
         if unknown:
             errors.append(
                 FieldError(field=f'group_mapping.{i}.roles', message=f'unknown role: {unknown[0]}', code='unknown')
+            )
+            continue
+        added = [r for r in row.roles if r not in before.get(key, set())]
+        refused = [r for r in added if principal is not None and not access.may_assign_role(principal, r, custom)]
+        if refused:
+            errors.append(
+                FieldError(field=f'group_mapping.{i}.roles', message=f'you cannot grant {refused[0]!r}', code='role')
             )
     return errors
 
@@ -275,9 +284,12 @@ def _check_config(
     return [e.model_copy(update={'field': f'{prefix}{e.field}'}) for e in errors] if prefix else errors
 
 
-def _validate(svc: Services, body: AuthProviderWrite, existing: ProviderRecord | None) -> None:
+async def _validate(
+    svc: Services, body: AuthProviderWrite, existing: ProviderRecord | None, principal: Principal | None = None
+) -> None:
     errors = _check_config(body, existing, keyring_set=svc.keyring is not None)
-    errors += _check_mapping(body.group_mapping)
+    groups = await groups_db.for_provider(svc.db, existing.id) if existing is not None else []
+    errors += _check_mapping(body.group_mapping, await svc.rbac.table(), principal, groups)
     if errors:
         raise FieldErrors(errors)
 
@@ -379,9 +391,9 @@ def _audit_changes(
     return changes
 
 
-def _changed(svc: Services) -> None:
+async def _changed(svc: Services) -> None:
     svc.auth_providers.invalidate()
-    svc.groups.invalidate()
+    await svc.rbac.changed()  # the group mapping holds roles (grant_version)
     svc.oidc.forget()
 
 
@@ -405,7 +417,7 @@ async def create_auth_provider(
     body: AuthProviderWrite, request: Request, response: Response, svc: ServicesDep
 ) -> AuthProviderConfig:
     principal = await authenticate(request)
-    _validate(svc, body, None)
+    await _validate(svc, body, None, principal)
     await _check_name(svc, body.name, None)
     provider_id = new_id()
     now = datetime.now(UTC)
@@ -431,7 +443,7 @@ async def create_auth_provider(
         mapping=body.group_mapping,
         now=now,
     )
-    _changed(svc)
+    await _changed(svc)
     response.headers['Location'] = f'/api/v1/auth-providers/{record.id}'
     view = _view(svc, record, await groups_db.for_provider(svc.db, record.id))
     audit.record(
@@ -612,7 +624,7 @@ async def update_auth_provider(
     before = _view(svc, existing, await groups_db.for_provider(svc.db, existing.id))
     if body.kind != existing.kind:
         raise FieldErrors([FieldError(field='kind', message='the kind cannot change', code='immutable')])
-    _validate(svc, body, existing)
+    await _validate(svc, body, existing, principal)
     await _check_name(svc, body.name, existing.id)
     now = datetime.now(UTC)
     record = await providers_db.replace(
@@ -637,7 +649,7 @@ async def update_auth_provider(
         mapping=body.group_mapping,
         now=now,
     )
-    _changed(svc)
+    await _changed(svc)
     view = _view(svc, record, await groups_db.for_provider(svc.db, record.id))
     audit.record(
         AuditAction.AUTH_PROVIDER_UPDATE,
@@ -655,16 +667,10 @@ async def delete_auth_provider(id: str, svc: ServicesDep) -> Response:
     if not await providers_db.delete(svc.db, id):
         raise NotFound('provider not found')
     await groups_db.delete_for_provider(svc.db, id)
-    _changed(svc)
+    await _changed(svc)
     audit.record(
         AuditAction.AUTH_PROVIDER_DELETE,
         target=audit.target('auth_provider', existing.id, existing.name),
         changes=_audit_changes(before, None, None),
     )
     return Response(status_code=204)
-
-
-@router.get('/roles', response_model=list[Role], operation_id='listRoles')
-@access.authenticated
-async def list_roles() -> list[Role]:
-    return [Role(id=rid, name=name, description=desc, builtin=True) for rid, name, desc in access.roles()]

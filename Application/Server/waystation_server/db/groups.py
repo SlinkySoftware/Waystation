@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
-from pymongo import DeleteMany, UpdateOne
+from pymongo import DeleteMany, ReturnDocument, UpdateOne
+from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db.client import Database
 from waystation_common.db.collections import GROUPS
+from waystation_common.errors import Conflict
 from waystation_common.ids import new_id
 from waystation_server.security.groups import GroupRecord
 from waystation_server.security.providers import GroupMapping, group_key
@@ -60,3 +63,37 @@ async def replace_mapping(
 async def delete_for_provider(db: Database, provider_id: str) -> int:
     result = await db[GROUPS].delete_many({'provider_id': provider_id})
     return result.deleted_count
+
+
+# ---------------------------------------------------------------------------- administration (local groups)
+async def get(db: Database, group_id: str) -> GroupRecord | None:
+    doc = await db[GROUPS].find_one({'_id': group_id})
+    return GroupRecord.model_validate(doc) if doc else None
+
+
+async def get_many(db: Database, group_ids: list[str]) -> list[GroupRecord]:
+    if not group_ids:
+        return []
+    return [GroupRecord.model_validate(doc) async for doc in db[GROUPS].find({'_id': {'$in': group_ids}})]
+
+
+async def insert(db: Database, record: GroupRecord) -> None:
+    try:
+        await db[GROUPS].insert_one(record.model_dump(by_alias=True))
+    except DuplicateKeyError:
+        raise Conflict('a group with this name already exists', field='name') from None
+
+
+async def update(db: Database, group_id: str, changes: dict[str, Any]) -> GroupRecord | None:
+    try:
+        doc = await db[GROUPS].find_one_and_update(
+            {'_id': group_id}, {'$set': changes}, return_document=ReturnDocument.AFTER
+        )
+    except DuplicateKeyError:
+        raise Conflict('a group with this name already exists', field='name') from None
+    return GroupRecord.model_validate(doc) if doc else None
+
+
+async def delete(db: Database, group_id: str) -> bool:
+    result = await db[GROUPS].delete_one({'_id': group_id, 'source': 'local'})
+    return result.deleted_count == 1

@@ -130,6 +130,101 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [auth]
+      operationId: updateMyProfile
+      summary: Change the display name or e-mail of a local account
+      description: Accounts from an LDAP/OIDC provider get their profile from it at every sign-in (409).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdate' }
+      responses:
+        '200':
+          description: The updated profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /auth/me/password:
+    post:
+      tags: [auth]
+      operationId: changeMyPassword
+      summary: Change the caller's local password (needs a signed-in session and the current password)
+      description: |
+        At least 12 characters, not the username, different from the current one. Clears `must_change_password`
+        and ends the user's other sessions. Rate limited like sign-in. While a one-time password is pending, a
+        session may only call this, `GET /auth/me` and sign-out (403 otherwise).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChange' }
+      responses:
+        '204': { description: Changed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429':
+          description: Too many attempts; `Retry-After` header set
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/me/permissions:
+    get:
+      tags: [auth]
+      operationId: getMyPermissions
+      summary: What the caller may do (roles and where they come from, permissions, per-repository actions)
+      responses:
+        '200':
+          description: Effective permissions (narrowed by the API token used, if any)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EffectivePermissions' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/sessions:
+    get:
+      tags: [auth]
+      operationId: listMySessions
+      summary: The caller's sessions, newest first
+      responses:
+        '200':
+          description: Sessions (ids are opaque and never usable as cookies)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SessionInfo' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [auth]
+      operationId: revokeMyOtherSessions
+      summary: Sign out everywhere else (end every session except the current one)
+      responses:
+        '200':
+          description: How many sessions ended
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionsRevoked' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/sessions/{session_id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    delete:
+      tags: [auth]
+      operationId: revokeMySession
+      summary: End one of the caller's sessions (the current one too, which also clears its cookies)
+      responses:
+        '204': { description: Ended }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /auth/me/preferences:
     put:
@@ -256,10 +351,24 @@ paths:
   /service-accounts/{account_id}:
     parameters:
       - $ref: '#/components/parameters/AccountId'
+    get:
+      tags: [tokens]
+      operationId: getServiceAccount
+      summary: One service account
+      responses:
+        '200':
+          description: The service account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceAccount' }
+        '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [tokens]
       operationId: updateServiceAccount
       summary: Change a service account's description, roles or disabled flag (effective at once)
+      description: |
+        Added roles must be ones the caller may grant; an account holding more than the caller (e.g. `admin`, for a
+        `user-admin`) cannot be changed, deleted or given tokens by it (403).
       requestBody:
         required: true
         content:
@@ -313,6 +422,21 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /service-accounts/{account_id}/permissions:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+    get:
+      tags: [tokens]
+      operationId: getServiceAccountPermissions
+      summary: What a service account may do
+      responses:
+        '200':
+          description: Effective permissions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EffectivePermissions' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /service-accounts/{account_id}/tokens/{token_id}:
     parameters:
       - $ref: '#/components/parameters/AccountId'
@@ -324,6 +448,305 @@ paths:
       responses:
         '204': { description: Revoked }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /users:
+    get:
+      tags: [admin]
+      operationId: listUsers
+      summary: Users by username (keyset paging); needs `user-admin`
+      parameters:
+        - { name: q, in: query, description: Username prefix, schema: { type: string, maxLength: 128 } }
+        - name: source
+          in: query
+          description: '`local`, `ldap`, `oidc` (every provider of the kind) or one provider (`ldap:<id>`)'
+          schema: { type: string, maxLength: 80 }
+        - { name: disabled, in: query, schema: { type: boolean } }
+        - { name: group, in: query, description: Local group id, schema: { type: string, maxLength: 64 } }
+        - { name: role, in: query, description: Role held directly, schema: { type: string, maxLength: 64 } }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 400 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: A page of users
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [admin]
+      operationId: createUser
+      summary: Create a local user
+      description: |
+        Without a password the account signs in only through an LDAP/OIDC provider with the same username (it is
+        linked at the first sign-in), which lets an administrator give roles before then. With a password the user
+        must change it at the next sign-in unless `must_change_password` is false.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /users/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [admin]
+      operationId: getUser
+      summary: A user with its source, linked identities, groups and effective roles
+      responses:
+        '200':
+          description: The user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [admin]
+      operationId: updateUser
+      summary: Change a user's profile, disabled flag, roles or local groups
+      description: |
+        Added roles and groups must be ones the caller may grant; a user holding more than the caller cannot be
+        changed by it (403). Nobody can disable their own account, and the last enabled administrator cannot be
+        disabled or demoted (409). Disabling ends the user's sessions; API tokens stop working at once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [admin]
+      operationId: deleteUser
+      summary: Delete a user (its sessions end and its API tokens are revoked)
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /users/{user_id}/password:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [admin]
+      operationId: resetUserPassword
+      summary: Set a local user's password (every session of the user ends)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordReset' }
+      responses:
+        '204': { description: Set }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /users/{user_id}/unlock:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [admin]
+      operationId: unlockUser
+      summary: Clear a sign-in lockout
+      responses:
+        '200':
+          description: Unlocked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{user_id}/permissions:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [admin]
+      operationId: getUserPermissions
+      summary: What a user may do (roles and where they come from, permissions, per-repository actions)
+      responses:
+        '200':
+          description: Effective permissions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EffectivePermissions' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /groups:
+    get:
+      tags: [admin]
+      operationId: listGroups
+      summary: Local groups, then groups mapped from sign-in providers; needs `user-admin`
+      parameters:
+        - { name: source, in: query, schema: { type: string, enum: [local, ldap, oidc] } }
+      responses:
+        '200':
+          description: Groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Group' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [admin]
+      operationId: createGroup
+      summary: Create a local group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /groups/{group_id}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [admin]
+      operationId: getGroup
+      summary: One group
+      responses:
+        '200':
+          description: The group
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [admin]
+      operationId: updateGroup
+      summary: Rename or describe a local group, or change any group's roles
+      description: Mapped groups only take role changes (409 for a name or description).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [admin]
+      operationId: deleteGroup
+      summary: Delete a local group (mapped groups go with their provider's mapping)
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /groups/{group_id}/members:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [admin]
+      operationId: listGroupMembers
+      summary: Members of a local group by username (mapped groups have no stored members)
+      parameters:
+        - { name: cursor, in: query, schema: { type: string, maxLength: 400 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: A page of members
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [admin]
+      operationId: addGroupMembers
+      summary: Add users to a local group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupMembersAdd' }
+      responses:
+        '204': { description: Added }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /groups/{group_id}/members/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+      - $ref: '#/components/parameters/UserId'
+    delete:
+      tags: [admin]
+      operationId: removeGroupMember
+      summary: Remove a user from a local group
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /anonymous-access:
+    get:
+      tags: [admin]
+      operationId: getAnonymousAccess
+      summary: The roles of requests without credentials; needs `user-admin`
+      responses:
+        '200':
+          description: Anonymous access
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnonymousAccess' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [admin]
+      operationId: updateAnonymousAccess
+      summary: Change what requests without credentials may do (repository permissions only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnonymousAccess' }
+      responses:
+        '200':
+          description: Saved (applied by every replica within seconds)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnonymousAccess' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /auth-providers:
     get:
@@ -447,7 +870,7 @@ paths:
     get:
       tags: [admin]
       operationId: listRoles
-      summary: Roles that can be granted (built-in roles; custom roles come later)
+      summary: Roles that can be granted with their permissions (built-in first, then custom by id)
       responses:
         '200':
           description: Roles
@@ -457,6 +880,70 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/Role' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [admin]
+      operationId: createRole
+      summary: Create a custom role; needs `user-admin`
+      description: |
+        Permissions are `(action, scope)`; global actions only on `*`. Global permissions can only be added by a
+        caller holding them (`admin`: administrators only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /roles/{role_id}:
+    parameters:
+      - $ref: '#/components/parameters/RoleId'
+    get:
+      tags: [admin]
+      operationId: getRole
+      summary: A role with who holds it
+      responses:
+        '200':
+          description: The role
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [admin]
+      operationId: updateRole
+      summary: Change a custom role (built-in roles are read-only, 409)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleWrite' }
+      responses:
+        '200':
+          description: Updated (applied by every replica within seconds)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [admin]
+      operationId: deleteRole
+      summary: Delete a custom role that nobody holds (409 while a user, group or service account does)
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /audit:
     get:
@@ -1539,6 +2026,26 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 64 }
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
+    GroupId:
+      name: group_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
+    RoleId:
+      name: role_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
     DockerImage:
       name: image
       in: query
@@ -1706,7 +2213,7 @@ components:
         source: { type: string, description: '`local`, `ldap:<provider>` or `oidc:<provider>`' }
     Session:
       type: object
-      required: [user, csrf_token, capabilities, preferences, expires_at]
+      required: [user, csrf_token, capabilities, preferences, expires_at, must_change_password]
       properties:
         user: { $ref: '#/components/schemas/User' }
         csrf_token: { type: string, description: Echo in `X-CSRF-Token` on unsafe methods }
@@ -1714,11 +2221,14 @@ components:
           type: array
           description: |
             Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
-            replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
-            `admin`.
+            replace server-side checks. Values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
+            `users.admin`, `settings.admin`, `admin`.
           items: { type: string }
         preferences: { $ref: '#/components/schemas/Preferences' }
         expires_at: { $ref: '#/components/schemas/Timestamp' }
+        must_change_password:
+          type: boolean
+          description: The account holds a one-time password; change it (`POST /auth/me/password`) before anything else
 
     # ---------------------------------------------------------------- API tokens and service accounts
     TokenScope:
@@ -1813,7 +2323,7 @@ components:
         roles:
           type: array
           maxItems: 20
-          items: { type: string, description: 'Built-in roles: `admin`, `reader`, `deployer`, `viewer`' }
+          items: { type: string, description: 'Role ids (`GET /roles`): built-in or custom' }
     ServiceAccountUpdate:
       type: object
       additionalProperties: false
@@ -1825,15 +2335,370 @@ components:
           items: { type: string }
         disabled: { type: [boolean, 'null'] }
 
+    # ---------------------------------------------------------------- own account
+    ProfileUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name: { type: [string, 'null'], minLength: 1, maxLength: 256 }
+        email: { type: [string, 'null'], maxLength: 256, description: null clears it }
+    PasswordChange:
+      type: object
+      required: [current_password, new_password]
+      additionalProperties: false
+      properties:
+        current_password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+        new_password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true, description: At least 12 characters }
+    SessionInfo:
+      type: object
+      required: [id, current, created_at, last_seen_at, expires_at, ip, user_agent, provider_id]
+      properties:
+        id: { type: string, description: Opaque; derived from the stored session id }
+        current: { type: boolean, description: The session this request was made with }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        last_seen_at: { $ref: '#/components/schemas/Timestamp' }
+        expires_at: { $ref: '#/components/schemas/Timestamp' }
+        ip: { type: [string, 'null'] }
+        user_agent: { type: [string, 'null'] }
+        provider_id: { type: [string, 'null'], description: The OIDC provider the session was signed in through, if any }
+    SessionsRevoked:
+      type: object
+      required: [revoked]
+      properties:
+        revoked: { type: integer }
+
+    # ---------------------------------------------------------------- RBAC: effective permissions
+    Action:
+      type: string
+      description: 'Repository actions: browse, read, write, delete, manage. Global actions (scope `*` only): admin, user-admin, audit-read, stats-read, settings-admin.'
+      enum: [browse, read, write, delete, manage, admin, user-admin, audit-read, stats-read, settings-admin]
+    PrincipalRef:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind: { type: string, enum: [user, service_account, anonymous] }
+        id: { type: string }
+        name: { type: string }
+    EffectiveRole:
+      type: object
+      required: [id, name, via]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        via:
+          type: array
+          description: '`direct`, or the names of the groups the role comes from'
+          items: { type: string }
+    GrantedPermission:
+      type: object
+      required: [action, scope]
+      properties:
+        action: { $ref: '#/components/schemas/Action' }
+        scope: { type: string }
+    RepositoryAccess:
+      type: object
+      required: [name, format, type, actions]
+      properties:
+        name: { type: string }
+        format: { type: string }
+        type: { type: string }
+        actions:
+          type: array
+          items: { $ref: '#/components/schemas/Action' }
+    EffectivePermissions:
+      type: object
+      required: [principal, roles, permissions, global_actions, repositories, narrowed_by_token]
+      properties:
+        principal: { $ref: '#/components/schemas/PrincipalRef' }
+        roles:
+          type: array
+          items: { $ref: '#/components/schemas/EffectiveRole' }
+        permissions:
+          type: array
+          description: Every (action, scope) held, implied ones included
+          items: { $ref: '#/components/schemas/GrantedPermission' }
+        global_actions:
+          type: array
+          items: { $ref: '#/components/schemas/Action' }
+        repositories:
+          type: array
+          description: Repositories with at least one allowed action
+          items: { $ref: '#/components/schemas/RepositoryAccess' }
+        narrowed_by_token: { type: boolean, description: 'The request used an API token, which narrows the grants shown' }
+
+    # ---------------------------------------------------------------- administration: users and groups
+    UserSummary:
+      type: object
+      required: [id, username, display_name, email, source, disabled, locked, roles, groups, last_login, created_at]
+      properties:
+        id: { type: string }
+        username: { type: string }
+        display_name: { type: string }
+        email: { type: [string, 'null'] }
+        source: { type: string, description: '`local`, or the provider that created or linked the user (`ldap:<id>`)' }
+        disabled: { type: boolean }
+        locked: { type: boolean, description: Locked out after failed sign-ins (local accounts) }
+        roles:
+          type: array
+          description: Roles held directly
+          items: { type: string }
+        groups:
+          type: array
+          description: Local group ids
+          items: { type: string }
+        last_login: { type: [string, 'null'], format: date-time }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    UserPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/UserSummary' }
+        next_cursor: { type: [string, 'null'] }
+    GroupRef:
+      type: object
+      required: [id, name, source]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        source: { type: string, description: '`local`, `ldap` or `oidc` (mapped from a provider)' }
+    ExternalGroupBody:
+      type: object
+      required: [provider, id, name]
+      properties:
+        provider: { type: string, description: 'Provider source, `ldap:<id>` or `oidc:<id>`' }
+        id: { type: string }
+        name: { type: string }
+    LinkedIdentityBody:
+      type: object
+      required: [provider, subject, linked_at, last_login]
+      properties:
+        provider: { type: string }
+        subject: { type: string, description: LDAP entry DN or OIDC `sub` }
+        linked_at: { $ref: '#/components/schemas/Timestamp' }
+        last_login: { type: [string, 'null'], format: date-time }
+    UserDetail:
+      type: object
+      required: [id, username, display_name, email, source, disabled, locked, roles, groups, last_login, created_at,
+                 locked_until, must_change_password, has_password, group_refs, external_groups, identities, effective_roles]
+      properties:
+        id: { type: string }
+        username: { type: string }
+        display_name: { type: string }
+        email: { type: [string, 'null'] }
+        source: { type: string }
+        disabled: { type: boolean }
+        locked: { type: boolean }
+        roles:
+          type: array
+          items: { type: string }
+        groups:
+          type: array
+          items: { type: string }
+        last_login: { type: [string, 'null'], format: date-time }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        locked_until: { type: [string, 'null'], format: date-time }
+        must_change_password: { type: boolean }
+        has_password: { type: boolean, description: A local password is set (local accounts) }
+        group_refs:
+          type: array
+          description: Local groups and mapped provider groups the user is in
+          items: { $ref: '#/components/schemas/GroupRef' }
+        external_groups:
+          type: array
+          description: Groups providers reported at the last sign-in
+          items: { $ref: '#/components/schemas/ExternalGroupBody' }
+        identities:
+          type: array
+          items: { $ref: '#/components/schemas/LinkedIdentityBody' }
+        effective_roles:
+          type: array
+          description: Own roles plus those of its groups
+          items: { type: string }
+    UserCreate:
+      type: object
+      required: [username]
+      additionalProperties: false
+      properties:
+        username: { type: string, minLength: 1, maxLength: 128, description: 'Lower case; letters, digits, `.`, `_`, `@`, `-`' }
+        display_name: { type: string, maxLength: 256, default: '' }
+        email: { type: [string, 'null'], maxLength: 256 }
+        password:
+          type: [string, 'null']
+          maxLength: 1024
+          writeOnly: true
+          description: At least 12 characters. Omit for an account that signs in through LDAP/OIDC (linked by username)
+        must_change_password: { type: boolean, default: true, description: The user must change the password at the next sign-in }
+        roles:
+          type: array
+          maxItems: 20
+          items: { type: string }
+        groups:
+          type: array
+          maxItems: 100
+          description: Local group ids
+          items: { type: string }
+    UserUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name: { type: [string, 'null'], minLength: 1, maxLength: 256 }
+        email: { type: [string, 'null'], maxLength: 256, description: null clears it }
+        disabled: { type: [boolean, 'null'] }
+        roles:
+          type: [array, 'null']
+          maxItems: 20
+          items: { type: string }
+        groups:
+          type: [array, 'null']
+          maxItems: 100
+          description: Local group ids
+          items: { type: string }
+    PasswordReset:
+      type: object
+      required: [password]
+      additionalProperties: false
+      properties:
+        password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true, description: At least 12 characters }
+        must_change_password: { type: boolean, default: true }
+    ProviderRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: [string, 'null'], description: null when the provider no longer exists }
+    Group:
+      type: object
+      required: [id, name, description, source, provider, external_group, roles, member_count, created_at, updated_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        source: { type: string, enum: [local, ldap, oidc] }
+        provider:
+          description: The provider of a mapped group
+          oneOf:
+            - $ref: '#/components/schemas/ProviderRef'
+            - type: 'null'
+        external_group: { type: [string, 'null'], description: The provider group DN or name a mapped group matches }
+        roles:
+          type: array
+          items: { type: string }
+        member_count: { type: [integer, 'null'], description: 'Local groups; null for mapped groups (membership is per sign-in)' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    GroupCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64, description: 'Letters, digits, spaces, `.`, `_`, `-`' }
+        description: { type: string, maxLength: 500, default: '' }
+        roles:
+          type: array
+          maxItems: 20
+          items: { type: string }
+    GroupUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: [string, 'null'], minLength: 1, maxLength: 64, description: Local groups only }
+        description: { type: [string, 'null'], maxLength: 500, description: Local groups only }
+        roles:
+          type: [array, 'null']
+          maxItems: 20
+          items: { type: string }
+    GroupMembersAdd:
+      type: object
+      required: [user_ids]
+      additionalProperties: false
+      properties:
+        user_ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items: { type: string }
+
     # ---------------------------------------------------------------- administration: sign-in providers, roles
+    AnonymousAccess:
+      type: object
+      required: [roles]
+      additionalProperties: false
+      properties:
+        roles:
+          type: array
+          maxItems: 20
+          description: |
+            `anonymous` (browse and read proxy repositories, the default) and/or roles holding repository permissions
+            only; empty = no anonymous access.
+          items: { type: string }
+    RolePermission:
+      type: object
+      required: [action, scope]
+      additionalProperties: false
+      properties:
+        action: { $ref: '#/components/schemas/Action' }
+        scope:
+          type: string
+          minLength: 1
+          maxLength: 140
+          description: '`*`, a repository name, a glob (`docker-*`), `format:<format>` or `type:<type>`; global actions only `*`'
     Role:
       type: object
-      required: [id, name, description, builtin]
+      required: [id, name, description, builtin, permissions]
       properties:
         id: { type: string, description: 'Role id used in grants and group mappings, e.g. `deployer`' }
         name: { type: string }
         description: { type: string }
+        builtin: { type: boolean, description: Built-in roles are read-only }
+        permissions:
+          type: array
+          items: { $ref: '#/components/schemas/RolePermission' }
+    RoleUsage:
+      type: object
+      required: [users, groups, service_accounts]
+      properties:
+        users: { type: integer }
+        groups: { type: integer }
+        service_accounts: { type: integer }
+    RoleDetail:
+      type: object
+      required: [id, name, description, builtin, permissions, usage]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
         builtin: { type: boolean }
+        permissions:
+          type: array
+          items: { $ref: '#/components/schemas/RolePermission' }
+        usage: { $ref: '#/components/schemas/RoleUsage', description: Who holds the role directly }
+    RoleWrite:
+      type: object
+      required: [name, permissions]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
+        description: { type: string, maxLength: 500, default: '' }
+        permissions:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: '#/components/schemas/RolePermission' }
+    RoleCreate:
+      type: object
+      required: [id, name, permissions]
+      additionalProperties: false
+      properties:
+        id: { type: string, minLength: 2, maxLength: 48, description: 'Lower-case letters, digits and `-`; what users and groups store' }
+        name: { type: string, minLength: 1, maxLength: 64 }
+        description: { type: string, maxLength: 500, default: '' }
+        permissions:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: '#/components/schemas/RolePermission' }
     LdapConnection:
       type: object
       required: [servers, security]

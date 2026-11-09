@@ -37,7 +37,7 @@ from waystation_server.security.access import Action
 from waystation_server.security.authn import basic_credentials, client_address, principal_for
 from waystation_server.security.identity import UserRecord
 from waystation_server.security.login import verify_login
-from waystation_server.security.principal import ANONYMOUS, AuthMethod, Principal
+from waystation_server.security.principal import AuthMethod, Principal
 from waystation_server.security.registry_token import Scope, parse_scopes
 from waystation_server.security.tokens import looks_like_token
 from waystation_server.services import Services
@@ -143,7 +143,7 @@ async def token(
     host = registry_host(services)
     if service and service != host:
         return oci_error(400, f'unknown service {service!r}', code='UNSUPPORTED')
-    principal: Principal = ANONYMOUS
+    principal: Principal = await services.rbac.anonymous()
     credentials = basic_credentials(request.headers.get('authorization', ''))
     if credentials is not None and looks_like_token(credentials[1]):
         # ``docker login`` with an API token as the password (any username)
@@ -207,7 +207,7 @@ async def authenticate_bearer(request: Request, token: str) -> Principal | None:
             return None
         base = dataclasses.replace(owner, method=AuthMethod.REGISTRY_TOKEN)
     elif claims.subject == 'anonymous':
-        base = dataclasses.replace(ANONYMOUS, method=AuthMethod.REGISTRY_TOKEN)
+        base = await services.rbac.anonymous(AuthMethod.REGISTRY_TOKEN)
     else:
         user = await _users.get(services, claims.subject)
         if user is None or user.disabled:

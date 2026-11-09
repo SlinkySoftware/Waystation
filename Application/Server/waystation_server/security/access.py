@@ -13,9 +13,14 @@ Decisions
 - ``write``/``delete``/``manage`` imply ``browse`` and ``read`` on the same repositories.
 - A repository the principal can neither browse nor read is **hidden**: every route answers 404 for it, never 403.
   Visible but not allowed: 401 for anonymous (so clients send credentials), 403 otherwise.
-- Built-in roles (M0: no custom roles, groups or grant cache yet): ``admin``, ``reader`` (browse + read all),
-  ``deployer`` (browse + read + write all), ``viewer`` (browse all + stats), ``anonymous`` (browse + read on proxy
-  repositories, SPECIFICATION §4.9 default).
+- Built-in roles (read-only): ``admin``, ``reader`` (browse + read all), ``deployer`` (browse + read + write all),
+  ``viewer`` (browse all + stats), ``anonymous`` (browse + read on proxy repositories, SPECIFICATION §4.9 default).
+  Custom roles live in MongoDB (``roles``); ``security.rbac`` materialises a principal's roles into ``Grants`` with
+  ``materialise`` (cached per ``grant_version``) and puts them on ``Principal.grants``. A principal without
+  materialised grants (anonymous, unit tests) gets its built-in roles' permissions.
+- Giving away power is bounded by what the giver holds (``may_assign``): global actions only by someone holding
+  them, ``admin`` only by administrators; the same rule decides who may manage a user or edit a role
+  (``may_manage``).
 - API tokens only **narrow** their owner's grants: a token's scopes (``read``, ``write``, ``delete``, ``manage``,
   ``stats-read``, ``metrics``, ``admin``; ``TOKEN_SCOPE_ACTIONS``) limit the actions, its repository patterns (the
   scope syntax above) limit repository actions to matching repositories; the owner's current RBAC still applies.
@@ -35,24 +40,24 @@ import dataclasses
 import fnmatch
 import logging
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 from starlette.requests import Request
 
 from waystation_common.errors import Forbidden, NotFound, Unauthorized
 from waystation_server.repos.model import RepoConfig
-from waystation_server.security.actions import GLOBAL_ACTIONS, Action, TokenScope
+from waystation_server.security.actions import GLOBAL_ACTIONS, Action, Grants, Permission, TokenScope
 from waystation_server.security.authn import authenticate, current_session
-from waystation_server.security.principal import AuthMethod, Principal, TokenLimits
+from waystation_server.security.principal import ANONYMOUS_ROLE, AuthMethod, Principal, TokenLimits
 from waystation_server.security.sessions import CSRF_HEADER, csrf_matches
 
 log = logging.getLogger('waystation.access')
 
 
-__all__ = ['GLOBAL_ACTIONS', 'Action', 'TokenScope']
+__all__ = ['GLOBAL_ACTIONS', 'Action', 'Grants', 'Permission', 'TokenScope']
 
 # What a granted action also allows on the same scope.
 IMPLIES: dict[Action, frozenset[Action]] = {
@@ -61,12 +66,6 @@ IMPLIES: dict[Action, frozenset[Action]] = {
     Action.MANAGE: frozenset({Action.BROWSE, Action.READ}),
 }
 SAFE_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS'})
-
-
-@dataclass(frozen=True)
-class Permission:
-    action: Action
-    scope: str
 
 
 def _perms(*pairs: tuple[Action, str]) -> tuple[Permission, ...]:
@@ -90,27 +89,45 @@ ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
 }
 
 
+RoleTable = Mapping[str, Sequence[Permission]]  # custom role id -> permissions (``security.rbac``)
+
+
 def roles() -> list[tuple[str, str, str]]:
-    """Grantable roles as ``(id, name, description)`` (built-in only until custom roles land; ``anonymous`` is the
-    anonymous principal's own role and cannot be granted)."""
+    """The grantable built-in roles as ``(id, name, description)`` (``anonymous`` is the anonymous principal's own
+    role and cannot be granted)."""
     return [(role, *ROLE_DESCRIPTIONS.get(role, (role, ''))) for role in BUILTIN_ROLES if is_role(role)]
 
 
-@dataclass(frozen=True)
-class Grants:
-    is_admin: bool
-    permissions: tuple[Permission, ...]
-
-
-@lru_cache(maxsize=1024)
-def grants_for(roles: tuple[str, ...]) -> Grants:
+def materialise(roles: Iterable[str], custom: RoleTable | None = None) -> Grants:
+    """The permissions of ``roles`` (built-in first, then ``custom``) plus the implied ones. Unknown roles grant
+    nothing (a deleted custom role, a newer release's role)."""
     perms: list[Permission] = []
     for role in roles:
-        for perm in BUILTIN_ROLES.get(role, ()):
+        defined = BUILTIN_ROLES.get(role)
+        if defined is None and custom is not None:
+            defined = tuple(custom.get(role, ()))
+        for perm in defined or ():
             perms.append(perm)
             perms.extend(Permission(implied, perm.scope) for implied in IMPLIES.get(perm.action, ()))
     is_admin = Permission(Action.ADMIN, '*') in perms
     return Grants(is_admin=is_admin, permissions=tuple(dict.fromkeys(perms)))
+
+
+@lru_cache(maxsize=1024)
+def grants_for(roles: tuple[str, ...]) -> Grants:
+    """Built-in roles only (principals without materialised grants)."""
+    return materialise(roles)
+
+
+def grants_of(principal: Principal) -> Grants:
+    return principal.grants if principal.grants is not None else grants_for(principal.roles)
+
+
+def global_actions(grants: Grants) -> frozenset[Action]:
+    """The global actions ``grants`` hold (all of them for administrators)."""
+    if grants.is_admin:
+        return GLOBAL_ACTIONS
+    return frozenset(p.action for p in grants.permissions if p.action in GLOBAL_ACTIONS and p.scope == '*')
 
 
 def scope_matches(scope: str, repo: RepoConfig) -> bool:
@@ -187,13 +204,55 @@ def valid_repository_pattern(pattern: str) -> bool:
     return bool(_PATTERN.fullmatch(pattern)) and pattern != '*'
 
 
-def is_role(name: str) -> bool:
-    return name in BUILTIN_ROLES and name != 'anonymous'
+def is_role(name: str, custom: RoleTable | None = None) -> bool:
+    """A role that can be granted: a built-in one other than ``anonymous``, or a custom one."""
+    if name == ANONYMOUS_ROLE:
+        return False
+    return name in BUILTIN_ROLES or (custom is not None and name in custom)
 
 
-def may_assign_role(principal: Principal, role: str) -> bool:
-    """Giving a role away needs the role's global powers: only administrators grant ``admin``."""
-    return not grants_for((role,)).is_admin or check(principal, Action.ADMIN)
+def may_assign(principal: Principal, grants: Grants) -> bool:
+    """May ``principal`` give these permissions away (grant a role, edit a role to hold them)? ``admin`` needs an
+    administrator; any other global action needs a giver holding it. Repository actions are what ``user-admin``
+    hands out, so they are not limited."""
+    held = global_actions(_owner_grants(principal))
+    if grants.is_admin:
+        return Action.ADMIN in held
+    return global_actions(grants) <= held
+
+
+def may_assign_role(principal: Principal, role: str, custom: RoleTable | None = None) -> bool:
+    return may_assign(principal, materialise((role,), custom))
+
+
+def may_manage(principal: Principal, target: Grants) -> bool:
+    """May ``principal`` change or remove an account holding ``target`` (no stepping above one's own powers: a
+    ``user-admin`` cannot reset an administrator's password)?"""
+    return may_assign(principal, target)
+
+
+def _owner_grants(principal: Principal) -> Grants:
+    """What the principal holds itself, ignoring the narrowing of the credential used (decisions about delegation
+    still go through ``check`` for the credential)."""
+    grants = grants_of(principal)
+    if principal.token is None and principal.token_access is None:
+        return grants
+    allowed = {a for a in GLOBAL_ACTIONS if check(principal, a)}
+    perms = tuple(p for p in grants.permissions if p.action not in GLOBAL_ACTIONS or p.action in allowed)
+    return Grants(is_admin=grants.is_admin and Action.ADMIN in allowed, permissions=perms)
+
+
+def permission_error(action: str, scope: str) -> str | None:
+    """Why ``(action, scope)`` is not a valid role permission, or None."""
+    try:
+        parsed = Action(action)
+    except ValueError:
+        return f'unknown action {action!r}'
+    if parsed in GLOBAL_ACTIONS:
+        return None if scope == '*' else 'global actions are granted only on scope *'
+    if scope == '*' or valid_repository_pattern(scope):
+        return None
+    return 'use *, a repository name, a glob (docker-*), format:<format> or type:<proxy|hosted|group>'
 
 
 # ---------------------------------------------------------------------------- decisions
@@ -210,7 +269,7 @@ def check(principal: Principal, action: Action, repo: RepoConfig | None = None) 
         granted = {a for name, actions in principal.token_access if name == repo.name for a in actions}
         if action not in granted:
             return False
-    grants = grants_for(principal.roles)
+    grants = grants_of(principal)
     if grants.is_admin:
         return True
     if action in GLOBAL_ACTIONS:
@@ -227,6 +286,18 @@ def can_see(principal: Principal, repo: RepoConfig) -> bool:
 def filter_repos(principal: Principal, action: Action, repos: Iterable[RepoConfig]) -> list[RepoConfig]:
     """Repositories ``principal`` may ``action`` (listings are filtered, never just hidden in the UI)."""
     return [repo for repo in repos if check(principal, action, repo)]
+
+
+def filter_query(
+    principal: Principal, action: Action, repos: Iterable[RepoConfig], field: str = 'repo_id'
+) -> dict[str, Any]:
+    """A MongoDB filter limiting ``field`` (a repository id) to the repositories ``principal`` may ``action``:
+    ``{}`` when that is every repository in ``repos``, else ``{field: {'$in': [...]}}`` (possibly empty)."""
+    every = list(repos)
+    allowed = filter_repos(principal, action, every)
+    if len(allowed) == len(every):
+        return {}
+    return {field: {'$in': sorted(r.id for r in allowed)}}
 
 
 def _denied(principal: Principal, detail: str) -> Exception:
@@ -257,6 +328,10 @@ def capabilities(principal: Principal) -> list[str]:
         caps.append('stats.read')
     if check(principal, Action.AUDIT_READ):
         caps.append('audit.read')
+    if check(principal, Action.USER_ADMIN):
+        caps.append('users.admin')
+    if check(principal, Action.SETTINGS_ADMIN):
+        caps.append('settings.admin')
     return caps
 
 
@@ -332,6 +407,20 @@ def handler_checked[T: Callable[..., object]](fn: T) -> T:
     return fn
 
 
+PENDING_PASSWORD_ATTR = '__ws_password_change_allowed__'  # noqa: S105 - an attribute name
+
+
+def password_change_allowed[T: Callable[..., object]](fn: T) -> T:
+    """The route stays usable by a session whose user must change a one-time password first (``/auth/me``, the
+    password change itself). Every other route answers 403 for such a session (SPECIFICATION §4.9)."""
+    setattr(fn, PENDING_PASSWORD_ATTR, True)
+    return fn
+
+
+class PasswordChangeRequired(Forbidden):
+    code = 'password_change_required'
+
+
 def route_rule(endpoint: object) -> RouteAccess | None:
     rule = getattr(endpoint, ATTR, None)
     return rule if isinstance(rule, RouteAccess) else None
@@ -356,6 +445,12 @@ async def enforce(request: Request) -> None:
         return
     principal = await authenticate(request)
     _check_csrf(request, principal)
+    if (
+        principal.must_change_password
+        and principal.method is AuthMethod.SESSION
+        and not getattr(getattr(route, 'endpoint', None), PENDING_PASSWORD_ATTR, False)
+    ):
+        raise PasswordChangeRequired('change your one-time password first')
     match rule.kind:
         case 'authenticated':
             if principal.is_anonymous:
