@@ -71,6 +71,22 @@ describe('repository form model', () => {
     expect(back.immutableTags).toEqual(['v[0-9]+'])
   })
 
+  it('builds a docker group (members in order, writable member only when it is a member)', () => {
+    const m = { ...emptyModel('docker', 'group'), name: 'docker-all', members: ['docker-hosted', 'docker-hub'], writableMember: 'docker-hosted' }
+    expect(toWrite(m)).toEqual({
+      name: 'docker-all',
+      format: 'docker',
+      type: 'group',
+      online: true,
+      description: '',
+      group: { members: ['docker-hosted', 'docker-hub'], writable_member: 'docker-hosted' },
+      format_options: { aliases: [], docker_hub: false, default_repo: false },
+    })
+    expect(toWrite({ ...m, writableMember: 'gone' }).group?.writable_member).toBeNull()
+    const back = modelFromRepository({ ...toWrite(m), status: 'ok' } as unknown as Repository)
+    expect(back).toMatchObject({ type: 'group', members: ['docker-hosted', 'docker-hub'], writableMember: 'docker-hosted' })
+  })
+
   it('maps the network and auto-block options', () => {
     const m = { ...emptyModel('raw'), name: 'files', upstreamUrl: 'https://files.example.com' }
     expect(toWrite(m).proxy).toMatchObject({ ca_pem: null, http_proxy: null, auto_block: { enabled: true, failures: 5, initial_s: 30, max_s: 1800 } })

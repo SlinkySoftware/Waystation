@@ -85,6 +85,13 @@ class StoredHosted(_Stored):
     immutable_tag_patterns: tuple[str, ...] = ()
 
 
+class StoredGroup(_Stored):
+    # Member repository names, in resolution order (same format; proxy and hosted, no groups).
+    members: tuple[str, ...] = ()
+    # The hosted member that receives uploads sent to the group (formats that support it: docker).
+    writable_member: str | None = None
+
+
 class RepoConfig(_Stored):
     id: str = Field(alias='_id')
     name: str
@@ -94,6 +101,7 @@ class RepoConfig(_Stored):
     description: str = ''
     proxy: StoredProxy | None = None
     hosted: StoredHosted | None = None  # hosted repositories (read as defaults when absent)
+    group: StoredGroup | None = None  # group repositories
     format_options: dict[str, Any] = Field(default_factory=dict)
     cleanup_policy_ids: tuple[str, ...] = ()  # attached cleanup policies, in run order
     created_at: datetime

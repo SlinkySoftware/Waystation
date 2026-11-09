@@ -89,9 +89,24 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!NAME_RE.test(body.name ?? '')) errors.push({ field: 'name', message: 'Use 2-63 letters, digits, dots, dashes or underscores, starting with a letter or digit.', code: 'pattern' })
     else if (world.repos.some((r) => r.name.toLowerCase() === body.name.toLowerCase())) errors.push({ field: 'name', message: 'A repository with this name already exists.', code: 'taken' })
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
-    if (body.type === 'group' || (body.type === 'hosted' && body.format !== 'docker')) {
-      errors.push({ field: 'type', message: body.type === 'hosted' ? 'docker supports: hosted, proxy' : 'Group repositories are not available in this build.', code: 'unsupported' })
+    if (body.type !== 'proxy' && body.format !== 'docker') {
+      errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
+  }
+  if (body.type === 'group') {
+    const members = body.group?.members ?? []
+    if (!members.length) errors.push({ field: 'group.members', message: 'Pick at least one member.', code: 'required' })
+    members.forEach((name, i) => {
+      const member = findRepo(name)
+      if (!member) errors.push({ field: `group.members.${i}`, message: `there is no repository '${name}'`, code: 'not_found' })
+      else if (member.format !== body.format) errors.push({ field: `group.members.${i}`, message: `${name} is a ${member.format} repository`, code: 'format' })
+      else if (member.type === 'group') errors.push({ field: `group.members.${i}`, message: 'groups cannot contain groups', code: 'invalid' })
+    })
+    const writable = body.group?.writable_member
+    if (writable && (!members.includes(writable) || findRepo(writable)?.type !== 'hosted')) {
+      errors.push({ field: 'group.writable_member', message: 'must be a hosted member', code: 'invalid' })
+    }
+    return errors
   }
   if (body.type === 'hosted') {
     if (body.proxy) errors.push({ field: 'proxy', message: 'only proxy repositories have an upstream', code: 'invalid' })
@@ -160,6 +175,7 @@ function toRepository(body: RepositoryWrite, existing?: Repository): Repository 
     url: `${BASE_URL}/repository/${existing?.name ?? body.name}/`,
     proxy,
     hosted: (existing?.type ?? body.type) === 'hosted' ? { write_policy: body.hosted?.write_policy ?? 'allow_redeploy', immutable_tag_patterns: body.hosted?.immutable_tag_patterns ?? [] } : undefined,
+    group: (existing?.type ?? body.type) === 'group' && body.group ? { members: body.group.members, writable_member: body.group.writable_member ?? null } : undefined,
     format_options: body.format_options,
     created_at: existing?.created_at ?? now,
     updated_at: now,

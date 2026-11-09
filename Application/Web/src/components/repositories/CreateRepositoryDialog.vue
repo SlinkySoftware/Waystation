@@ -51,7 +51,7 @@ import { t } from '@/i18n'
 import { formatLabel, formatMark, typeMeta } from '@/utils/domain'
 import { iconBack } from '@/utils/icons'
 
-import { emptyModel, type FormType, HOSTED_FORMATS, type RepoFormModel, toWrite } from './form'
+import { emptyModel, type FormType, GROUP_FORMATS, HOSTED_FORMATS, type RepoFormModel, toWrite } from './form'
 import RepositoryForm from './RepositoryForm.vue'
 
 const open = defineModel<boolean>({ required: true })
@@ -99,7 +99,9 @@ function pickFormat(format: M0Format): void {
 }
 
 function typeAvailable(type: RepositoryType): boolean {
-  return type === 'proxy' || (type === 'hosted' && HOSTED_FORMATS.includes(model.value.format))
+  if (type === 'hosted') return HOSTED_FORMATS.includes(model.value.format)
+  if (type === 'group') return GROUP_FORMATS.includes(model.value.format)
+  return true
 }
 
 function pickType(type: RepositoryType): void {

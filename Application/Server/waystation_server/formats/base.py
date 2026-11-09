@@ -108,6 +108,8 @@ class FormatDescriptor:
     notes: tuple[str, ...] = ()
     # Repository-relative paths where POST only queries (npm audit): the router authorises them as ``read``.
     read_posts: frozenset[str] = frozenset()
+    # Group repositories may name a hosted writable member that receives uploads sent to the group (docker).
+    writable_group_member: bool = False
     # Per-type option rules: ``(field, message)`` for options that make no sense for the repository type.
     check_options: Callable[[BaseModel, RepoType], list[tuple[str, str]]] = _any_options
 
@@ -118,6 +120,10 @@ class FormatDescriptor:
 
 # ---------------------------------------------------------------------------- serving
 async def _no_resolve(name: str) -> tuple[RepoConfig, str] | None:
+    return None
+
+
+async def _no_repository(name: str) -> RepoConfig | None:
     return None
 
 
@@ -140,6 +146,11 @@ class FormatRequest:
     _allows: Callable[[Action, RepoConfig], bool] = field(repr=False, default=_nothing_allowed)
     # Registry names (docker ``/v2/`` routing: prefix, alias, default repository) → (repository, name within it).
     _resolve: Callable[[str], Awaitable[tuple[RepoConfig, str] | None]] = field(repr=False, default=_no_resolve)
+    # Repositories by exact name (group members).
+    _repository: Callable[[str], Awaitable[RepoConfig | None]] = field(repr=False, default=_no_repository)
+    # Group members: RBAC on a member for this request's principal (with its API token limits), without the
+    # per-repository grants of a docker registry token, which named the group.
+    _allows_member: Callable[[Action, RepoConfig], bool] = field(repr=False, default=_nothing_allowed)
 
     @property
     def method(self) -> str:
@@ -168,6 +179,15 @@ class FormatRequest:
     async def resolve_name(self, name: str) -> tuple[RepoConfig, str] | None:
         """Where a registry name (``other-repo/image``, ``docker.io/library/alpine``...) points."""
         return await self._resolve(name)
+
+    async def repository(self, name: str) -> RepoConfig | None:
+        """A repository by its exact name (group members)."""
+        return await self._repository(name)
+
+    def allows_member(self, action: Action, member: RepoConfig) -> bool:
+        """May this request's principal ``action`` on ``member`` of the group it addressed (decided by
+        ``security.access``; a registry token's grants for the group do not cover the member)?"""
+        return self._allows_member(action, member)
 
     def log(self, **fields: Any) -> None:
         """Add fields to this request's access-log line."""

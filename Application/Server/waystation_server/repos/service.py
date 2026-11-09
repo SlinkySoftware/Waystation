@@ -14,6 +14,9 @@ Validation, reported as 422 field errors (``errors[].field`` a dotted path into 
   without credentials, path or query; ``auto_block.max_s`` not below ``auto_block.initial_s``;
 - hosted repositories: ``hosted`` (write policy, immutable tag patterns that must compile as regular expressions;
   defaults when omitted); other types must not send it;
+- group repositories: ``group`` is required: 1-50 distinct existing members of the same format that are not groups
+  (stored by their exact names, in order); a ``writable_member`` only where the format supports one, and it must be a
+  hosted member; other types must not send it. A repository that is a group member cannot be deleted;
 - ``format_options`` against the format's ``options_model`` and its per-type rules (``check_options``); docker
   aliases must not collide with repository names or other repositories' aliases; one default docker repository
   (setting it clears the others);
@@ -43,12 +46,13 @@ from waystation_server.repos.model import (
     RepoConfig,
     RepoType,
     StoredAutoBlock,
+    StoredGroup,
     StoredHosted,
     StoredProxy,
     StoredUpstreamAuth,
     secret_aad,
 )
-from waystation_server.repos.schemas import HostedConfig, ProxyConfig, RepositoryWrite
+from waystation_server.repos.schemas import GroupConfig, HostedConfig, ProxyConfig, RepositoryWrite
 from waystation_server.security.principal import Principal
 from waystation_server.services import Services
 
@@ -127,6 +131,45 @@ def _options(services: Services, body: RepositoryWrite, errors: list[FieldError]
     for field, message in descriptor.check_options(options, body.type):
         errors.append(FieldError(field=f'format_options.{field}', message=message, code='invalid'))
     return options.model_dump(mode='json')
+
+
+async def _stored_group(
+    services: Services, body: RepositoryWrite, group: GroupConfig, errors: list[FieldError]
+) -> StoredGroup:
+    members: list[RepoConfig] = []
+    seen: set[str] = set()
+    for i, name in enumerate(group.members):
+        field = f'group.members.{i}'
+        member = await services.catalog.get(name) or await services.catalog.get_ci(name)
+        if member is None:
+            errors.append(FieldError(field=field, message=f'there is no repository {name!r}', code='not_found'))
+        elif member.name.lower() == body.name.lower():
+            errors.append(FieldError(field=field, message='a group cannot contain itself', code='invalid'))
+        elif member.format != body.format:
+            errors.append(
+                FieldError(field=field, message=f'{member.name} is a {member.format} repository', code='format')
+            )
+        elif member.type is RepoType.GROUP:
+            errors.append(FieldError(field=field, message='groups cannot contain groups', code='invalid'))
+        elif member.name in seen:
+            errors.append(FieldError(field=field, message=f'{member.name} is listed twice', code='duplicate'))
+        else:
+            seen.add(member.name)
+            members.append(member)
+    writable: str | None = None
+    if group.writable_member:
+        descriptor = services.formats.descriptor(body.format)
+        target = next((m for m in members if m.name.lower() == group.writable_member.lower()), None)
+        field = 'group.writable_member'
+        if descriptor is None or not descriptor.writable_group_member:
+            errors.append(FieldError(field=field, message=f'{body.format} groups are read-only', code='unsupported'))
+        elif target is None:
+            errors.append(FieldError(field=field, message='must be one of the members', code='invalid'))
+        elif target.type is not RepoType.HOSTED:
+            errors.append(FieldError(field=field, message='must be a hosted repository', code='invalid'))
+        else:
+            writable = target.name
+    return StoredGroup(members=tuple(m.name for m in members), writable_member=writable)
 
 
 def _stored_hosted(hosted: HostedConfig, errors: list[FieldError]) -> StoredHosted:
@@ -253,6 +296,14 @@ async def _build(
         errors.append(
             FieldError(field='hosted', message='only hosted repositories have a write policy', code='invalid')
         )
+    group: StoredGroup | None = None
+    if body.type is RepoType.GROUP:
+        if body.group is None:
+            errors.append(FieldError(field='group', message='required for group repositories', code='required'))
+        else:
+            group = await _stored_group(services, body, body.group, errors)
+    elif body.group is not None:
+        errors.append(FieldError(field='group', message='only group repositories have members', code='invalid'))
     if errors:
         raise FieldErrors(errors)
     now = datetime.now(UTC)
@@ -265,6 +316,7 @@ async def _build(
         description=body.description,
         proxy=proxy,
         hosted=hosted,
+        group=group,
         format_options=options,
         cleanup_policy_ids=existing.cleanup_policy_ids if existing else (),
         created_at=existing.created_at if existing else now,
@@ -304,6 +356,9 @@ async def update(services: Services, existing: RepoConfig, body: RepositoryWrite
 
 
 async def delete(services: Services, repo: RepoConfig) -> None:
+    groups = [r.name for r in await services.catalog.all() if r.group is not None and repo.name in r.group.members]
+    if groups:
+        raise Conflict(f'{repo.name} is a member of {", ".join(sorted(groups))}: remove it from the group first')
     await repos_db.delete(services.db, repo.id)
     services.catalog.invalidate()
     try:

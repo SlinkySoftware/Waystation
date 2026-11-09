@@ -127,6 +127,22 @@ class HostedConfig(BaseModel):
     )
 
 
+class GroupConfig(BaseModel):
+    """Group repositories: ordered members (SPECIFICATION §4.3)."""
+
+    model_config = ConfigDict(extra='forbid', json_schema_serialization_defaults_required=True)
+
+    members: list[Annotated[str, StringConstraints(pattern=NAME_PATTERN)]] = Field(
+        min_length=1,
+        max_length=50,
+        description='Member repository names in resolution order (same format; proxy or hosted)',
+    )
+    writable_member: str | None = Field(
+        default=None,
+        description='Docker: the hosted member that receives pushes sent to the group; null = the group is read-only',
+    )
+
+
 class RepositoryWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -137,6 +153,7 @@ class RepositoryWrite(BaseModel):
     description: str = Field(default='', max_length=500)
     proxy: ProxyConfig | None = None
     hosted: HostedConfig | None = Field(default=None, description='Hosted repositories only (defaults when omitted)')
+    group: GroupConfig | None = Field(default=None, description='Group repositories only (required for them)')
     format_options: dict[str, Any] | None = Field(
         default=None, description="Format-specific options; the shape follows the repository's `format`"
     )

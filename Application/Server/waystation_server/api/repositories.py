@@ -24,6 +24,7 @@ from waystation_server.repos.model import RepoConfig, RepoType
 from waystation_server.repos.schemas import (
     AutoBlockConfig,
     Format,
+    GroupConfig,
     HostedConfig,
     ProxyConfig,
     RepositoryStatus,
@@ -63,6 +64,7 @@ class Repository(BaseModel):
     url: str = Field(description='Client URL, `<base>/repository/<name>/`')
     proxy: ProxyConfig | None = None
     hosted: HostedConfig | None = None
+    group: GroupConfig | None = None
     format_options: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
@@ -135,6 +137,12 @@ def _hosted_view(repo: RepoConfig) -> HostedConfig | None:
     )
 
 
+def _group_view(repo: RepoConfig) -> GroupConfig | None:
+    if repo.type is not RepoType.GROUP or repo.group is None:
+        return None
+    return GroupConfig(members=list(repo.group.members), writable_member=repo.group.writable_member)
+
+
 def to_view(svc: Services, repo: RepoConfig, status: str, summary: repo_stats.RepoSummary) -> Repository:
     return Repository(
         name=repo.name,
@@ -146,6 +154,7 @@ def to_view(svc: Services, repo: RepoConfig, status: str, summary: repo_stats.Re
         url=f'{svc.base_url}/repository/{repo.name}/',
         proxy=_proxy_view(repo),
         hosted=_hosted_view(repo),
+        group=_group_view(repo),
         format_options=repo.format_options,
         created_at=repo.created_at,
         updated_at=repo.updated_at,

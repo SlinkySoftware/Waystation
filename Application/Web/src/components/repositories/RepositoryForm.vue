@@ -58,6 +58,38 @@
       />
     </section>
 
+    <section v-if="model.type === 'group'" class="repo-form__section">
+      <h3 class="section-label">{{ t('repoForm.members') }}</h3>
+      <q-select
+        v-model="model.members"
+        outlined
+        dense
+        multiple
+        use-chips
+        emit-value
+        map-options
+        :options="memberOptions"
+        :label="t('repoForm.membersLabel')"
+        :hint="t('repoForm.membersHint')"
+        :error="!!membersError"
+        :error-message="membersError"
+      />
+      <q-select
+        v-if="model.format === 'docker'"
+        v-model="model.writableMember"
+        outlined
+        dense
+        emit-value
+        map-options
+        clearable
+        :options="writableOptions"
+        :label="t('repoForm.writableMember')"
+        :hint="t('repoForm.writableMemberHint')"
+        :error="!!errors['group.writable_member']"
+        :error-message="errors['group.writable_member']"
+      />
+    </section>
+
     <section v-if="model.type === 'proxy'" class="repo-form__section">
       <h3 class="section-label">{{ t('repoForm.upstream') }}</h3>
       <q-input
@@ -93,7 +125,7 @@
 
     <section v-if="model.format !== 'yum'" class="repo-form__section">
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
-      <template v-if="model.format === 'docker' && model.type === 'hosted'">
+      <template v-if="model.format === 'docker' && model.type !== 'proxy'">
         <q-toggle v-model="model.defaultRepo" :label="t('repoForm.defaultRepoHosted')" />
       </template>
       <template v-else-if="model.format === 'docker'">
@@ -227,6 +259,8 @@ import { computed, ref, watch } from 'vue'
 
 import { t } from '@/i18n'
 import { useConfigStore } from '@/stores/config'
+import { useRepositoriesStore } from '@/stores/repositories'
+import { typeMeta } from '@/utils/domain'
 
 import { NAME_PATTERN, type Preset, PRESETS, type RepoFormModel } from './form'
 import UpstreamTest from './UpstreamTest.vue'
@@ -237,6 +271,21 @@ const model = defineModel<RepoFormModel>({ required: true })
 const config = useConfigStore()
 const baseUrl = computed(() => config.config?.base_url ?? '')
 const presets = computed(() => (props.mode === 'create' && model.value.type === 'proxy' ? (model.value.format === 'yum' ? [] : PRESETS[model.value.format]) : []))
+
+const repositories = useRepositoriesStore()
+void repositories.load().catch(() => undefined)
+/** Group members: repositories of the same format that are not groups (and not this one), in name order. */
+const memberOptions = computed(() =>
+  repositories.items
+    .filter((r) => r.format === model.value.format && r.type !== 'group' && r.name !== model.value.name)
+    .map((r) => ({ label: `${r.name} (${typeMeta(r.type).label})`, value: r.name })),
+)
+const writableOptions = computed(() =>
+  model.value.members
+    .filter((name) => repositories.byName.get(name)?.type === 'hosted')
+    .map((name) => ({ label: name, value: name })),
+)
+const membersError = computed(() => Object.entries(props.errors).find(([field]) => field.startsWith('group.members') || field === 'group')?.[1] ?? '')
 
 const policyOptions = computed(() =>
   (['allow_redeploy', 'disable_redeploy', 'read_only'] as const).map((value) => ({ label: t(`repoForm.policy.${value}`), value })),
