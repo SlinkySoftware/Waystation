@@ -19,6 +19,7 @@ dev = [
     "pyyaml>=6.0",
     "types-pyyaml>=6.0",
     "types-ldap3>=2.9",
+    "types-defusedxml>=0.7",
 ]
 
 [tool.uv]

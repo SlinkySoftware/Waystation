@@ -101,25 +101,33 @@ def test_store_bodiless_exchange_removes_stale_body(tmp_path: Path) -> None:
     assert (loaded.status, loaded.body) == (304, b'')
 
 
-def test_store_keeps_dotted_segments_apart_and_reads_legacy_names(tmp_path: Path) -> None:
-    store = FixtureStore(tmp_path)
-    keys = [RequestKey.build('GET', f'https://proxy.example.com/m/@v/v1.6.0.{ext}', {}) for ext in ('info', 'mod')]
-    metas = [store.save(key, Exchange(200, [], ext.encode())) for key, ext in zip(keys, ('info', 'mod'), strict=True)]
-    assert metas[0] != metas[1] and metas[0].name.endswith(f'-{keys[0].digest[:16]}.json')
-    assert [store.load(key).body for key in keys] == [b'info', b'mod']  # type: ignore[union-attr]
-
-    legacy = RequestKey.build('GET', 'https://registry.example.com/x/-/x-1.0.0.tgz', {})
-    old = tmp_path / legacy.host / legacy.stem
-    store.save(legacy, Exchange(200, [], b'tgz'))
-    (tmp_path / legacy.host / f'{legacy.stem}.json').rename(old.with_suffix('.json'))
-    (tmp_path / legacy.host / f'{legacy.stem}.body').rename(old.with_suffix('.body'))
-    loaded = store.load(legacy)
-    assert loaded is not None and loaded.body == b'tgz'
-
-
 def test_scrub_response_drops_configured_json_keys_at_any_depth() -> None:
     body = json.dumps(
         {'name': 'pkg', 'readme': 'see https://example.com', 'versions': {'1.0.0': {'_npmUser': {'email': 'a@b'}}}}
     ).encode()
     out = scrub_response(200, [('content-type', 'application/json')], body, frozenset({'readme', '_npmUser'}))
     assert json.loads(out.body) == {'name': 'pkg', 'versions': {'1.0.0': {}}}
+
+
+def test_store_keeps_files_with_dotted_names_apart(tmp_path: Path) -> None:
+    store = FixtureStore(tmp_path)
+    pom = RequestKey.build('GET', 'https://repo.example.com/g/a/1.0/a-1.0.pom', {})
+    jar = RequestKey.build('GET', 'https://repo.example.com/g/a/1.0/a-1.0.jar', {})
+    store.save(pom, Exchange(200, [], b'<project/>'))
+    store.save(jar, Exchange(200, [], b'PK\x03\x04'))
+    assert (store.load(pom) or Exchange(0, [], b'')).body == b'<project/>'
+    assert (store.load(jar) or Exchange(0, [], b'')).body == b'PK\x03\x04'
+    assert len(list((tmp_path / 'repo.example.com').glob('*.json'))) == 2
+
+
+def test_store_reads_legacy_names_only_for_their_own_request(tmp_path: Path) -> None:
+    store = FixtureStore(tmp_path)
+    tgz = RequestKey.build('GET', 'https://registry.example.com/is/-/is-4.6.0.tgz', {})
+    meta = store.save(tgz, Exchange(200, [], b'tarball'))
+    legacy = (tmp_path / 'registry.example.com' / tgz.stem).with_suffix('.json')
+    meta.rename(legacy)
+    meta.with_suffix('.body').rename(legacy.with_suffix('.body'))
+    assert (store.load(tgz) or Exchange(0, [], b'')).body == b'tarball'
+    other = RequestKey.build('GET', 'https://registry.example.com/is/-/is-4.6.0.zip', {})
+    assert other.stem != tgz.stem and (tmp_path / 'registry.example.com' / other.stem).with_suffix('.json') == legacy
+    assert store.load(other) is None

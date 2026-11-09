@@ -2,8 +2,8 @@
 context a browse view gets, the view protocols format plugins implement, and opaque cursors.
 
 A format plugin that supports format-aware browsing exposes a ``browser`` attribute implementing one of the protocols
-below (``NpmBrowser``, ``AptBrowser``, ``DockerBrowser``, ``PypiBrowser``, ``GoBrowser``). The REST API finds it
-through the format registry and never imports the format package (ARCHITECTURE §3).
+below (``NpmBrowser``, ``AptBrowser``, ``DockerBrowser``, ``MavenBrowser``, ``PypiBrowser``, ``GoBrowser``). The REST
+API finds it through the format registry and never imports the format package (ARCHITECTURE §3).
 
 Download counters (``downloads``, ``pulls``, ``last_downloaded_at``, ``last_pulled_at``) are not recorded yet (T-S09
 full): they answer ``0`` / ``null``.
@@ -191,6 +191,38 @@ class DockerManifest(BaseModel):
     pull_by_digest: str = ''
 
 
+# ---------------------------------------------------------------------------- maven
+class MavenArtifact(BaseModel):
+    group_id: str
+    artifact_id: str
+    latest: str | None = Field(default=None, description='Highest version held (Maven order)')
+    version_count: int
+    updated_at: datetime | None = None
+
+
+class MavenArtifactPage(BaseModel):
+    items: list[MavenArtifact]
+    next_cursor: str | None
+
+
+class MavenVersion(BaseModel):
+    version: str
+    snapshot: bool
+    path: str = Field(description='The version folder (browse it for the files)')
+    file_count: int
+    size_bytes: int
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    uploaded_by: str | None = Field(default=None, description='Hosted: who deployed it last')
+
+
+class MavenVersionPage(BaseModel):
+    group_id: str
+    artifact_id: str
+    items: list[MavenVersion]
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- pypi
 class PypiProject(BaseModel):
     name: str = Field(description='Normalised project name (PEP 503)')
@@ -371,6 +403,19 @@ class DockerBrowser(Protocol):
 
     async def manifest(self, ctx: BrowseContext, *, image: str, reference: str, platform: str | None) -> DockerManifest:
         """A cached manifest (tag or digest) with its platforms and layers; raises ``NotFound`` when not cached."""
+
+
+@runtime_checkable
+class MavenBrowser(Protocol):
+    async def artifacts(
+        self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int
+    ) -> MavenArtifactPage:
+        """Artifacts (groupId, artifactId) with at least one version held, in order."""
+
+    async def versions(
+        self, ctx: BrowseContext, *, group_id: str, artifact_id: str, cursor: str | None, limit: int
+    ) -> MavenVersionPage:
+        """One artifact's versions, highest first (Maven order); raises ``NotFound`` when it has none."""
 
 
 # ---------------------------------------------------------------------------- cursors

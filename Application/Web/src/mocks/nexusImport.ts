@@ -42,7 +42,7 @@ const NEXUS: NexusRepo[] = [
   { name: 'oracle', format: 'yum', type: 'proxy', upstream: 'https://yum.oracle.com/repo/OracleLinux/', options: { repo_path: '', gpg_key: null } },
   { name: 'npm', format: 'npm', type: 'proxy', upstream: 'https://registry.npmjs.org', options: { audit_passthrough: true } },
   { name: 'files', format: 'raw', type: 'hosted' },
-  { name: 'maven-central', format: 'maven2', type: 'proxy' },
+  { name: 'maven-central', format: 'maven2', type: 'proxy', upstream: 'https://repo.maven.apache.org/maven2/', options: { version_policy: 'release', layout_policy: 'strict' } },
   { name: 'r-hosted', format: 'r', type: 'hosted' },
 ]
 
@@ -53,7 +53,6 @@ function plan(body: NexusImportRequest, applied: Set<string> | null, selected: s
     const format = n.format === 'maven2' ? 'maven' : n.format === 'r' ? null : (n.format as NexusImportItem['format'])
     const base: Omit<NexusImportItem, 'action'> = { name: n.name, nexus_format: n.format, nexus_type: n.type, format, type: n.type, outcome: null, reason: null, repository: null, differences: n.differences ?? [], notes: [] }
     if (n.format === 'r') return { ...base, type: null, action: 'unsupported', reason: 'Waystation has no r format' }
-    if (n.format === 'maven2') return { ...base, action: 'unsupported', reason: 'Waystation does not serve maven yet' }
     const found = existing.get(n.name.toLowerCase())
     if (n.format === 'docker' && n.type !== 'proxy') {
       const repository = {

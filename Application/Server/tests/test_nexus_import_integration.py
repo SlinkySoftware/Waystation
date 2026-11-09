@@ -67,7 +67,10 @@ async def test_preview_then_apply_is_idempotent(
     outcomes = {i['name']: i['outcome'] for i in result['items']}
     assert {n for n, o in outcomes.items() if o == 'created'} == creates
     assert result['summary']['created'] == len(creates)
-    assert outcomes['maven-central'] == 'unsupported'
+    assert outcomes['maven-central'] == 'created'  # T-P5-MAVEN
+    maven = (await admin.get('/api/v1/repositories/maven-central')).json()
+    assert maven['format_options'] == {'version_policy': 'release', 'layout_policy': 'strict'}
+    assert maven['proxy']['upstream_url'] == 'https://repo.maven.apache.org/maven2/'
 
     hub = (await admin.get('/api/v1/repositories/dockerhub-proxy')).json()
     assert hub['format_options'] == {'aliases': ['docker.io'], 'docker_hub': True, 'default_repo': True}

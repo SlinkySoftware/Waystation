@@ -1348,6 +1348,54 @@ paths:
               schema: { $ref: '#/components/schemas/NpmVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/maven/artifacts:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listMavenArtifacts
+      summary: 'Artifacts (groupId, artifactId) a Maven repository holds (proxies: cached; hosted: deployed)'
+      parameters:
+        - name: q
+          in: query
+          description: Substring of the groupId or artifactId
+          schema: { type: string, maxLength: 200 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Artifacts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MavenArtifactPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/maven/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listMavenVersions
+      summary: "One artifact's versions, highest first (Maven version order); browse a version's `path` for its files"
+      parameters:
+        - name: group_id
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 255 }
+        - name: artifact_id
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 255 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MavenVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/pypi/projects:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -3337,6 +3385,50 @@ components:
       properties:
         repo_path: { type: string, maxLength: 200, default: '', description: 'Path of the yum repository (the directory holding `repodata/`) below the upstream URL, e.g. `$releasever/BaseOS/$basearch/os/`. Empty: derived for well-known upstreams, else the repository root. Only used by "Set me up" and "test upstream"' }
         gpg_key: { type: [string, 'null'], maxLength: 500, description: '`gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams' }
+    MavenArtifact:
+      type: object
+      required: [group_id, artifact_id, version_count]
+      properties:
+        group_id: { type: string }
+        artifact_id: { type: string }
+        latest: { type: [string, 'null'], description: Highest version held (Maven order) }
+        version_count: { type: integer }
+        updated_at: { type: [string, 'null'], format: date-time }
+    MavenArtifactPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MavenArtifact' }
+        next_cursor: { type: [string, 'null'] }
+    MavenVersion:
+      type: object
+      required: [version, snapshot, path, file_count, size_bytes]
+      properties:
+        version: { type: string }
+        snapshot: { type: boolean }
+        path: { type: string, description: The version folder (browse it for the files) }
+        file_count: { type: integer }
+        size_bytes: { type: integer }
+        created_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: [string, 'null'], format: date-time }
+        uploaded_by: { type: [string, 'null'], description: 'Hosted: who deployed it last' }
+    MavenVersionPage:
+      type: object
+      required: [group_id, artifact_id, items, next_cursor]
+      properties:
+        group_id: { type: string }
+        artifact_id: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MavenVersion' }
+        next_cursor: { type: [string, 'null'] }
+    MavenOptions:
+      type: object
+      properties:
+        version_policy: { type: string, enum: [release, snapshot, mixed], default: release, description: 'Which versions the repository holds: releases, SNAPSHOTs or both (groups: not used)' }
+        layout_policy: { type: string, enum: [strict, permissive], default: strict, description: 'strict: only Maven layout paths (artifacts, checksums, signatures, maven-metadata.xml); permissive: any path' }
     PypiOptions:
       type: object
       properties:
@@ -3361,6 +3453,7 @@ components:
         - $ref: '#/components/schemas/AptOptions'
         - $ref: '#/components/schemas/RawOptions'
         - $ref: '#/components/schemas/YumOptions'
+        - $ref: '#/components/schemas/MavenOptions'
         - $ref: '#/components/schemas/PypiOptions'
         - $ref: '#/components/schemas/GoOptions'
     QuotaMode:
