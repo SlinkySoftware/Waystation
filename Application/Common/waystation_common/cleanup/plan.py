@@ -6,7 +6,9 @@ the same ``plan_repository``, so a preview equals what a run removes at the same
 Components and versions come from asset paths (``coordinates``) until components are indexed (T-S09):
 
 * npm ``<pkg>/-/<name>-<version>.tgz``; apt pool ``<name>_<version>_<arch>.deb`` (grouped per name and arch); yum
-  ``<name>-<version>-<release>.<arch>.rpm`` (per name and arch); every other format (raw...): the name is the path,
+  ``<name>-<version>-<release>.<arch>.rpm`` (per name and arch); pypi ``packages/<project>/<wheel or sdist>`` (and
+  its ``.metadata`` sidecar; per project, PEP 440, every file of a version shares its rank); every other format
+  (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
   manifests only it reached (index children, referrers) and the layers no remaining manifest uses (repository-wide,
@@ -104,7 +106,27 @@ def coordinates(fmt: str, path: str) -> Coord:
         name, _, version = name_ver.rpartition('-')
         if name and version and release and arch:
             return Coord(name, f'{version}-{release}', f'{name}.{arch}', True)
+    if fmt == 'pypi' and path.startswith('packages/') and path.count('/') == 2:
+        dist_version = pypi_version(filename.removesuffix('.metadata'))
+        if dist_version is not None:
+            project = path.split('/')[1]
+            return Coord(project, dist_version, project, True)
     return Coord(path, filename, _parent(path), False)
+
+
+_PYPI_SDIST = ('.tar.gz', '.zip', '.tar.bz2', '.tar.xz', '.tgz', '.tar')
+
+
+def pypi_version(filename: str) -> str | None:
+    """The version in a wheel (``name-version-...whl``) or sdist (``name-version.tar.gz``) file name."""
+    if filename.endswith('.whl'):
+        parts = filename[:-4].split('-')
+        return parts[1] if len(parts) in (5, 6) and parts[1] else None
+    for ext in _PYPI_SDIST:
+        if filename.endswith(ext):
+            name, _, version = filename[: -len(ext)].rpartition('-')
+            return version if name and version else None
+    return None
 
 
 # ---------------------------------------------------------------- matching
@@ -163,14 +185,21 @@ def _reasons(criteria: Criteria, fmt: str, item: _Item, rank: int, now: datetime
 
 
 def _ranked(items: Iterable[tuple[_Item, Any]]) -> list[tuple[_Item, Any, int]]:
-    """Rank within each group, newest first (0 = newest)."""
+    """Rank within each group, newest first (0 = newest). Files of the same version share its rank (PyPI: the
+    wheels and the sdist of one release)."""
     groups: dict[str, list[tuple[_Item, Any]]] = defaultdict(list)
     for item, ref in items:
         groups[item.group].append((item, ref))
     out: list[tuple[_Item, Any, int]] = []
     for members in groups.values():
         members.sort(key=lambda pair: pair[0].order, reverse=True)
-        out.extend((item, ref, rank) for rank, (item, ref) in enumerate(members))
+        seen: dict[str, int] = {}
+        for index, (item, ref) in enumerate(members):
+            if item.version is None:
+                out.append((item, ref, index))
+                continue
+            rank = seen.setdefault(item.version, len(seen))
+            out.append((item, ref, rank))
     return out
 
 

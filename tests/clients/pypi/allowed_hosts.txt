@@ -1,0 +1,9 @@
+# Public hosts in the core metadata (PEP 658 .metadata files) of the recorded projects six and iniconfig: home
+# pages, documentation badges and the authors' published contact addresses. Clients verify these files against the
+# simple page's hash, so they are recorded byte for byte and cannot be scrubbed.
+python.org
+img.shields.io
+readthedocs.org
+six.readthedocs.io
+ronnypfannschmidt.de
+gmail.com

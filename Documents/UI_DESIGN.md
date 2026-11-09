@@ -113,6 +113,10 @@ Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. 
   Built for Maven (T-P5-MAVEN): artifacts table (artifactId over its groupId, latest, version count, filter by
   groupId or artifactId) → versions table (Maven order, SNAPSHOT badge, files, size, deployed by; a copyable
   `<dependency>` snippet) → the version's files (name, size, modified, copy download URL).
+  Built for PyPI (T-P5-PYPI): projects table (name, summary, latest, files held / versions, size) → project page
+  (summary, latest, `pip install` snippet; versions newest first with pre-release and yanked badges, expandable to
+  their wheels and sdist with kind, size, cache state, PEP 658 metadata badge, uploader, short sha256). Hosted
+  repositories add Yank / Un-yank per version (dialog with an optional reason); groups show their members to browse.
 - **apt / yum**: suites/components/arches tree → package list with versions and arch.
 - **Raw**: folder listing.
 

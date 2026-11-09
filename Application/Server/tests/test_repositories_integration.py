@@ -149,7 +149,7 @@ async def test_field_errors(admin: httpx.AsyncClient) -> None:
         },
     )
     assert fields(private) == {'proxy.upstream_url': 'ssrf'}
-    unknown = await admin.post(API, json=docker_hub(name='pypi-x', format='pypi'))
+    unknown = await admin.post(API, json=docker_hub(name='maven-x', format='maven'))
     assert fields(unknown)['format'] == 'unsupported'
 
 
@@ -272,6 +272,7 @@ async def test_openapi_documents_format_options(client: httpx.AsyncClient) -> No
         'DockerOptions',
         'MavenOptions',
         'NpmOptions',
+        'PypiOptions',
         'RawOptions',
         'YumOptions',
     }
