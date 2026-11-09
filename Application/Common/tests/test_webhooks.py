@@ -201,7 +201,9 @@ def test_retry_schedule_doubles_up_to_an_hour() -> None:
     assert 27 <= wh.retry_delay_s(1) <= 33
 
 
-@pytest.mark.parametrize(('code', 'ok'), [(200, True), (204, True), (299, True), (301, False), (500, False), (None, False)])
+@pytest.mark.parametrize(
+    ('code', 'ok'), [(200, True), (204, True), (299, True), (301, False), (500, False), (None, False)]
+)
 def test_success(code: int | None, ok: bool) -> None:
     assert wh.success(code) is ok
 
