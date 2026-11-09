@@ -40,6 +40,8 @@ PYPI_PACKAGES = 'pypi_packages'
 GO_MODULES = 'go_modules'
 YUM_PACKAGES = 'yum_packages'
 HELM_CHARTS = 'helm_charts'
+GALAXY_COLLECTIONS = 'galaxy_collections'
+GALAXY_IMPORTS = 'galaxy_imports'  # hosted collection uploads waiting for (or done with) the import job
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -316,6 +318,39 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('repo_path', [('repo_id', ASCENDING), ('path', ASCENDING)]),
             # A proxy listing's generation (sha256 of the index blob it came from): replaced on re-index.
             _ix('repo_gen', [('repo_id', ASCENDING), ('gen', ASCENDING)]),
+        ),
+    ),
+    CollectionSpec(
+        GALAXY_COLLECTIONS,
+        (
+            # One collection version per repository: a hosted import, or a version a proxy's cached list names.
+            _ix(
+                'repo_coll_version_unique',
+                [('repo_id', ASCENDING), ('namespace', ASCENDING), ('name', ASCENDING), ('version', ASCENDING)],
+                unique=True,
+            ),
+            # Browse and the served version lists: a collection's versions newest first.
+            _ix(
+                'repo_coll_sort',
+                [('repo_id', ASCENDING), ('namespace', ASCENDING), ('name', ASCENDING), ('version_sort', DESCENDING)],
+            ),
+        ),
+    ),
+    CollectionSpec(
+        GALAXY_IMPORTS,
+        (
+            # Uploads of one collection version still waiting for the import job (version immutability).
+            _ix(
+                'repo_coll_version_state',
+                [
+                    ('repo_id', ASCENDING),
+                    ('namespace', ASCENDING),
+                    ('name', ASCENDING),
+                    ('version', ASCENDING),
+                    ('state', ASCENDING),
+                ],
+            ),
+            _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
         ),
     ),
     CollectionSpec(
