@@ -75,7 +75,7 @@
         :error-message="membersError"
       />
       <q-select
-        v-if="model.format === 'docker'"
+        v-if="model.format === 'docker' || model.format === 'pypi'"
         v-model="model.writableMember"
         outlined
         dense
@@ -123,7 +123,7 @@
       />
     </section>
 
-    <section v-if="model.format !== 'yum'" class="repo-form__section">
+    <section v-if="model.format !== 'yum' && !(model.format === 'pypi' && model.type !== 'proxy')" class="repo-form__section">
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
       <template v-if="model.format === 'docker' && model.type !== 'proxy'">
         <q-toggle v-model="model.defaultRepo" :label="t('repoForm.defaultRepoHosted')" />
@@ -148,6 +148,9 @@
       </template>
       <template v-else-if="model.format === 'npm'">
         <q-toggle v-model="model.auditPassthrough" :label="t('repoForm.audit')" />
+      </template>
+      <template v-else-if="model.format === 'pypi'">
+        <q-toggle v-model="model.jsonApi" :label="t('repoForm.jsonApi')" />
       </template>
       <template v-else-if="model.format === 'apt'">
         <div class="repo-form__row">

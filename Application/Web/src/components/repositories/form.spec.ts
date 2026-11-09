@@ -97,6 +97,17 @@ describe('repository form model', () => {
     expect(back).toMatchObject({ caPem: set.caPem.trim(), httpProxy: 'http://proxy.example.com:3128', autoBlock: false, autoBlockMaxMin: 60 })
   })
 
+  it('builds PyPI proxies, hosted repositories and groups with a writable member', () => {
+    const proxy = toWrite({ ...emptyModel('pypi'), ...PRESETS.pypi[0]!.apply })
+    expect(proxy).toMatchObject({ name: 'pypi-proxy', format: 'pypi', type: 'proxy', proxy: { upstream_url: 'https://pypi.org' }, format_options: { json_api: true } })
+    const hosted = toWrite({ ...emptyModel('pypi', 'hosted'), name: 'pypi-internal', writePolicy: 'disable_redeploy' })
+    expect(hosted).toMatchObject({ type: 'hosted', hosted: { write_policy: 'disable_redeploy' } })
+    const group = toWrite({ ...emptyModel('pypi', 'group'), name: 'pypi-all', members: ['pypi-internal', 'pypi-proxy'], writableMember: 'pypi-internal' })
+    expect(group).toMatchObject({ type: 'group', group: { members: ['pypi-internal', 'pypi-proxy'], writable_member: 'pypi-internal' } })
+    const back = modelFromRepository({ ...proxy, format_options: { json_api: false }, status: 'ok' } as unknown as Repository)
+    expect(back.jsonApi).toBe(false)
+  })
+
   it('validates names like the server', () => {
     expect(NAME_PATTERN.test('docker-hub')).toBe(true)
     expect(NAME_PATTERN.test('-bad')).toBe(false)
