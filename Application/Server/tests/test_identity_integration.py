@@ -614,3 +614,77 @@ async def test_admin_passes_every_access_rule(services: Services, admin: httpx.A
             assert response.status_code not in (401, 403), f'{method} {path}: {response.status_code} {response.text}'
             checked += 1
     assert checked > 50
+
+
+# ---------------------------------------------------------------------------- T-U08: sessions, settings, system
+async def test_admin_lists_and_ends_a_users_sessions(services: Services, admin: httpx.AsyncClient) -> None:
+    rita = await sign_in(services, 'rita')
+    other = await sign_in(services, 'rita')
+    try:
+        listed = await admin.get(f'{API}/users/id-rita/sessions')
+        assert listed.status_code == 200, listed.text
+        assert len(listed.json()) == 2
+        assert not any(s['current'] for s in listed.json())  # neither is the admin's own session
+        admin_id = (await admin.get(f'{API}/auth/me')).json()['user']['id']
+        own = (await admin.get(f'{API}/users/{admin_id}/sessions')).json()
+        assert [s['current'] for s in own] == [True]
+
+        # a user-admin may not sign out an administrator (holds more), but may sign out a reader
+        uma = await user_admin(services, admin)
+        try:
+            assert (await uma.delete(f'{API}/users/{admin_id}/sessions')).status_code == 403
+            ended = await uma.delete(f'{API}/users/id-rita/sessions')
+            assert ended.status_code == 200, ended.text
+            assert ended.json() == {'revoked': 2}
+        finally:
+            await uma.aclose()
+        assert (await rita.get(f'{API}/auth/me')).status_code == 401
+        assert (await other.get(f'{API}/auth/me')).status_code == 401
+        assert (await admin.get(f'{API}/users/nobody/sessions')).status_code == 404
+    finally:
+        await rita.aclose()
+        await other.aclose()
+
+
+async def test_instance_settings(services: Services, admin: httpx.AsyncClient) -> None:
+    initial = await admin.get(f'{API}/settings')
+    assert initial.status_code == 200, initial.text
+    body = initial.json()
+    assert body['general'] == {'instance_name': services.settings.instance_name}
+    assert body['updated_at'] is None
+    assert body['limits']['session_idle_minutes'] == services.settings.session_idle_minutes
+    assert body['limits']['stats_minute_retention_days'] == 7
+
+    saved = await admin.put(f'{API}/settings', json={'general': {'instance_name': '  Package mirror  '}})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['general'] == {'instance_name': 'Package mirror'}
+    assert saved.json()['updated_by'] == 'admin'
+    async with asgi_client(services) as anon:
+        assert (await anon.get(f'{API}/config')).json()['instance_name'] == 'Package mirror'
+
+    assert (await admin.put(f'{API}/settings', json={'general': {'instance_name': ' '}})).status_code == 422
+    assert (await admin.put(f'{API}/settings', json={'general': {'instance_name': 'x' * 65}})).status_code == 422
+    rita = await sign_in(services, 'rita')
+    try:
+        assert (await rita.get(f'{API}/settings')).status_code == 403
+        assert (await rita.get(f'{API}/system')).status_code == 403
+    finally:
+        await rita.aclose()
+
+
+async def test_system_status(services: Services, admin: httpx.AsyncClient) -> None:
+    response = await admin.get(f'{API}/system')
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['version']
+    assert body['python'].startswith('3.')
+    components = {c['name']: c for c in body['components']}
+    assert components['mongodb']['status'] == 'ok'
+    assert components['mongodb']['version']
+    assert components['valkey']['status'] == 'ok'
+    assert components['valkey']['version']
+    assert components['mongodb']['latency_ms'] >= 0
+    storage = body['storage']
+    assert storage['path'] == str(services.settings.data_dir)
+    assert storage['total_bytes'] >= storage['free_bytes'] > 0
+    assert storage['min_free_bytes'] == services.settings.min_free_bytes
