@@ -114,8 +114,8 @@ workflow-lint: ## actionlint + shellcheck on the GitHub and Gitea workflows
 forbidden-strings: dev-image ## Fail on non-allowlisted hosts/IPs, keys and tokens anywhere in the repo (Build/ci/allowed_hosts.txt)
 	Build/ci/forbidden_strings.sh
 
-budgets: dev-image ## Report performance budgets (Build/ci/budgets.json); only 'fail' budgets fail, the rest warn until M2
-	@$(DEV_RUN) python Build/ci/budgets.py $(if $(MARKDOWN),--markdown)
+budgets: dev-image ## Report performance budgets (Build/ci/budgets.json); only 'fail' budgets fail, the rest warn until M2 (STRICT=1: all fail)
+	@$(DEV_RUN) python Build/ci/budgets.py $(if $(MARKDOWN),--markdown) $(if $(filter 1,$(STRICT)),--strict)
 
 .PHONY: env-example
 env-example: sync ## Regenerate .env.example from waystation_common.settings (idempotent)
@@ -250,5 +250,6 @@ nexus-compare: dev-image ## Compare a Nexus and a Waystation: NEXUS=<url> WAYSTA
 .PHONY: proxies-check
 proxies-check: ## Reverse-proxy examples in containers (REVERSE_PROXIES.md; SIZE_MB=1024, SLOW=1 for 60 s timeouts)
 	Build/Containers/examples/reverse-proxies/check/check.sh
-perf: ## k6 performance budgets
-	$(call not_yet,T-P2-PERF)
+PROFILE ?= ci
+perf: dev-image ## k6 perf suite vs the SPEC §5.1 budgets: PROFILE=ci|full [STRICT=1] [PERF_SCENARIOS=...] (tests/perf/README.md)
+	TEST_LOCK='$(TEST_LOCK)' STRICT='$(STRICT)' tests/perf/run.sh $(PROFILE)

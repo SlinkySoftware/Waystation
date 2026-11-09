@@ -1,5 +1,5 @@
 {
-  "$comment": "Performance budgets (SPECIFICATION §5.1, ARCHITECTURE §9). Read by Build/ci/budgets.py (make budgets) and Application/Web/scripts/bundle-budget.mjs. 'enforce' is 'warn' (reported, never fails the build) until milestone M2, then 'fail'. 'source' names the check that measures the metric; metrics without a source are not measured yet (k6 suite: T-P2-PERF).",
+  "$comment": "Performance budgets (SPECIFICATION §5.1, ARCHITECTURE §9). Read by Build/ci/budgets.py (make budgets) and Application/Web/scripts/bundle-budget.mjs. 'enforce' is 'warn' (reported, never fails the build) until milestone M2, then 'fail'. 'source' names the file the check that measures the metric leaves behind: the k6 suite (make perf, tests/perf/README.md) writes tests/perf/.results/measured.json; a budget whose source has not run shows 'not measured'. The dashboard paint budget has no source yet (a browser check, not k6).",
   "milestone_enforced_from": "M2",
   "budgets": [
     {
@@ -16,7 +16,7 @@
       "limit": 15,
       "unit": "ms",
       "enforce": "warn",
-      "source": null
+      "source": "tests/perf/.results/measured.json"
     },
     {
       "id": "cache_hit_metadata_p95_ms",
@@ -24,7 +24,7 @@
       "limit": 25,
       "unit": "ms",
       "enforce": "warn",
-      "source": null
+      "source": "tests/perf/.results/measured.json"
     },
     {
       "id": "docker_manifest_cached_p95_ms",
@@ -32,7 +32,7 @@
       "limit": 20,
       "unit": "ms",
       "enforce": "warn",
-      "source": null
+      "source": "tests/perf/.results/measured.json"
     },
     {
       "id": "cache_miss_added_ttfb_ms",
@@ -40,7 +40,7 @@
       "limit": 30,
       "unit": "ms",
       "enforce": "warn",
-      "source": null
+      "source": "tests/perf/.results/measured.json"
     },
     {
       "id": "cache_miss_throughput_loss_pct",
@@ -48,7 +48,7 @@
       "limit": 5,
       "unit": "%",
       "enforce": "warn",
-      "source": null
+      "source": "tests/perf/.results/measured.json"
     },
     {
       "id": "api_list_search_p95_ms",
@@ -56,7 +56,7 @@
       "limit": 150,
       "unit": "ms",
       "enforce": "warn",
-      "source": null
+      "source": "tests/perf/.results/measured.json"
     },
     {
       "id": "dashboard_first_meaningful_paint_ms",
@@ -72,7 +72,7 @@
       "limit": 1000,
       "unit": "ms",
       "enforce": "warn",
-      "source": null
+      "source": "tests/perf/.results/measured.json"
     },
     {
       "id": "concurrent_download_errors",
@@ -80,7 +80,7 @@
       "limit": 0,
       "unit": "errors",
       "enforce": "warn",
-      "source": null
+      "source": "tests/perf/.results/measured.json"
     }
   ]
 }
