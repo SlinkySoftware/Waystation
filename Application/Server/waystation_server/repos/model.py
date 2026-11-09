@@ -36,6 +36,14 @@ class AuthKind(StrEnum):
     BEARER = 'bearer'
 
 
+class WritePolicy(StrEnum):
+    """Hosted repositories (SPECIFICATION §4.2): may an existing version (docker: a tag) be overwritten?"""
+
+    ALLOW_REDEPLOY = 'allow_redeploy'
+    DISABLE_REDEPLOY = 'disable_redeploy'
+    READ_ONLY = 'read_only'
+
+
 class _Stored(BaseModel):
     model_config = ConfigDict(extra='ignore', frozen=True, populate_by_name=True)
 
@@ -71,6 +79,19 @@ class StoredProxy(_Stored):
     auto_block: StoredAutoBlock = Field(default_factory=StoredAutoBlock)
 
 
+class StoredHosted(_Stored):
+    write_policy: WritePolicy = WritePolicy.ALLOW_REDEPLOY
+    # Regular expressions (Python ``re``, full match): matching docker tags never move once pushed.
+    immutable_tag_patterns: tuple[str, ...] = ()
+
+
+class StoredGroup(_Stored):
+    # Member repository names, in resolution order (same format; proxy and hosted, no groups).
+    members: tuple[str, ...] = ()
+    # The hosted member that receives uploads sent to the group (formats that support it: docker).
+    writable_member: str | None = None
+
+
 class RepoConfig(_Stored):
     id: str = Field(alias='_id')
     name: str
@@ -79,6 +100,8 @@ class RepoConfig(_Stored):
     online: bool = True
     description: str = ''
     proxy: StoredProxy | None = None
+    hosted: StoredHosted | None = None  # hosted repositories (read as defaults when absent)
+    group: StoredGroup | None = None  # group repositories
     format_options: dict[str, Any] = Field(default_factory=dict)
     cleanup_policy_ids: tuple[str, ...] = ()  # attached cleanup policies, in run order
     created_at: datetime

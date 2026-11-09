@@ -55,6 +55,9 @@ def test_request_scope() -> None:
     assert request_scope('_catalog', 'GET') == 'registry:catalog:*'
     assert request_scope('a/b/manifests/1', 'DELETE') == 'repository:a/b:delete'
     assert request_scope('a/b/blobs/uploads/', 'POST') == 'repository:a/b:pull,push'
+    # cancelling an upload is part of a push, deleting a blob is a delete
+    assert request_scope('a/b/blobs/uploads/0123456789abcdef0123456789abcdef', 'DELETE') == 'repository:a/b:pull,push'
+    assert request_scope('a/b/blobs/sha256:' + 'a' * 64, 'DELETE') == 'repository:a/b:delete'
 
 
 def test_issue_and_verify() -> None:

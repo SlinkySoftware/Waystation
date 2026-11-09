@@ -24,11 +24,11 @@
     </div>
 
     <div v-else-if="step === 'type'" class="tiles tiles--types">
-      <button v-for="ty in TYPES" :key="ty" type="button" class="tile tile--type" :class="{ 'tile--soon': ty !== 'proxy' }" :disabled="ty !== 'proxy'" @click="step = 'form'">
+      <button v-for="ty in TYPES" :key="ty" type="button" class="tile tile--type" :class="{ 'tile--soon': !typeAvailable(ty) }" :disabled="!typeAvailable(ty)" @click="pickType(ty)">
         <q-icon :name="typeMeta(ty).icon" size="28px" class="tile__icon" />
         <span class="tile__name">{{ typeMeta(ty).label }}</span>
         <span class="tile__sub">{{ t(`repoCreate.type.${ty}`) }}</span>
-        <span v-if="ty !== 'proxy'" class="tile__soon">{{ t('repoCreate.notInM0') }}</span>
+        <span v-if="!typeAvailable(ty)" class="tile__soon">{{ t('repoCreate.notInM0') }}</span>
       </button>
     </div>
 
@@ -51,7 +51,7 @@ import { t } from '@/i18n'
 import { formatLabel, formatMark, typeMeta } from '@/utils/domain'
 import { iconBack } from '@/utils/icons'
 
-import { emptyModel, type RepoFormModel, toWrite } from './form'
+import { emptyModel, type FormType, GROUP_FORMATS, HOSTED_FORMATS, type RepoFormModel, toWrite } from './form'
 import RepositoryForm from './RepositoryForm.vue'
 
 const open = defineModel<boolean>({ required: true })
@@ -96,6 +96,17 @@ const caption = computed(() =>
 function pickFormat(format: M0Format): void {
   model.value = emptyModel(format)
   step.value = 'type'
+}
+
+function typeAvailable(type: RepositoryType): boolean {
+  if (type === 'hosted') return HOSTED_FORMATS.includes(model.value.format)
+  if (type === 'group') return GROUP_FORMATS.includes(model.value.format)
+  return true
+}
+
+function pickType(type: RepositoryType): void {
+  model.value = emptyModel(model.value.format, type as FormType)
+  step.value = 'form'
 }
 
 function back(): void {

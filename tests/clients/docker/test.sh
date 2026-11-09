@@ -1,9 +1,14 @@
 #!/bin/sh
-# Docker / OCI proxy through real clients (client-docker container, dockerd started by setup.sh). Runs the same in
+# Docker / OCI proxy and hosted repositories through real clients (client-docker container, dockerd started by
+# setup.sh; hosted steps in hosted.sh). The conformance client runs conformance.sh instead. Runs the same in
 # record, replay and live mode. Everything is pinned to linux/amd64 so the upstream requests (and so the fixtures)
 # do not depend on the host's architecture.
 set -eu
 . /harness/lib.sh
+
+if [ "${HARNESS_CLIENT:-docker}" = conformance ]; then
+  exec sh /harness/docker/conformance.sh
+fi
 
 registry=${WAYSTATION_URL#http://}
 platform=linux/amd64
@@ -107,5 +112,9 @@ if printf '%s' "$token" | docker login "$registry" --username ci-bot --password-
   fail 'docker login worked with a revoked token'
 fi
 docker logout "$registry" >/dev/null 2>&1 || true
+
+# Hosted and group repositories: push, multi-platform, immutability, mounts, crane/skopeo/oras/cosign, referrers,
+# deletes, a group with a writable member.
+. /harness/docker/hosted.sh
 
 pass
