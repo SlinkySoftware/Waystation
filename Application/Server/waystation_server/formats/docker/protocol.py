@@ -181,6 +181,16 @@ def check_tags(data: bytes) -> None:
         raise UpstreamError('upstream tag list has an unexpected shape')
 
 
+def tag_names(data: bytes) -> list[str]:
+    """The valid tag names of a ``tags/list`` answer (already checked by ``check_tags`` when it was cached)."""
+    try:
+        doc = json.loads(data)
+    except ValueError:
+        return []
+    tags = doc.get('tags') if isinstance(doc, dict) else None
+    return [t for t in tags if isinstance(t, str) and TAG_RE.fullmatch(t)] if isinstance(tags, list) else []
+
+
 # ---------------------------------------------------------------------------- tag list paging
 def tags_query(params: Mapping[str, str]) -> dict[str, str]:
     """Validated ``n`` / ``last`` of ``GET /v2/<name>/tags/list``."""

@@ -73,10 +73,27 @@ def image_name(name_path: str) -> str:
     return name_path[: matches[-1].start()] if matches else name_path
 
 
+_UPLOAD = re.compile(r'.+/blobs/uploads(/[^/]+)?')
+
+
+def is_upload(name_path: str) -> bool:
+    """``<name>/blobs/uploads[/<id>]``: an upload session (cancelling one with DELETE is part of a push)."""
+    return _UPLOAD.fullmatch(name_path) is not None
+
+
+def request_action(name_path: str, method: str) -> Action:
+    """The repository action a ``/v2/`` request needs: pull = read, push = write, delete = delete (an upload's
+    ``DELETE`` cancels a push: write)."""
+    if method == 'DELETE' and is_upload(name_path):
+        return Action.WRITE
+    return access.method_action(method)
+
+
 def request_scope(name_path: str, method: str) -> str | None:
     if name_path in ('', '_catalog'):
         return 'registry:catalog:*' if name_path == '_catalog' else None
-    actions = 'delete' if method == 'DELETE' else ('pull,push' if method in ('PUT', 'POST', 'PATCH') else 'pull')
+    action = request_action(name_path, method)
+    actions = {Action.DELETE: 'delete', Action.WRITE: 'pull,push'}.get(action, 'pull')
     return f'repository:{image_name(name_path)}:{actions}'
 
 

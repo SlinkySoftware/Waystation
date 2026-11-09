@@ -113,9 +113,39 @@ def _hosted_snippets(ctx: SetupContext) -> list[SetupClient]:
     ]
 
 
+def _group_snippets(ctx: SetupContext) -> list[SetupClient]:
+    host, name = ctx.registry_host, ctx.repo.name
+    group = ctx.repo.group
+    members = ', '.join(group.members) if group is not None else ''
+    docker = [
+        snippet(
+            'docker-pull',
+            'Pull through the group',
+            f'docker pull {host}/{name}/team/app:1.0',
+            description=f'Members are searched in order: {members}.' if members else None,
+        ),
+        _login(host),
+    ]
+    if group is not None and group.writable_member:
+        docker.append(
+            snippet(
+                'docker-push',
+                f'Push through the group (stored in {group.writable_member})',
+                f'docker tag app:1.0 {host}/{name}/team/app:1.0\ndocker push {host}/{name}/team/app:1.0',
+            )
+        )
+    podman = [snippet('podman-pull', 'Pull with podman', f'podman pull {host}/{name}/team/app:1.0')]
+    return [
+        SetupClient(id='docker', label='Docker', snippets=docker),
+        SetupClient(id='podman', label='Podman', snippets=podman),
+    ]
+
+
 def _snippets(ctx: SetupContext) -> list[SetupClient]:
     if ctx.repo.type is RepoType.HOSTED:
         return _hosted_snippets(ctx)
+    if ctx.repo.type is RepoType.GROUP:
+        return _group_snippets(ctx)
     opts = DockerOptions.model_validate(ctx.repo.format_options)
     host, name = ctx.registry_host, ctx.repo.name
     image = 'library/nginx:latest' if opts.docker_hub else 'org/image:tag'
@@ -166,7 +196,8 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
 DESCRIPTOR = FormatDescriptor(
     name='docker',
     label='Docker / OCI',
-    types=frozenset({RepoType.PROXY, RepoType.HOSTED}),
+    types=frozenset({RepoType.PROXY, RepoType.HOSTED, RepoType.GROUP}),
+    writable_group_member=True,
     options_model=DockerOptions,
     ui=UiHints(icon='docker', browse='docker'),
     probe_path=_probe,

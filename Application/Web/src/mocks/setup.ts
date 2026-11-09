@@ -33,7 +33,7 @@ function dockerHosted(repo: Repository): SetupClient[] {
 }
 
 function docker(repo: Repository): SetupClient[] {
-  if (repo.type === 'hosted') return dockerHosted(repo)
+  if (repo.type === 'hosted' || repo.type === 'group') return dockerHosted(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const alias = opts.aliases?.[0]
   const hub = Boolean(repo.proxy?.upstream_url.includes('docker.io'))

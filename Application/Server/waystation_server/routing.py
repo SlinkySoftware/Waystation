@@ -69,10 +69,12 @@ async def _resolve_name(services: Services, name: str) -> tuple[RepoConfig, str]
     return (route.repo, route.path) if route is not None else None
 
 
-async def _dispatch(request: Request, repo: RepoConfig, root: Root, path: str) -> Response:
+async def _dispatch(
+    request: Request, repo: RepoConfig, root: Root, path: str, *, action: Action | None = None
+) -> Response:
     services = services_of(request)
     request.state.log.update(repo=repo.name, format=repo.format)
-    action = access.method_action(request.method)
+    action = action or access.method_action(request.method)
     descriptor = services.formats.descriptor(repo.format)
     if request.method == 'POST' and descriptor is not None and path in descriptor.read_posts:
         action = Action.READ  # a query sent as POST (npm audit), declared by the format
@@ -96,6 +98,10 @@ async def _dispatch(request: Request, repo: RepoConfig, root: Root, path: str) -
         _require=lambda action: access.require_repo(principal, action, repo),
         _allows=lambda action, other: access.check(principal, action, other),
         _resolve=lambda name: _resolve_name(services, name),
+        _repository=services.catalog.get,
+        _allows_member=lambda action, member: access.check(
+            dataclasses.replace(principal, token_access=None), action, member
+        ),
     )
     return await plugin.handle(req)
 
@@ -181,6 +187,7 @@ async def docker_v2(request: Request, name_path: str = '') -> Response:
     route = await resolve_docker(services, clean)
     if route is None:
         return oci_error(404, 'repository name not known to registry', headers=DOCKER_API_VERSION)
-    if not registry_auth.token_allows(principal, route.repo.name, access.method_action(request.method)):
+    action = registry_auth.request_action(clean, request.method)
+    if not registry_auth.token_allows(principal, route.repo.name, action):
         return registry_auth.challenge(services, scope=scope, error='insufficient_scope')
-    return await _dispatch(request, route.repo, 'v2', route.path)
+    return await _dispatch(request, route.repo, 'v2', route.path, action=action)
