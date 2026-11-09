@@ -12,7 +12,7 @@
     <q-card class="groups">
       <q-tabs v-model="tab" dense no-caps align="left" class="groups__tabs" active-color="primary" indicator-color="primary">
         <q-tab name="all" :label="`${t('admin.groups.all')} (${all.length})`" />
-        <q-tab name="local" :label="`${t('admin.groups.local')} (${all.filter((g) => g.source === 'local').length})`" />
+        <q-tab name="local" :label="`${t('admin.groups.localTab')} (${all.filter((g) => g.source === 'local').length})`" />
         <q-tab name="mapped" :label="`${t('admin.groups.mapped')} (${all.filter((g) => g.source !== 'local').length})`" />
       </q-tabs>
 

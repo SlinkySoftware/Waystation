@@ -166,9 +166,7 @@ const list = useCursorList(
 
 const sourceOptions = computed(() => [
   { value: null, label: t('admin.users.allSources') },
-  { value: 'local', label: t('admin.source.local') },
-  { value: 'ldap', label: t('admin.source.ldap') },
-  { value: 'oidc', label: t('admin.source.oidc') },
+  ...(['local', 'ldap', 'oidc'] as const).map((kind) => ({ value: kind, label: t(`admin.source.${kind}`) })),
   ...directory.providers.map((p) => ({ value: `${p.kind}:${p.id}`, label: `${p.kind.toUpperCase()} · ${p.name}` })),
 ])
 const statusOptions = computed(() => [
