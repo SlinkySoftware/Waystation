@@ -106,6 +106,12 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (auth.kind === 'basic' && !auth.username) errors.push({ field: 'proxy.auth.username', message: 'Enter the upstream username.', code: 'required' })
     if (!auth.secret && !existing?.proxy?.auth?.secret_set) errors.push({ field: 'proxy.auth.secret', message: auth.kind === 'bearer' ? 'Enter the token.' : 'Enter the password or token.', code: 'required' })
   }
+  const httpProxy = body.proxy?.http_proxy?.trim()
+  if (httpProxy && !/^https?:\/\/[^/@?#\s]+\/?$/.test(httpProxy)) errors.push({ field: 'proxy.http_proxy', message: 'must be an http:// or https:// URL with a host and no credentials, e.g. http://proxy.example.com:3128', code: 'format' })
+  const caPem = body.proxy?.ca_pem?.trim()
+  if (caPem && !caPem.includes('-----BEGIN CERTIFICATE-----')) errors.push({ field: 'proxy.ca_pem', message: 'must contain at least one PEM certificate (-----BEGIN CERTIFICATE-----)', code: 'format' })
+  const block = body.proxy?.auto_block
+  if (block && block.max_s < block.initial_s) errors.push({ field: 'proxy.auto_block.max_s', message: 'must not be shorter than initial_s', code: 'range' })
   if (body.format === 'apt') {
     const dist = (body.format_options as { distribution?: string } | undefined)?.distribution
     if (!dist) errors.push({ field: 'format_options.distribution', message: 'Enter the default suite, e.g. trixie.', code: 'required' })

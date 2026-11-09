@@ -103,7 +103,7 @@
       </template>
     </section>
 
-    <q-expansion-item dense dense-toggle switch-toggle-side :label="t('repoForm.caching')" class="repo-form__advanced" header-class="section-label">
+    <q-expansion-item v-model="cachingOpen" dense dense-toggle switch-toggle-side :label="t('repoForm.caching')" class="repo-form__advanced" header-class="section-label">
       <div class="repo-form__section repo-form__section--inner">
         <div class="repo-form__row">
           <q-input v-model.number="model.metadataMaxAgeMin" outlined dense type="number" min="0" :label="t('repoForm.metadataMaxAge')" :suffix="t('repoForm.minutes')" class="col" />
@@ -112,13 +112,83 @@
         <q-toggle v-model="model.staleOnError" :label="t('repoForm.staleOnError')" />
         <q-toggle v-model="model.offline" :label="t('repoForm.offline')" />
         <q-toggle v-model="model.allowPrivate" :label="t('repoForm.allowPrivate')" />
+        <q-toggle v-model="model.autoBlock" :label="t('repoForm.autoBlock')" />
+        <div v-if="model.autoBlock" class="repo-form__row">
+          <q-input
+            v-model.number="model.autoBlockFailures"
+            outlined
+            dense
+            type="number"
+            min="1"
+            max="1000"
+            :label="t('repoForm.autoBlockFailures')"
+            class="col"
+            :error="!!errors['proxy.auto_block.failures']"
+            :error-message="errors['proxy.auto_block.failures']"
+          />
+          <q-input
+            v-model.number="model.autoBlockInitialS"
+            outlined
+            dense
+            type="number"
+            min="1"
+            :label="t('repoForm.autoBlockInitial')"
+            :suffix="t('repoForm.seconds')"
+            class="col"
+            :error="!!errors['proxy.auto_block.initial_s']"
+            :error-message="errors['proxy.auto_block.initial_s']"
+          />
+          <q-input
+            v-model.number="model.autoBlockMaxMin"
+            outlined
+            dense
+            type="number"
+            min="1"
+            :label="t('repoForm.autoBlockMax')"
+            :suffix="t('repoForm.minutes')"
+            class="col"
+            :error="!!errors['proxy.auto_block.max_s']"
+            :error-message="errors['proxy.auto_block.max_s']"
+          />
+        </div>
+        <div v-if="model.autoBlock" class="text-caption text-muted">{{ t('repoForm.autoBlockHint') }}</div>
+      </div>
+    </q-expansion-item>
+
+    <q-expansion-item v-model="networkOpen" dense dense-toggle switch-toggle-side :label="t('repoForm.network')" class="repo-form__advanced" header-class="section-label">
+      <div class="repo-form__section repo-form__section--inner">
+        <q-input
+          v-model="model.httpProxy"
+          outlined
+          dense
+          :label="t('repoForm.httpProxy')"
+          :hint="t('repoForm.httpProxyHint')"
+          spellcheck="false"
+          autocomplete="off"
+          class="mono-input"
+          :error="!!errors['proxy.http_proxy']"
+          :error-message="errors['proxy.http_proxy']"
+        />
+        <q-input
+          v-model="model.caPem"
+          outlined
+          dense
+          autogrow
+          type="textarea"
+          :label="t('repoForm.caPem')"
+          :hint="t('repoForm.caPemHint')"
+          spellcheck="false"
+          class="mono-input repo-form__pem"
+          :error="!!errors['proxy.ca_pem']"
+          :error-message="errors['proxy.ca_pem']"
+        />
       </div>
     </q-expansion-item>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { t } from '@/i18n'
 import { useConfigStore } from '@/stores/config'
@@ -142,6 +212,19 @@ const dispositionOptions = computed(() => [
   { label: t('repoForm.attachment'), value: 'attachment' },
   { label: t('repoForm.inline'), value: 'inline' },
 ])
+
+// Advanced sections open by themselves when they hold a setting or a field error.
+const cachingOpen = ref(false)
+const networkOpen = ref(Boolean(model.value.caPem || model.value.httpProxy))
+watch(
+  () => props.errors,
+  (errors) => {
+    const fields = Object.keys(errors)
+    if (fields.some((f) => f === 'proxy.ca_pem' || f === 'proxy.http_proxy')) networkOpen.value = true
+    if (fields.some((f) => f.startsWith('proxy.auto_block.') || f.endsWith('_age_s') || f === 'proxy.negative_ttl_s')) cachingOpen.value = true
+  },
+  { immediate: true },
+)
 
 function applyPreset(p: Preset): void {
   model.value = { ...model.value, ...p.apply }
@@ -193,6 +276,12 @@ function applyPreset(p: Preset): void {
 
 .repo-form__advanced :deep(.q-item) {
   padding-left: 0;
+}
+
+.repo-form__pem :deep(textarea) {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  max-height: 240px;
 }
 
 .mono-input :deep(input) {
