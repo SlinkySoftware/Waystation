@@ -101,6 +101,27 @@ def test_store_bodiless_exchange_removes_stale_body(tmp_path: Path) -> None:
     assert (loaded.status, loaded.body) == (304, b'')
 
 
+def test_store_keeps_exchanges_of_a_dotted_file_apart(tmp_path: Path) -> None:
+    store = FixtureStore(tmp_path)
+    plain = RequestKey.build('GET', 'https://charts.example.com/index.yaml', {'Accept': '*/*'})
+    conditional = RequestKey.build('GET', 'https://charts.example.com/index.yaml', {'If-None-Match': '"e"'})
+    store.save(plain, Exchange(200, [], b'apiVersion: v1\n'))
+    store.save(conditional, Exchange(304, [], b''))
+    first, second = store.load(plain), store.load(conditional)
+    assert first is not None and (first.status, first.body) == (200, b'apiVersion: v1\n')
+    assert second is not None and second.status == 304
+
+    # a fixture written under the old name (suffix cut at the dot) is still found for its own request only
+    legacy = FixtureStore(tmp_path / 'legacy')
+    old = RequestKey.build('GET', 'https://charts.example.com/x-1.0.tgz', {})
+    meta = legacy.save(old, Exchange(200, [], b'tgz'))
+    meta.rename(meta.parent / 'get-x-1.0.json')
+    (meta.parent / f'{meta.name.removesuffix(".json")}.body').rename(meta.parent / 'get-x-1.0.body')
+    found = legacy.load(old)
+    assert found is not None and found.body == b'tgz'
+    assert legacy.load(RequestKey.build('GET', 'https://charts.example.com/x-1.0.tgz', {'Range': 'bytes=0-1'})) is None
+
+
 def test_scrub_response_drops_configured_json_keys_at_any_depth() -> None:
     body = json.dumps(
         {'name': 'pkg', 'readme': 'see https://example.com', 'versions': {'1.0.0': {'_npmUser': {'email': 'a@b'}}}}

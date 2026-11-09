@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.12.2/metrics-server-3.12.2.tgz"
+  },
+  "response": {
+    "body_sha256": null,
+    "body_size": 0,
+    "headers": [
+      [
+        "content-type",
+        "text/html; charset=utf-8"
+      ],
+      [
+        "vary",
+        "X-PJAX, X-PJAX-Container, Turbo-Visit, Turbo-Frame, X-Requested-With, X-GitHub-Client-Version, Sec-Fetch-Site,Accept-Encoding, Accept, X-Requested-With"
+      ],
+      [
+        "location",
+        "https://release-assets.githubusercontent.com/github-production-release-asset/92132038/01ea53b6-4b4b-4780-8fdd-0f2a63034380?sp=harness-redacted&sv=harness-redacted&sr=b&spr=https&se=harness-redacted&rscd=attachment%3B+filename%3Dmetrics-server-3.12.2.tgz&rsct=application/octet-stream&skoid=harness-redacted&sktid=harness-redacted&skt=harness-redacted&ske=harness-redacted&sks=harness-redacted&skv=harness-redacted&sig=harness-redacted&jwt=harness-redacted&response-content-disposition=attachment%3B+filename%3Dmetrics-server-3.12.2.tgz&response-content-type=application/octet-stream"
+      ],
+      [
+        "cache-control",
+        "no-cache"
+      ],
+      [
+        "content-length",
+        "0"
+      ]
+    ],
+    "status": 302
+  }
+}

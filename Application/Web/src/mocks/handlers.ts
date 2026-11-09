@@ -14,6 +14,7 @@ import { ADMIN_USER_ID, CUSTOM_ROLES } from './fixtures/admin'
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
+import { helmChartList, helmVersionsFor } from './fixtures/helm'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { goModuleList, goVersionsFor } from './fixtures/go'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
@@ -108,7 +109,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
     if (body.format === 'go' && body.type === 'hosted') {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go'].includes(body.format)) {
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -490,6 +491,28 @@ export const handlers = [
     const found = npmVersionsFor(url.searchParams.get('package') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ package: found.pkg, dist_tags: found.distTags, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/helm/charts`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'helm')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    const items = helmChartList().filter((c) => !q || c.name.includes(q)).sort((a, b) => a.name.localeCompare(b.name))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/helm/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'helm')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const found = helmVersionsFor(repo.name, url.searchParams.get('chart') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ chart: found.chart, ...paginate(found.versions, url) })
   }),
   http.get(`${API}/repositories/:name/maven/artifacts`, async ({ request, params }) => {
     const denied = guard(request)

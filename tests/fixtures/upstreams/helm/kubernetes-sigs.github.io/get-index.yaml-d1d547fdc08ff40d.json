@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ],
+      [
+        "if-none-match",
+        "\"6a85952c-5bc2\""
+      ],
+      [
+        "if-modified-since",
+        "Wed, 19 Aug 2026 11:36:12 GMT"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://kubernetes-sigs.github.io/metrics-server/index.yaml"
+  },
+  "response": {
+    "body_sha256": null,
+    "body_size": 0,
+    "headers": [
+      [
+        "cache-control",
+        "max-age=600"
+      ],
+      [
+        "etag",
+        "\"6a85952c-5bc2\""
+      ],
+      [
+        "expires",
+        "Fri, 30 Oct 2026 13:26:05 GMT"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ]
+    ],
+    "status": 304
+  }
+}
