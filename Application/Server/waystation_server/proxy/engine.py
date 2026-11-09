@@ -539,7 +539,8 @@ class ProxyEngine:
             raise
         try:
             status = response.status_code
-            await self._answered(req, status)
+            if blocking_status(status):
+                await self._answered(req, status)
             ok = status < 500 and status not in (401, 403, 429)
             latency = round((time.perf_counter() - started) * 1000, 1)
             self.emitter.upstream(
@@ -567,6 +568,8 @@ class ProxyEngine:
         finally:
             with anyio.CancelScope(shield=True):
                 await response.aclose()
+        if not blocking_status(status):
+            await self._answered(req, status)  # success once the whole body arrived
         content = b''.join(chunks)
         self.metrics.add_bytes(repo=req.repo.name, direction='in_upstream', count=done)
         self._account(req, CacheState.FETCHING, status, len(content), started)
@@ -767,7 +770,8 @@ class ProxyEngine:
                 error=None if ok else f'upstream answered {status}',
                 latency_ms=latency,
             )
-            await self._answered(req, status)
+            if not (status == 200 and method == 'GET'):
+                await self._answered(req, status)  # a 200 GET succeeds once its body arrived (fills, below)
             self.metrics.upstream_latency.labels(req.repo.name).observe(latency / 1000)
             info = UpstreamInfo(
                 url=url,
@@ -1273,6 +1277,7 @@ class ProxyEngine:
                     raise UpstreamError('upstream file exceeds the size limit')
                 chunks.append(chunk)
                 self.emitter.transfer_progress(tid, done, bytes_total=total)
+            await self._answered(req, info.status)  # the whole body arrived (auto-block success)
             data = b''.join(chunks)
             checksums = await asyncio.to_thread(_verify, spec.expected, data)
             if spec.validate is not None:
@@ -1411,6 +1416,7 @@ class ProxyEngine:
                 if held is not None:
                     yield held
                 held = chunk
+            await self._answered(req, info.status)  # the whole body arrived (auto-block success)
             if expected is not None:
                 for alg, hasher in fill.extra.items():
                     if hasher.hexdigest() != expected.digests()[alg]:

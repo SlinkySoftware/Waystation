@@ -134,8 +134,15 @@ async def test_blocks_after_consecutive_failures_then_backs_off_probes_and_resum
     activity = (await admin.get('/api/v1/activity', params={'kind': 'upstream_state'})).json()['items']
     assert activity[0]['outcome'] == 'failure' and 'auto-blocked' in activity[0]['summary']
     metrics = (await admin.get('/metrics')).text
-    assert 'waystation_upstream_autoblock_total{repo="files",event="blocked"} 1.0' in metrics
-    assert 'waystation_upstream_state{repo="files"} 2.0' in metrics
+    lines = metrics.splitlines()
+    assert any(
+        line.startswith('waystation_upstream_autoblock_total{')
+        and 'repo="files"' in line
+        and 'event="blocked"' in line
+        and line.endswith(' 1.0')
+        for line in lines
+    ), [line for line in lines if 'autoblock' in line]
+    assert 'waystation_upstream_state{repo="files"} 2.0' in lines
 
     # the period ends: the next request probes; it fails, so the block doubles (level 1 = 60 s)
     clock.now += 31
@@ -187,6 +194,18 @@ async def test_what_counts_as_a_failure(
     with pytest.raises(Exception):  # noqa: B017 - the tee aborts the client's transfer (ResponseAborted)
         await client.get('/repository/files/reset')  # a reset mid-body is the third failure in a row
     assert 'blocked_until' in await health(services, repo)
+
+
+async def test_resets_mid_body_block(
+    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, repo: str
+) -> None:
+    # The headers arrive fine every time; only a complete body counts as a success.
+    upstream.routes['/reset'] = Respond(200, {}, b'y' * 600_000, chunk=100_000, reset_after=200_000)
+    for _ in range(3):
+        with pytest.raises(Exception):  # noqa: B017 - ResponseAborted
+            await client.get('/repository/files/reset')
+    assert (await client.get('/repository/files/reset')).status_code == 503
+    assert upstream.hits('/reset') == 3
 
 
 async def test_unreachable_upstream_blocks(services: Services, plugin: FilesPlugin, clock: Clock) -> None:
@@ -260,9 +279,11 @@ async def test_disabled_never_blocks_and_saving_resets(
     for _ in range(3):
         await client.get('/repository/files/a')
     assert (await client.get('/repository/files/a')).status_code == 503
+    await services.db[REPOSITORIES].update_one({'_id': repo}, {'$set': {'config_version': 1}})  # add_repo omits it
     body = (await admin.get('/api/v1/repositories/files')).json()
     write = {k: body[k] for k in ('name', 'format', 'type', 'online', 'description', 'proxy', 'format_options')}
     write['proxy']['auto_block']['enabled'] = False
+    write['proxy']['allow_private_upstream'] = True  # the test upstream listens on 127.0.0.1
     saved = await admin.put('/api/v1/repositories/files', json=write)
     assert saved.status_code == 200, saved.text
     assert saved.json()['proxy']['auto_block'] == {**BLOCK, 'enabled': False}
