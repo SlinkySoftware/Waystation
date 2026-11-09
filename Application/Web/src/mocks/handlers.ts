@@ -14,6 +14,7 @@ import { ADMIN_USER_ID, CUSTOM_ROLES } from './fixtures/admin'
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
+import { helmChartList, helmVersionsFor } from './fixtures/helm'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { goModuleList, goVersionsFor } from './fixtures/go'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
@@ -27,6 +28,7 @@ import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
 import { serviceAccounts, tokenHandlers } from './tokens'
+import { TotpState } from './totp'
 import { upstreamHealth, world } from './world'
 
 const API = '/api/v1'
@@ -38,6 +40,7 @@ let preferences: Preferences = { theme: 'system', density: 'comfortable' }
 const providers = seedProviders()
 ROLES.push(...CUSTOM_ROLES.map((r) => ({ ...r, permissions: [...r.permissions] })))
 const admin = new AdminWorld({ roles: ROLES, providers: () => providers, repos: () => world.repos, serviceAccounts })
+const totp = new TotpState(admin)
 
 function signedInUser(): string | null {
   try {
@@ -60,6 +63,7 @@ function session(username: string): Session {
     preferences,
     expires_at: new Date(Date.now() + 12 * 3_600_000).toISOString(),
     must_change_password: false,
+    totp_setup_required: totp.setupRequired(username, known?.id ?? ADMIN_USER_ID),
   }
 }
 
@@ -105,7 +109,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
     if (body.format === 'go' && body.type === 'hosted') {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go'].includes(body.format)) {
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -254,6 +258,9 @@ export const handlers = [
       recordAudit({ action: 'auth.login', outcome: 'failure', reason: 'bad_credentials', actor: { kind: 'anonymous', id: null, name: 'anonymous', auth: 'none', provider: null, token_id: null }, target: { kind: 'user', id: null, name: body.username ?? null }, details: { username: body.username ?? '', via: 'ui' } })
       return problem(401, 'Unauthorized', 'Invalid username or password.')
     }
+    if (totp.startSignIn(body.username, session(body.username).user.id)) {
+      return HttpResponse.json({ second_factor: 'totp', expires_at: new Date(Date.now() + 5 * 60_000).toISOString() }, { status: 202 })
+    }
     localStorage.setItem(SESSION_KEY, body.username)
     recordAudit({ action: 'auth.login', outcome: 'success', actor: { kind: 'user', id: session(body.username).user.id, name: body.username, auth: 'session', provider: 'local', token_id: null }, target: { kind: 'user', id: session(body.username).user.id, name: body.username }, details: { username: body.username, via: 'ui' } })
     world.addActivity({ kind: 'auth', summary: `${body.username} signed in`, outcome: 'info', repository: null, format: null, artifact: null, principal: body.username, cache: null, bytes: null, duration_ms: null })
@@ -286,6 +293,9 @@ export const handlers = [
     preferences = (await request.json()) as Preferences
     return HttpResponse.json(preferences)
   }),
+
+  // ---------------------------------------------------------------- two-factor sign-in (T-O08)
+  ...totp.handlers({ guard, problem, notFound, latency, currentUser: signedInUser, session, signIn: (name) => localStorage.setItem(SESSION_KEY, name) }),
 
   // ---------------------------------------------------------------- API tokens and service accounts
   ...tokenHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
@@ -481,6 +491,28 @@ export const handlers = [
     const found = npmVersionsFor(url.searchParams.get('package') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ package: found.pkg, dist_tags: found.distTags, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/helm/charts`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'helm')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    const items = helmChartList().filter((c) => !q || c.name.includes(q)).sort((a, b) => a.name.localeCompare(b.name))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/helm/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'helm')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const found = helmVersionsFor(repo.name, url.searchParams.get('chart') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ chart: found.chart, ...paginate(found.versions, url) })
   }),
   http.get(`${API}/repositories/:name/maven/artifacts`, async ({ request, params }) => {
     const denied = guard(request)

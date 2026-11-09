@@ -1,0 +1,3 @@
+# Public hosts that appear in the helm format's recorded upstream content (Artifact Hub annotations of the
+# metrics-server chart index).
+artifacthub.io

@@ -22,7 +22,7 @@ export type AuditCategory = (typeof AUDIT_CATEGORIES)[number]
 
 /** Every action the server records (or will record: see the server's audit catalog). */
 export const AUDIT_ACTIONS: Record<AuditCategory, readonly string[]> = {
-  auth: ['login', 'logout', 'lockout', 'password_change'],
+  auth: ['login', 'logout', 'lockout', 'password_change', 'totp_enable', 'totp_disable', 'totp_recovery_codes'],
   session: ['revoke'],
   token: ['create', 'revoke', 'use_refused'],
   service_account: ['create', 'update', 'delete'],

@@ -48,7 +48,7 @@ const middleware: Middleware = {
     return request
   },
   onResponse({ request, response }) {
-    if (response.status === 401 && !request.url.endsWith('/auth/login') && !request.url.endsWith('/auth/me')) {
+    if (response.status === 401 && !/\/auth\/(login|login\/totp|me)$/.test(new URL(request.url, 'http://x').pathname)) {
       onUnauthorized?.()
     }
     return response

@@ -51,6 +51,9 @@ class AuditAction(StrEnum):
     AUTH_LOGOUT = 'auth.logout'
     AUTH_LOCKOUT = 'auth.lockout'
     AUTH_PASSWORD_CHANGE = 'auth.password_change'  # noqa: S105 - an action name
+    AUTH_TOTP_ENABLE = 'auth.totp_enable'  # two-factor sign-in turned on (own enrolment)
+    AUTH_TOTP_DISABLE = 'auth.totp_disable'  # turned off (own, or an administrator's reset: details.by_admin)
+    AUTH_TOTP_RECOVERY_CODES = 'auth.totp_recovery_codes'  # recovery codes replaced
     SESSION_REVOKE = 'session.revoke'
     TOKEN_CREATE = 'token.create'  # noqa: S105 - an action name
     TOKEN_REVOKE = 'token.revoke'  # noqa: S105 - an action name
@@ -109,6 +112,9 @@ SPEC_ACTIONS: dict[str, tuple[AuditAction, ...]] = {
         A.USER_UPDATE,
         A.USER_DELETE,
         A.AUTH_PASSWORD_CHANGE,
+        A.AUTH_TOTP_ENABLE,
+        A.AUTH_TOTP_DISABLE,
+        A.AUTH_TOTP_RECOVERY_CODES,
         A.SERVICE_ACCOUNT_CREATE,
         A.SERVICE_ACCOUNT_UPDATE,
         A.SERVICE_ACCOUNT_DELETE,

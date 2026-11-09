@@ -24,6 +24,7 @@ ROLES = 'roles'
 API_TOKENS = 'api_tokens'
 SERVICE_ACCOUNTS = 'service_accounts'
 SESSIONS = 'sessions'
+LOGIN_CHALLENGES = 'login_challenges'  # pending second sign-in steps (TOTP), minutes long
 RBAC_STATE = 'rbac_state'
 # --- content metadata
 COMPONENTS = 'components'
@@ -37,6 +38,7 @@ NPM_PACKAGES = 'npm_packages'
 PYPI_PACKAGES = 'pypi_packages'
 GO_MODULES = 'go_modules'
 YUM_PACKAGES = 'yum_packages'
+HELM_CHARTS = 'helm_charts'
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -139,6 +141,11 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
             _ix('user_id', [('user_id', ASCENDING)]),
         ),
+    ),
+    # A password accepted, the second factor (TOTP) not yet: read by ``_id`` (sha256 of the cookie) only.
+    CollectionSpec(
+        LOGIN_CHALLENGES,
+        (_ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),),
     ),
     CollectionSpec(RBAC_STATE),
     CollectionSpec(
@@ -283,6 +290,23 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('repo_dir_gen', [('repo_id', ASCENDING), ('repo_dir', ASCENDING), ('gen', ASCENDING)]),
             _ix('repo_verified', [('repo_id', ASCENDING), ('verified', ASCENDING)]),
             *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        HELM_CHARTS,
+        (
+            # One chart version per repository: a hosted upload, or an entry of a proxy's cached index.yaml.
+            _ix(
+                'repo_name_version_unique',
+                [('repo_id', ASCENDING), ('name', ASCENDING), ('version', ASCENDING)],
+                unique=True,
+            ),
+            # Browse (charts by name, versions newest first) and hosted index generation.
+            _ix('repo_name_sort', [('repo_id', ASCENDING), ('name', ASCENDING), ('version_sort', DESCENDING)]),
+            # Chart file path -> entry (proxy content validation, hosted provenance uploads).
+            _ix('repo_path', [('repo_id', ASCENDING), ('path', ASCENDING)]),
+            # A proxy listing's generation (sha256 of the index blob it came from): replaced on re-index.
+            _ix('repo_gen', [('repo_id', ASCENDING), ('gen', ASCENDING)]),
         ),
     ),
     CollectionSpec(

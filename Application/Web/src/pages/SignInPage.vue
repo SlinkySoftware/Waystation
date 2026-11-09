@@ -12,13 +12,44 @@
       </div>
 
       <q-card class="sign-in__card">
-        <h1 class="sign-in__title">{{ t('signIn.title') }}</h1>
+        <h1 class="sign-in__title">{{ step === 'code' ? t('signIn.secondFactor.title') : t('signIn.title') }}</h1>
         <div v-if="expired" class="sign-in__note" role="status">{{ t('signIn.expired') }}</div>
+        <div v-if="secondFactorExpired" class="sign-in__note" role="status">{{ t('signIn.secondFactor.expired') }}</div>
+        <q-form v-if="step === 'code'" class="sign-in__form" @submit="submitCode">
+          <p class="sign-in__lead">{{ recovery ? t('signIn.secondFactor.recoveryLead') : t('signIn.secondFactor.lead') }}</p>
+          <label class="sign-in__label" for="code">{{ recovery ? t('signIn.secondFactor.recoveryLabel') : t('signIn.secondFactor.label') }}</label>
+          <q-input
+            id="code"
+            :key="recovery ? 'recovery' : 'totp'"
+            v-model="code"
+            outlined
+            dense
+            autofocus
+            :inputmode="recovery ? 'text' : 'numeric'"
+            :autocomplete="recovery ? 'off' : 'one-time-code'"
+            :maxlength="recovery ? 11 : 6"
+            :placeholder="recovery ? 'xxxxx-xxxxx' : '123456'"
+            :disable="busy"
+            input-class="mono sign-in__code"
+            :rules="[(v: string) => !!v.trim() || t('signIn.secondFactor.required')]"
+            hide-bottom-space
+          />
+          <div v-if="error" class="sign-in__error" role="alert">
+            <q-icon :name="iconError" size="18px" />
+            {{ error }}
+          </div>
+          <q-btn type="submit" unelevated no-caps color="primary" class="sign-in__submit" :label="t('signIn.secondFactor.submit')" :loading="busy" />
+          <div class="sign-in__links">
+            <q-btn flat dense no-caps size="sm" :label="recovery ? t('signIn.secondFactor.useApp') : t('signIn.secondFactor.useRecovery')" :disable="busy" @click="toggleRecovery" />
+            <q-btn flat dense no-caps size="sm" :label="t('signIn.secondFactor.back')" :disable="busy" @click="restart(false)" />
+          </div>
+        </q-form>
+        <template v-else>
         <div v-if="oidcError && !error" class="sign-in__error sign-in__error--top" role="alert">
           <q-icon :name="iconError" size="18px" />
           {{ oidcError }}
         </div>
-        <q-form class="sign-in__form" @submit="submit">
+        <q-form v-if="step === 'password'" class="sign-in__form" @submit="submit">
           <template v-if="passwordProviders.length > 1">
             <label class="sign-in__label" for="provider">{{ t('signIn.provider') }}</label>
             <q-select
@@ -73,6 +104,7 @@
           <div class="sign-in__or"><span>{{ t('signIn.or') }}</span></div>
           <q-btn v-for="p in oidc" :key="p.id" outline no-caps class="sign-in__oidc" :label="t('signIn.continueWith', { name: p.name })" :href="oidcHref(p.login_url ?? '')" />
         </template>
+        </template>
       </q-card>
       <div v-if="mock" class="sign-in__mock">{{ t('signIn.mockHint') }}</div>
       <div class="sign-in__foot">{{ t('signIn.footer', { version: config.config?.version ?? '' }) }}</div>
@@ -105,7 +137,12 @@ const password = ref('')
 const showPassword = ref(false)
 const busy = ref(false)
 const error = ref<string | null>(null)
-const expired = computed(() => route.query.expired === '1' && !error.value)
+const expired = computed(() => route.query.expired === '1' && !error.value && step.value === 'password')
+// Two-factor sign-in: after the password, the server may ask for a code (UI_DESIGN §4.1).
+const step = ref<'password' | 'code'>('password')
+const code = ref('')
+const recovery = ref(false)
+const secondFactorExpired = ref(false)
 
 // The server sends failed OIDC sign-ins back here with `?error=oidc_<reason>` (details are in its log only).
 const OIDC_ERRORS = ['failed', 'cancelled', 'expired', 'unavailable', 'too_many'] as const
@@ -131,13 +168,49 @@ const providerOptions = computed(() => [{ label: t('signIn.providerAuto'), value
 async function submit(): Promise<void> {
   busy.value = true
   error.value = null
+  secondFactorExpired.value = false
   try {
-    await auth.login(username.value.trim(), password.value, provider.value ?? undefined)
+    const result = await auth.login(username.value.trim(), password.value, provider.value ?? undefined)
+    password.value = ''
+    if (result === 'second-factor') {
+      step.value = 'code'
+      return
+    }
     await router.replace(safeNext(route.query.next))
   } catch (cause) {
     password.value = ''
     // Generic message: never say which part was wrong (UI_DESIGN §4.1).
     error.value = cause instanceof ApiError && cause.status === 429 ? t('signIn.tooMany') : cause instanceof ApiError && cause.status === 401 ? t('signIn.failed') : t('signIn.unavailable')
+  } finally {
+    busy.value = false
+  }
+}
+
+function toggleRecovery(): void {
+  recovery.value = !recovery.value
+  code.value = ''
+  error.value = null
+}
+
+/** Back to the password form (the pending sign-in expired, or the user chose to). */
+function restart(expiredNow: boolean): void {
+  step.value = 'password'
+  code.value = ''
+  recovery.value = false
+  error.value = null
+  secondFactorExpired.value = expiredNow
+}
+
+async function submitCode(): Promise<void> {
+  busy.value = true
+  error.value = null
+  try {
+    await auth.loginSecondFactor(code.value.trim())
+    await router.replace(safeNext(route.query.next))
+  } catch (cause) {
+    code.value = ''
+    if (cause instanceof ApiError && cause.status === 401 && cause.problem.code === 'second_factor_expired') restart(true)
+    else error.value = cause instanceof ApiError && cause.status === 429 ? t('signIn.tooMany') : cause instanceof ApiError && cause.status === 401 ? t('signIn.secondFactor.failed') : t('signIn.unavailable')
   } finally {
     busy.value = false
   }
@@ -231,6 +304,23 @@ async function submit(): Promise<void> {
   margin: 0 0 12px;
   color: var(--status-degraded);
   background: var(--status-degraded-bg);
+}
+
+.sign-in__lead {
+  margin: 0 0 4px;
+  color: var(--text-secondary);
+  font-size: var(--fs-13);
+}
+
+.sign-in__form :deep(.sign-in__code) {
+  letter-spacing: 0.2em;
+  font-size: var(--fs-16);
+}
+
+.sign-in__links {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
 }
 
 .sign-in__submit {

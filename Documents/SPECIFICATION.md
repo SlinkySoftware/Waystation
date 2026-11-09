@@ -120,6 +120,12 @@ Windows containers support for the server.
   allowed); directory listings (HTML, or JSON for scripts) at the root and any path ending in `/`.
   Now (T-P2-RAW): built as described; uploads need `write`, deletes `delete`; both are audited and live in the
   activity feed.
+- Helm: `curl --upload-file` (`PUT`) and the ChartMuseum API (`POST api/charts`, as `helm cm-push` sends it);
+  provenance files; delete by file or `api/charts/<name>/<version>`.
+  Now (T-P5-HELM): chart packages are checked before they are stored (single top-level directory, no links or
+  unsafe names, size limits, `Chart.yaml` with a valid name and SemVer version) and stored as
+  `<name>-<version>.tgz`; write policy as above; the worker rebuilds `index.yaml` from the stored charts through the
+  outbox (seconds after an upload or delete) and publishes it atomically. Uploads and deletes are audited.
 - Index generation for apt and yum hosted repos by workers, signed with a per-repo GPG key (key generated or
   imported; public key downloadable from the repo root and shown in "Set me up").
 - Quotas per repo (soft warn / hard block) on stored bytes (§4.8).
@@ -149,6 +155,9 @@ Windows containers support for the server.
   Now (T-P2-RAW): raw groups (raw proxy/hosted members) answer each file from the first member that has it, list
   folders as the members' listings merged, and send uploads and deletes to the writable member (a hosted raw
   repository the client may also write to); without one the group is read-only.
+  Now (T-P5-HELM): Helm groups serve one `index.yaml` merged from their members' indexes (the first member that
+  lists a chart version wins it), charts from the first member that has them, and send uploads and deletes to the
+  writable member.
   Now (T-P5-PYPI): PyPI groups merge their members' project pages per request (union by file name, the first member
   wins; a proxy member's cached page, refreshed as needed), serve files from the first member holding them (else the
   proxy members in order) and send uploads to a hosted writable member.
@@ -220,7 +229,9 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   labels, pull commands) and Maven `artifacts`/`versions` (T-P5-MAVEN: groupId:artifactId with the highest version,
   versions in Maven order with file count and size; the files are the version folder's listing) show what is held.
   Browsing needs `browse` on the repository (anonymous: proxy repositories); download counts are not recorded yet
-  (0/null). PyPI (T-P5-PYPI): `pypi/projects` (summaries in
+  (0/null). Helm (T-P5-HELM): `helm/charts` and `helm/versions?chart=` list charts (latest version, app version,
+  description) and their versions newest first (created, digest, size, cached) for proxy, hosted and group
+  repositories. PyPI (T-P5-PYPI): `pypi/projects` (summaries in
   `pypi_packages`: latest final release by PEP 440, version count, files held) and `pypi/versions?project=` (versions
   newest first, each with its wheels and sdist: size, sha256, requires-python, yanked, PEP 658 metadata, held or not,
   uploader for hosted files) for proxy and hosted repositories; groups are browsed through their members. Go
@@ -306,7 +317,31 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
     edits the guard.
 
 ### 4.9 Authentication
-- **Local** users (argon2id), optional TOTP 2FA (Phase 6).
+- **Local** users (argon2id), optional TOTP 2FA.
+  Now (T-O08): a local account with a password can turn on two-factor sign-in (RFC 6238 TOTP: HMAC-SHA1, 6
+  digits, 30 s steps, one step of clock drift either way). Set-up (profile page; needs an interactive session and
+  the current password): `POST /auth/me/totp/setup` returns a new 160-bit secret once, as base32 and as an
+  `otpauth://totp/<instance>:<username>` URI that the UI draws as a QR code in the browser; it stays pending
+  (encrypted) for 15 minutes; `POST /auth/me/totp/confirm` with a code from the app turns it on and returns 10
+  single-use recovery codes (`xxxxx-xxxxx`, about 50 bits each) once. The secret is stored AES-GCM encrypted
+  (`SECRET_KEYS`), recovery codes only as keyed hashes. `POST /auth/me/totp/recovery-codes` (a TOTP code) replaces
+  the recovery codes; `POST /auth/me/totp/disable` (current password and a TOTP or recovery code) turns it off;
+  `GET /auth/me/totp` shows the state. Sign-in becomes two steps: a correct password answers `202` with
+  `second_factor: totp` and a pending sign-in (not a session: `login_challenges`, 5 minutes, bound to the browser
+  by the HttpOnly, SameSite=Strict cookie `ws_mfa`); `POST /auth/login/totp` with a code or a recovery code
+  then creates the session. A TOTP code is accepted once per step per user (Valkey, and `users.totp_last_step` so
+  that MongoDB alone still refuses replays when Valkey is down; an earlier step after a later one is refused too),
+  a recovery code once. Wrong codes count towards the account lockout, and the password step does not reset the
+  failure count while the second factor is pending; after 5 wrong codes the pending sign-in ends (problem code
+  `second_factor_expired`); the second step is rate limited like sign-in. The password of an account with
+  two-factor sign-in is refused outside the UI (`docker login`, audit reason `totp_required`): package clients
+  use API tokens. LDAP and OIDC accounts are never asked (their provider owns their sign-in). An administrator
+  holding `user-admin` resets a user's second factor (lost phone) with `DELETE /users/{id}/totp` (not their own,
+  not an account holding more than they do). Settings → "Require two-factor sign-in for local administrators"
+  (`security.require_totp_for_admins`): a local administrator without it gets sessions that may only read
+  `GET /auth/me`, set it up and sign out (403 `totp_setup_required` otherwise; `Session.totp_setup_required`;
+  the UI keeps the user on the profile page), and `docker login` with the password is refused
+  (`totp_setup_required`). A pending one-time password is changed first.
 - **LDAP / LDAPS / StartTLS**: multiple servers with failover, service bind, user search base + filter, attribute
   mapping (uid, name, email), group discovery (memberOf or group search), nested groups optional,
   "require group" gate, custom CA file. Tested against FreeIPA and Active Directory schemas.
@@ -455,7 +490,7 @@ settings changes. Searchable in the UI, exported via API; retention configurable
 - **Record**: time, action (`<category>.<verb>`, catalog `waystation_common.audit.AuditAction`), outcome
   (`success`/`failure`) and for failures a reason code (`bad_credentials`, `unknown_user`, `locked`, `disabled`,
   `not_in_group`, `directory_unavailable`, `link_refused`, `invalid_token`, `too_many_failures`,
-  `password_change_required`), the actor (user,
+  `password_change_required`, `bad_second_factor`, `totp_required`, `totp_setup_required`), the actor (user,
   service account, anonymous or `system`; how it authenticated: session, API token, basic, registry token; its
   sign-in provider; the API token id when one was used), the target (kind, id, name), the client address (after the
   trusted-proxy rules of §8.4) and the request id, plain `details`, and field-level `changes` (before/after).
@@ -469,7 +504,11 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   `user.create` (bootstrap admin, provider provisioning, the users API), `user.link` (an external account linked for
   the first time), `user.groups_sync` (the groups a provider reports changed), `user.update` (profile, status, roles,
   groups, unlock; own profile changes too), `user.delete`, `auth.password_change` (own change, success or a wrong
-  current password; an administrator's reset with `details.by_admin`), `session.revoke`,
+  current password; an administrator's reset with `details.by_admin`), `auth.totp_enable` (two-factor sign-in
+  turned on), `auth.totp_disable` (turned off by the user, `details.with` the kind of code, or reset by an
+  administrator, `details.by_admin`), `auth.totp_recovery_codes` (recovery codes replaced); a two-step sign-in is
+  `auth.login` with `details.second_factor` (`totp`/`recovery_code`), a wrong code `auth.login` failure
+  `bad_second_factor` with `details.step` `second_factor`; codes and secrets are never recorded; `session.revoke`,
   `group.create|update|delete` (membership changes as `group.update` with `details.members_added|members_removed`),
   `role.create|update|delete` (anonymous access changes as `role.update` on target `anonymous_access`),
   `auth_provider.create|update|delete|test`, `repository.create|update|delete|test_upstream`, `task.update|run|retry|discard`
@@ -644,7 +683,7 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
   range `15m|1h|24h|7d|30d` split hit/upstream or by format, storage, upstream health incl. Docker Hub rate limit),
   live transfers, activity, browse (generic folder listing, docker images/tags/manifest, npm packages/versions, apt
   suites/packages) and the SSE event schemas (`LiveEvent`: `transfers.snapshot`, `transfer.started|progress|finished|failed`,
-  `stats.tick`, `upstream.state`, `activity`). Errors are RFC 9457 problem+json with field-level `errors[]`.
+  `stats.tick`, `upstream.state`, `activity`). Errors are RFC 9457 problem+json with field-level `errors[]` and the stable error `code` (`not_found`, `password_change_required`, `totp_setup_required`, `second_factor_expired`...).
   `make gen-api` regenerates the UI's TypeScript types (`src/api/schema.d.ts`); CI fails if they are stale. Once
   the server generates its own document, a contract test keeps it compatible with this file.
 - EventSource cannot set headers, so a client that reopens the stream itself passes `last_event_id` as a query
@@ -850,6 +889,7 @@ Waystation/
 | Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. Job API and Tasks page: T-O04 (2026-11-09) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | Done 2026-11-09: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`; one-time passwords enforced (only `/auth/me`, the password change and sign-out until changed; `docker login` refused), own password change, profile update, own sessions list/revoke (one, or every other), effective permissions; UI password card on the profile page and a router guard for one-time passwords |
+| Two-factor sign-in (T-O08) | Done 2026-11-10: TOTP (RFC 6238) for local accounts: enrolment with a QR code drawn in the browser, 10 recovery codes, two-step sign-in with replay protection (Valkey + MongoDB), lockout and rate limits, `docker login` with the password refused for such accounts (API tokens instead), turn off, administrator reset, "require for local administrators" setting enforced like one-time passwords; LDAP/OIDC unaffected; audited |
 | Audit (T-S10) | Done 2026-11-09: audit catalog and records (actor, target, outcome/reason, client address, request id, details, redacted before/after changes), non-blocking batched writer, TTL retention (`WAYSTATION_AUDIT_RETENTION_DAYS`), `GET /api/v1/audit` (filters, cursor paging) and streamed CSV/NDJSON export, Audit log page. Actions whose features are pending (cleanup) are emitted by those tasks; password change, session revoke and user/group/role admin since 2026-11-09 (T-S02/T-S03); `content.upload`/`content.delete` since T-P2-DOCKERH (docker hosted); `settings.update` since T-U08 |
 | RBAC (T-S03) | Done 2026-11-09: one decision point (`security.access`: `check`, `filter_repos`, `filter_query`), built-in and custom roles, scopes incl. `type:`, hidden = 404, every route declares its rule, CSRF enforced app-wide for session requests; groups (local and provider-mapped) holding roles; materialised grants cached per `grant_version` (in-process and Valkey) with change-stream invalidation across replicas; configurable anonymous access; delegation bounded by the caller's own powers, last-administrator guard. Admin APIs: users, groups and members, roles, anonymous access, effective permissions (UI: T-U08). Tests: route enumeration over included routers (it had silently seen none since a FastAPI upgrade), route × {anonymous, reader, deployer, admin} matrix for every REST route plus the format-route matrix, cross-replica role change |
 | API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audited (T-S10); the service-account admin UI (T-U08) pending |
@@ -892,6 +932,7 @@ Waystation/
 | Import from Nexus (T-M01) | 2026-11-09: `POST /api/v1/import/nexus/preview` (dry run) and `/apply` (admin): reads a Nexus 3 configuration over its REST API (SSRF-guarded, optional CA bundle, bounded; credentials used per request, never stored or logged), maps names, formats, types, upstreams, ages, negative cache, auto-block, docker Hub/aliases/default repository, apt distribution, raw disposition, hosted write policy and group members (where Waystation has those types: docker and, since T-P2-RAW, raw hosted and group), reports create / exists / unsupported / invalid with field-level differences, applies the selection idempotently with a `repository.create` audit record per repository; UI page Repositories → "Import from Nexus" (connect, plan table with differences, selection, apply), MSW mocks. Tested against hand-written Nexus 3 REST fixtures (`Application/Server/tests/fixtures/nexus3`); not yet against a live Nexus 3 container |
 | Nexus migration guide + validation (T-M02) | 2026-11-10: `Documents/Operations/MIGRATING_FROM_NEXUS.md` (inventory, import, credentials and access, hosted content copy with skopeo/crane and a raw asset loop, cache warm-up, side-by-side validation with expected differences, client switch per format, reverse-proxy cutover per repository and docker connector ports, rollback from the audit log, decommission); `Build/migration/nexus_compare.py` (standard library only; checks from TOML; docker Bearer challenge, redirects without credentials to other hosts, base-URL and JSON normalisation, JSON Pointer comparisons; table/Markdown/JSON report; exit 0/1/2), `checks.example.toml` (docker, npm, apt, yum, raw, pypi), `make nexus-compare`; tested against two fake servers in `make test` (no real Nexus) |
 | Administration UI (T-U08) | Done 2026-11-09: Users (list, filters, keyset paging, create/edit, reset password, unlock, disable, sign out everywhere, delete) and a page per user (identities, groups, effective permissions, sessions, tokens); Groups (local + members, mapped roles); Roles (permission matrix editor, held by) and Anonymous access; API tokens (all tokens, revoke) and Service accounts (tokens shown once, permissions); Settings (instance name, docker default repository, environment limits); System (version, MongoDB/Valkey health, data volume). New API `GET/DELETE /users/{id}/sessions`, `GET/PUT /settings`, `GET /system`; MSW mocks for every admin endpoint. Editable retention and UI defaults, support bundle (T-O10) pending |
+| Helm format (T-P5-HELM) | Done 2026-11-10: Helm proxy, hosted and group repositories (FORMATS.md "Helm"): proxy `index.yaml` validated with a safe YAML loader and rewritten (relative chart URLs, `_ext/<scheme>/<host>/...` for charts hosted elsewhere, served as JSON), charts fetched only when the cached index lists them and verified against its sha256 `digest`, `.prov` pass-through; hosted uploads by `PUT` and the ChartMuseum API (`api/charts`, multipart), chart packages read safely (tar-slip guards, size limits, `Chart.yaml` validation), write policy, deletes, `index.yaml` regenerated by the worker job `index.helm` through the outbox and published atomically (cleanup runs trigger it too); group index merged (first member wins per version) and served by X-Accel; `helm_charts` with SemVer `version_sort`; browse `helm/charts` and `helm/versions` with a UI renderer, create flow (proxy presets, hosted, group) and "Set me up"; real-client harness `tests/clients/helm/` (helm 3.19 and 4.0: repo add/search/pull/template through proxy and group, curl and ChartMuseum uploads, index rebuild, delete; replay passing); `Documents/Operations/clients/helm.md` |
 | Everything else | Not started |
 | M0 feedback build (T-V02) | Done 2026-11-09, tagged `v0.1.0-m0`: `make e2e-m0` runs real docker, npm, apt (Debian 13) and raw clients through a running stack and checks the live stream, stats, activity and browse; `Documents/Operations/TRY_IT.md` (fresh host from images and an env file); real-server screenshot tour `Documents/Notes/UI_TOUR_M0.md`; feedback log `Documents/Notes/UI_FEEDBACK.md` |
 

@@ -191,6 +191,41 @@ class DockerManifest(BaseModel):
     pull_by_digest: str = ''
 
 
+# ---------------------------------------------------------------------------- helm
+class HelmChart(BaseModel):
+    name: str
+    latest_version: str
+    app_version: str | None = None
+    description: str | None = None
+    icon: str | None = Field(default=None, description="The chart's icon URL (http/https), as its metadata gives it")
+    deprecated: bool = False
+    version_count: int
+
+
+class HelmChartPage(BaseModel):
+    items: list[HelmChart]
+    next_cursor: str | None
+
+
+class HelmVersion(BaseModel):
+    version: str
+    app_version: str | None = None
+    description: str | None = None
+    created_at: datetime | None = None
+    digest: str | None = Field(default=None, description='sha256 of the chart package (hex), when known')
+    size_bytes: int | None = None
+    cached: bool = Field(description='The chart package is stored (always true in hosted repositories)')
+    deprecated: bool = False
+    path: str = Field(description='Path of the chart package in the repository')
+    download_url: str
+
+
+class HelmVersionPage(BaseModel):
+    chart: HelmChart
+    items: list[HelmVersion]
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- maven
 class MavenArtifact(BaseModel):
     group_id: str
@@ -403,6 +438,15 @@ class DockerBrowser(Protocol):
 
     async def manifest(self, ctx: BrowseContext, *, image: str, reference: str, platform: str | None) -> DockerManifest:
         """A cached manifest (tag or digest) with its platforms and layers; raises ``NotFound`` when not cached."""
+
+
+@runtime_checkable
+class HelmBrowser(Protocol):
+    async def charts(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> HelmChartPage:
+        """Charts by name (hosted: uploaded; proxy: listed by the cached index; group: the members')."""
+
+    async def versions(self, ctx: BrowseContext, *, chart: str, cursor: str | None, limit: int) -> HelmVersionPage:
+        """One chart's versions, newest first; raises ``NotFound`` for an unknown chart."""
 
 
 @runtime_checkable

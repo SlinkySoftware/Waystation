@@ -1,7 +1,8 @@
 """``/api/v1/settings`` and ``/api/v1/system`` (SPECIFICATION §4.12 "Settings", "System").
 
 - ``GET/PUT /settings`` (``settings-admin``): the instance settings stored in MongoDB (``waystation_server.instance``;
-  now the instance name shown in the top bar, on the sign-in page and in ``GET /config``), and, read-only, the limits
+  now the instance name shown in the top bar, on the sign-in page and in ``GET /config``, and the security policy
+  "require two-factor sign-in for local administrators"), and, read-only, the limits
   set with environment variables. Saving is audited as ``settings.update`` with the field changes.
 - ``GET /system`` (``admin``): version, Python, when the answering process started, MongoDB and Valkey health (a
   ping with a 2-second limit each, round trip and server version; a failure reports only the error class) and the
@@ -61,8 +62,17 @@ class EnvironmentLimits(BaseModel):
     min_free_bytes: int = Field(description='New cache and upload writes are refused below this much free space')
 
 
+class SecuritySettings(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    require_totp_for_admins: bool = Field(
+        description='Local administrators must set up two-factor sign-in (TOTP) before they can do anything else'
+    )
+
+
 class InstanceSettings(BaseModel):
     general: GeneralSettings
+    security: SecuritySettings
     limits: EnvironmentLimits
     updated_at: datetime | None = Field(description='null until first saved')
     updated_by: str | None = Field(description='Username of the last change')
@@ -72,6 +82,7 @@ class InstanceSettingsWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     general: GeneralSettings
+    security: SecuritySettings | None = Field(None, description='Omit to keep the current security settings')
 
 
 class SystemComponent(BaseModel):
@@ -101,9 +112,14 @@ class SystemInfo(BaseModel):
 # ---------------------------------------------------------------------------- settings
 async def _view(svc: Services) -> InstanceSettings:
     general = await svc.instance.general()
+    security = await svc.instance.security()
     s = svc.settings
+    updated_at, updated_by = general.updated_at, general.updated_by
+    if security.updated_at is not None and (updated_at is None or security.updated_at > updated_at):
+        updated_at, updated_by = security.updated_at, security.updated_by
     return InstanceSettings(
         general=GeneralSettings(instance_name=general.instance_name),
+        security=SecuritySettings(require_totp_for_admins=security.require_totp_for_admins),
         limits=EnvironmentLimits(
             session_idle_minutes=s.session_idle_minutes,
             session_max_hours=s.session_max_hours,
@@ -116,8 +132,8 @@ async def _view(svc: Services) -> InstanceSettings:
             max_upload_bytes=s.max_upload_bytes,
             min_free_bytes=s.min_free_bytes,
         ),
-        updated_at=general.updated_at,
-        updated_by=general.updated_by,
+        updated_at=updated_at,
+        updated_by=updated_by,
     )
 
 
@@ -138,6 +154,18 @@ async def update_settings(body: InstanceSettingsWrite, request: Request, svc: Se
         target=audit.target('settings', 'general', 'general'),
         changes=audit.diff({'instance_name': before.instance_name}, {'instance_name': after.instance_name}),
     )
+    current = await svc.instance.security()
+    wanted = body.security
+    if wanted is not None and wanted.require_totp_for_admins != current.require_totp_for_admins:
+        saved = await svc.instance.save_security(wanted.require_totp_for_admins, principal.name)
+        audit.record(
+            AuditAction.SETTINGS_UPDATE,
+            target=audit.target('settings', 'security', 'security'),
+            changes=audit.diff(
+                {'require_totp_for_admins': current.require_totp_for_admins},
+                {'require_totp_for_admins': saved.require_totp_for_admins},
+            ),
+        )
     return await _view(svc)
 
 
