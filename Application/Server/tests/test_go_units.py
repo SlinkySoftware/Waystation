@@ -53,7 +53,7 @@ def test_case_encoding_round_trip() -> None:
         'localhost/x',  # first element must be a host name with a dot
         '-bad.com/x',
         'Example.com/x',
-        'a.com/' + 'x' * 600,
+        'example.com/' + 'x' * 600,
     ],
 )
 def test_invalid_module_paths(escaped: str) -> None:
