@@ -1,0 +1,20 @@
+{
+  "name": "raw-group",
+  "format": "raw",
+  "type": "group",
+  "url": "https://nexus.example.com/repository/raw-group",
+  "online": true,
+  "storage": {
+    "blobStoreName": "default",
+    "strictContentTypeValidation": true
+  },
+  "group": {
+    "memberNames": [
+      "files",
+      "github-releases"
+    ]
+  },
+  "raw": {
+    "contentDisposition": "ATTACHMENT"
+  }
+}
