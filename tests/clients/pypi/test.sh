@@ -60,6 +60,49 @@ uv pip install --quiet --target "$work/uv-group" --index-url "$group" ws-harness
   || fail 'uv pip install through the group'
 check_import "$work/uv-group" 'import ws_harness_demo; assert ws_harness_demo.VERSION == "0.1.0"'
 
+project() {  # project <dir> <tool section>: a dependency-only pyproject.toml using the group
+  mkdir -p "$1"
+  cat > "$1/pyproject.toml" <<EOF
+[project]
+name = "harness-$(basename "$1")"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["six==1.17.0", "iniconfig==2.1.0", "ws-harness-demo==0.2.0"]
+
+$2
+EOF
+}
+
+step 'Poetry: lock and install through the group (primary source, http-basic credentials)'
+project "$work/poetry" "[tool.poetry]
+package-mode = false
+
+[[tool.poetry.source]]
+name = \"waystation\"
+url = \"$W/repository/pypi-group/simple/\"
+priority = \"primary\""
+(cd "$work/poetry" && POETRY_NO_INTERACTION=1 POETRY_VIRTUALENVS_IN_PROJECT=true POETRY_CACHE_DIR="$work/poetry-cache" \
+  PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring \
+  POETRY_HTTP_BASIC_WAYSTATION_USERNAME=__token__ POETRY_HTTP_BASIC_WAYSTATION_PASSWORD="$token" \
+  poetry install --no-root) || fail 'poetry install'
+"$work/poetry/.venv/bin/python" -c 'import six, iniconfig, ws_harness_demo; assert ws_harness_demo.VERSION == "0.2.0"' \
+  || fail 'poetry environment'
+grep -q 'name = "ws-harness-demo"' "$work/poetry/poetry.lock" || fail 'poetry.lock does not pin ws-harness-demo'
+
+step 'PDM: lock and install through the group'
+project "$work/pdm" "[tool.pdm]
+distribution = false
+
+[[tool.pdm.source]]
+name = \"pypi\"
+url = \"http://__token__:\${WS_PYPI_TOKEN}@$host/repository/pypi-group/simple/\"
+verify_ssl = false  # plain HTTP harness stack: PDM trusts the host only then"
+(cd "$work/pdm" && WS_PYPI_TOKEN="$token" PDM_CHECK_UPDATE=false PDM_CACHE_DIR="$work/pdm-cache" \
+  PDM_IGNORE_SAVED_PYTHON=1 PDM_PYTHON=/usr/local/bin/python3 pdm install --quiet) \
+  || { tail -n 40 /root/.local/state/pdm/log/*.log 2>/dev/null | grep -v -i token; fail 'pdm install'; }
+"$work/pdm/.venv/bin/python" -c 'import six, iniconfig, ws_harness_demo; assert ws_harness_demo.VERSION == "0.2.0"' \
+  || fail 'pdm environment'
+
 step 'yank 0.2.0: an unpinned install now picks 0.1.0'
 ws_api POST /repositories/pypi-hosted/pypi/yank \
   '{"project": "ws-harness-demo", "version": "0.2.0", "yanked": true, "reason": "harness"}' >/dev/null \
