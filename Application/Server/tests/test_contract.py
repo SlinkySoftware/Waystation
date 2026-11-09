@@ -88,6 +88,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}', 'put'),
     ('/repositories/{name}', 'delete'),
     ('/repositories/{name}/setup', 'get'),
+    ('/import/nexus/preview', 'post'),
+    ('/import/nexus/apply', 'post'),
     ('/repositories/{name}/stats/traffic', 'get'),
     ('/repositories/{name}/browse', 'get'),
     ('/repositories/{name}/npm/packages', 'get'),

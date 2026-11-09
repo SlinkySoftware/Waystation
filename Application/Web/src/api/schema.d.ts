@@ -1021,6 +1021,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/import/nexus/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry run of an import from Nexus Repository 3 (nothing is written; needs `admin`)
+         * @description Reads the repository configuration of the Nexus at `url` through its REST API (basic auth with a Nexus
+         *     administrator; the credentials are used for this request only, never stored, logged or returned) and plans
+         *     every repository: `create` (with the repository it would create), `exists` (name taken; never changed;
+         *     field-level `differences`), `unsupported` or `invalid` (with the reason). Nexus errors (unreachable, refused
+         *     credentials, private address without `allow_private`) answer 502 with the reason in `detail`.
+         */
+        post: operations["previewNexusImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/import/nexus/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import repositories from Nexus Repository 3 (needs `admin`)
+         * @description Reads Nexus again (nothing is kept from a preview) and creates the selected `create` repositories (members
+         *     before groups), each audited as `repository.create`. Idempotent: names that exist by then are reported
+         *     `exists` and left alone.
+         */
+        post: operations["applyNexusImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cleanup-policies": {
         parameters: {
             query?: never;
@@ -2406,6 +2452,106 @@ export interface components {
             clients: components["schemas"]["SetupClient"][];
             notes?: string[];
         };
+        NexusImportRequest: {
+            /**
+             * Format: uri
+             * @description Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+             */
+            url: string;
+            /** @description A Nexus administrator (reads the configuration) */
+            username: string;
+            /** Format: password */
+            password: string;
+            /**
+             * @description Allow a Nexus on a private or loopback address (SSRF guard exception)
+             * @default false
+             */
+            allow_private: boolean;
+            /** @description Extra CA certificates (PEM) trusted for the Nexus TLS certificate */
+            ca_pem?: string | null;
+            /**
+             * @description Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+             * @default true
+             */
+            docker_aliases: boolean;
+            /** @description Nexus docker repository to make the default docker repository; null = detect it */
+            default_docker_repo?: string | null;
+        };
+        NexusApplyRequest: {
+            /**
+             * Format: uri
+             * @description Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+             */
+            url: string;
+            /** @description A Nexus administrator (reads the configuration) */
+            username: string;
+            /** Format: password */
+            password: string;
+            /**
+             * @description Allow a Nexus on a private or loopback address (SSRF guard exception)
+             * @default false
+             */
+            allow_private: boolean;
+            /** @description Extra CA certificates (PEM) trusted for the Nexus TLS certificate */
+            ca_pem?: string | null;
+            /**
+             * @description Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+             * @default true
+             */
+            docker_aliases: boolean;
+            /** @description Nexus docker repository to make the default docker repository; null = detect it */
+            default_docker_repo?: string | null;
+            /** @description Names to import (from the preview); null = every repository the preview would create */
+            repositories?: string[] | null;
+        };
+        ImportDifference: {
+            /** @description Waystation field or Nexus setting */
+            field: string;
+            nexus: string | null;
+            waystation: string | null;
+            note: string;
+        };
+        /** @enum {string} */
+        NexusImportAction: "create" | "exists" | "unsupported" | "invalid";
+        /** @enum {string} */
+        NexusImportOutcome: "created" | "exists" | "unsupported" | "invalid" | "failed" | "not_selected";
+        NexusImportItem: {
+            name: string;
+            nexus_format: string;
+            nexus_type: string;
+            format: components["schemas"]["Format"] | null;
+            type: components["schemas"]["RepositoryType"] | null;
+            action: components["schemas"]["NexusImportAction"];
+            /** @description Apply only: what happened */
+            outcome: components["schemas"]["NexusImportOutcome"] | null;
+            reason: string | null;
+            /** @description The repository the import creates */
+            repository: components["schemas"]["RepositoryWrite"] | null;
+            differences: components["schemas"]["ImportDifference"][];
+            notes: string[];
+        };
+        DefaultDockerChoice: {
+            /** @description Repository that receives unprefixed docker names after the import */
+            name: string | null;
+            reason: string;
+        };
+        ImportSummary: {
+            total: number;
+            create: number;
+            exists: number;
+            unsupported: number;
+            invalid: number;
+            created: number;
+            failed: number;
+        };
+        NexusImportReport: {
+            applied: boolean;
+            /** @description From the Nexus `Server` header */
+            nexus_version: string | null;
+            items: components["schemas"]["NexusImportItem"][];
+            summary: components["schemas"]["ImportSummary"];
+            default_docker_repo: components["schemas"]["DefaultDockerChoice"] | null;
+        };
         FolderEntry: {
             name: string;
             path: string;
@@ -3380,6 +3526,15 @@ export interface components {
         };
         /** @description Request body failed validation; `errors[]` has field-level detail */
         ValidationFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description A remote system the request depends on failed (the reason is in `detail`) */
+        BadGateway: {
             headers: {
                 [name: string]: unknown;
             };
@@ -5380,6 +5535,60 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
+        };
+    };
+    previewNexusImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NexusImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NexusImportReport"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            502: components["responses"]["BadGateway"];
+        };
+    };
+    applyNexusImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NexusApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description What happened to each repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NexusImportReport"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            502: components["responses"]["BadGateway"];
         };
     };
     listCleanupPolicies: {
