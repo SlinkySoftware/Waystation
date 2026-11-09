@@ -611,3 +611,17 @@ async def test_offset_recovery_and_limits(services: Services, admin: httpx.Async
     too_big = await v2.patch(small.headers['location'], content=b'x' * 11, headers=auth)
     assert too_big.status_code == 413
     assert (await v2.get(small.headers['location'], headers=auth)).status_code == 404
+
+
+async def test_delete_only_token_and_invalid_tags(admin: httpx.AsyncClient, v2: httpx.AsyncClient) -> None:
+    await create_hosted(admin, 'apps')
+    reg = Registry(v2)
+    await reg.push_image('apps/x', '1')
+    # a token with only the delete action still sees the repository (OCI conformance clients ask for just that)
+    assert (await reg.request('DELETE', 'apps/x', 'manifests/1', actions='delete')).status_code == 202
+    missing = await reg.request('GET', 'apps/x', 'manifests/.INVALID_NAME', actions='pull')
+    assert missing.status_code == 404
+    assert missing.json()['errors'][0]['code'] == 'MANIFEST_UNKNOWN'
+    bad = await reg.push_manifest('apps/x', '.INVALID_NAME', manifest())
+    assert bad.status_code == 400
+    assert bad.json()['errors'][0]['code'] == 'TAG_INVALID'
