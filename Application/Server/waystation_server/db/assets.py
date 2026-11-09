@@ -13,6 +13,7 @@ from pymongo import ReturnDocument
 from waystation_common.db import usage as usage_db
 from waystation_common.db.client import Database
 from waystation_common.db.collections import ASSETS
+from waystation_common.db.verify import MARK
 from waystation_common.ids import new_id
 from waystation_common.searchkeys import file_keys
 from waystation_server.proxy.records import StoredAsset, UpstreamMeta
@@ -31,7 +32,8 @@ async def save(db: Database, asset: StoredAsset) -> StoredAsset:
     asset_id = new_id()
     before = await db[ASSETS].find_one_and_update(
         {'repo_id': asset.repo_id, 'path': asset.path},
-        {'$set': fields, '$setOnInsert': {'_id': asset_id, 'created_at': asset.created_at}},
+        # A fill or upload brings the blob back: drop blob verify's mark (waystation_common.db.verify).
+        {'$set': fields, '$setOnInsert': {'_id': asset_id, 'created_at': asset.created_at}, '$unset': {MARK: ''}},
         upsert=True,
         return_document=ReturnDocument.BEFORE,
         projection={'_id': 1, 'created_at': 1, 'size': 1},

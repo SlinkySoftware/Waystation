@@ -3005,6 +3005,182 @@
       ]
     },
     {
+      "id": 53,
+      "type": "timeseries",
+      "title": "Assets missing their blob",
+      "description": "Assets the last blob verify run found without their blob file: hosted ones are lost until uploaded again or restored from a backup (BACKUP.md); proxied ones are re-fetched on their next request.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 88
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (repository_type) (waystation_assets_blob_missing{job=~\"$job\",instance=~\"$instance\"})",
+          "legendFormat": "{{repository_type}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "type": "timeseries",
+      "title": "Blob verify findings",
+      "description": "Per interval: blob verify runs, referenced blobs found missing or damaged, proxied assets marked for re-fetch and hosted assets reported lost.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 88
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "gradientMode": "none",
+            "lineInterpolation": "linear"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "sum"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(increase(waystation_verify_runs_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "runs",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(increase(waystation_verify_missing_blobs_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "missing blobs",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(increase(waystation_verify_damaged_blobs_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "damaged blobs",
+          "refId": "C",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(increase(waystation_verify_refetch_marked_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "marked for re-fetch",
+          "refId": "D",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(increase(waystation_verify_hosted_lost_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "hosted lost",
+          "refId": "E",
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
       "id": 43,
       "type": "row",
       "title": "Quotas and disk",
@@ -3014,7 +3190,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 88
+        "y": 96
       }
     },
     {
@@ -3030,7 +3206,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 89
+        "y": 97
       },
       "fieldConfig": {
         "defaults": {
@@ -3115,7 +3291,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 89
+        "y": 97
       },
       "fieldConfig": {
         "defaults": {
@@ -3183,7 +3359,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 89
+        "y": 97
       },
       "fieldConfig": {
         "defaults": {
@@ -3251,7 +3427,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 89
+        "y": 97
       },
       "fieldConfig": {
         "defaults": {
@@ -3319,7 +3495,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 89
+        "y": 97
       },
       "fieldConfig": {
         "defaults": {
@@ -3387,7 +3563,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 89
+        "y": 97
       },
       "fieldConfig": {
         "defaults": {
@@ -3455,7 +3631,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 93
+        "y": 101
       },
       "fieldConfig": {
         "defaults": {
@@ -3542,7 +3718,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 93
+        "y": 101
       },
       "fieldConfig": {
         "defaults": {
@@ -3620,7 +3796,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 101
+        "y": 109
       },
       "targets": [
         {
@@ -3904,7 +4080,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 110
+        "y": 118
       }
     },
     {
@@ -3920,7 +4096,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 111
+        "y": 119
       },
       "fieldConfig": {
         "defaults": {
@@ -3987,7 +4163,7 @@
         "h": 8,
         "w": 8,
         "x": 12,
-        "y": 111
+        "y": 119
       },
       "fieldConfig": {
         "defaults": {
@@ -4054,7 +4230,7 @@
         "h": 8,
         "w": 4,
         "x": 20,
-        "y": 111
+        "y": 119
       },
       "fieldConfig": {
         "defaults": {
@@ -4118,7 +4294,7 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 119
+        "y": 127
       },
       "targets": [
         {

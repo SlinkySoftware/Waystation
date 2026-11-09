@@ -1236,6 +1236,7 @@ export const en = {
     kind: {
       stats_rollup: 'Stats rollup',
       blob_gc: 'Blob garbage collection',
+      blob_verify: 'Blob verify',
       cleanup_run: 'Cleanup policy',
       quota_reconcile: 'Quota recount',
       storage_check: 'Low-disk check',
@@ -1243,6 +1244,7 @@ export const en = {
     kindHelp: {
       stats_rollup: 'Rolls live counters into the statistics every few seconds',
       blob_gc: 'Deletes blobs no asset has referenced for the grace period, and orphan uploads',
+      blob_verify: 'Finds assets whose blob file is missing or damaged: cached ones are re-fetched, hosted ones are reported as lost',
       cleanup_run: 'Removes what the policy matches from its repositories',
       quota_reconcile: 'Recounts the bytes each repository stores and raises quota alerts',
       storage_check: 'Compares free disk space with the low-disk guard and raises alerts',
@@ -1329,6 +1331,8 @@ export const en = {
       loadMore: 'Load more',
       summary: {
         gc: 'Freed {n} blob · {size}|Freed {n} blobs · {size}',
+        verify: '{assets} assets checked · {n} to re-fetch|{assets} assets checked · {n} to re-fetch',
+        verifyLost: '{n} hosted asset lost|{n} hosted assets lost',
         cleanup: 'Removed {n} item · {size}|Removed {n} items · {size}',
         done: 'Done',
       },
