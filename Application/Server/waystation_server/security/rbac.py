@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import hashlib
 import json
 import logging
@@ -33,6 +34,7 @@ from waystation_server.db import roles as roles_db
 from waystation_server.security.actions import Action, Grants, Permission
 from waystation_server.security.groups import GroupDirectory
 from waystation_server.security.identity import RoleRecord, UserRecord
+from waystation_server.security.principal import ANONYMOUS, ANONYMOUS_ROLE, AuthMethod, Principal
 
 log = logging.getLogger('waystation.rbac')
 
@@ -70,7 +72,8 @@ def fingerprint(table: dict[str, tuple[Permission, ...]]) -> str:
 
 
 class RbacState:
-    def __init__(self, db: Database, valkey: Redis, *, poll_s: float = POLL_S) -> None:
+    def __init__(self, db: Database, valkey: Redis, *, poll_s: float = POLL_S, fixed: bool = False) -> None:
+        self._fixed = fixed  # unit tests without MongoDB/Valkey: built-in roles only, nothing loaded or cached
         self._db = db
         self._valkey = valkey
         self._poll_s = poll_s
@@ -81,6 +84,7 @@ class RbacState:
         self._roles: dict[str, RoleRecord] = {}
         self._table: dict[str, tuple[Permission, ...]] = {}
         self._table_id = fingerprint({})
+        self._anonymous: tuple[str, ...] = (ANONYMOUS_ROLE,)
         self._cache: dict[tuple[int, tuple[str, ...]], Grants] = {}
         self._lock = asyncio.Lock()
         self._watcher: asyncio.Task[None] | None = None
@@ -89,7 +93,7 @@ class RbacState:
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> None:
-        if self._watcher is None:
+        if self._watcher is None and not self._fixed:
             self._watcher = asyncio.create_task(self._watch(), name='rbac-watch')
 
     async def stop(self) -> None:
@@ -125,6 +129,8 @@ class RbacState:
         return version
 
     async def ensure(self) -> None:
+        if self._fixed:
+            return
         now = time.monotonic()
         if now - self._checked_at >= self._poll_s:
             self._checked_at = now
@@ -139,6 +145,8 @@ class RbacState:
             if self.version == target and self.version >= 0:
                 return
             roles = await roles_db.list_all(self._db)
+            anonymous = await roles_db.anonymous_roles(self._db)
+            self._anonymous = tuple(anonymous) if anonymous is not None else (ANONYMOUS_ROLE,)
             self._roles = {r.id: r for r in roles}
             self._table = {r.id: _permissions(r) for r in roles}
             self._table_id = fingerprint(self._table)
@@ -164,6 +172,18 @@ class RbacState:
         return dict(self._table)
 
     # ------------------------------------------------------------------ principals
+    async def anonymous_roles(self) -> tuple[str, ...]:
+        """The anonymous principal's roles (default: the built-in ``anonymous`` role, read on proxy repositories)."""
+        await self.ensure()
+        return self._anonymous
+
+    async def anonymous(self, method: AuthMethod = AuthMethod.NONE) -> Principal:
+        """The anonymous principal with the configured roles and their materialised grants."""
+        roles = await self.anonymous_roles()
+        if self._fixed:
+            return dataclasses.replace(ANONYMOUS, method=method)
+        return dataclasses.replace(ANONYMOUS, roles=roles, method=method, grants=await self.grants(ANONYMOUS.id, roles))
+
     async def roles_for(self, user: UserRecord) -> tuple[str, ...]:
         """The user's effective roles: its own plus its local and mapped groups' (``GroupDirectory``)."""
         await self.ensure()
@@ -177,6 +197,10 @@ class RbacState:
         cached = self._cache.get((version, key_roles))
         if cached is not None:
             return cached
+        if self._fixed:
+            from waystation_server.security import access
+
+            return access.materialise(key_roles)
         grants: Grants | None = None
         key = grants_key(principal_id, version)
         try:

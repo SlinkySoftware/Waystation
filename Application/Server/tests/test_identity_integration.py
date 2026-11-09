@@ -556,3 +556,55 @@ async def test_one_time_password_must_be_changed_first(services: Services, world
         assert (await client.get(f'{API}/users')).status_code == 200
     finally:
         await client.aclose()
+
+
+# ---------------------------------------------------------------------------- anonymous access
+async def test_anonymous_access_is_configurable(services: Services, admin: httpx.AsyncClient) -> None:
+    async with asgi_client(services) as anon:
+        assert (await anon.get('/repository/npm-proxy/pkg')).status_code == 200  # default: read proxy repositories
+        assert (await anon.get('/repository/raw-hosted/a')).status_code == 404
+        assert (await admin.get(f'{API}/anonymous-access')).json() == {'roles': ['anonymous']}
+        role = {'id': 'raw-public', 'name': 'raw public', 'permissions': [{'action': 'read', 'scope': 'raw-*'}]}
+        assert (await admin.post(f'{API}/roles', json=role)).status_code == 201
+        saved = await admin.put(f'{API}/anonymous-access', json={'roles': ['raw-public']})
+        assert saved.status_code == 200 and saved.json() == {'roles': ['raw-public']}
+        assert (await anon.get('/repository/raw-hosted/a')).status_code == 200
+        assert (await anon.get('/repository/npm-proxy/pkg')).status_code == 404
+        refused = await admin.put(f'{API}/anonymous-access', json={'roles': ['viewer', 'admin', 'nope']})
+        assert [(e['field'], e['code']) for e in refused.json()['errors']] == [
+            ('roles.0', 'global'),
+            ('roles.1', 'global'),
+            ('roles.2', 'role'),
+        ]
+        assert (await admin.put(f'{API}/anonymous-access', json={'roles': []})).status_code == 200
+        assert (await anon.get('/repository/raw-hosted/a')).status_code == 404
+        assert (await anon.get('/repository/npm-proxy/pkg')).status_code == 404
+        # docker's anonymous registry tokens follow the same roles
+        token = await anon.get('/auth/token', params={'scope': 'repository:raw-hosted/x:pull'})
+        assert token.status_code == 200
+    changed = await admin.get(f'{API}/audit', params={'action': 'role.update', 'target': 'anonymous'})
+    assert changed.status_code == 200 and len(changed.json()['items']) == 2
+
+
+# ---------------------------------------------------------------------------- matrix
+async def test_admin_passes_every_access_rule(services: Services, admin: httpx.AsyncClient) -> None:
+    """Route x principal matrix, the administrator column: no REST route answers 401/403 to an administrator's
+    session (the anonymous and reader columns are unit tests: ``test_access``)."""
+    from ws_testing import iter_routes
+
+    from waystation_server.app import create_app
+    from waystation_server.security import access
+
+    checked = 0
+    for path, methods, endpoint in iter_routes(create_app()):
+        rule = access.route_rule(endpoint)
+        if not path.startswith(API) or rule is None or rule.kind not in ('global', 'authenticated'):
+            continue
+        if path in (f'{API}/auth/sessions', f'{API}/auth/sessions/{{session_id}}', f'{API}/events/stream'):
+            continue  # would end the admin's own sessions / stream forever
+        url = path.replace('{', '').replace('}', '-missing')
+        for method in sorted(methods - {'HEAD'}):
+            response = await admin.request(method, url, json={} if method in ('POST', 'PUT', 'PATCH') else None)
+            assert response.status_code not in (401, 403), f'{method} {path}: {response.status_code} {response.text}'
+            checked += 1
+    assert checked > 50

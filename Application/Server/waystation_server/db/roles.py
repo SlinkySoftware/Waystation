@@ -86,3 +86,22 @@ async def watch(db: Database, opened: Callable[[], None] | None = None) -> Async
         async for change in stream:
             doc = change.get('fullDocument') or {}
             yield int(doc.get('grant_version', 0))
+
+
+# ---------------------------------------------------------------------------- anonymous access
+async def anonymous_roles(db: Database) -> list[str] | None:
+    """The roles of the anonymous principal (``rbac_state.anonymous_roles``); None = never configured."""
+    doc = await db[RBAC_STATE].find_one({'_id': STATE_ID}, {'anonymous_roles': 1})
+    value = doc.get('anonymous_roles') if doc else None
+    return [str(r) for r in value] if isinstance(value, list) else None
+
+
+async def set_anonymous_roles(db: Database, roles: list[str]) -> int:
+    """Store the anonymous principal's roles and bump ``grant_version`` in the same write; returns the version."""
+    doc = await db[RBAC_STATE].find_one_and_update(
+        {'_id': STATE_ID},
+        {'$set': {'anonymous_roles': roles}, '$inc': {'grant_version': 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return int(doc['grant_version']) if doc else 0

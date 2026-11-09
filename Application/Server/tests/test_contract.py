@@ -43,6 +43,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/roles/{role_id}', 'get'),
     ('/roles/{role_id}', 'put'),
     ('/roles/{role_id}', 'delete'),
+    ('/anonymous-access', 'get'),
+    ('/anonymous-access', 'put'),
     ('/auth/me', 'patch'),
     ('/auth/me/password', 'post'),
     ('/auth/me/permissions', 'get'),
