@@ -159,7 +159,9 @@ change diff, secrets shown only as "changed"; CSV/NDJSON export), Settings (gene
 System (versions, Mongo/Valkey health, storage path, support bundle).
 
 ### 4.11 Profile
-Display name, theme, density, my API tokens (create with scopes/expiry, shown once with copy), sessions.
+Display name, theme, density, password (local accounts; while a one-time password is pending the router keeps
+the user here and only this card is usable), my API tokens (create with scopes/expiry, shown once with copy),
+sessions.
 
 ## 5. Responsive behaviour
 - ≥ 1440: rail expanded, 12-col dashboard. 1024-1439: rail collapsed to icons. 600-1023: drawer nav, 2-col

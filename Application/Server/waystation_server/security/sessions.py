@@ -126,6 +126,27 @@ class SessionManager:
         except Exception as exc:
             log.warning('session last-seen cleanup failed', extra={'error': type(exc).__name__})
 
+    def public_id(self, sid: str) -> str:
+        """What the sessions API calls a session: derived from (never equal to) its stored id."""
+        return hashlib.sha256(f'session:{sid}'.encode()).hexdigest()[:32]
+
+    async def last_seen(self, records: list[SessionRecord]) -> dict[str, datetime]:
+        """Each session's last use, including what is still waiting in Valkey for the rollup job."""
+        seen = {r.id: max(r.last_seen_at.timestamp(), self._touched.get(r.id, 0.0)) for r in records}
+        if records:
+            try:
+                values = await self._valkey.hmget(SEEN_KEY, [r.id for r in records])
+            except Exception as exc:
+                log.warning('session last-seen lookup failed', extra={'error': type(exc).__name__})
+                values = [None] * len(records)
+            for record, raw in zip(records, values, strict=True):
+                if raw is not None:
+                    try:
+                        seen[record.id] = max(seen[record.id], float(raw))
+                    except ValueError:
+                        continue
+        return {sid: datetime.fromtimestamp(ts, UTC) for sid, ts in seen.items()}
+
     def set_cookies(self, response: Response, token: str, record: SessionRecord) -> None:
         response.set_cookie(
             SESSION_COOKIE, token, max_age=self.max_s, path='/', secure=self.secure, httponly=True, samesite='lax'

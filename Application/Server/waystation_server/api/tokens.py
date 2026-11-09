@@ -25,6 +25,13 @@ from waystation_common.errors import Forbidden, NotFound
 from waystation_common.ids import new_id
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.rbac import (
+    EffectivePermissions,
+    account_principal,
+    check_roles,
+    effective_permissions,
+    require_manageable,
+)
 from waystation_server.audit import AuditAction
 from waystation_server.db import service_accounts as accounts_db
 from waystation_server.db import tokens as tokens_db
@@ -187,10 +194,6 @@ def _grants_only(principal: Principal) -> Principal:
     return dataclasses.replace(principal, token=None, token_access=None)
 
 
-def _account_principal(account: ServiceAccountRecord) -> Principal:
-    return Principal(PrincipalKind.SERVICE_ACCOUNT, account.id, account.name, tuple(account.roles))
-
-
 async def _create(
     svc: Services, owner_grants: Principal, owner: TokenOwner, body: ApiTokenCreate, created_by: str
 ) -> ApiTokenCreated:
@@ -319,18 +322,6 @@ async def revoke_token(token_id: TokenId, request: Request, svc: ServicesDep) ->
 
 
 # ---------------------------------------------------------------------------- service accounts
-def _check_roles(caller: Principal, roles: list[str], field: str) -> list[str]:
-    errors = []
-    for i, role in enumerate(roles):
-        if not access.is_role(role):
-            errors.append(FieldError(field=f'{field}.{i}', message=f'unknown role {role!r}', code='role'))
-        elif not access.may_assign_role(caller, role):
-            errors.append(FieldError(field=f'{field}.{i}', message=f'you cannot grant {role!r}', code='role'))
-    if errors:
-        raise FieldErrors(errors)
-    return list(dict.fromkeys(roles))
-
-
 async def _account_body(svc: Services, account: ServiceAccountRecord) -> ServiceAccount:
     owner = TokenOwner(kind='service_account', id=account.id)
     return ServiceAccount(
@@ -346,6 +337,16 @@ async def _account_body(svc: Services, account: ServiceAccountRecord) -> Service
 
 def _account_target(account: ServiceAccountRecord) -> audit.AuditTarget:
     return audit.target('service_account', account.id, account.name)
+
+
+def _manageable(caller: Principal, account: Principal) -> None:
+    assert account.grants is not None
+    require_manageable(caller, account.grants, 'a service account')
+
+
+async def _require_manageable(svc: Services, caller: Principal, account: ServiceAccountRecord) -> None:
+    """A ``user-admin`` cannot change, delete or mint tokens for an account holding more than it (``admin``)."""
+    _manageable(caller, await account_principal(svc, account))
 
 
 async def _account(svc: Services, account_id: str) -> ServiceAccountRecord:
@@ -378,13 +379,24 @@ async def create_service_account(body: ServiceAccountCreate, request: Request, s
         id=new_id(),
         name=name,
         description=body.description.strip(),
-        roles=_check_roles(principal, body.roles, 'roles'),
+        roles=await check_roles(svc, principal, body.roles, 'roles'),
         owner_user_id=principal.id if principal.kind is PrincipalKind.USER else None,
         created_at=datetime.now(UTC),
     )
     await accounts_db.insert(svc.db, record)
     audit.record(AuditAction.SERVICE_ACCOUNT_CREATE, target=_account_target(record), changes=audit.diff(None, record))
     return await _account_body(svc, record)
+
+
+@router.get(
+    '/service-accounts/{account_id}',
+    response_model=ServiceAccount,
+    operation_id='getServiceAccount',
+    responses={404: PROBLEM},
+)
+@access.requires(Action.USER_ADMIN)
+async def get_service_account(account_id: AccountId, svc: ServicesDep) -> ServiceAccount:
+    return await _account_body(svc, await _account(svc, account_id))
 
 
 @router.patch(
@@ -399,16 +411,19 @@ async def update_service_account(
 ) -> ServiceAccount:
     principal = await authenticate(request)
     before = await _account(svc, account_id)
+    await _require_manageable(svc, principal, before)
     changes: dict[str, object] = {'updated_at': datetime.now(UTC)}
     if body.description is not None:
         changes['description'] = body.description.strip()
     if body.roles is not None:
-        changes['roles'] = _check_roles(principal, body.roles, 'roles')
+        changes['roles'] = await check_roles(svc, principal, body.roles, 'roles', before.roles)
     if body.disabled is not None:
         changes['disabled'] = body.disabled
     updated = await accounts_db.update(svc.db, account_id, changes)
     if updated is None:
         raise NotFound('service account not found')
+    if body.roles is not None or body.disabled is not None:
+        await svc.rbac.changed()
     await svc.tokens.announce(REVOKE_ALL)  # cached token principals carry the account's roles and status
     audit.record(
         AuditAction.SERVICE_ACCOUNT_UPDATE, target=_account_target(updated), changes=audit.diff(before, updated)
@@ -423,8 +438,10 @@ async def update_service_account(
 async def delete_service_account(account_id: AccountId, request: Request, svc: ServicesDep) -> Response:
     principal = await authenticate(request)
     account = await _account(svc, account_id)
+    await _require_manageable(svc, principal, account)
     revoked = await svc.tokens.revoke_all(TokenOwner(kind='service_account', id=account.id), by=principal.id)
     await accounts_db.delete(svc.db, account.id)
+    await svc.rbac.changed()
     audit.record(
         AuditAction.SERVICE_ACCOUNT_DELETE,
         target=_account_target(account),
@@ -445,7 +462,8 @@ async def list_service_account_tokens(account_id: AccountId, svc: ServicesDep) -
     account = await _account(svc, account_id)
     records = await tokens_db.list_for(svc.db, TokenOwner(kind='service_account', id=account.id))
     return ApiTokenList(
-        items=await _bodies(svc, records), available_scopes=access.token_scopes_for(_account_principal(account))
+        items=await _bodies(svc, records),
+        available_scopes=access.token_scopes_for(await account_principal(svc, account)),
     )
 
 
@@ -462,8 +480,10 @@ async def create_service_account_token(
 ) -> ApiTokenCreated:
     principal = await authenticate(request)
     account = await _account(svc, account_id)
+    owner_grants = await account_principal(svc, account)
+    _manageable(principal, owner_grants)
     owner = TokenOwner(kind='service_account', id=account.id)
-    return await _create(svc, _account_principal(account), owner, body, created_by=principal.id)
+    return await _create(svc, owner_grants, owner, body, created_by=principal.id)
 
 
 @router.delete(
@@ -479,3 +499,15 @@ async def revoke_service_account_token(
     principal = await authenticate(request)
     await _revoke_owned(svc, TokenOwner(kind='service_account', id=account_id), token_id, principal.id)
     return Response(status_code=204)
+
+
+@router.get(
+    '/service-accounts/{account_id}/permissions',
+    response_model=EffectivePermissions,
+    operation_id='getServiceAccountPermissions',
+    responses={404: PROBLEM},
+)
+@access.requires(Action.USER_ADMIN)
+async def service_account_permissions(account_id: AccountId, svc: ServicesDep) -> EffectivePermissions:
+    account = await _account(svc, account_id)
+    return await effective_permissions(svc, await account_principal(svc, account))

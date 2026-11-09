@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Profile (UI_DESIGN §4.11): who you are and your API tokens. Theme lives in the user menu. -->
+<!-- Profile (UI_DESIGN §4.11): who you are, your password (local accounts) and your API tokens. Theme lives in the
+     user menu. -->
 <template>
   <q-page class="ws-page">
     <PageHeader :title="t('nav.profile')" :caption="t('profile.caption')" />
@@ -24,7 +25,8 @@
           </div>
         </dl>
       </PageCard>
-      <ApiTokensCard />
+      <ChangePasswordCard v-if="user?.source === 'local'" />
+      <ApiTokensCard v-if="!auth.mustChangePassword" />
     </div>
   </q-page>
 </template>
@@ -34,6 +36,7 @@ import { computed } from 'vue'
 
 import PageCard from '@/components/PageCard.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import ChangePasswordCard from '@/components/account/ChangePasswordCard.vue'
 import ApiTokensCard from '@/components/tokens/ApiTokensCard.vue'
 import { t } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'

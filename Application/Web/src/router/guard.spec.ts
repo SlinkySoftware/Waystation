@@ -26,6 +26,12 @@ describe('authGuard', () => {
     expect(await authGuard(signIn, auth(false))).toBe(true)
   })
 
+  it('keeps a user with a one-time password on the profile page', async () => {
+    const pending = { signedIn: true, mustChangePassword: true, ensureChecked: async () => {} }
+    expect(await authGuard(route({ fullPath: '/repositories', name: 'repositories' }), pending)).toEqual({ name: 'profile' })
+    expect(await authGuard(route({ fullPath: '/profile', name: 'profile' }), pending)).toBe(true)
+  })
+
   it('refuses open redirects', () => {
     expect(safeNext('//evil.example.com')).toBe('/')
     expect(safeNext('https://evil.example.com')).toBe('/')

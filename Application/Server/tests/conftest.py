@@ -1,7 +1,8 @@
 """Server test fixtures.
 
 - ``unit_services``: ``Services`` that never connect (MongoDB/Valkey clients are created lazily); the repository
-  catalog is backed by an in-memory list (``unit_repos``). For routing, error and middleware tests.
+  catalog is backed by an in-memory list (``unit_repos``) and RBAC knows the built-in roles only. For routing, error
+  and middleware tests.
 - ``services`` / ``client`` (integration): ``Services`` against the throwaway MongoDB/Valkey of
   ``make test-integration``, schema and migrations applied, started; ``client`` is an httpx client on the ASGI app.
 """
@@ -23,6 +24,7 @@ from waystation_common.db.migrations import apply_migrations
 from waystation_common.db.schema import ensure_schema
 from waystation_common.settings import Settings
 from waystation_server.repos.model import RepoConfig
+from waystation_server.security.rbac import RbacState
 from waystation_server.services import Services
 
 
@@ -40,6 +42,8 @@ def unit_settings(tmp_path: Path) -> Settings:
 def unit_services(unit_settings: Settings, unit_repos: list[RepoConfig]) -> Services:
     services = Services.create(unit_settings, check_schema_on_start=False)
     services.catalog = static_catalog(unit_repos)
+    services.rbac = RbacState(services.db, services.valkey, fixed=True)  # built-in roles, no database
+    services.groups = services.rbac.groups
     return services
 
 

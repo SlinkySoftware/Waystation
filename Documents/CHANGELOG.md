@@ -17,6 +17,26 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `job.update` and `worker.update`. UI: the Tasks page replaces the placeholder (summary strip; Scheduled, Runs,
   Workers and Dead letters tabs; schedule dialog; run drawer with a live log viewer), MSW mock job system with live
   events, screenshot-tour entries, Vitest; integration tests for the API, dead letters, RBAC, audit and the topic.
+- T-S03: RBAC administration and the grant cache. Custom roles (`roles` collection; `GET/POST /roles`,
+  `GET/PUT/DELETE /roles/{id}`; built-ins read-only; permissions validated; in-use roles cannot be deleted), local
+  groups and members (`/groups`, `/groups/{id}/members`; mapped groups read-only except roles), users (`/users`:
+  list with filters and keyset paging, detail with source/identities/groups/effective roles, create local, update,
+  delete, password reset, unlock), effective permissions (`/users/{id}/permissions`,
+  `/service-accounts/{id}/permissions`, `/auth/me/permissions`), `GET /service-accounts/{id}`, configurable
+  anonymous access (`/anonymous-access`, `rbac_state.anonymous_roles`). `security.rbac.RbacState` materialises
+  `Principal.grants` per `grant_version` (in-process + Valkey `grants:<principal>:<version>`), learns new versions
+  from its own writes, a change stream on `rbac_state` and a 5 s poll; every RBAC change bumps the version.
+  Delegation limits in `security.access` (`may_assign`, `may_manage`) now also apply to service accounts and to
+  provider group mappings (a `settings-admin` can no longer map a group to `admin`), plus a last-administrator
+  guard. `access.filter_query`. New index `users.groups`. Fixed: the route-enumeration test had passed vacuously
+  since FastAPI started keeping included routers as `_IncludedRouter` (`ws_testing.iter_routes`); a route × principal
+  matrix now covers every REST route. Audit: `user.update|delete`, `group.*`, `role.*` no longer pending.
+- T-S02: done. One-time passwords enforced (sessions may only use `/auth/me`, `POST /auth/me/password` and sign-out;
+  `docker login` refused, audit reason `password_change_required`), own password change (current password, policy:
+  12+ characters, not the username; other sessions end), `PATCH /auth/me` (local profile), own sessions
+  (`GET/DELETE /auth/sessions`, `DELETE /auth/sessions/{id}`); `Session.must_change_password`; UI: password card
+  on the profile page and a router guard that keeps a one-time-password user there. Audit:
+  `auth.password_change`, `session.revoke` no longer pending.
 - T-S07: upstream auto-block, per-repository CA bundle and outbound HTTP proxy. Auto-block (`proxy.breaker`): after
   `auto_block.failures` (default 5) consecutive connection/DNS failures, timeouts, mid-body resets, 5xx or 429
   answers the upstream is blocked for `initial_s` (30 s), doubling after each failed probe up to `max_s` (30 min);
