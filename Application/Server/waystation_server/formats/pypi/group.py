@@ -121,7 +121,7 @@ class PypiGroup:
                 raise failure
             account(404, 0)
             raise NotFound('Not Found')
-        page = merge(pages, project)
+        page = await asyncio.to_thread(merge, pages, project)
         if simple.is_json(chosen):
             body = await asyncio.to_thread(simple.render_json, page, project)
         else:
