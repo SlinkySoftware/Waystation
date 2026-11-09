@@ -167,6 +167,9 @@ def activity_view(stream_id: str, event: ActivityEvent) -> dict[str, Any] | None
     kind: str
     outcome = 'success'
     match event.type:
+        case EventType.TRANSFER_FINISHED if event.detail.get('direction') == 'upload':
+            kind = 'upload'
+            summary = f'{who} uploaded {artifact} to {repo}'
         case EventType.TRANSFER_FINISHED:
             kind = 'download'
             verb = 'fetched' if event.cache is CacheState.FETCHING else 'downloaded'
@@ -178,7 +181,10 @@ def activity_view(stream_id: str, event: ActivityEvent) -> dict[str, Any] | None
         case EventType.TRANSFER_FAILED:
             kind, outcome = 'error', 'failure'
             reason = event.detail.get('error') or 'failed'
-            summary = f'Fetching {artifact} into {repo} failed: {reason}'
+            if event.detail.get('direction') == 'upload':
+                summary = f'Uploading {artifact} to {repo} failed: {reason}'
+            else:
+                summary = f'Fetching {artifact} into {repo} failed: {reason}'
         case EventType.CACHE_MISS:
             kind, outcome = 'cache_miss', 'info'
             summary = f'{artifact} was not cached in {repo}'

@@ -21,6 +21,7 @@ from waystation_server.repos import service
 from waystation_server.repos.model import RepoConfig, RepoType
 from waystation_server.repos.schemas import (
     Format,
+    HostedConfig,
     ProxyConfig,
     RepositoryStatus,
     RepositoryWrite,
@@ -58,6 +59,7 @@ class Repository(BaseModel):
     status: RepositoryStatus
     url: str = Field(description='Client URL, `<base>/repository/<name>/`')
     proxy: ProxyConfig | None = None
+    hosted: HostedConfig | None = None
     format_options: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
@@ -117,6 +119,16 @@ def _proxy_view(repo: RepoConfig) -> ProxyConfig | None:
     )
 
 
+def _hosted_view(repo: RepoConfig) -> HostedConfig | None:
+    if repo.type is not RepoType.HOSTED:
+        return None
+    if repo.hosted is None:
+        return HostedConfig()
+    return HostedConfig(
+        write_policy=repo.hosted.write_policy, immutable_tag_patterns=list(repo.hosted.immutable_tag_patterns)
+    )
+
+
 def to_view(svc: Services, repo: RepoConfig, status: str, summary: repo_stats.RepoSummary) -> Repository:
     return Repository(
         name=repo.name,
@@ -127,6 +139,7 @@ def to_view(svc: Services, repo: RepoConfig, status: str, summary: repo_stats.Re
         status=status,
         url=f'{svc.base_url}/repository/{repo.name}/',
         proxy=_proxy_view(repo),
+        hosted=_hosted_view(repo),
         format_options=repo.format_options,
         created_at=repo.created_at,
         updated_at=repo.updated_at,

@@ -61,6 +61,11 @@ async def resolve_docker(services: Services, name_path: str) -> DockerRoute | No
     return None
 
 
+async def _resolve_name(services: Services, name: str) -> tuple[RepoConfig, str] | None:
+    route = await resolve_docker(services, name)
+    return (route.repo, route.path) if route is not None else None
+
+
 async def _dispatch(request: Request, repo: RepoConfig, root: Root, path: str) -> Response:
     services = services_of(request)
     request.state.log.update(repo=repo.name, format=repo.format)
@@ -83,8 +88,11 @@ async def _dispatch(request: Request, repo: RepoConfig, root: Root, path: str) -
         path=path,
         principal=principal,
         proxy=services.proxy,
+        hosted=services.hosted,
         base_url=services.base_url,
         _require=lambda action: access.require_repo(principal, action, repo),
+        _allows=lambda action, other: access.check(principal, action, other),
+        _resolve=lambda name: _resolve_name(services, name),
     )
     return await plugin.handle(req)
 

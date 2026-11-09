@@ -23,6 +23,20 @@ Guarantees:
   thread; every other filesystem call also runs in ``asyncio.to_thread``.
 - ``open_writer`` refuses to start when free space would drop below ``min_free_bytes`` (``InsufficientStorage``).
 
+Resumable uploads (hosted writes that span several requests, e.g. OCI chunked blob uploads)::
+
+    upload_id = await store.start_upload()                       # empty uploads/<id>
+    writer = await store.resume_writer(upload_id, offset=0)      # append; refuses a wrong offset
+    await writer.write(chunk) ...
+    size = await writer.suspend()                                # flush + close, file kept for the next request
+    writer = await store.resume_writer(upload_id, offset=size)   # later, possibly on another replica
+    ref = await store.commit(writer)                             # verify + move into place like any writer
+
+A resumed writer continues the incremental sha256 when this process saw the previous part (a bounded in-process
+cache of hash states); otherwise ``commit`` hashes the whole file in a thread. ``rollback`` truncates a failed part
+back to where the request started (the upload stays resumable); ``discard_upload`` deletes it. Upload ids are 32 hex
+characters (anything else is refused before touching the filesystem).
+
 ``path_for_xaccel(sha256)`` is the internal URI the web tier serves (``/_blobs/...``, ARCHITECTURE §4.5).
 ``delete`` is for GC only. Not done yet: the NFS-backed CI scenario (T-F07 full task).
 
@@ -41,20 +55,33 @@ import os
 import re
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
-from typing import Protocol, Self
+from typing import Any, Protocol, Self
 
 from waystation_common.datadir import DIR_MODE, FILE_MODE
-from waystation_common.errors import DigestMismatch, InsufficientStorage, PayloadTooLarge, ValidationFailed
+from waystation_common.errors import DigestMismatch, InsufficientStorage, NotFound, PayloadTooLarge, ValidationFailed
 from waystation_common.settings import Settings
 
 XACCEL_PREFIX = '/_blobs/'
 DEFAULT_CHUNK = 1024 * 1024
 ORPHAN_AGE_S = 24 * 3600
 _HEX = re.compile(r'^[0-9a-f]{64}$')
+_UPLOAD_ID = re.compile(r'^[0-9a-f]{32}$')
+PARTIAL_HASHES = 512  # resumable uploads whose sha256 state this process keeps between requests
+
+
+class UploadOffsetMismatch(ValidationFailed):
+    """A resumed upload does not end where the caller expected; ``size`` is where it really ends."""
+
+    code = 'upload_offset'
+
+    def __init__(self, size: int) -> None:
+        super().__init__(f'the upload holds {size} bytes')
+        self.size = size
 
 
 class BlobGuard(Protocol):
@@ -91,6 +118,14 @@ def check_sha256(sha256: str) -> str:
     return sha256
 
 
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as fh:
+        while chunk := fh.read(DEFAULT_CHUNK):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _fsync_dir(path: Path) -> None:
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -111,6 +146,8 @@ class BlobWriter:
         max_size: int | None,
         expected_size: int | None,
         expected_sha256: str | None,
+        offset: int = 0,
+        hasher: Any = None,
     ) -> None:
         self.store = store
         self.upload_id = upload_id
@@ -118,11 +155,13 @@ class BlobWriter:
         self.max_size = max_size
         self.expected_size = expected_size
         self.expected_sha256 = expected_sha256
-        self.size = 0  # bytes accepted (buffered or written)
+        self.offset = offset  # where this writer started (resumed uploads; 0 otherwise)
+        self.size = offset  # bytes accepted (buffered or written), including what earlier requests wrote
         limits = [n for n in (max_size, expected_size) if n is not None]
         self._limit = min(limits) if limits else None
         self._fd: int | None = fd
-        self._hash = hashlib.sha256()
+        self._hash = hasher if hasher is not None else hashlib.sha256()
+        self._rehash = offset > 0 and hasher is None  # commit hashes the whole file
         self._buffer = bytearray()
         self._done = False
 
@@ -196,6 +235,34 @@ class BlobWriter:
         self.store._active.discard(self.upload_id)
         await asyncio.to_thread(self._close_sync, unlink=True)
 
+    async def suspend(self) -> int:
+        """Resumable uploads: flush and close, keep the file (and this process's hash state) for a later
+        ``resume_writer``. Returns the upload's size."""
+        if self._done:
+            raise ValueError('writer is closed')
+        await self.flush()
+        self._done = True
+        self.store._active.discard(self.upload_id)
+        await asyncio.to_thread(self._close_sync, unlink=False)
+        if not self._rehash:
+            self.store._remember_hash(self.upload_id, self.size, self._hash)
+        return self.size
+
+    def _truncate_sync(self, size: int) -> None:
+        fd = self._require_fd()
+        os.ftruncate(fd, size)
+        self._close_sync(unlink=False)
+
+    async def rollback(self) -> None:
+        """Resumable uploads: undo this writer's part (truncate back to ``offset``), keep the upload resumable."""
+        if self._done:
+            return
+        self._done = True
+        self._buffer = bytearray()
+        self.store._active.discard(self.upload_id)
+        self.store._partials.pop(self.upload_id, None)
+        await asyncio.to_thread(self._truncate_sync, self.offset)
+
     async def __aenter__(self) -> Self:
         return self
 
@@ -224,6 +291,7 @@ class BlobStore:
         self.chunk_size = chunk_size
         self._active: set[str] = set()
         self._locks: dict[str, _DigestLock] = {}
+        self._partials: OrderedDict[str, tuple[int, Any]] = OrderedDict()  # upload id -> (size, sha256 state)
         self.on_refused: Callable[[], None] | None = None  # called when the free-space guard refuses a write
 
     @classmethod
@@ -282,6 +350,83 @@ class BlobStore:
             self, upload_id, fd, max_size=limit, expected_size=expected_size, expected_sha256=expected_sha256
         )
 
+    # ---- resumable uploads
+    def upload_path(self, upload_id: str) -> Path:
+        if not _UPLOAD_ID.fullmatch(upload_id):
+            raise ValidationFailed('not an upload id')
+        return self.uploads_dir / upload_id
+
+    def _remember_hash(self, upload_id: str, size: int, hasher: Any) -> None:
+        self._partials[upload_id] = (size, hasher)
+        self._partials.move_to_end(upload_id)
+        while len(self._partials) > PARTIAL_HASHES:
+            self._partials.popitem(last=False)
+
+    def _create_sync(self, upload_id: str) -> None:
+        os.close(self._open_sync(upload_id))
+
+    async def start_upload(self) -> str:
+        """Create an empty resumable upload; returns its id."""
+        await self.check_free_space()
+        upload_id = uuid.uuid4().hex
+        await asyncio.to_thread(self._create_sync, upload_id)
+        return upload_id
+
+    def _append_sync(self, path: Path, offset: int, repair: bool) -> tuple[int, int]:
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CLOEXEC)
+        size = os.fstat(fd).st_size
+        if repair and size > offset:
+            os.ftruncate(fd, offset)
+            size = offset
+        return fd, size
+
+    async def resume_writer(
+        self, upload_id: str, *, offset: int, max_size: int | None = None, repair: bool = False
+    ) -> BlobWriter:
+        """Append to a resumable upload that holds exactly ``offset`` bytes (else ``UploadOffsetMismatch``;
+        a missing upload is ``NotFound``). ``repair`` first cuts a longer file back to ``offset`` (bytes a request
+        wrote before its process died, never acknowledged to the client)."""
+        path = self.upload_path(upload_id)
+        await self.check_free_space()
+        try:
+            fd, size = await asyncio.to_thread(self._append_sync, path, offset, repair)
+        except FileNotFoundError:
+            raise NotFound('upload not found') from None
+        if size != offset:
+            await asyncio.to_thread(os.close, fd)
+            raise UploadOffsetMismatch(size)
+        cached = self._partials.pop(upload_id, None)
+        hasher = cached[1] if cached is not None and cached[0] == size else None
+        if size == 0:
+            hasher = hashlib.sha256()
+        limit = max_size if max_size is not None else self.max_size
+        self._active.add(upload_id)
+        return BlobWriter(
+            self,
+            upload_id,
+            fd,
+            max_size=limit,
+            expected_size=None,
+            expected_sha256=None,
+            offset=size,
+            hasher=hasher,
+        )
+
+    def _size_sync(self, path: Path) -> int | None:
+        try:
+            return path.stat().st_size
+        except FileNotFoundError:
+            return None
+
+    async def upload_size(self, upload_id: str) -> int | None:
+        """Bytes in a resumable upload (None when it does not exist)."""
+        return await asyncio.to_thread(self._size_sync, self.upload_path(upload_id))
+
+    async def discard_upload(self, upload_id: str) -> None:
+        path = self.upload_path(upload_id)
+        self._partials.pop(upload_id, None)
+        await asyncio.to_thread(path.unlink, missing_ok=True)
+
     def _mkdirs_sync(self, directory: Path) -> list[Path]:
         """Create missing parents with DIR_MODE; returns the created ones (outermost first)."""
         created: list[Path] = []
@@ -321,7 +466,8 @@ class BlobStore:
         try:
             await writer.flush()
             size = await asyncio.to_thread(self._finish_sync, writer)
-            digest = writer.hexdigest()
+            digest = await asyncio.to_thread(_hash_file, writer.path) if writer._rehash else writer.hexdigest()
+            self._partials.pop(writer.upload_id, None)
             if writer.expected_size is not None and size != writer.expected_size:
                 raise DigestMismatch(f'size {size} does not match the expected {writer.expected_size}')
             if writer.expected_sha256 is not None and digest != writer.expected_sha256:

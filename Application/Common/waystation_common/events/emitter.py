@@ -158,16 +158,21 @@ class EventEmitter:
         bytes_out: int = 0,
         bytes_in_upstream: int = 0,
         bytes_in_upload: int = 0,
+        upload: bool = False,
         ts: float | None = None,
     ) -> None:
         """Count one finished request in the per-minute counters and latency histogram.
 
         Transfers are counted by ``transfer_finished``; call this for everything else (metadata, HEAD, 404...).
+        ``upload``: a hosted write, neither a cache hit nor a miss (only errors are counted besides the request).
         """
         when = self._clock() if ts is None else ts
         minute = keys.minute_of(when)
         incr: dict[str, int] = {'requests': 1}
-        if cache in FROM_CACHE:
+        if upload:
+            if cache is CacheState.ERROR:
+                incr['errors'] = 1
+        elif cache in FROM_CACHE:
             incr['hits' if cache is not CacheState.STALE else 'stale'] = 1
             incr['bytes_out_cache'] = bytes_out
         elif cache is CacheState.ERROR:
@@ -330,6 +335,7 @@ class EventEmitter:
         final_cache = CacheState.ERROR if error else (cache or t.cache)
         t = t.model_copy(update={'bytes_done': done, 'cache': final_cache, 'updated_at': _dt(now), 'error': error})
         kind = EventType.TRANSFER_FAILED if error else EventType.TRANSFER_FINISHED
+        upload = t.direction is Direction.UPLOAD
         duration_ms = (now - t.started_at.timestamp()) * 1000
         self._enqueue(self._live_ops(kind, t))
         self.activity(
@@ -348,10 +354,9 @@ class EventEmitter:
                 bytes=done,
                 duration_ms=round(duration_ms, 3),
                 transfer_id=t.id,
-                detail={'error': error} if error else {},
+                detail=({'error': error} if error else {}) | ({'direction': 'upload'} if upload else {}),
             )
         )
-        upload = t.direction is Direction.UPLOAD
         self.request(
             repo_id=t.repo_id,
             format=t.format,
@@ -360,6 +365,7 @@ class EventEmitter:
             bytes_out=0 if upload else done,
             bytes_in_upstream=done if final_cache is CacheState.FETCHING and not upload else 0,
             bytes_in_upload=done if upload else 0,
+            upload=upload,
             ts=now,
         )
 
