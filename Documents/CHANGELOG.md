@@ -18,6 +18,32 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   second job after it, only on push to `main` and manual runs, with a 60 minute timeout; the organisation variable
   `WAYSTATION_CI_INTEGRATION=false` skips it. Checked with actionlint; not yet run on the Gitea runners. CI.md
   documents the runner needs (host-mode jobs, Docker, memory) and the variable.
+- T-M02: Nexus migration. `Documents/Operations/MIGRATING_FROM_NEXUS.md`, step by step: inventory, import,
+  re-entering upstream credentials and access (roles, sign-in, API tokens), copying hosted content (skopeo/crane for
+  docker, a Nexus assets API + curl loop with checksum for raw), warming the cache, side-by-side validation with the
+  expected differences, switching clients per format, cutover through the reverse proxy (per repository, docker
+  connector ports), rollback (uploads since the switch from the audit log) and decommissioning.
+  `Build/migration/nexus_compare.py` (standard library only) sends the same read-only requests from a TOML checks
+  file to a Nexus and a Waystation and compares status, size, sha256 (optionally after base-URL and JSON
+  normalisation), `Docker-Content-Digest`, media type and JSON Pointer values; answers docker Bearer challenges, never
+  sends credentials across redirects, takes credentials only from the environment; table, Markdown or JSON report and
+  exit code 0/1/2. `checks.example.toml` covers docker, npm, apt, yum, raw and pypi; `make nexus-compare`. Tested
+  against two fake servers in `make test`.
+- T-P2-RAW: raw hosted and group repositories, directory listings. Hosted (`formats/raw/hosted.py`): streaming
+  `PUT /repository/<repo>/<path>` (live upload transfer, `WAYSTATION_MAX_UPLOAD_GB` and `Content-Length` bound,
+  free-space guard), `X-Checksum-Sha256`/`-Sha1`/`-Md5` verified before anything is committed (400 on a mismatch or a
+  malformed header), Content-Type by extension, `201` with the digest `ETag`; write policy (`allow_redeploy` replaces,
+  `disable_redeploy` → 409, `read_only` → 403); `DELETE` → 204; audited `content.upload` / `content.delete`,
+  `asset.created` / `asset.deleted` in the activity feed. Group (`formats/raw/group.py`): members in order, failing
+  members skipped while a later one answers, uploads and deletes to the writable member (RBAC on the member too),
+  `X-Ws-Group-Member` (now also passed through the web tier's X-Accel location). Directory listings
+  (`formats/raw/listing.py`) for every raw repository at the root and paths ending in `/`: HTML (escaped, `default-src
+  'none'`) or JSON (`Accept: application/json`, the browse API's `FolderListing` with `?cursor=` paging), `browse`
+  required. `metadata_path_regex` is proxy-only. "Set me up": curl upload (with a checksum), download, delete and
+  listing; wget with a bearer header. UI: the repository form offers Hosted and Group for raw (writable member,
+  no mutable-path regex outside proxies); mock snippets. Real-client harness: hosted upload/download/delete,
+  conditional request, JSON listing, group reads in member order and upload through the group (replay and live
+  pass). T-M01: Nexus raw hosted and group repositories are imported (new fixture `raw-group`).
 - T-O03: repository quotas and the low-disk guard. `repositories.storage{quota_bytes, quota_mode}` (soft / hard;
   not on groups) in the model, REST, contract and repository form; repository views carry `quota{quota_bytes, mode,
   used_bytes, used_ratio, state}`. Usage per repository in the new `repo_usage` collection, counted with one `$inc`

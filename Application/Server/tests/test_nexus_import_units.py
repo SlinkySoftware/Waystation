@@ -134,10 +134,14 @@ def test_unsupported_and_invalid() -> None:
 
 @pytest.mark.skipif(not supports_section('group'), reason='group repositories are not in this build yet')
 def test_hosted_and_group_sections() -> None:
-    supported = {**PROXY_ONLY, 'docker': frozenset({'proxy', 'hosted', 'group'}), 'raw': frozenset({'proxy', 'hosted'})}
+    every = frozenset({'proxy', 'hosted', 'group'})
+    supported = {**PROXY_ONLY, 'docker': every, 'raw': every}
     repos = nexus_repos()
     files = map_repository(repos['files'], supported=supported)
     assert files.body is not None and files.body['hosted'] == {'write_policy': 'disable_redeploy'}
+    assert files.body['format_options'] == {'content_disposition': 'attachment'}
+    raw_group = map_repository(repos['raw-group'], supported=supported)
+    assert raw_group.body is not None and raw_group.body['group'] == {'members': ['files', 'github-releases']}
     group = map_repository(repos['docker-group'], supported=supported)
     assert group.body is not None
     assert group.body['group'] == {
@@ -157,7 +161,7 @@ async def test_read_lists_and_details(unit_settings: Settings, nexus: FakeUpstre
     snapshot = await nexus_client.read(clients(unit_settings), source)
     assert snapshot.version == SERVER
     by_name = {r.name: r for r in snapshot.repositories}
-    assert len(by_name) == 18
+    assert len(by_name) == 19
     assert by_name['debian'].detail is not None and by_name['debian'].detail['apt']['distribution'] == 'trixie'
     assert by_name['maven-central'].detail is not None  # the detail path of maven2 is maven
     assert by_name['npm'].detail is None
@@ -222,8 +226,10 @@ async def test_preview_plans_every_repository(unit_services: Services, nexus: Fa
         assert items[name].repository is not None
     assert items['maven-central'].action == 'unsupported'
     assert items['r-hosted'].action == 'unsupported'
-    assert report.summary.total == 18
-    assert report.summary.create + report.summary.unsupported + report.summary.exists + report.summary.invalid == 18
+    for name in ('files', 'raw-group'):  # raw hosted and group (T-P2-RAW)
+        assert items[name].action == 'create', (name, items[name].reason)
+    assert report.summary.total == 19
+    assert report.summary.create + report.summary.unsupported + report.summary.exists + report.summary.invalid == 19
     # unprefixed pulls: the Docker Hub proxy (behind the group's connector, or the only one)
     assert report.default_docker_repo is not None and report.default_docker_repo.name == 'dockerhub-proxy'
     hub = items['dockerhub-proxy'].repository
