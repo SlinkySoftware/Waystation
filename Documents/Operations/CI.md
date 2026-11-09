@@ -9,10 +9,12 @@ Every CI step is a `make` target, so anything CI runs can be reproduced locally 
 | `.github/workflows/ci.yml` | major release tag `vX.0.0`, manual | `make check`; the generated API client is current (`make gen-api` then `git diff --exit-code`); the budget report in the job summary; in a parallel job, `make clients-test FORMAT=all MODE=replay` |
 | `.github/workflows/release.yml` | major release tag `vX.0.0` | server, worker and web images for linux/amd64 and linux/arm64 pushed to GHCR, with SBOM and SLSA provenance attestations |
 | `.github/workflows/clients-live.yml` | manual | the real-client harness against the live upstreams (`MODE=live`) |
+| `.gitea/workflows/check.yml` | push to `main` and pull requests (Gitea), manual | `make check` without `test-integration`, step by step (`forbidden-strings`, `workflow-lint`, `fmt-check`, `lint`, `typecheck`, `test`, `clients-check`, `frontend-check`), the generated API client diff and the budget report; then, only on push to `main` and manual runs, `make test-integration` in a second job |
 | `.gitea/workflows/images.yml` | push to `main` (Gitea), manual | server, worker and web images pushed to the Gitea container registry |
 
 GitHub Actions cost money, so GitHub runs only for major releases (`vX.0.0` tags) or when started by hand. Gitea
-runs on local runners at no cost and builds images on every push to `main`. Run `make check` locally before pushing.
+runs on local runners at no cost: it checks every pull request and every push to `main`, and builds images on every
+push to `main`. Run `make check` locally before pushing.
 
 Every third-party action is pinned by full commit SHA with its version in a comment. To update one, resolve the new
 release tag to its commit and replace the SHA and the comment everywhere it is used. `make workflow-lint` (part of
@@ -32,6 +34,28 @@ the whole run, so runs from parallel worktrees queue instead of starting several
 In CI the dev image is built once per job by `docker/build-push-action` with the GitHub Actions layer cache
 (`scope=dev-image`), loaded as `waystation-dev:local`, and `SKIP_DEV_IMAGE_BUILD=1` stops make from rebuilding it.
 The buildx builder is not made the default, so make, compose and the harness keep using the normal Docker builder.
+
+### Gitea checks
+
+`.gitea/workflows/check.yml` runs the parts of `make check` one step each, so a failure names the part. The dev image
+is built once per job with plain `docker build` (the runner's Docker layer cache keeps it quick; the GitHub Actions
+cache is not used on Gitea) and `SKIP_DEV_IMAGE_BUILD=1` stops make from rebuilding it.
+
+`make test-integration` runs in a separate `integration` job after `check`, only on push to `main` and on manual
+runs (never on pull requests), with a 60 minute timeout. It starts MongoDB, Valkey, OpenLDAP, Samba AD and Keycloak
+and needs about 6 GB of free memory on the runner host; it takes the machine-wide `TEST_LOCK`, so it queues behind
+any other integration run on the same host. A runner without that memory can skip the job with an organisation
+variable:
+
+| Kind | Name | Required | Meaning |
+|---|---|---|---|
+| variable | `WAYSTATION_CI_INTEGRATION` | no | `false` skips the integration-test job; anything else (or unset) runs it |
+
+The runner needs the `ubuntu-latest` label, Docker (about 6 GB of free memory for
+`integration`) and network access to the package registries. make starts its tools in containers that bind-mount
+the checkout, so jobs must run on the host (an `ubuntu-latest:host` runner label) or in a job container whose
+checkout path is the same on the Docker host. The workflow passes `make workflow-lint` (actionlint); it has not yet
+had a first run on the Gitea runners.
 
 ### Releases (GitHub)
 

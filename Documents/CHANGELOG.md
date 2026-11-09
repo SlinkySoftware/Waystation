@@ -3,6 +3,13 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-F03: Gitea check workflow `.gitea/workflows/check.yml`. Every push to `main` and every pull request runs the
+  parts of `make check` except the integration tests as separate steps (forbidden strings, workflow lint, format
+  check, lint, typecheck, unit tests, client-harness fixtures, frontend checks), the generated API client diff and
+  the budget report, with the dev image built once per job. `make test-integration` (about 6 GB of memory) runs in a
+  second job after it, only on push to `main` and manual runs, with a 60 minute timeout; the organisation variable
+  `WAYSTATION_CI_INTEGRATION=false` skips it. Checked with actionlint; not yet run on the Gitea runners. CI.md
+  documents the runner needs (host-mode jobs, Docker, memory) and the variable.
 - T-O03: repository quotas and the low-disk guard. `repositories.storage{quota_bytes, quota_mode}` (soft / hard;
   not on groups) in the model, REST, contract and repository form; repository views carry `quota{quota_bytes, mode,
   used_bytes, used_ratio, state}`. Usage per repository in the new `repo_usage` collection, counted with one `$inc`
