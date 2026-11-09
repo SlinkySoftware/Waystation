@@ -17,6 +17,7 @@ import hashlib
 import io
 import json
 import secrets
+import zipfile
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -419,6 +420,28 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     assert upload['details']['digest'] == pushed.headers['docker-content-digest']
     deleted = await rec.expect(A.CONTENT_DELETE, **{'target.name': 'images/app:1.0'})
     assert deleted['target']['kind'] == 'docker_tag'
+
+    # --- a PyPI upload (twine's form) and a yank of that release (content.update)
+    wheels = {'name': 'wheels', 'format': 'pypi', 'type': 'hosted', 'online': True}
+    assert (await admin.post(f'{api}/repositories', json=wheels)).status_code == 201
+    wheel = io.BytesIO()
+    with zipfile.ZipFile(wheel, 'w') as archive:
+        archive.writestr('audit_demo-1.0.dist-info/METADATA', 'Metadata-Version: 2.1\nName: audit-demo\nVersion: 1.0\n')
+    upload_token = await admin.post(f'{api}/auth/me/tokens', json={'name': 'twine', 'scopes': ['read', 'write']})
+    assert upload_token.status_code == 201
+    async with asgi_client(services) as twine:
+        uploaded = await twine.post(
+            '/repository/wheels/',
+            data={':action': 'file_upload', 'name': 'audit-demo', 'version': '1.0'},
+            files={'content': ('audit_demo-1.0-py3-none-any.whl', wheel.getvalue(), 'application/octet-stream')},
+            headers=basic('__token__', upload_token.json()['secret']),
+        )
+        assert uploaded.status_code == 200, uploaded.text
+    yank = {'project': 'audit-demo', 'version': '1.0', 'yanked': True, 'reason': 'audit test'}
+    assert (await admin.post(f'{api}/repositories/wheels/pypi/yank', json=yank)).status_code == 200
+    await rec.expect(A.CONTENT_UPLOAD, **{'target.name': 'wheels/audit_demo-1.0-py3-none-any.whl'})
+    yanked = await rec.expect(A.CONTENT_UPDATE, **{'target.name': 'wheels/audit-demo==1.0'})
+    assert yanked['details']['reason'] == 'audit test' and yanked['details']['files'] == 1
 
     # --- external identities: provisioning, linking, group sync (the code path every provider uses)
     ctx = audit.bind({'client_ip': '203.0.113.9'}, SimpleNamespace(state=SimpleNamespace(services=services)))

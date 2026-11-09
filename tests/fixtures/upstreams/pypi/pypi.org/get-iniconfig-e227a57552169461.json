@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.pypi.simple.v1+json, application/vnd.pypi.simple.v1+html;q=0.2, text/html;q=0.01"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://pypi.org/simple/iniconfig/"
+  },
+  "response": {
+    "body_sha256": "a78a199788b8db9faa4c6072309ace0e3eb93fe6b4ad7c0f69af1de55c290ea1",
+    "body_size": 9616,
+    "headers": [
+      [
+        "content-length",
+        "9616"
+      ],
+      [
+        "etag",
+        "\"L0fG3vgz0/qbFunG176xgg\""
+      ],
+      [
+        "cache-control",
+        "max-age=600, public"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-type",
+        "application/vnd.pypi.simple.v1+json"
+      ],
+      [
+        "vary",
+        "Accept-Encoding, Accept"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -6,6 +6,7 @@
   <NpmBrowser v-else-if="repo.format === 'npm'" :repo="repo" />
   <AptBrowser v-else-if="repo.format === 'apt'" :repo="repo" />
   <HelmBrowser v-else-if="repo.format === 'helm'" :repo="repo" />
+  <PypiBrowser v-else-if="repo.format === 'pypi'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
@@ -17,6 +18,7 @@ import DockerBrowser from './DockerBrowser.vue'
 import FolderBrowser from './FolderBrowser.vue'
 import HelmBrowser from './HelmBrowser.vue'
 import NpmBrowser from './NpmBrowser.vue'
+import PypiBrowser from './PypiBrowser.vue'
 
 defineProps<{ repo: Repository }>()
 </script>

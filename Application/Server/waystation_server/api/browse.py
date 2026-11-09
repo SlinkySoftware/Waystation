@@ -1,9 +1,10 @@
 """``/api/v1/repositories/{name}/browse`` and the format-aware browse views (OpenAPI tag ``browse``).
 
-Every route needs ``browse`` on the repository (hidden repositories answer 404, ARCHITECTURE §7). The generic folder
-listing works for every format; the format views (``/npm/*``, ``/apt/*``, ``/docker/*``) answer 404 for a repository
-of another format, or whose plugin has no browser yet. The REST layer reaches a format's views only through its
-registered plugin's ``browser`` attribute and the protocols in ``waystation_server.browse.models`` (ARCHITECTURE §3).
+Every route needs ``browse`` on the repository (yanking: ``write``; hidden repositories answer 404, ARCHITECTURE §7).
+The generic folder listing works for every format; the format views (``/npm/*``, ``/apt/*``, ``/docker/*``,
+``/pypi/*``) answer 404 for a repository of another format, or whose plugin has no browser yet. The REST layer reaches
+a format's views only through its registered plugin's ``browser`` attribute and the protocols in
+``waystation_server.browse.models`` (ARCHITECTURE §3).
 """
 
 from __future__ import annotations
@@ -32,6 +33,11 @@ from waystation_server.browse.models import (
     NpmBrowser,
     NpmPackagePage,
     NpmVersionPage,
+    PypiBrowser,
+    PypiProjectPage,
+    PypiVersionPage,
+    PypiYank,
+    PypiYankResult,
 )
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security import access
@@ -72,6 +78,13 @@ def _apt(svc: Services, repo: RepoConfig) -> AptBrowser:
     browser = _browser(svc, repo, 'apt')
     if not isinstance(browser, AptBrowser):
         raise NotFound('not an apt repository')
+    return browser
+
+
+def _pypi(svc: Services, repo: RepoConfig) -> PypiBrowser:
+    browser = _browser(svc, repo, 'pypi')
+    if not isinstance(browser, PypiBrowser):
+        raise NotFound('not a PyPI repository')
     return browser
 
 
@@ -293,3 +306,56 @@ async def list_helm_versions(
     repo: RepoConfig = request.state.repo
     browser = _helm(svc, repo)
     return await browser.versions(_context(svc, repo), chart=chart, cursor=cursor, limit=limit)
+
+
+# ---------------------------------------------------------------------------- pypi
+Project = Annotated[str, Query(max_length=200, description='Project name (any spelling; normalised per PEP 503)')]
+
+
+@router.get(
+    '/repositories/{name}/pypi/projects',
+    response_model=PypiProjectPage,
+    operation_id='listPypiProjects',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_pypi_projects(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> PypiProjectPage:
+    repo: RepoConfig = request.state.repo
+    browser = _pypi(svc, repo)
+    return await browser.projects(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/pypi/versions',
+    response_model=PypiVersionPage,
+    operation_id='listPypiVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_pypi_versions(
+    name: str, request: Request, svc: ServicesDep, project: Project, cursor: Cursor = None, limit: Limit = 50
+) -> PypiVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _pypi(svc, repo)
+    return await browser.versions(_context(svc, repo), project=project, cursor=cursor, limit=limit)
+
+
+@router.post(
+    '/repositories/{name}/pypi/yank',
+    response_model=PypiYankResult,
+    operation_id='yankPypiVersion',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.WRITE)
+async def yank_pypi_version(name: str, request: Request, svc: ServicesDep, body: PypiYank) -> PypiYankResult:
+    """Hosted repositories: yank (PEP 592) or un-yank every file of a version. Needs `write`."""
+    repo: RepoConfig = request.state.repo
+    browser = _pypi(svc, repo)
+    return await browser.yank(_context(svc, repo), body)

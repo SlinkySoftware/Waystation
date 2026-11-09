@@ -226,6 +226,69 @@ class HelmVersionPage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- pypi
+class PypiProject(BaseModel):
+    name: str = Field(description='Normalised project name (PEP 503)')
+    display_name: str
+    summary: str | None = None
+    latest: str | None = Field(default=None, description='Newest final release (PEP 440), else the newest version')
+    version_count: int = Field(description='Versions on the project page')
+    files: int = Field(description='Distribution files held: cached (proxy) or uploaded (hosted)')
+    size_bytes: int
+    last_downloaded_at: datetime | None = None
+    downloads: int = 0
+
+
+class PypiProjectPage(BaseModel):
+    items: list[PypiProject]
+    next_cursor: str | None
+
+
+class PypiFile(BaseModel):
+    filename: str
+    kind: Literal['wheel', 'sdist', 'other']
+    size: int | None = None
+    sha256: str | None = None
+    requires_python: str | None = None
+    yanked: bool = False
+    yanked_reason: str | None = None
+    core_metadata: bool = Field(default=False, description='A PEP 658 `.metadata` file is available')
+    cached: bool = Field(description='Held by this repository (cached or uploaded)')
+    uploaded_at: datetime | None = None
+    uploaded_by: str | None = Field(default=None, description='Hosted: who uploaded the file')
+    last_downloaded_at: datetime | None = None
+    downloads: int = 0
+
+
+class PypiVersion(BaseModel):
+    version: str
+    prerelease: bool
+    yanked: bool = Field(description='Every file of the version is yanked')
+    files: list[PypiFile]
+    cached_files: int
+    size_bytes: int = Field(description='Bytes of the files held')
+
+
+class PypiVersionPage(BaseModel):
+    project: PypiProject
+    items: list[PypiVersion] = Field(description='Newest first (PEP 440)')
+    next_cursor: str | None
+
+
+class PypiYank(BaseModel):
+    project: str = Field(max_length=200)
+    version: str = Field(max_length=200)
+    yanked: bool = Field(description='True: yank every file of the version (PEP 592); false: un-yank')
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class PypiYankResult(BaseModel):
+    project: str
+    version: str
+    yanked: bool
+    files: int = Field(description='Files changed')
+
+
 # ---------------------------------------------------------------------------- views
 @dataclass(frozen=True)
 class BrowseContext:
@@ -266,6 +329,18 @@ class AptBrowser(Protocol):
         limit: int,
     ) -> AptPackagePage:
         """Packages listed by the suite's cached ``Packages`` indexes."""
+
+
+@runtime_checkable
+class PypiBrowser(Protocol):
+    async def projects(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> PypiProjectPage:
+        """Projects the repository has (cached page or uploads), by normalised name."""
+
+    async def versions(self, ctx: BrowseContext, *, project: str, cursor: str | None, limit: int) -> PypiVersionPage:
+        """One project's versions with their files (newest first); raises ``NotFound`` for an unknown project."""
+
+    async def yank(self, ctx: BrowseContext, body: PypiYank) -> PypiYankResult:
+        """Hosted: yank or un-yank every file of a version; raises ``NotFound`` when there is none."""
 
 
 @runtime_checkable

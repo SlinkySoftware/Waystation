@@ -203,8 +203,38 @@ function raw(repo: Repository): SetupClient[] {
   ]
 }
 
+/** PyPI: pip, uv, Poetry, PDM; hosted repositories and groups with a writable member also twine and uv publish. */
+function pypi(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const index = `${url}simple/`
+  const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null): SetupClient['snippets'][number] => ({ id, title, language, filename, os: null, content })
+  const clients: SetupClient[] = [
+    { id: 'pip', label: 'pip', snippets: [
+      s('pip-install', 'Install a package', `pip install --index-url ${index} requests`),
+      s('pip-conf', 'Use this index for every pip command (pip.conf)', `[global]\nindex-url = ${index}`, 'ini', 'pip.conf'),
+    ] },
+    { id: 'uv', label: 'uv', snippets: [
+      s('uv-pip', 'uv pip', `uv pip install --index-url ${index} requests`),
+      s('uv-project', 'Per project (pyproject.toml)', `[[tool.uv.index]]\nname = "waystation"\nurl = "${index}"\ndefault = true`, 'toml', 'pyproject.toml'),
+      s('uv-auth', 'Credentials (when anonymous reads are not allowed)', 'export UV_INDEX_WAYSTATION_USERNAME={{USERNAME}}\nexport UV_INDEX_WAYSTATION_PASSWORD={{TOKEN}}'),
+    ] },
+    { id: 'poetry', label: 'Poetry', snippets: [s('poetry-source', 'Add this index as the primary source', `poetry source add --priority=primary waystation ${index}\npoetry config http-basic.waystation {{USERNAME}} {{TOKEN}}`)] },
+    { id: 'pdm', label: 'PDM', snippets: [s('pdm-config', 'Use this index', `pdm config pypi.url ${index}\npdm config pypi.username {{USERNAME}}\npdm config pypi.password {{TOKEN}}`)] },
+  ]
+  if (repo.type === 'hosted' || (repo.type === 'group' && repo.group?.writable_member)) {
+    clients.push(
+      { id: 'twine', label: 'twine', snippets: [
+        s('pypirc', 'Configure twine (~/.pypirc)', `[distutils]\nindex-servers = waystation\n\n[waystation]\nrepository = ${url}\nusername = {{USERNAME}}\npassword = {{TOKEN}}`, 'ini', '.pypirc'),
+        s('twine-upload', 'Upload', 'twine upload --repository waystation dist/*'),
+      ] },
+      { id: 'uv-publish', label: 'uv publish', snippets: [s('uv-publish', 'Publish with uv', `uv publish --publish-url ${url} --username {{USERNAME}} --password {{TOKEN}} dist/*`)] },
+    )
+  }
+  return clients
+}
+
 export function setupGuide(repo: Repository): SetupGuide {
-  const clients = repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'helm' ? helm(repo) : raw(repo)
+  const clients = repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'helm' ? helm(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {

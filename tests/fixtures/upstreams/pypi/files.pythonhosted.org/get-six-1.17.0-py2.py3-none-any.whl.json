@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl.metadata"
+  },
+  "response": {
+    "body_sha256": "562042078c2752549f6d8a7c86dbc5dd708088a7be6d80672ec7b07100b72468",
+    "body_size": 1658,
+    "headers": [
+      [
+        "content-length",
+        "1658"
+      ],
+      [
+        "last-modified",
+        "Wed, 04 Dec 2024 17:35:28 GMT"
+      ],
+      [
+        "etag",
+        "\"04f42dcb27b7bba83725b2c252641afa\""
+      ],
+      [
+        "content-type",
+        "binary/octet-stream"
+      ],
+      [
+        "cache-control",
+        "max-age=365000000, immutable, public"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ]
+    ],
+    "status": 200
+  }
+}
