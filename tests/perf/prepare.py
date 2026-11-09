@@ -53,7 +53,7 @@ class Client:
             req.add_header('Cookie', self.cookie)
             req.add_header('X-CSRF-Token', self.csrf)
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310 - http(s) URLs of the perf stack only
+            with urllib.request.urlopen(req, timeout=120) as resp:
                 return resp.status, {k.lower(): v for k, v in resp.headers.items()}, resp.read()
         except urllib.error.HTTPError as exc:
             return exc.code, {k.lower(): v for k, v in exc.headers.items()}, exc.read()
@@ -77,7 +77,7 @@ class Client:
             method='POST',
             headers={'Content-Type': 'application/json'},
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - the perf stack
+        with urllib.request.urlopen(req, timeout=30) as resp:
             session = json.loads(resp.read())
             cookies = [c.split(';', 1)[0] for c in resp.headers.get_all('Set-Cookie') or []]
         self.cookie = '; '.join(cookies)

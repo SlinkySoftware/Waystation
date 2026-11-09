@@ -40,7 +40,7 @@ def documents(repo_id: str, upstream: str, count: int, now: datetime) -> Iterato
         path = asset_path(n)
         digest = hashlib.sha256(path.encode()).hexdigest()
         asset = StoredAsset(
-            _id=new_id(),
+            id=new_id(),
             repo_id=repo_id,
             path=path,
             kind=AssetKind.CONTENT,

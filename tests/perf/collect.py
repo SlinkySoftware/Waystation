@@ -23,12 +23,13 @@ Metrics = dict[str, dict[str, float]]
 
 BUDGET_RULES = {
     'cache_hit_content_ttfb_p95_ms': 'highest p95 TTFB of the small-file, range and large-file hit scenarios',
-    'cache_hit_metadata_p95_ms': 'p95 duration over npm packuments (both forms), PyPI pages (both), maven-metadata.xml, '
-    'apt Release and Packages',
+    'cache_hit_metadata_p95_ms': 'p95 duration over npm packuments (both forms), PyPI pages (both), '
+    'maven-metadata.xml, apt Release and Packages',
     'docker_manifest_cached_p95_ms': 'p95 duration of cached manifest HEAD and GET (by tag and by digest)',
     'cache_miss_added_ttfb_ms': 'median TTFB of small never-cached files through Waystation minus straight from the '
     'origin',
-    'cache_miss_throughput_loss_pct': '1 - median MB/s of large never-cached files through Waystation / from the origin',
+    'cache_miss_throughput_loss_pct': '1 - median MB/s of large never-cached files through Waystation / from the '
+    'origin',
     'api_list_search_p95_ms': 'p95 over search (prefix, per repository, page 2, everything), browse (root, folder) and '
     'the repository list',
     'live_event_latency_ms': 'p95 of transfer events (arrival - event ts) or transfer.started (arrival - request), '
@@ -58,15 +59,25 @@ def measured(k6: dict[str, Metrics], sse: dict[str, Any] | None) -> dict[str, fl
     p95 = 'p(95)'
     content = [
         v
-        for s, m in (('hit_small', 'ws_hit_small_ttfb'), ('hit_range', 'ws_hit_range_ttfb'), ('hit_large', 'ws_hit_large_ttfb'))
+        for s, m in (
+            ('hit_small', 'ws_hit_small_ttfb'),
+            ('hit_range', 'ws_hit_range_ttfb'),
+            ('hit_large', 'ws_hit_large_ttfb'),
+        )
         if (v := _value(k6, s, m, p95)) is not None
     ]
     added = None
-    proxied, direct = _value(k6, 'miss_small', 'ws_miss_ttfb_proxied', 'med'), _value(k6, 'miss_small', 'ws_miss_ttfb_direct', 'med')
+    proxied, direct = (
+        _value(k6, 'miss_small', 'ws_miss_ttfb_proxied', 'med'),
+        _value(k6, 'miss_small', 'ws_miss_ttfb_direct', 'med'),
+    )
     if proxied is not None and direct is not None:
         added = max(0.0, proxied - direct)
     loss = None
-    proxied, direct = _value(k6, 'miss_large', 'ws_miss_mbps_proxied', 'med'), _value(k6, 'miss_large', 'ws_miss_mbps_direct', 'med')
+    proxied, direct = (
+        _value(k6, 'miss_large', 'ws_miss_mbps_proxied', 'med'),
+        _value(k6, 'miss_large', 'ws_miss_mbps_direct', 'med'),
+    )
     if proxied is not None and direct:
         loss = max(0.0, (1 - proxied / direct) * 100)
     live = None
@@ -119,8 +130,10 @@ def scenario_table(k6: dict[str, Metrics]) -> list[str]:
             counters.append(f'- {scenario}: {int(reqs["count"])} requests, {reqs["rate"]:.0f}/s')
         dropped = metrics.get('dropped_iterations', {}).get('count')
         if dropped:
-            counters.append(f'- {scenario}: {int(dropped)} iterations dropped (the stack did not keep up with the rate)')
-    return lines + ([''] + counters if counters else [])
+            counters.append(
+                f'- {scenario}: {int(dropped)} iterations dropped (the stack did not keep up with the rate)'
+            )
+    return [*lines, '', *counters] if counters else lines
 
 
 _CPU = re.compile(r'([\d.]+)%')
@@ -145,7 +158,13 @@ def resources(results: Path, project: str) -> list[str]:
                 rows.setdefault(name, []).append((float(cpu[1]), float(mem[1]) * _UNITS.get(mem[2], 1.0)))
         for name, samples in sorted(rows.items()):
             cpus = [c for c, _ in samples]
-            cells = [scenario, name, f'{sum(cpus) / len(cpus):.0f}%', f'{max(cpus):.0f}%', f'{max(m for _, m in samples):.0f} MiB']
+            cells = [
+                scenario,
+                name,
+                f'{sum(cpus) / len(cpus):.0f}%',
+                f'{max(cpus):.0f}%',
+                f'{max(m for _, m in samples):.0f} MiB',
+            ]
             lines.append('| ' + ' | '.join(cells) + ' |')
     return lines if len(lines) > 2 else []
 
@@ -163,9 +182,13 @@ def details(k6: dict[str, Metrics], sse: dict[str, Any] | None, results: Path, p
             '| Sample | n | median | p95 | max |',
             '|---|---|---|---|---|',
         ]
-        for key, label in (('event_latency_ms', 'event ts to arrival'), ('started_latency_ms', 'request to transfer.started')):
+        for key, label in (
+            ('event_latency_ms', 'event ts to arrival'),
+            ('started_latency_ms', 'request to transfer.started'),
+        ):
             s = sse[key]
-            out.append(f'| {label} | {s["count"]} | {_fmt(s["med"], " ms")} | {_fmt(s["p(95)"], " ms")} | {_fmt(s["max"], " ms")} |')
+            cells = [label, str(s['count']), *(_fmt(s[k], ' ms') for k in ('med', 'p(95)', 'max'))]
+            out.append('| ' + ' | '.join(cells) + ' |')
         out.append('')
     res = resources(results, project)
     if res:

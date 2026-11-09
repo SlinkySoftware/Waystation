@@ -150,7 +150,9 @@ def pypi_projects(docroot: Path, p: Profile, rng: random.Random) -> dict[str, An
             )
         page = (
             '<!DOCTYPE html>\n<html><head><meta name="pypi:repository-version" content="1.0">'
-            f'<title>Links for {name}</title></head><body><h1>Links for {name}</h1>\n' + '\n'.join(links) + '\n</body></html>\n'
+            f'<title>Links for {name}</title></head><body><h1>Links for {name}</h1>\n'
+            + '\n'.join(links)
+            + '\n</body></html>\n'
         )
         _write(docroot / 'pypi' / 'simple' / name / 'index.html', page.encode())
     return {'projects': names}
@@ -324,14 +326,13 @@ def main(argv: list[str] | None = None) -> int:
     for field in Profile.__dataclass_fields__:
         parser.add_argument(f'--{field.replace("_", "-")}', required=True)
     args = parser.parse_args(argv)
-    profile = Profile(
-        **{
-            name: (getattr(args, name) if name == 'origin_rate' else int(getattr(args, name)))
-            for name in Profile.__dataclass_fields__
-        }
-    )
+    values: dict[str, Any] = {
+        name: (getattr(args, name) if name == 'origin_rate' else int(getattr(args, name)))
+        for name in Profile.__dataclass_fields__
+    }
+    profile = Profile(**values)
     docroot = args.out / 'docroot'
-    rng = random.Random(20261110)  # noqa: S311 - synthetic test content, not security
+    rng = random.Random(20261110)
     catalog: dict[str, Any] = {
         'origin': ORIGIN,
         'raw': raw_files(docroot, profile, rng),
