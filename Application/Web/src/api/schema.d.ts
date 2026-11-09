@@ -2547,7 +2547,7 @@ export interface components {
             /** @description Apply only: what happened */
             outcome: components["schemas"]["NexusImportOutcome"] | null;
             reason: string | null;
-            /** @description The repository the import creates */
+            /** @description The Waystation repository; created when `action` is `create`, for `exists` what the import would have created */
             repository: components["schemas"]["RepositoryWrite"] | null;
             differences: components["schemas"]["ImportDifference"][];
             notes: string[];

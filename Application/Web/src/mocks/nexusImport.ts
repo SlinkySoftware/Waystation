@@ -54,8 +54,23 @@ function plan(body: NexusImportRequest, applied: Set<string> | null, selected: s
     const base: Omit<NexusImportItem, 'action'> = { name: n.name, nexus_format: n.format, nexus_type: n.type, format, type: n.type, outcome: null, reason: null, repository: null, differences: n.differences ?? [], notes: [] }
     if (n.format === 'r') return { ...base, type: null, action: 'unsupported', reason: 'Waystation has no r format' }
     if (n.format === 'maven2') return { ...base, action: 'unsupported', reason: 'Waystation does not serve maven yet' }
-    if (n.type !== 'proxy') return { ...base, action: 'unsupported', reason: `Waystation has no ${n.format} ${n.type} repositories yet` }
     const found = existing.get(n.name.toLowerCase())
+    if (n.format === 'docker' && n.type !== 'proxy') {
+      const repository = {
+        name: n.name,
+        format: 'docker',
+        type: n.type,
+        online: true,
+        description: `Imported from Nexus (docker ${n.type})`,
+        ...(n.type === 'hosted'
+          ? { hosted: { write_policy: 'allow_redeploy', immutable_tag_patterns: [] } }
+          : { group: { members: ['docker-hosted', 'dockerhub-proxy', 'ghcr-proxy'], writable_member: 'docker-hosted' } }),
+        format_options: { aliases: [], docker_hub: false, default_repo: false },
+      } as RepositoryWrite
+      if (found && !applied?.has(n.name)) return { ...base, action: 'exists', reason: 'already in Waystation; left unchanged', repository }
+      return { ...base, action: 'create', repository }
+    }
+    if (n.type !== 'proxy') return { ...base, action: 'unsupported', reason: `Waystation has no ${n.format} ${n.type} repositories yet` }
     const options = { ...(n.options ?? {}) }
     if (!body.docker_aliases) delete options.aliases
     const repository: RepositoryWrite = {
