@@ -271,6 +271,7 @@ async def test_openapi_documents_format_options(client: httpx.AsyncClient) -> No
         'AptOptions',
         'DockerOptions',
         'NpmOptions',
+        'PypiOptions',
         'RawOptions',
         'YumOptions',
     }
