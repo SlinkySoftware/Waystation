@@ -17,7 +17,6 @@ declare module 'vue-router' {
   }
 }
 
-const placeholder = () => import('@/pages/PlaceholderPage.vue')
 
 const routes: RouteRecordRaw[] = [
   {
@@ -42,7 +41,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'activity', name: 'activity', component: () => import('@/pages/ActivityPage.vue'), meta: { title: 'nav.activity' } },
       { path: 'storage', name: 'storage', component: () => import('@/pages/StoragePage.vue'), meta: { title: 'nav.storage' } },
       { path: 'cleanup', name: 'cleanup', component: () => import('@/pages/CleanupPage.vue'), meta: { title: 'nav.cleanup' } },
-      { path: 'tasks', name: 'tasks', component: placeholder, meta: { title: 'nav.tasks', planned: 'T-O04' } },
+      { path: 'tasks', name: 'tasks', component: () => import('@/pages/TasksPage.vue'), meta: { title: 'nav.tasks' } },
       { path: 'admin/users', name: 'admin-users', component: () => import('@/pages/UsersPage.vue'), meta: { title: 'nav.users' } },
       { path: 'admin/users/:id', name: 'admin-user', component: () => import('@/pages/UserDetailPage.vue'), meta: { title: 'nav.users', nav: 'admin-users' } },
       { path: 'admin/groups', name: 'admin-groups', component: () => import('@/pages/GroupsPage.vue'), meta: { title: 'nav.groups' } },

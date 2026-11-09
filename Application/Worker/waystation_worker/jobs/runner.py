@@ -65,7 +65,7 @@ class Runner:
         self.emitter = emitter
         self.settings = settings
         self.tasks: dict[str, asyncio.Task[None]] = {}  # stream entry id -> running job task
-        self.running: dict[str, JobEnvelope] = {}
+        self.running: dict[str, tuple[JobEnvelope, str, datetime]] = {}  # entry id -> (job, run id, started)
         self.last_poll = time.monotonic()
         self._last_reclaim = float('-inf')
 
@@ -169,6 +169,7 @@ class Runner:
                     '_id': run_id,
                     'job_id': env.id,
                     'definition_id': env.definition_id,
+                    'trigger': env.trigger or ('schedule' if env.definition_id else 'manual'),
                     'kind': env.kind,
                     'queue': env.queue,
                     'dedupe_key': env.dedupe_key,
@@ -207,7 +208,7 @@ class Runner:
         )
         if not payload_type.routine:  # routine jobs (e.g. the 10 s stats rollup) would flood the activity feed
             self._event(EventType.JOB_STARTED, env, run_id, attempt)
-        self.running[delivery.entry_id] = env
+        self.running[delivery.entry_id] = (env, run_id, self._now())
         lost = asyncio.Event()
         handler_task: asyncio.Task[dict[str, Any] | None] = asyncio.create_task(
             _call(handler, payload, ctx), name=f'handler:{env.kind}'

@@ -15,6 +15,46 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   by `/config`, audited `settings.update`; environment limits read-only), `GET /system` (version, MongoDB/Valkey
   health, data volume). MSW mocks for every administration endpoint (`mocks/admin.ts`; sign in as `helpdesk` for a
   user-admin who is not an administrator). T-A03 done with the Users/Groups pages.
+- T-P2-DOCKERG: docker group repositories (`formats/docker/group.py`). Model/REST/contract `group{members,
+  writable_member}` (validated: existing docker members, no nesting, no duplicates, writable member hosted; the
+  descriptor's `writable_group_member`); a repository in a group cannot be deleted (409). Reads try members in order,
+  blobs come from any member's copy first and blob `HEAD`s never go upstream, `tags/list` and referrers are merged;
+  pushes, upload sessions and deletes go to the writable member (RBAC on the member via `req.allows_member`), a group
+  without one answers `405`. Cancelling an upload (`DELETE /blobs/uploads/<id>`) now needs push, not delete
+  (`registry_auth.request_action`). A mount `from` a group uses its members' copies. UI: "Group" tile with ordered
+  members and writable member; mocks; "Set me up". Tests: integration and client harness (push through
+  `docker-group`, member order, merged tags), and the OCI conformance suite also runs through the group.
+- T-P2-DOCKERH: docker hosted repositories. Push side of the registry API (`formats/docker/hosted.py`): monolithic,
+  chunked and resumable blob uploads (`upload_sessions`, append lease, `Range`/`416`, upload status and cancel) into
+  resumable uploads of the blob store (`BlobStore.start_upload`/`resume_writer`, sha256 continued across requests or
+  re-hashed in a thread), cross-repository mounts (`?mount=&from=`, RBAC `read` on the source, proxy caches included),
+  manifest validation (media types, referenced blobs with sizes, index children, 4 MiB, digest), write policy
+  (`allow_redeploy`/`disable_redeploy`/`read_only`) and immutable tag patterns, deletes (tag, manifest, unreferenced
+  blob), the referrers API (`artifactType` filter, `OCI-Subject`), `tags/list` paging and `/v2/_catalog` (proxy and
+  hosted, filtered by RBAC; every caller may ask for `registry:catalog:*`). Registry `push`/`delete` grants also carry
+  `browse`; tags that cannot exist answer `404 MANIFEST_UNKNOWN` (read) / `400 TAG_INVALID` (push). New
+  `waystation_server.hosted.store` (`req.hosted`: receive as a live upload transfer, record, link with a GC claim,
+  serve by X-Accel, remove). Repositories: `hosted{write_policy, immutable_tag_patterns}` in the model, REST and
+  contract, descriptor `check_options` (docker aliases/Docker Hub only on proxies); UI create flow "Hosted" tile and
+  settings, live "UPLOAD" badge, MSW mocks. Audit `content.upload`/`content.delete` (no longer pending), activity
+  entries for pushes and deletes, upload transfers counted as `bytes_in_upload` (neither hits nor misses). "Set me up"
+  for docker, buildx, podman, crane, skopeo, oras and cosign. Client harness: `tests/clients/docker/hosted.sh` (docker
+  push, buildx multi-platform, crane, skopeo, oras, cosign 3 offline) and the OCI distribution-spec conformance suite
+  v1.1.1 (`client-conformance`), all passing in replay; client-docker image adds crane, oras and cosign (pinned).
+- T-O04: Tasks and workers. REST `/api/v1/tasks/*` (all `admin`): `GET /tasks/scheduled` (job definitions with
+  schedule, enabled, last run, next run, owning cleanup policy), `PATCH /tasks/scheduled/{id}` (schedule validated by
+  `jobs.schedule.validate_schedule`: cron, macro or `@every` ≥ 10 s; a changed schedule restarts the timer; a cleanup
+  policy's schedule answers 409), `POST /tasks/scheduled/{id}/run`, `GET /tasks/runs` (status/kind/queue/task/job
+  filters, keyset cursor, routine jobs hidden unless `include_routine`), `GET /tasks/runs/{id}` (with the log),
+  `GET /tasks/workers` (heartbeat health, running jobs, leader, queue figures, dead-letter count),
+  `GET /tasks/dead-letters`, `POST /tasks/dead-letters/{id}/retry` (one Lua step: queue a fresh job, delete the dead
+  letter, remember it in `jobs:dead:retried` so a repeat answers with the same job) and `DELETE` (idempotent). Audit
+  actions `task.update|run|retry|discard`. Job envelopes and runs carry `trigger` (schedule/manual/retry); worker
+  presence lists run ids and concurrency; `job_runs` index `status_started`. Live: the worker publishes progress and
+  log lines on `live:jobs`; the SSE topic `tasks` (admin only, 403 otherwise) carries `job.progress`, `job.log`,
+  `job.update` and `worker.update`. UI: the Tasks page replaces the placeholder (summary strip; Scheduled, Runs,
+  Workers and Dead letters tabs; schedule dialog; run drawer with a live log viewer), MSW mock job system with live
+  events, screenshot-tour entries, Vitest; integration tests for the API, dead letters, RBAC, audit and the topic.
 - T-S03: RBAC administration and the grant cache. Custom roles (`roles` collection; `GET/POST /roles`,
   `GET/PUT/DELETE /roles/{id}`; built-ins read-only; permissions validated; in-use roles cannot be deleted), local
   groups and members (`/groups`, `/groups/{id}/members`; mapped groups read-only except roles), users (`/users`:

@@ -65,6 +65,12 @@ const MOCK_SHOTS = [
   { name: 'admin-service-account-panel', path: 'admin/tokens?tab=accounts', action: openAccount },
   { name: 'admin-settings', path: 'admin/settings', full: true },
   { name: 'admin-system', path: 'admin/system', full: true },
+  { name: 'tasks-scheduled', path: 'tasks', settle: 2500, full: true },
+  { name: 'tasks-runs', path: 'tasks?tab=runs', settle: 3000, full: true },
+  { name: 'tasks-run-log', path: 'tasks?tab=runs&status=running', settle: 2500, action: openRunLog },
+  { name: 'tasks-workers', path: 'tasks?tab=workers', settle: 2500, full: true },
+  { name: 'tasks-dead-letters', path: 'tasks?tab=dead', settle: 2500, full: true },
+  { name: 'tasks-edit-schedule', path: 'tasks', settle: 2500, action: editSchedule },
 ]
 
 /** The real-server tour: the demo repositories and the content `make e2e-m0` caches. */
@@ -146,6 +152,16 @@ async function reviewMatches(page) {
 async function runHistory(page) {
   await page.getByRole('button', { name: 'Run history of stale-cache' }).first().click()
   await page.waitForTimeout(1500)
+}
+
+async function openRunLog(page) {
+  await page.locator('.ws-table tbody tr, .runs__card').first().click()
+  await page.waitForTimeout(3000)
+}
+
+async function editSchedule(page) {
+  await page.getByRole('button', { name: /Edit schedule: Blob garbage collection/ }).first().click()
+  await page.waitForTimeout(700)
 }
 
 async function openAuditRecord(page) {

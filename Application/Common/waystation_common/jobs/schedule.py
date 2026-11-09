@@ -143,3 +143,23 @@ def parse_schedule(text: str) -> Schedule:
     cron = Cron.parse(_MACROS.get(text.lower(), text))
     cron.next_after(0.0)  # rejects expressions that never fire (e.g. 30 February)
     return cron
+
+
+MIN_EDIT_INTERVAL_S = 10  # the shortest ``@every`` an operator may set (the stats rollup's own interval)
+
+
+def validate_schedule(text: str) -> str:
+    """Normalise and check a schedule an operator typed (Tasks page): whitespace collapsed, macros lower-cased,
+    ``@every`` at least ``MIN_EDIT_INTERVAL_S``. Raises ``ValueError`` with a readable message."""
+    value = ' '.join(text.split())
+    if not value:
+        raise ValueError('a schedule is required')
+    if value.startswith('@'):
+        value = value.lower()
+        if value not in _MACROS and not _EVERY_RE.match(value):
+            known = ', '.join(sorted({*_MACROS, '@every <n>s|m|h'}))
+            raise ValueError(f'unknown schedule {value!r} (use a 5-field cron or one of {known})')
+    schedule = parse_schedule(value)
+    if isinstance(schedule, Every) and schedule.seconds < MIN_EDIT_INTERVAL_S:
+        raise ValueError(f'an @every interval must be at least {MIN_EDIT_INTERVAL_S}s')
+    return value

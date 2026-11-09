@@ -59,20 +59,20 @@ describe('mock users', () => {
 
   it('bounds delegation by what the caller holds (403 / 422)', () => {
     const w = world()
-    const refused = problem(() => w.createUser('helpdesk', { username: 'newbie', roles: ['admin'] }))
+    const refused = problem(() => w.createUser('helpdesk', { display_name: '', must_change_password: true, username: 'newbie', roles: ['admin'] }))
     expect(refused.status).toBe(422)
     expect(refused.errors?.[0]?.field).toBe('roles.0')
-    expect(w.createUser('helpdesk', { username: 'newbie', roles: ['reader'] }).roles).toEqual(['reader'])
+    expect(w.createUser('helpdesk', { display_name: '', must_change_password: true, username: 'newbie', roles: ['reader'] }).roles).toEqual(['reader'])
     expect(w.capabilities('helpdesk')).toEqual(['users.admin'])
     expect(w.capabilities('admin')).toContain('admin')
   })
 
   it('creates, resets, unlocks and signs out', () => {
     const w = world()
-    const created = w.createUser('admin', { username: 'Jordan', password: 'x'.repeat(12) })
+    const created = w.createUser('admin', { display_name: '', must_change_password: true, username: 'Jordan', password: 'x'.repeat(12) })
     expect(created).toMatchObject({ username: 'jordan', must_change_password: true, has_password: true })
-    expect(problem(() => w.createUser('admin', { username: 'jordan' })).status).toBe(409)
-    expect(problem(() => w.resetPassword('admin', '01JC0000000000000000000U01', { password: 'x'.repeat(12) })).status).toBe(409) // LDAP
+    expect(problem(() => w.createUser('admin', { display_name: '', must_change_password: true, username: 'jordan' })).status).toBe(409)
+    expect(problem(() => w.resetPassword('admin', '01JC0000000000000000000U01', { password: 'x'.repeat(12), must_change_password: true })).status).toBe(409) // LDAP
     expect(w.unlock('admin', '01JC0000000000000000000U05').locked).toBe(false)
     expect(w.revokeSessions('admin', '01JC0000000000000000000U01')).toBeGreaterThan(0)
     expect(w.userSessions('01JC0000000000000000000U01', 'admin')).toEqual([])
@@ -92,7 +92,7 @@ describe('mock groups and roles', () => {
 
   it('manages local group members', () => {
     const w = world()
-    const group = w.createGroup('admin', { name: 'Ops', roles: ['viewer'] })
+    const group = w.createGroup('admin', { name: 'Ops', description: '', roles: ['viewer'] })
     w.addMembers('admin', group.id, { user_ids: ['01JC0000000000000000000U03'] })
     expect(w.members(group.id, new URLSearchParams()).items.map((u) => u.username)).toEqual(['dana'])
     w.removeMember('admin', group.id, '01JC0000000000000000000U03')
@@ -101,13 +101,13 @@ describe('mock groups and roles', () => {
 
   it('keeps built-in roles read-only and roles in use undeletable', () => {
     const w = world()
-    expect(problem(() => w.updateRole('admin', 'reader', { name: 'R', permissions: [{ action: 'read', scope: '*' }] })).status).toBe(409)
+    expect(problem(() => w.updateRole('admin', 'reader', { name: 'R', description: '', permissions: [{ action: 'read', scope: '*' }] })).status).toBe(409)
     expect(problem(() => w.deleteRole('admin', 'npm-publisher')).detail).toContain('still held by')
     expect(w.roleDetail('npm-publisher').usage).toEqual({ users: 0, groups: 1, service_accounts: 1 })
-    const made = w.createRole('admin', { id: 'docs', name: 'Docs', permissions: [{ action: 'read', scope: 'raw-*' }] })
+    const made = w.createRole('admin', { id: 'docs', name: 'Docs', description: '', permissions: [{ action: 'read', scope: 'raw-*' }] })
     expect(made.builtin).toBe(false)
-    expect(problem(() => w.createRole('helpdesk', { id: 'auditor2', name: 'A', permissions: [{ action: 'audit-read', scope: '*' }] })).errors?.[0]?.code).toBe('delegation')
-    expect(problem(() => w.createRole('admin', { id: 'bad', name: 'B', permissions: [{ action: 'admin', scope: 'npm' }] })).status).toBe(422)
+    expect(problem(() => w.createRole('helpdesk', { id: 'auditor2', name: 'A', description: '', permissions: [{ action: 'audit-read', scope: '*' }] })).errors?.[0]?.code).toBe('delegation')
+    expect(problem(() => w.createRole('admin', { id: 'bad', name: 'B', description: '', permissions: [{ action: 'admin', scope: 'npm' }] })).status).toBe(422)
     w.deleteRole('admin', 'docs')
     expect(w.role('docs')).toBeUndefined()
   })

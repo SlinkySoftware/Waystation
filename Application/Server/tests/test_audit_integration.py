@@ -13,6 +13,7 @@ import asyncio
 import base64
 import csv
 import dataclasses
+import hashlib
 import io
 import json
 import secrets
@@ -27,7 +28,9 @@ from pydantic import SecretStr
 from ws_testing import asgi_client
 
 from waystation_common.audit import PENDING, SPEC_ACTIONS, AuditAction, AuditActor, AuditEvent, AuditTarget, Outcome
-from waystation_common.db.collections import AUDIT, USERS
+from waystation_common.db.collections import AUDIT, JOB_DEFINITIONS, USERS
+from waystation_common.jobs import BlobGc, JobEnvelope
+from waystation_common.jobs import keys as job_keys
 from waystation_common.settings import Settings
 from waystation_server import audit
 from waystation_server.api import audit as audit_api
@@ -376,6 +379,47 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     assert docker_logins[0]['principal']['auth'] == 'basic'
     await rec.expect(A.AUTH_LOGIN, outcome='failure', **{'details.via': 'docker'})
 
+    # --- uploads and deletes on a hosted repository (docker push of a manifest, delete of its tag)
+    hosted = {'name': 'images', 'format': 'docker', 'type': 'hosted', 'online': True}
+    assert (await admin.post(f'{api}/repositories', json=hosted)).status_code == 201
+    config = b'{"os":"linux","architecture":"amd64"}'
+    config_digest = 'sha256:' + hashlib.sha256(config).hexdigest()
+    image_manifest = json.dumps(
+        {
+            'schemaVersion': 2,
+            'mediaType': 'application/vnd.oci.image.manifest.v1+json',
+            'config': {
+                'mediaType': 'application/vnd.oci.image.config.v1+json',
+                'digest': config_digest,
+                'size': len(config),
+            },
+            'layers': [],
+        }
+    ).encode()
+    async with asgi_client(services) as docker:
+        issued = await docker.get(
+            '/auth/token',
+            params={'service': 'registry.example.com', 'scope': 'repository:images/app:pull,push,delete'},
+            headers=basic('admin', PASSWORD),
+        )
+        auth = {'Authorization': f'Bearer {issued.json()["token"]}'}
+        blob = await docker.post(
+            '/v2/images/app/blobs/uploads/', params={'digest': config_digest}, content=config, headers=auth
+        )
+        assert blob.status_code == 201, blob.text
+        pushed = await docker.put(
+            '/v2/images/app/manifests/1.0',
+            content=image_manifest,
+            headers={'Content-Type': 'application/vnd.oci.image.manifest.v1+json', **auth},
+        )
+        assert pushed.status_code == 201, pushed.text
+        assert (await docker.delete('/v2/images/app/manifests/1.0', headers=auth)).status_code == 202
+    upload = await rec.expect(A.CONTENT_UPLOAD, **{'target.name': 'images/app:1.0'})
+    assert upload['principal']['auth'] == 'registry_token'
+    assert upload['details']['digest'] == pushed.headers['docker-content-digest']
+    deleted = await rec.expect(A.CONTENT_DELETE, **{'target.name': 'images/app:1.0'})
+    assert deleted['target']['kind'] == 'docker_tag'
+
     # --- external identities: provisioning, linking, group sync (the code path every provider uses)
     ctx = audit.bind({'client_ip': '203.0.113.9'}, SimpleNamespace(state=SimpleNamespace(services=services)))
     try:
@@ -407,6 +451,30 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     assert settings_changed['changes'] == [
         {'field': 'instance_name', 'before': 'Waystation', 'after': 'Package mirror', 'redacted': False}
     ]
+
+    # --- tasks: schedule edit, run now, dead-letter retry and discard
+    await services.db[JOB_DEFINITIONS].insert_one(
+        {'_id': 'blob.gc', 'kind': BlobGc.kind, 'params': {}, 'schedule': '0 */6 * * *', 'enabled': True}
+    )
+    assert (await admin.patch(f'{api}/tasks/scheduled/blob.gc', json={'schedule': '@daily'})).status_code == 200
+    assert (await admin.post(f'{api}/tasks/scheduled/blob.gc/run')).status_code == 202
+    dead = [
+        str(
+            await services.valkey.xadd(
+                job_keys.DEAD, {'job': JobEnvelope.for_payload(BlobGc()).to_json(), 'error': 'x'}
+            )
+        )
+        for _ in range(2)
+    ]
+    assert (await admin.post(f'{api}/tasks/dead-letters/{dead[0]}/retry')).status_code == 202
+    assert (await admin.delete(f'{api}/tasks/dead-letters/{dead[1]}')).status_code == 204
+    task_update = await rec.expect(A.TASK_UPDATE, **{'target.id': 'blob.gc'})
+    assert task_update['changes'] == [
+        {'field': 'schedule', 'before': '0 */6 * * *', 'after': '@daily', 'redacted': False}
+    ]
+    await rec.expect(A.TASK_RUN, **{'target.id': 'blob.gc'})
+    await rec.expect(A.TASK_RETRY, **{'details.dead_letter': dead[0]})
+    await rec.expect(A.TASK_DISCARD, **{'details.dead_letter': dead[1]})
 
     # --- sign-out
     signed_out = await admin.post(f'{api}/auth/logout')
