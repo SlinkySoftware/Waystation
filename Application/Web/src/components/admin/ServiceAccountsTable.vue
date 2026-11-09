@@ -91,6 +91,12 @@
           </div>
           <RoleChips :roles="row.roles" />
           <div class="text-muted accounts__meta">{{ t('admin.accounts.col.tokens') }}: {{ row.active_tokens }}</div>
+          <div class="accounts__card-actions" @click.stop>
+            <q-btn outline dense no-caps :icon="iconShield" :label="t('admin.accounts.permissions')" @click="openPanel(row, 'permissions')" />
+            <q-btn flat dense no-caps :icon="iconEdit" :label="t('admin.accounts.edit')" @click="edit(row)" />
+            <q-btn flat dense no-caps :icon="row.disabled ? iconPersonOn : iconPersonOff" :label="row.disabled ? t('admin.accounts.enable') : t('admin.accounts.disable')" @click="toggle(row)" />
+            <q-btn flat dense no-caps color="negative" :icon="iconDelete" :label="t('admin.accounts.delete')" @click="confirmDelete(row)" />
+          </div>
         </div>
       </template>
 
@@ -248,6 +254,12 @@ function confirmDelete(account: ServiceAccount): void {
   border-radius: var(--radius);
   background: var(--surface);
   cursor: pointer;
+}
+
+.accounts__card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .accounts__meta {

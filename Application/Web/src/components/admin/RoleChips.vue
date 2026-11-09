@@ -15,13 +15,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 
 import { t } from '@/i18n'
 import { useDirectoryStore } from '@/stores/directory'
 
 const props = withDefaults(defineProps<{ roles: string[]; max?: number; empty?: string }>(), { max: 3, empty: undefined })
 const directory = useDirectoryStore()
+onMounted(() => void directory.loadRoles().catch(() => undefined)) // names; loaded once and shared
 const shown = computed(() => props.roles.slice(0, props.max))
 const rest = computed(() => props.roles.slice(props.max))
 const isAdmin = (id: string) => (directory.roleById.get(id)?.permissions ?? []).some((p) => p.action === 'admin')
