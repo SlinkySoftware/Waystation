@@ -2,8 +2,8 @@
 
 Every route needs ``browse`` on the repository (yanking: ``write``; hidden repositories answer 404, ARCHITECTURE §7).
 The generic folder listing works for every format; the format views (``/npm/*``, ``/apt/*``, ``/docker/*``,
-``/pypi/*``) answer 404 for a repository of another format, or whose plugin has no browser yet. The REST layer reaches
-a format's views only through its registered plugin's ``browser`` attribute and the protocols in
+``/pypi/*``, ``/go/*``) answer 404 for a repository of another format, or whose plugin has no browser yet. The REST
+layer reaches a format's views only through its registered plugin's ``browser`` attribute and the protocols in
 ``waystation_server.browse.models`` (ARCHITECTURE §3).
 """
 
@@ -27,6 +27,9 @@ from waystation_server.browse.models import (
     DockerManifest,
     DockerTagPage,
     FolderListing,
+    GoBrowser,
+    GoModulePage,
+    GoVersionPage,
     NpmBrowser,
     NpmPackagePage,
     NpmVersionPage,
@@ -82,6 +85,13 @@ def _pypi(svc: Services, repo: RepoConfig) -> PypiBrowser:
     browser = _browser(svc, repo, 'pypi')
     if not isinstance(browser, PypiBrowser):
         raise NotFound('not a PyPI repository')
+    return browser
+
+
+def _go(svc: Services, repo: RepoConfig) -> GoBrowser:
+    browser = _browser(svc, repo, 'go')
+    if not isinstance(browser, GoBrowser):
+        raise NotFound('not a Go repository')
     return browser
 
 
@@ -308,3 +318,42 @@ async def yank_pypi_version(name: str, request: Request, svc: ServicesDep, body:
     repo: RepoConfig = request.state.repo
     browser = _pypi(svc, repo)
     return await browser.yank(_context(svc, repo), body)
+
+
+# ---------------------------------------------------------------------------- go
+Module = Annotated[str, Query(max_length=500, description='Module path (decoded, e.g. `github.com/Azure/go-autorest`)')]
+
+
+@router.get(
+    '/repositories/{name}/go/modules',
+    response_model=GoModulePage,
+    operation_id='listGoModules',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_go_modules(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> GoModulePage:
+    repo: RepoConfig = request.state.repo
+    browser = _go(svc, repo)
+    return await browser.modules(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/go/versions',
+    response_model=GoVersionPage,
+    operation_id='listGoVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_go_versions(
+    name: str, request: Request, svc: ServicesDep, module: Module, cursor: Cursor = None, limit: Limit = 50
+) -> GoVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _go(svc, repo)
+    return await browser.versions(_context(svc, repo), module=module, cursor=cursor, limit=limit)
