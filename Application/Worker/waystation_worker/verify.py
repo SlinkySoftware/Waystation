@@ -101,10 +101,12 @@ def _move_sync(store: BlobStore, sha256: str, expected: set[int]) -> bool:
     except FileNotFoundError:
         return False
     store.uploads_dir.mkdir(parents=True, exist_ok=True)
+    moved = store.uploads_dir / f'{uuid.uuid4().hex}.damaged'
     try:
-        path.rename(store.uploads_dir / f'{uuid.uuid4().hex}.damaged')
+        path.rename(moved)
     except FileNotFoundError:
         return False
+    moved.touch()  # kept for a day (for inspection), then removed by blob GC's orphan sweep
     return True
 
 
