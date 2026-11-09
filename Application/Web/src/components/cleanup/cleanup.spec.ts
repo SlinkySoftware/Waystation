@@ -13,12 +13,14 @@ import {
   hasSelector,
   normaliseCriteria,
   progressRatio,
+  runOutcome,
   runSeconds,
   SCHEDULE_PRESETS,
   scheduleMode,
   toWrite,
 } from './cleanup'
 import CriteriaChips from './CriteriaChips.vue'
+import LastRun from './LastRun.vue'
 import RunStatusPill from './RunStatusPill.vue'
 
 const policy: CleanupPolicy = {
@@ -122,6 +124,19 @@ describe('runs and policies', () => {
     expect(body).toMatchObject({ name: policy.name, format: 'docker', schedule: '0 3 * * 0', enabled: false })
     expect(body.criteria.keep_latest_n_versions).toBe(5)
     expect('repositories' in body).toBe(false)
+  })
+
+  it('says what a run removed in words', () => {
+    expect(runOutcome({ removed: 0, bytes: 0 })).toBe('Nothing removed')
+    expect(runOutcome({ removed: 1, bytes: 2048 })).toBe('1 item · 2.00 KiB removed')
+    expect(runOutcome({ removed: 12, bytes: 3 * 1024 * 1024 })).toMatch(/^12 items · 3(\.0+)? MiB removed$/)
+  })
+
+  it('shows a run that removed nothing without a bare "0 B · 0"', () => {
+    const run = { id: 'r1', status: 'succeeded', trigger: 'manual', started_at: '2026-11-09T10:00:00Z', finished_at: '2026-11-09T10:00:01Z', removed: 0, bytes: 0 }
+    const text = mount(LastRun, { props: { run: run as never } }).text()
+    expect(text).toContain('Nothing removed')
+    expect(text).not.toContain('0 B')
   })
 
   it('shows run status with an icon and a label', () => {
