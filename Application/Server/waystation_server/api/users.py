@@ -103,6 +103,7 @@ class UserSummary(BaseModel):
     source: str = Field(description='`local`, or the provider that created or linked the user (`ldap:<id>`)')
     disabled: bool
     locked: bool = Field(description='Locked out after failed sign-ins (local accounts)')
+    totp_enabled: bool = Field(description='Two-factor sign-in (TOTP) is on (local accounts)')
     roles: list[str] = Field(description='Roles held directly')
     groups: list[str] = Field(description='Local group ids')
     last_login: datetime | None
@@ -175,6 +176,7 @@ def user_summary(user: UserRecord, now: datetime) -> UserSummary:
         source=user.source,
         disabled=user.disabled,
         locked=_locked(user, now),
+        totp_enabled=bool(user.totp_enc),
         roles=user.roles,
         groups=user.groups,
         last_login=user.last_login,
