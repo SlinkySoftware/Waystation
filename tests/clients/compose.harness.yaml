@@ -105,6 +105,10 @@ services:
   client-alma:  # dnf on AlmaLinux 10 (yum format)
     <<: *client
     image: almalinux:10.2
+  client-helm:  # helm 3 + curl (helm format)
+    <<: *client
+    image: alpine/helm:3.19.0
+    entrypoint: []
   client-skopeo:  # registry API pulls without a daemon (docker format)
     <<: *client
     image: quay.io/skopeo/stable:v1.20
