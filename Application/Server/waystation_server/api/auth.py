@@ -14,11 +14,13 @@ from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from waystation_common.errors import Forbidden, Unauthorized
+from waystation_server import audit
 from waystation_server.api.deps import ServicesDep, client_ip
+from waystation_server.audit import AuditAction
 from waystation_server.db import users as users_db
 from waystation_server.oidc_auth import login_url, logout_url
 from waystation_server.security import access
-from waystation_server.security.authn import authenticate, current_session, principal_for
+from waystation_server.security.authn import authenticate, current_session, principal_for, user_principal
 from waystation_server.security.identity import Preferences, SessionRecord, UserRecord
 from waystation_server.security.login import verify_login
 from waystation_server.security.principal import AuthMethod
@@ -151,7 +153,14 @@ async def login(body: LoginRequest, request: Request, response: Response, svc: S
         user.id, ip=client_ip(request), user_agent=request.headers.get('user-agent')
     )
     svc.sessions.set_cookies(response, token, record)
-    return await _session_body(svc, user, record)
+    session = await _session_body(svc, user, record)
+    audit.record(
+        AuditAction.AUTH_LOGIN,
+        actor=user_principal(user, AuthMethod.SESSION),
+        target=audit.target('user', user.id, user.username),
+        details={'username': user.username, 'via': 'ui', 'provider': user.source},
+    )
+    return session
 
 
 def _require_csrf(request: Request, record: SessionRecord) -> None:
@@ -168,12 +177,13 @@ class LogoutResult(BaseModel):
 @router.post('/auth/logout', response_model=LogoutResult, operation_id='logout')
 @access.public  # CSRF checked in the handler when a session exists
 async def logout(request: Request, response: Response, svc: ServicesDep) -> LogoutResult:
-    await authenticate(request)
+    principal = await authenticate(request)
     record = current_session(request)
     end_session: str | None = None
     if record is not None:
         _require_csrf(request, record)
         await svc.sessions.destroy(record.id)
+        audit.record(AuditAction.AUTH_LOGOUT, target=audit.target('user', record.user_id, principal.name))
         end_session = await logout_url(svc, record.provider_id, record.id_token_enc)
     svc.sessions.clear_cookies(response)
     return LogoutResult(end_session_url=end_session)

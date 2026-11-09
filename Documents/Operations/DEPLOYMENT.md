@@ -175,6 +175,7 @@ The authoritative list of application settings, with defaults and descriptions, 
 | `WAYSTATION_SESSION_IDLE_MINUTES` / `SESSION_MAX_HOURS` | `480` / `168` | UI session lifetimes |
 | `WAYSTATION_LOGIN_RATE_LIMIT`, `LOGIN_LOCKOUT_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | `20`, `10`, `15` | Sign-in throttling and lockout |
 | `WAYSTATION_TOKEN_FAILURE_LIMIT` | `60` | Rejected API tokens allowed per client address per 5 minutes (then 429) |
+| `WAYSTATION_AUDIT_RETENTION_DAYS` | `400` | Days an audit record is kept (MongoDB TTL); applies to records written from then on |
 | `WAYSTATION_TRUST_FORWARDED` / `TRUSTED_PROXIES` | `false` / empty | Trust `X-Forwarded-For` from these CIDRs (REVERSE_PROXIES.md) |
 | `WAYSTATION_METRICS_ALLOW_CIDRS` | `127.0.0.0/8,::1/128` | Who may scrape `/metrics` |
 | `WAYSTATION_SSRF_ALLOW_CIDRS` | empty | Private ranges upstreams may resolve to (e.g. an internal registry) |
@@ -252,7 +253,7 @@ this for Traefik.
 | Topology | Status |
 |---|---|
 | All-in-one on one host (`compose.yaml`) | **Supported** |
-| More server processes on that host | **Supported**: `WAYSTATION_SERVER_WORKERS=N` (uvicorn processes in one container). Prometheus metrics are then per process (MONITORING.md) |
+| More server processes on that host | **Supported**: `WAYSTATION_SERVER_WORKERS=N` (uvicorn processes in one container). `/metrics` merges every process's values (MONITORING.md) |
 | More worker concurrency or queue split | **Supported** within one worker container (`WAYSTATION_WORKER_CONCURRENCY`, `WAYSTATION_WORKER_QUEUES`). Extra worker containers need an override with a different `container_name` |
 | External MongoDB (replica set) | **Supported**: set `WAYSTATION_MONGO_URI` to the replica set, `WAYSTATION_MONGO_REPLSET_INIT=false`, and either leave the bundled `mongodb` service running unused or replace the `depends_on` of server, worker and init in an override (`depends_on: !reset {...}`). Server and worker reach it through the `frontend` network, but `init` is only on the `internal` backend network, so the override must also attach `init` to `frontend` |
 | External Valkey | **Supported** if it runs with `maxmemory-policy noeviction` and AOF enabled (job streams and locks must never be evicted) |

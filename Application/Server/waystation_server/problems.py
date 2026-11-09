@@ -171,6 +171,10 @@ def install(app: FastAPI) -> None:
         if exc.status >= 500:
             log.warning('request failed', extra={'error_code': exc.code, 'status': exc.status})
         headers = getattr(exc, 'headers', None)
+        field = getattr(exc, 'field', None)
+        if field and _style(request.url.path) == 'problem':
+            errors = [FieldError(field=field, message=exc.detail, code=exc.code)]
+            return problem(exc.status, exc.detail, errors=errors, headers=headers)
         if exc.status == 401 and _style(request.url.path) == 'native':
             # Format clients (apt, pip, Maven, curl --anyauth...) send credentials after a Basic challenge.
             headers = {**(headers or {}), 'WWW-Authenticate': BASIC_CHALLENGE}

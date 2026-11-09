@@ -15,6 +15,7 @@ from typing import Any
 
 from waystation_common.db.client import Database
 from waystation_common.db.collections import ASSETS, NPM_PACKAGES
+from waystation_common.searchkeys import name_keys
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,7 @@ async def upsert(db: Database, repo_id: str, name: str, fields: Mapping[str, Any
     now = datetime.now(UTC)
     await db[NPM_PACKAGES].update_one(
         {'repo_id': repo_id, 'name': name},
-        {'$set': {**fields, 'updated_at': now}, '$setOnInsert': {'created_at': now}},
+        {'$set': {**fields, **name_keys(name), 'updated_at': now}, '$setOnInsert': {'created_at': now}},
         upsert=True,
     )
 

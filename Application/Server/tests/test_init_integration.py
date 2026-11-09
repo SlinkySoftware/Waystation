@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from waystation_common.db.client import Database
+from waystation_common.db.migrations import MIGRATIONS
 from waystation_common.settings import Settings
 from waystation_server.init import run
 
@@ -28,7 +29,7 @@ async def test_init_run_is_idempotent(mongo_db: Database, tmp_path: Path, caplog
     await run(settings)
     assert (tmp_path / 'data' / 'blobs').is_dir()
     assert _logged(caplog, 'schema ready')['indexes_created']
-    assert _logged(caplog, 'migrations applied')['migrations'] == ['0001_baseline']
+    assert _logged(caplog, 'migrations applied')['migrations'] == [m.id for m in MIGRATIONS]
 
     caplog.clear()
     await run(settings)

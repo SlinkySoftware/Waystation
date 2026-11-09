@@ -10,7 +10,8 @@ A crash between 1 and 2 re-runs the minute, finds the document and skips the ins
 increments for an already rolled-up minute (beyond the grace) are discarded the same way.
 
 Also sweeps ``transfers`` entries not updated for ``STALE_TRANSFER_S`` (their process died) and flushes the
-batched API token "last used" and session "last seen" times from Valkey to MongoDB (``flush_last_seen``).
+batched API token "last used", session "last seen" and asset "last downloaded" times (plus download counts)
+from Valkey to MongoDB (``flush_last_seen``).
 
 Runs as the scheduled job ``stats.rollup`` (``waystation_worker.jobs.builtin``, every 10 s on the ``stats``
 queue). The job system already runs one rollup at a time; the lease stays as a second guard because two concurrent
@@ -119,6 +120,12 @@ async def flush_last_seen(redis: Redis, db: Database) -> int:
         if entries:
             updated += await flush(db, entries)
         await redis.delete(f'{key}:flushing')
+    # Asset downloads (cleanup's "last downloaded"): times and counts are drained together, flushed once.
+    last = await _drain(redis, seen.SEEN_ASSETS)
+    counts = await _drain(redis, seen.DL_ASSETS)
+    if last or counts:
+        updated += await seen.flush_assets(db, last, counts)
+    await redis.delete(f'{seen.SEEN_ASSETS}:flushing', f'{seen.DL_ASSETS}:flushing')
     return updated
 
 

@@ -96,7 +96,7 @@ Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. 
 - **Raw**: folder listing.
 
 ### 4.5 Search
-Full-page results with facet sidebar (format, repository, type), result rows with icon, name, version,
+Full-page results with facet sidebar (format, repository, kind, type, cached only), result rows with icon, name, version,
 repo, size, last downloaded; digest search ("sha256:..." shows every asset using that blob).
 
 ### 4.6 Activity
@@ -115,11 +115,21 @@ largest artifacts, GC status (last run, bytes reclaimed, next run).
 As built (T-U07): KPIs (stored, free, saved by de-duplication, blobs), data volume bar (Waystation blobs / other
 files / free, warning under 15 % free), by-format donut, largest repositories bar list, repository table (size,
 share bar, artifacts, average artifact size; sort and filter in the URL; link to the repository's activity). Growth
-chart, largest artifacts, per-repository de-dup savings and GC status wait for storage snapshots and GC.
+chart, largest artifacts and per-repository de-dup savings wait for storage snapshots. The Blob GC card (T-O02, shared with
+the Cleanup page) shows GC status to admins.
 
 ### 4.8 Cleanup
 Policies list → editor with criteria builder; **Preview** shows matches (count, bytes, sample table) before
 saving; run history with reclaimed bytes.
+As built (T-O01/T-O02): the policies table (format, criteria chips with protections marked, attached repositories,
+last run with progress, schedule and next run, enabled toggle, run now / history / edit / delete); the editor is a
+wide dialog with the form on the left (criteria read as sentences with a switch and an inline value; schedule
+presets manual/daily/weekly/custom cron with a plain-language reading) and a **live impact panel** on the right
+("N items · X across M repositories", per-repository bars, debounced dry run) that opens the paged candidate table.
+A **Blob GC** card on the same page (admins) shows the last run, reclaimed bytes, what waits out the grace period,
+the next run and "Run now"; the Storage page shows the same card. The repository detail page has a **Cleanup** tab for
+users who may manage the repository: attached policies in run order (attach compatible policies, reorder, detach)
+and what they would remove from this repository.
 
 ### 4.9 Tasks and workers
 Scheduled tasks table (kind, schedule, last result, next run, run now), job runs with progress bars and log
@@ -129,7 +139,8 @@ viewer (live), workers list (host, version, queues, current jobs, heartbeat), de
 Users (source badge local/LDAP/OIDC, roles, last login, disable, reset password for local), Groups (source,
 mapped roles), Roles (permission matrix editor: actions × scope rows), Auth providers (LDAP form with "Test
 connection" and "Test user lookup"; OIDC form with discovery "Fetch" and "Test login"), API tokens (all tokens,
-revoke), Audit log (filterable, export), Settings (general, docker routing, security, stats retention, UI),
+revoke), Audit log (filters in the URL: time range, actor, action, target, outcome; detail drawer with the
+change diff, secrets shown only as "changed"; CSV/NDJSON export), Settings (general, docker routing, security, stats retention, UI),
 System (versions, Mongo/Valkey health, storage path, support bundle).
 
 ### 4.11 Profile
@@ -155,7 +166,8 @@ every progress tick), full keyboard operation, no information by colour alone.
   mocks `src/mocks/` (`handlers.ts`, `world.ts` = live generator, `fixtures/`), live store `src/stores/live.ts`
   (mock mode swaps its source for the generator), strings `src/i18n/en.ts`. Run it with `make frontend-mock`
   (http://localhost:9000/ui/, any username/password; password `wrong` shows the error state). A static mock build
-  (`make frontend-build-mock`) serves the same tour. Screenshot tour: `scripts/screenshots.mjs` (Playwright image).
+  (`make frontend-build-mock`) serves the same tour. Screenshot tour: `scripts/screenshots.mjs` (Playwright image; `REAL=1` tours a running stack instead of mocks, as
+  for the M0 tour in `Documents/Notes/UI_TOUR_M0.md`).
 - `<script setup lang="ts">` only, strict TS, ESLint + vue-tsc in CI; components < 300 lines; composables for
   data (`useCrud`, `useLiveStream(topic)`, `useStats(range)`, `useNotify`, `useCopy`).
 - API only through the generated `openapi-fetch` client in `src/api/`; SSE via one shared `EventSource`

@@ -79,6 +79,9 @@ COMPOSE_TEST  = docker compose -p $(TEST_PROJECT) -f Build/Containers/compose.te
 # authentik (OIDC tests) is opt-in: make test-integration-authentik
 TEST_PROFILES ?=
 TEST_AUTHENTIK_URL ?=
+# Each run starts MongoDB, Valkey, OpenLDAP and Samba AD (and Keycloak), so parallel runs can exhaust a dev box's RAM.
+# Runs from every checkout and worktree on one machine queue on this lock. TEST_LOCK= turns it off.
+TEST_LOCK    ?= /tmp/waystation-test-integration.lock
 .PHONY: test-integration test-integration-authentik
 test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
   -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
@@ -88,8 +91,10 @@ test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
   -e WAYSTATION_TEST_KEYCLOAK_URL=http://keycloak.example.com:8080 \
   -e WAYSTATION_TEST_AUTHENTIK_URL=$(TEST_AUTHENTIK_URL) -e WAYSTATION_TEST_AUTHENTIK_TOKEN=waystation-authentik-test-token
 test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey/OpenLDAP/Samba AD/Keycloak containers
+	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
+	  flock -n 9 || { echo "test-integration: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
 	$(COMPOSE_TEST) up -d --wait --build --quiet-pull || { $(COMPOSE_TEST) logs --no-color --tail 80; \
-	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }
+	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }; \
 	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 
@@ -221,6 +226,9 @@ backup: ## mongodump + blob copy
 .PHONY: e2e clients-test clients-check perf
 e2e: ## Playwright E2E
 	$(call not_yet,T-U09)
+.PHONY: e2e-m0
+e2e-m0: ## M0 end to end with real clients against a RUNNING stack (WAYSTATION_URL, WAYSTATION_ADMIN_PASSWORD[_FILE])
+	tests/e2e/m0/run.sh
 FORMAT ?= all
 MODE   ?= replay
 clients-test: dev-image ## Real-client format tests: FORMAT=<name|all> MODE=replay|record|live (tests/clients/README.md)

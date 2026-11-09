@@ -62,6 +62,11 @@ class Tick(JobPayload):
     kind: ClassVar[str] = 'test.worker.tick'
 
 
+class Chore(JobPayload):
+    kind: ClassVar[str] = 'test.worker.chore'
+    routine: ClassVar[bool] = True
+
+
 class Clock:
     def __init__(self, t: float) -> None:
         self.t = t
@@ -410,6 +415,21 @@ async def test_stats_rollup_runs_as_a_job_exactly_once(db: Database, valkey: Red
     runs = await jobs_db.recent_runs(db, kind=StatsRollup.kind)
     assert sum(run.get('result', {}).get('minutes', 0) for run in runs) == 1  # incl. any scheduled fire meanwhile
     assert {run['expires_at'] - run['started_at'] for run in runs} == {timedelta(days=1)}  # routine: kept 1 day
+
+
+async def test_routine_jobs_stay_out_of_the_activity_feed(db: Database, valkey: Redis) -> None:
+    async def chore(job: Chore, ctx: JobContext) -> None:
+        return None
+
+    jobs = JobClient(valkey, db)
+    async with (
+        EventEmitter(valkey, flush_interval_s=0.05) as emitter,
+        worker(db, {Chore.kind: chore}, 'w-r', emitter=emitter),
+    ):
+        job = await jobs.enqueue(Chore())
+        await until(lambda: _eq(statuses(db, job.job_id), ['succeeded']))
+    types = [fields['type'] for _, fields in await valkey.xrange(event_keys.ACTIVITY)]
+    assert not [t for t in types if t.startswith('job.')]
 
 
 # ---------------------------------------------------------------- helpers
