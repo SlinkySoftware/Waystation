@@ -12,7 +12,8 @@ is served by X-Accel like a proxy's cache (``waystation_server.hosted.store``); 
 Uploads (``POST``/``PATCH``/``PUT``/``GET``/``DELETE /v2/<name>/blobs/uploads/...``): monolithic (``POST ?digest=``
 or ``PUT ?digest=`` with the whole body), chunked (``PATCH`` with or without ``Content-Range``, in order), resumable
 (``GET`` upload status answers ``Range``), cross-repository mounts (``POST ?mount=<digest>&from=<name>``: the source
-is any docker repository the principal may read, proxy caches included; otherwise an upload session starts). Upload
+is any docker repository the principal may read, proxy caches and groups (their members' copies) included; otherwise
+an upload session starts). Upload
 sessions are ``upload_sessions`` records naming a resumable upload file (``BlobStore.start_upload``); one request at a
 time appends (session lease). Blobs are sha256-verified before they are committed; bodies are bounded by
 ``WAYSTATION_MAX_UPLOAD_GB``, manifests by 4 MiB.
@@ -55,7 +56,7 @@ from waystation_server.formats.docker.browse import parse_manifest
 from waystation_server.hosted.store import UploadInterrupted
 from waystation_server.problems import oci_error
 from waystation_server.proxy.records import StoredAsset
-from waystation_server.repos.model import RepoConfig, StoredHosted, WritePolicy
+from waystation_server.repos.model import RepoConfig, RepoType, StoredHosted, WritePolicy
 from waystation_server.security.actions import Action
 
 API_HEADERS = {'Docker-Distribution-API-Version': 'registry/2.0'}
@@ -539,7 +540,13 @@ class DockerHosted:
         repo, _ = resolved
         if repo.format != 'docker' or not req.allows(Action.READ, repo):
             return False
-        asset = await req.hosted.get(repo, path)
+        holders = [repo]
+        if repo.type is RepoType.GROUP and repo.group is not None:  # a group's content is its members' (read via it)
+            holders = [m for name in repo.group.members if (m := await req.repository(name)) is not None]
+        asset = None
+        for holder in holders:
+            if (asset := await req.hosted.get(holder, path)) is not None:
+                break
         if asset is None:
             return False
         linked = await req.hosted.link(
