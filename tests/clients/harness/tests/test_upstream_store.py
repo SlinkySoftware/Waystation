@@ -101,6 +101,22 @@ def test_store_bodiless_exchange_removes_stale_body(tmp_path: Path) -> None:
     assert (loaded.status, loaded.body) == (304, b'')
 
 
+def test_store_keeps_dotted_segments_apart_and_reads_legacy_names(tmp_path: Path) -> None:
+    store = FixtureStore(tmp_path)
+    keys = [RequestKey.build('GET', f'https://proxy.example.com/m/@v/v1.6.0.{ext}', {}) for ext in ('info', 'mod')]
+    metas = [store.save(key, Exchange(200, [], ext.encode())) for key, ext in zip(keys, ('info', 'mod'), strict=True)]
+    assert metas[0] != metas[1] and metas[0].name.endswith(f'-{keys[0].digest[:16]}.json')
+    assert [store.load(key).body for key in keys] == [b'info', b'mod']  # type: ignore[union-attr]
+
+    legacy = RequestKey.build('GET', 'https://registry.example.com/x/-/x-1.0.0.tgz', {})
+    old = tmp_path / legacy.host / legacy.stem
+    store.save(legacy, Exchange(200, [], b'tgz'))
+    (tmp_path / legacy.host / f'{legacy.stem}.json').rename(old.with_suffix('.json'))
+    (tmp_path / legacy.host / f'{legacy.stem}.body').rename(old.with_suffix('.body'))
+    loaded = store.load(legacy)
+    assert loaded is not None and loaded.body == b'tgz'
+
+
 def test_scrub_response_drops_configured_json_keys_at_any_depth() -> None:
     body = json.dumps(
         {'name': 'pkg', 'readme': 'see https://example.com', 'versions': {'1.0.0': {'_npmUser': {'email': 'a@b'}}}}

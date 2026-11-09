@@ -92,7 +92,7 @@ async def upstream() -> AsyncIterator[FakeUpstream]:
                 f'/sum/lookup/{ESC}@v1.1.0': Respond(200, {}, lookup(MODULE, 'v1.1.0', h1(FILES), mod_h1)),
                 f'/sum/lookup/{ESC}@v1.2.0': Respond(200, {}, lookup(MODULE, 'v1.2.0', h1(FILES), mod_h1)),
                 '/sum/lookup/example.com/unknown@v1.0.0': Respond(404, {}, b'not found'),
-                '/sum/latest': Respond(200, {}, b'go.sum database tree\n42\nhash\n\n— note\n'),
+                '/sum/latest': Respond(200, {}, 'go.sum database tree\n42\nhash\n\n\u2014 note\n'.encode()),
                 '/sum/tile/8/0/000.p/3': Respond(200, {}, b'h' * 96),
                 '/sum/tile/8/0/001': Respond(200, {}, b'short'),  # a full tile is 8192 bytes
             }
@@ -171,7 +171,7 @@ async def test_proxy_lists_info_and_verified_files(
     info_ok = await client.get(f'/repository/go-a/{ESC}/@v/v1.1.0.info')
     assert info_ok.status_code == 200 and info_ok.json()['Version'] == 'v1.1.0'
     query = await client.get(f'/repository/go-a/{ESC}/@v/master.info')
-    assert query.status_code == 200 and query.json()['Version'] == PSEUDO
+    assert query.status_code == 200 and 'x-accel-redirect' in query.headers  # metadata: served by the web tier
     assert (await stored(services, 'go-a', f'{ESC}/@v/master.info') or {}).get('kind') == 'metadata'
     with pytest.raises(ResponseAborted):  # an .info naming another version is refused
         await client.get(f'/repository/go-a/{ESC}/@v/{PSEUDO}.info')
@@ -192,7 +192,7 @@ async def test_checksum_database_proxy(client: httpx.AsyncClient, upstream: Fake
     assert (await client.get('/repository/go-a/sumdb/sum.example.com/supported')).status_code == 404
     assert (await client.get('/repository/go-b/sumdb/sum.golang.org/supported')).status_code == 404  # option off
     latest = await client.get(f'{base}/latest')
-    assert latest.status_code == 200 and latest.content.startswith(b'go.sum database tree')
+    assert latest.status_code == 200 and 'x-accel-redirect' in latest.headers
     found = await client.get(f'{base}/lookup/{MODULE}@v1.1.0')
     assert found.status_code == 200 and found.content.startswith(b'42\n')
     again = await client.get(f'{base}/lookup/{ESC}@v1.1.0')
@@ -222,7 +222,8 @@ async def test_group_merges_lists_and_serves_members(
     assert listed.status_code == 200, listed.text
     assert listed.text == 'v2.0.0+incompatible\nv1.2.0\nv1.1.0\nv1.0.0\n'
     etag = listed.headers['etag']
-    assert (await client.get(f'/repository/go-all/{ESC}/@v/list', auth=auth, headers={'If-None-Match': etag})).status_code == 304
+    unchanged = await client.get(f'/repository/go-all/{ESC}/@v/list', auth=auth, headers={'If-None-Match': etag})
+    assert unchanged.status_code == 304
 
     zipped = await client.get(f'/repository/go-all/{ESC}/@v/v1.1.0.zip', auth=auth)
     assert zipped.status_code == 200 and zipped.content == ZIP
