@@ -42,6 +42,10 @@ class EventType(StrEnum):
     JOB_LOG = 'job.log'  # live only
     WORKER_ONLINE = 'worker.online'
     WORKER_OFFLINE = 'worker.offline'
+    STORAGE_LOW = 'storage.low'  # free space fell below the low-disk guard (new cache writes and uploads refused)
+    STORAGE_OK = 'storage.ok'  # free space is back above the guard
+    QUOTA_WARNING = 'quota.warning'  # a repository reached 80 % of its quota
+    QUOTA_EXCEEDED = 'quota.exceeded'  # a repository reached its quota (hard: new writes refused)
 
 
 class Direction(StrEnum):

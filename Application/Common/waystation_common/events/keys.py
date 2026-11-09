@@ -16,6 +16,9 @@ STATS_PENDING: Final = 'stats:pending'  # set of '<minute>:<repo_id>' with count
 COUNTER_TTL_S: Final = 3 * 3600  # safety net; rollups normally delete the keys within a minute
 SEEN_ASSETS: Final = 'seen:assets'  # hash: asset id -> epoch seconds of the last download (flushed by the rollup)
 DL_ASSETS: Final = 'dl:assets'  # hash: asset id -> downloads since the last flush
+# Low-disk guard state (string: ISO time free space fell below the guard; absent = enough space). Set and cleared by
+# the worker's ``storage.check`` (which announces ``storage.low`` / ``storage.ok``); read by the storage guard API.
+STORAGE_LOW: Final = 'storage:low'
 # Running totals of cleanup and blob GC (hash; fields in MAINTENANCE_FIELDS), exported on /metrics.
 MAINTENANCE_TOTALS: Final = 'maintenance:totals'
 MAINTENANCE_FIELDS: Final = (

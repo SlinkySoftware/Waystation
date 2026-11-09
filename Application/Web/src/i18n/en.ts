@@ -1060,11 +1060,15 @@ export const en = {
       stats_rollup: 'Stats rollup',
       blob_gc: 'Blob garbage collection',
       cleanup_run: 'Cleanup policy',
+      quota_reconcile: 'Quota recount',
+      storage_check: 'Low-disk check',
     },
     kindHelp: {
       stats_rollup: 'Rolls live counters into the statistics every few seconds',
       blob_gc: 'Deletes blobs no asset has referenced for the grace period, and orphan uploads',
       cleanup_run: 'Removes what the policy matches from its repositories',
+      quota_reconcile: 'Recounts the bytes each repository stores and raises quota alerts',
+      storage_check: 'Compares free disk space with the low-disk guard and raises alerts',
     },
     queue: {
       index: 'Index',

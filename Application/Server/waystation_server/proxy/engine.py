@@ -72,6 +72,7 @@ from waystation_common.crypto import Keyring
 from waystation_common.db.client import Database
 from waystation_common.errors import (
     DigestMismatch,
+    InsufficientStorage,
     NotFound,
     UpstreamError,
     ValidationFailed,
@@ -92,6 +93,7 @@ from waystation_server.proxy.http import UpstreamClients, network_of
 from waystation_server.proxy.records import AssetKind, StoredAsset, UpstreamMeta
 from waystation_server.proxy.ssrf import UpstreamBlocked
 from waystation_server.repos.model import AuthKind, RepoConfig, StoredProxy, secret_aad
+from waystation_server.repos.quota import Quotas
 
 if TYPE_CHECKING:
     from waystation_server.formats.base import FormatRequest
@@ -124,6 +126,8 @@ WAIT_S = 1.0  # a follower re-checks at least this often (stall detection); stat
 TAIL_READ = 1024 * 1024
 STALE_CODES = frozenset({'upstream', 'timeout', 'mismatch'})  # followers may serve a stale copy on these
 _UPLOAD_ID = re.compile(r'^[0-9a-f]{32}$')
+# Lease outcome of a fill served without being stored (hard quota, low disk): followers fetch on their own.
+UNSTORED = 'UNSTORED'
 
 
 class UpstreamTimeout(UpstreamError):  # noqa: N818 - reads as a state, like UpstreamError
@@ -277,14 +281,15 @@ class _Abandoned(Exception):  # noqa: N818 - control flow: the followed owner we
 
 @dataclass
 class _Fill:
-    """A streaming fill in progress (owner side)."""
+    """A streaming fill in progress (owner side). ``writer`` None: served without being stored (``reason``)."""
 
-    writer: BlobWriter
+    writer: BlobWriter | None
     total: int | None
     content_type: str
     stored: dict[str, str]
-    extra: dict[str, Any]  # hashlib objects for expected digests other than sha256
+    extra: dict[str, Any]  # hashlib objects for expected digests (other than sha256 when there is a writer)
     done: int = 0
+    reason: str | None = None  # 'quota' (hard repository quota) or 'low_disk' (free-space guard)
 
 
 class _Source:
@@ -365,6 +370,7 @@ class ProxyEngine:
         keyring: Keyring | None,
         coalescer: Coalescer | None = None,
         breaker: UpstreamBreaker | None = None,
+        quotas: Quotas | None = None,
     ) -> None:
         self.settings = settings
         self.db = db
@@ -382,6 +388,7 @@ class ProxyEngine:
             stall_s=self._stall_s,
         )
         self.breaker = breaker or UpstreamBreaker(valkey, emitter, metrics)
+        self.quotas = quotas
 
     def _stall_s(self) -> float:
         """How long a fill may show no progress before it counts as abandoned: the owner's upstream timeouts (one
@@ -483,7 +490,10 @@ class ProxyEngine:
                 await self._remember_missing(req.repo, spec, proxy)
                 raise NotFound('Not Found')
             raise error
-        return await self._fill_buffered(req, spec, response, info, started, lease)
+        filled = await self._fill_buffered(req, spec, response, info, started, lease)
+        if isinstance(filled, Response):  # pragma: no cover - only when unstored answers are allowed
+            raise InsufficientStorage('not enough free space in the blob store')
+        return filled
 
     async def read(self, asset: StoredAsset, *, max_bytes: int = METADATA_MAX_BYTES) -> bytes:
         """The bytes of a cached (metadata) asset, read in a thread. Bounded: larger assets raise."""
@@ -939,6 +949,13 @@ class ProxyEngine:
                 handed_off = True
                 self.metrics.coalesce(repo=req.repo.name, event='tail')
                 return self._tail_response(req, spec, proxy, follower, state)
+            if state.status is Status.DONE and state.outcome == UNSTORED:
+                # The owner's copy was not stored (quota, low disk): nothing to follow, fetch on our own.
+                cached = await self._cached(req.repo, spec)
+                if cached is not None and self._fresh(cached, spec, proxy):
+                    return self._hit(req, cached, CacheState.COALESCED, started, spec.artifact)
+                lease = self.coalescer.solo(req.repo.id, spec.path)
+                return await self._serve_owner(req, spec, proxy, cached, lease, started)
             if state.status is Status.FAILED:
                 cached = await self._cached(req.repo, spec)
                 if cached is not None and proxy.stale_on_error and state.error_code in STALE_CODES:
@@ -1065,6 +1082,8 @@ class ProxyEngine:
                 await follower.wait(WAIT_S)
                 continue
             done = state.status is Status.DONE
+            if done and state.outcome == UNSTORED:
+                raise _Abandoned  # served without being stored: claim again and fetch on our own
             if done and (state.sha256 is None or state.size is None):
                 raise UpstreamError('the fill finished without content')
             if total is not None and state.total is not None and state.total != total:
@@ -1120,20 +1139,26 @@ class ProxyEngine:
                 if info.status in GONE_CODES:
                     raise NotFound('Not Found')
                 raise UpstreamError(f'upstream answered {info.status}')
-            fill = await self._open_fill(spec, response, info)
+            fill = await self._open_fill(req, spec, response, info)
             if total is not None and fill.total is not None and fill.total != total:
                 with anyio.CancelScope(shield=True):
                     await response.aclose()
-                    await fill.writer.abort()
+                    if fill.writer is not None:
+                        await fill.writer.abort()
                 raise UpstreamError('the upstream size changed during the transfer')
         except BaseException as exc:
             with anyio.CancelScope(shield=True):
                 await lease.fail(exc)
             raise
-        self._streaming(lease, fill, None)
+        if fill.writer is None:
+            await lease.finish(outcome=UNSTORED)
+            self._not_stored(req, spec, fill.reason or 'low_disk')
+            tee = self._pass_through(req, spec, response, info, fill)
+        else:
+            self._streaming(lease, fill, None)
+            tee = self._tee(req, spec, response, info, fill, lease, None)
         hasher = hashlib.sha256()
         skipped = 0
-        tee = self._tee(req, spec, response, info, fill, lease, None)
         async with contextlib.aclosing(tee):
             async for chunk in tee:
                 if skipped < skip:
@@ -1161,8 +1186,10 @@ class ProxyEngine:
         lease: Lease,
     ) -> Response:
         if spec.kind is AssetKind.METADATA or req.is_head:
-            asset = await self._fill_buffered(req, spec, response, info, started, lease)
-            return self._serve(req, asset, CacheState.FETCHING)
+            filled = await self._fill_buffered(req, spec, response, info, started, lease, unstored_ok=True)
+            if isinstance(filled, Response):
+                return filled
+            return self._serve(req, filled, CacheState.FETCHING)
         return await self._fill_stream(req, spec, response, info, lease)
 
     def _length(self, spec: AssetSpec, info: UpstreamInfo, max_size: int) -> int | None:
@@ -1239,7 +1266,10 @@ class ProxyEngine:
             updated_at=now,
         )
         # The blobs document was written by the commit's GC claim (``BlobStore.guard``), before the rename.
-        return await assets_db.save(self.db, asset)
+        saved = await assets_db.save(self.db, asset)  # also counts the repository's usage (quotas)
+        if self.quotas is not None:
+            await self.quotas.written(req.repo)
+        return saved
 
     def _stored_headers(self, spec: AssetSpec, info: UpstreamInfo) -> dict[str, str]:
         return {name: info.headers[name.lower()] for name in spec.store_headers if name.lower() in info.headers}
@@ -1260,12 +1290,19 @@ class ProxyEngine:
         info: UpstreamInfo,
         started: float,
         lease: Lease,
-    ) -> StoredAsset:
+        *,
+        unstored_ok: bool = False,
+    ) -> StoredAsset | Response:
+        """Read the whole body, verify, validate, transform and store it. With ``unstored_ok``, a body the blob store
+        refuses (low-disk guard; content: a hard quota) is answered from memory without being stored (the returned
+        ``Response``); metadata is never refused by a quota (small, and the repository needs it to work)."""
         max_size = spec.max_size or (
             METADATA_MAX_BYTES if spec.kind is AssetKind.METADATA else self.settings.max_upload_bytes
         )
         tid: str | None = None
         done = 0
+        unstored: bytes | None = None
+        reason: str | None = None
         try:
             total = self._length(spec, info, max_size)
             tid = self._start_transfer(req, spec, total, info.latency_ms)
@@ -1283,16 +1320,32 @@ class ProxyEngine:
             if spec.validate is not None:
                 await asyncio.to_thread(spec.validate, data, info)
             body = await asyncio.to_thread(spec.transform, data, info) if spec.transform is not None else data
-            async with await self.blobs.open_writer(max_size=max(max_size, len(body))) as writer:
-                await writer.write(body)
-                ref = await self.blobs.commit(writer)
-            if spec.transform is not None:
-                checksums = {'sha256': ref.sha256}
             content_type = spec.content_type or info.headers.get('content-type') or DEFAULT_TYPE
-            asset = await self._record(req, spec, ref, content_type, self._stored_headers(spec, info), info, checksums)
-            await lease.finish(sha256=ref.sha256, size=ref.size)
-            if spec.on_stored is not None:
-                await spec.on_stored(asset, data)
+            writer: BlobWriter | None = None
+            if unstored_ok and spec.kind is AssetKind.CONTENT and await self._quota_refuses(req, len(body)):
+                reason = 'quota'
+            else:
+                try:
+                    writer = await self.blobs.open_writer(max_size=max(max_size, len(body)))
+                except InsufficientStorage:
+                    if not unstored_ok:
+                        raise
+                    reason = 'low_disk'
+            if writer is None:
+                unstored = body
+                await lease.finish(outcome=UNSTORED)
+            else:
+                async with writer:
+                    await writer.write(body)
+                    ref = await self.blobs.commit(writer)
+                if spec.transform is not None:
+                    checksums = {'sha256': ref.sha256}
+                asset = await self._record(
+                    req, spec, ref, content_type, self._stored_headers(spec, info), info, checksums
+                )
+                await lease.finish(sha256=ref.sha256, size=ref.size)
+                if spec.on_stored is not None:
+                    await spec.on_stored(asset, data)
         except BaseException as exc:
             error = _describe(exc)
             if tid is not None:
@@ -1314,35 +1367,74 @@ class ProxyEngine:
         self.emitter.transfer_finished(tid, status=200, bytes_done=done)
         self.metrics.request(repo=req.repo.name, format=req.repo.format, status=200, cache=CacheState.FETCHING)
         self.metrics.add_bytes(repo=req.repo.name, direction='in_upstream', count=done)
+        if unstored is not None:
+            self._not_stored(req, spec, reason or 'low_disk')
+            req.log(cache=CacheState.FETCHING.value, bytes=len(unstored), not_stored=reason)
+            return self._unstored_response(req, spec, info, unstored, content_type, reason or 'low_disk')
         req.log(cache=CacheState.FETCHING.value, bytes=asset.size)
         return asset
 
-    async def _open_fill(self, spec: AssetSpec, response: httpx.Response, info: UpstreamInfo) -> _Fill:
+    async def _quota_refuses(self, req: FormatRequest, size: int | None) -> bool:
+        """Does the repository's hard quota refuse to cache ``size`` more bytes (content only)?"""
+        if self.quotas is None:
+            return False
+        return await self.quotas.refusal(req.repo, size, kind='fill') is not None
+
+    def _not_stored(self, req: FormatRequest, spec: AssetSpec, reason: str) -> None:
+        self.metrics.fill_not_stored(repo=req.repo.name, reason=reason)
+        log.info('serving without caching', extra={'path': spec.path, 'reason': reason})
+
+    def _unstored_response(
+        self, req: FormatRequest, spec: AssetSpec, info: UpstreamInfo, body: bytes, content_type: str, reason: str
+    ) -> Response:
+        headers = {'Content-Type': content_type, 'X-Ws-Cache': CacheState.FETCHING.value, 'X-Ws-Not-Stored': reason}
+        headers.update(self._stored_headers(spec, info))
+        headers.update(spec.response_headers)
+        if req.is_head:
+            headers['Content-Length'] = str(len(body))
+            return Response(status_code=200, headers=headers)
+        return Response(body, status_code=200, headers=headers)
+
+    async def _open_fill(
+        self, req: FormatRequest, spec: AssetSpec, response: httpx.Response, info: UpstreamInfo
+    ) -> _Fill:
         """Check the announced length and open the ``BlobWriter`` of a streaming fill (closes ``response`` when
-        that fails)."""
+        that fails). A hard repository quota or the low-disk guard refusing the write gives a fill without a writer:
+        the content is passed through to the client, verified, and not stored."""
         max_size = spec.max_size or self.settings.max_upload_bytes
         expected = spec.expected
+        reason: str | None = None
+        writer: BlobWriter | None = None
         try:
             total = self._length(spec, info, max_size)
-            writer = await self.blobs.open_writer(
-                max_size=max_size,
-                expected_size=expected.size if expected else None,
-                expected_sha256=expected.sha256.lower() if expected and expected.sha256 else None,
-            )
+            if await self._quota_refuses(req, total if total is not None else expected.size if expected else None):
+                reason = 'quota'
+            else:
+                try:
+                    writer = await self.blobs.open_writer(
+                        max_size=max_size,
+                        expected_size=expected.size if expected else None,
+                        expected_sha256=expected.sha256.lower() if expected and expected.sha256 else None,
+                    )
+                except InsufficientStorage:
+                    reason = 'low_disk'
         except BaseException:
             with anyio.CancelScope(shield=True):
                 await response.aclose()
             raise
+        digests = expected.digests() if expected else {}
         return _Fill(
             writer=writer,
             total=total,
             content_type=spec.content_type or info.headers.get('content-type') or DEFAULT_TYPE,
             stored=self._stored_headers(spec, info),
-            extra={alg: hashlib.new(alg) for alg in (expected.digests() if expected else {}) if alg != 'sha256'},
+            extra={alg: hashlib.new(alg) for alg in digests if alg != 'sha256' or writer is None},
+            reason=reason,
         )
 
     def _streaming(self, lease: Lease, fill: _Fill, tid: str | None) -> None:
         """Publish the fill to followers; from here on the response body finishes the lease."""
+        assert fill.writer is not None
         lease.streaming(
             upload=fill.writer.upload_id,
             total=fill.total,
@@ -1357,10 +1449,16 @@ class ProxyEngine:
     async def _fill_stream(
         self, req: FormatRequest, spec: AssetSpec, response: httpx.Response, info: UpstreamInfo, lease: Lease
     ) -> Response:
-        fill = await self._open_fill(spec, response, info)
+        fill = await self._open_fill(req, spec, response, info)
         tid = self._start_transfer(req, spec, fill.total, info.latency_ms)
-        self._streaming(lease, fill, tid)
+        if fill.writer is None:
+            await lease.finish(outcome=UNSTORED)  # followers fetch on their own
+            self._not_stored(req, spec, fill.reason or 'low_disk')
+        else:
+            self._streaming(lease, fill, tid)
         headers: dict[str, str] = {'Content-Type': fill.content_type, 'X-Ws-Cache': CacheState.FETCHING.value}
+        if fill.reason:
+            headers['X-Ws-Not-Stored'] = fill.reason
         headers.update(fill.stored)
         headers.update(spec.response_headers)
         if fill.total is not None:
@@ -1369,8 +1467,12 @@ class ProxyEngine:
         engine = self
 
         async def body() -> AsyncIterator[bytes]:
+            if fill.writer is None:
+                source = engine._pass_through(req, spec, response, info, fill, tid)
+            else:
+                source = engine._tee(req, spec, response, info, fill, lease, tid)
             try:
-                async with contextlib.aclosing(engine._tee(req, spec, response, info, fill, lease, tid)) as tee:
+                async with contextlib.aclosing(source) as tee:
                     async for chunk in tee:
                         yield chunk
             except BaseException as exc:
@@ -1401,6 +1503,7 @@ class ProxyEngine:
         client with an incomplete transfer, never a complete wrong file, and nothing is cached. Followers see every
         flushed byte (``lease.advance``, O(1)) and the outcome (``finish`` / ``fail``)."""
         writer = fill.writer
+        assert writer is not None
         expected = spec.expected
         held: bytes | None = None
         committed = False
@@ -1446,6 +1549,52 @@ class ProxyEngine:
                 await response.aclose()
                 if not committed:
                     await writer.abort()
+        self.metrics.add_bytes(repo=req.repo.name, direction='in_upstream', count=fill.done)
+
+    async def _pass_through(
+        self,
+        req: FormatRequest,
+        spec: AssetSpec,
+        response: httpx.Response,
+        info: UpstreamInfo,
+        fill: _Fill,
+        tid: str | None = None,
+    ) -> AsyncGenerator[bytes]:
+        """Upstream → the caller only (the write was refused: hard quota, low disk). Verified like a tee: the last
+        chunk is held back until the size and every expected digest match, so the client never receives a complete
+        wrong file. Nothing is stored and nobody follows."""
+        expected = spec.expected
+        held: bytes | None = None
+        try:
+            async for chunk in response.aiter_bytes(CHUNK):
+                for hasher in fill.extra.values():
+                    hasher.update(chunk)
+                fill.done += len(chunk)
+                if tid is not None:
+                    self.emitter.transfer_progress(tid, fill.done, bytes_total=fill.total)
+                if held is not None:
+                    yield held
+                held = chunk
+            await self._answered(req, info.status)  # the whole body arrived (auto-block success)
+            if expected is not None:
+                if expected.size is not None and fill.done != expected.size:
+                    raise DigestMismatch(f'size {fill.done} does not match the expected {expected.size}')
+                for alg, hasher in fill.extra.items():
+                    if hasher.hexdigest() != expected.digests()[alg]:
+                        raise DigestMismatch(f'{alg} does not match the expected digest')
+            if held is not None:
+                yield held
+        except BaseException as exc:
+            error = _describe(exc)
+            if isinstance(exc, DigestMismatch):
+                self._upstream_failed(req, error, after_response=True)
+            elif isinstance(exc, httpx.HTTPError):
+                await self._failed(req, error, after_response=True)
+            log.warning('pass-through aborted', extra={'path': spec.path, 'error': error, 'bytes': fill.done})
+            raise
+        finally:
+            with anyio.CancelScope(shield=True):
+                await response.aclose()
         self.metrics.add_bytes(repo=req.repo.name, direction='in_upstream', count=fill.done)
 
     # ------------------------------------------------------------------ responses and accounting

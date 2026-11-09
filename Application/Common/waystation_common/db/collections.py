@@ -36,6 +36,7 @@ APT_PACKAGES = 'apt_packages'
 NPM_PACKAGES = 'npm_packages'
 YUM_PACKAGES = 'yum_packages'
 UPLOAD_SESSIONS = 'upload_sessions'
+REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
 AUDIT = 'audit'
 STATS_MINUTE = 'stats_minute'
@@ -190,6 +191,8 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('repo_layer_digest', [('repo_id', ASCENDING), ('layers.digest', ASCENDING)]),
         ),
     ),
+    # Stored bytes per repository (quotas, SPECIFICATION §4.8): ``_id`` = repository id, read by ``_id`` only.
+    CollectionSpec(REPO_USAGE),
     # Resumable hosted uploads (OCI chunked blob uploads); expire after the idle timeout.
     CollectionSpec(
         UPLOAD_SESSIONS,
