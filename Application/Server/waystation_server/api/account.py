@@ -24,13 +24,20 @@ from waystation_common.errors import Conflict, Forbidden, NotFound, Unauthorized
 from waystation_server import audit
 from waystation_server.api.auth import User
 from waystation_server.api.deps import ServicesDep, client_ip
-from waystation_server.api.rbac import PROBLEM, EffectivePermissions, effective_permissions
-from waystation_server.api.users import Email
+from waystation_server.api.rbac import (
+    PROBLEM,
+    EffectivePermissions,
+    effective_permissions,
+    require_manageable,
+    user_grants,
+)
+from waystation_server.api.users import Email, UserId
 from waystation_server.audit import AuditAction, Outcome
 from waystation_server.db import sessions as sessions_db
 from waystation_server.db import users as users_db
 from waystation_server.problems import FieldError, FieldErrors
 from waystation_server.security import access, passwords, ratelimit
+from waystation_server.security.access import Action
 from waystation_server.security.authn import authenticate, current_session
 from waystation_server.security.identity import SessionRecord, UserRecord
 from waystation_server.security.login import WINDOW_S
@@ -89,7 +96,10 @@ def _session_target(public_id: str) -> audit.AuditTarget:
 @router.get('/auth/sessions', response_model=list[SessionInfo], operation_id='listMySessions')
 @access.authenticated
 async def list_sessions(request: Request, svc: ServicesDep) -> list[SessionInfo]:
-    user = await _own_user(request, svc)
+    return await _sessions_of(request, svc, await _own_user(request, svc))
+
+
+async def _sessions_of(request: Request, svc: Services, user: UserRecord) -> list[SessionInfo]:
     current = current_session(request)
     records = await sessions_db.list_for_user(svc.db, user.id)
     seen = await svc.sessions.last_seen(records)
@@ -147,6 +157,50 @@ async def revoke_other_sessions(request: Request, svc: ServicesDep) -> SessionsR
         audit.record(
             AuditAction.SESSION_REVOKE, target=audit.target('user', user.id, user.username), details={'others': revoked}
         )
+    return SessionsRevoked(revoked=revoked)
+
+
+# ---------------------------------------------------------------------------- another user's sessions (user-admin)
+async def _target_user(svc: Services, user_id: str) -> UserRecord:
+    user = await users_db.get(svc.db, user_id)
+    if user is None:
+        raise NotFound('user not found')
+    return user
+
+
+@router.get(
+    '/users/{user_id}/sessions',
+    response_model=list[SessionInfo],
+    operation_id='listUserSessions',
+    tags=['admin'],
+    responses={404: PROBLEM},
+)
+@access.requires(Action.USER_ADMIN)
+async def list_user_sessions(user_id: UserId, request: Request, svc: ServicesDep) -> list[SessionInfo]:
+    """A user's sessions, newest first (``current`` marks the caller's own)."""
+    return await _sessions_of(request, svc, await _target_user(svc, user_id))
+
+
+@router.delete(
+    '/users/{user_id}/sessions',
+    response_model=SessionsRevoked,
+    operation_id='revokeUserSessions',
+    tags=['admin'],
+    responses={403: PROBLEM, 404: PROBLEM},
+)
+@access.requires(Action.USER_ADMIN)
+async def revoke_user_sessions(user_id: UserId, request: Request, svc: ServicesDep) -> SessionsRevoked:
+    """Sign a user out everywhere (API tokens are not affected). Not for a user holding more than the caller."""
+    principal = await authenticate(request)
+    user = await _target_user(svc, user_id)
+    _, grants = await user_grants(svc, user)
+    require_manageable(principal, grants, 'a user')
+    revoked = await sessions_db.delete_for_user(svc.db, user.id)
+    audit.record(
+        AuditAction.SESSION_REVOKE,
+        target=audit.target('user', user.id, user.username),
+        details={'all': revoked, 'by_admin': True},
+    )
     return SessionsRevoked(revoked=revoked)
 
 

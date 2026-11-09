@@ -125,7 +125,6 @@ PENDING: dict[AuditAction, str] = {
     A.CONTENT_UPLOAD: 'T-P5 (hosted repositories)',
     A.CONTENT_DELETE: 'T-P5 (hosted repositories)',
     A.CLEANUP_RUN: 'T-O01',
-    A.SETTINGS_UPDATE: 'T-U08 (settings API)',
 }
 
 
