@@ -12,6 +12,8 @@ declare module 'vue-router' {
     title?: MessageKey
     /** Delivery milestone for pages that are not built yet. */
     planned?: string
+    /** The navigation item a sub-page belongs to (highlighted in the rail), e.g. a user's page → `admin-users`. */
+    nav?: string
   }
 }
 
@@ -41,7 +43,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'storage', name: 'storage', component: () => import('@/pages/StoragePage.vue'), meta: { title: 'nav.storage' } },
       { path: 'cleanup', name: 'cleanup', component: () => import('@/pages/CleanupPage.vue'), meta: { title: 'nav.cleanup' } },
       { path: 'tasks', name: 'tasks', component: placeholder, meta: { title: 'nav.tasks', planned: 'T-O04' } },
-      { path: 'admin/users', name: 'admin-users', component: placeholder, meta: { title: 'nav.users', planned: 'T-U08' } },
+      { path: 'admin/users', name: 'admin-users', component: () => import('@/pages/UsersPage.vue'), meta: { title: 'nav.users' } },
+      { path: 'admin/users/:id', name: 'admin-user', component: () => import('@/pages/UserDetailPage.vue'), meta: { title: 'nav.users', nav: 'admin-users' } },
       { path: 'admin/groups', name: 'admin-groups', component: placeholder, meta: { title: 'nav.groups', planned: 'T-U08' } },
       { path: 'admin/roles', name: 'admin-roles', component: placeholder, meta: { title: 'nav.roles', planned: 'T-U08' } },
       { path: 'admin/auth-providers', name: 'admin-auth', component: () => import('@/pages/AuthProvidersPage.vue'), meta: { title: 'nav.authProviders' } },
