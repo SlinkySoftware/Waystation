@@ -205,6 +205,11 @@ def activity_view(stream_id: str, event: ActivityEvent) -> dict[str, Any] | None
             outcome = 'info' if event.type in (EventType.QUOTA_WARNING, EventType.STORAGE_OK) else 'failure'
             summary = str(event.detail.get('summary') or event.type.value)
             artifact = None
+        case EventType.BLOBS_MISSING:
+            kind = 'storage'
+            outcome = 'failure' if event.detail.get('hosted_lost') else 'info'
+            summary = str(event.detail.get('summary') or event.type.value)
+            artifact = None
         case EventType.JOB_STARTED | EventType.JOB_FINISHED | EventType.JOB_FAILED:
             kind = 'cleanup'
             outcome = 'failure' if event.type is EventType.JOB_FAILED else 'info'
