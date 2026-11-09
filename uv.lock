@@ -1474,6 +1474,7 @@ version = "0.1.0"
 source = { editable = "Application/Common" }
 dependencies = [
     { name = "cryptography" },
+    { name = "httpcore" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pymongo" },
@@ -1484,6 +1485,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=46" },
+    { name = "httpcore", specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "pydantic-settings", specifier = ">=2.11" },
     { name = "pymongo", specifier = ">=4.15" },
@@ -1525,11 +1527,15 @@ name = "waystation-worker"
 version = "0.1.0"
 source = { editable = "Application/Worker" }
 dependencies = [
+    { name = "httpx", extra = ["http2"] },
     { name = "waystation-common" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "waystation-common", editable = "Application/Common" }]
+requires-dist = [
+    { name = "httpx", extras = ["http2"], specifier = ">=0.28" },
+    { name = "waystation-common", editable = "Application/Common" },
+]
 
 [[package]]
 name = "websockets"
