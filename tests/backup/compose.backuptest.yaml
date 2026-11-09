@@ -1,0 +1,39 @@
+# Backup/restore test stack (tests/backup/run.sh, `make backup-test`). Loaded on top of Build/Containers/compose.yaml +
+# compose.dev.yaml as its own compose project (BT_PROJECT, unique per checkout), so it never collides with a running
+# deployment, `make dev-up` or another worktree. Variables (set by run.sh): BT_PROJECT, BT_RUN_DIR, BT_ADMIN_PASSWORD.
+services:
+  # A tiny upstream for the raw proxy repository (static files from the run directory).
+  origin:
+    image: busybox:1.37
+    container_name: ${BT_PROJECT}-origin
+    user: "65534:65534"
+    command: ["httpd", "-f", "-p", "8080", "-h", "/www"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - {type: bind, source: "${BT_RUN_DIR}/www", target: /www, read_only: true}
+    networks:
+      frontend:
+        aliases: [origin.example.com]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/proxied.txt"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  web:
+    container_name: ${BT_PROJECT}-web
+    ports: !reset []
+  server:
+    container_name: ${BT_PROJECT}-server
+  worker:
+    container_name: ${BT_PROJECT}-worker
+  init:
+    container_name: ${BT_PROJECT}-init
+    environment:
+      WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD: ${BT_ADMIN_PASSWORD}
+  mongodb:
+    container_name: ${BT_PROJECT}-mongodb
+  valkey:
+    container_name: ${BT_PROJECT}-valkey

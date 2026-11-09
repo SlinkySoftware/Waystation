@@ -219,8 +219,20 @@ images: ## Build server, worker and web images (IMAGE_PREFIX/waystation-<role>:I
 	docker build -f $(COMPOSE_DIR)/server/Dockerfile -t $(IMAGE_PREFIX)/waystation-server:$(IMAGE_TAG) .
 	docker build -f $(COMPOSE_DIR)/worker/Dockerfile -t $(IMAGE_PREFIX)/waystation-worker:$(IMAGE_TAG) .
 	docker build -f $(COMPOSE_DIR)/web/Dockerfile -t $(IMAGE_PREFIX)/waystation-web:$(IMAGE_TAG) .
-backup: ## mongodump + blob copy
-	$(call not_yet,T-O07)
+# Backup and restore of a running stack (Documents/Operations/BACKUP.md). PREFIX = container name prefix
+# (waystation for Build/Containers/compose.yaml, waystation-dev for `make dev-up`).
+PREFIX ?= waystation
+BACKUP_TOOL := Build/Containers/backup/waystation-backup.sh
+.PHONY: restore verify-blobs backup-test
+backup: ## Back up a stack: TARGET=<dir> [PREFIX=waystation] [HOSTED_ONLY=1] [KEEP=<n>] (BACKUP.md)
+	@[ -n "$(TARGET)" ] || { echo 'make backup: set TARGET=<backup directory>'; exit 2; }
+	$(BACKUP_TOOL) backup --prefix '$(PREFIX)' --target '$(TARGET)' $(if $(HOSTED_ONLY),--hosted-only) \
+	  $(if $(KEEP),--keep '$(KEEP)')
+restore: ## Restore a backup into a stopped stack: FROM=<backup dir> [PREFIX=waystation]; then start it and verify-blobs
+	@[ -n "$(FROM)" ] || { echo 'make restore: set FROM=<backup directory>'; exit 2; }
+	$(BACKUP_TOOL) restore --prefix '$(PREFIX)' --from '$(FROM)'
+verify-blobs: ## Run the blob verify task in a running stack and wait for its result [PREFIX=waystation]
+	$(BACKUP_TOOL) verify --prefix '$(PREFIX)'
 
 ##@ Test suites
 .PHONY: e2e clients-test clients-check perf
@@ -250,5 +262,9 @@ nexus-compare: dev-image ## Compare a Nexus and a Waystation: NEXUS=<url> WAYSTA
 .PHONY: proxies-check
 proxies-check: ## Reverse-proxy examples in containers (REVERSE_PROXIES.md; SIZE_MB=1024, SLOW=1 for 60 s timeouts)
 	Build/Containers/examples/reverse-proxies/check/check.sh
+backup-test: ## Backup/restore end to end: seed, back up, wipe, restore, verify (own stack; integration lock)
+	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
+	  flock -n 9 || { echo "backup-test: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
+	tests/backup/run.sh
 perf: ## k6 performance budgets
 	$(call not_yet,T-P2-PERF)
