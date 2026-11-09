@@ -79,6 +79,7 @@ class AuditAction(StrEnum):
     REPOSITORY_TEST_UPSTREAM = 'repository.test_upstream'
     CONTENT_UPLOAD = 'content.upload'
     CONTENT_DELETE = 'content.delete'
+    CONTENT_UPDATE = 'content.update'  # stored content changed in place (PyPI yank / un-yank)
     CLEANUP_RUN = 'cleanup.run'
     TASK_UPDATE = 'task.update'  # a scheduled task's schedule or enabled flag (Tasks page)
     TASK_RUN = 'task.run'  # a scheduled task run now
@@ -118,7 +119,7 @@ SPEC_ACTIONS: dict[str, tuple[AuditAction, ...]] = {
     'repo create': (A.REPOSITORY_CREATE,),
     'repo update': (A.REPOSITORY_UPDATE, A.REPOSITORY_TEST_UPSTREAM),
     'repo delete': (A.REPOSITORY_DELETE,),
-    'uploads on hosted repos': (A.CONTENT_UPLOAD,),
+    'uploads on hosted repos': (A.CONTENT_UPLOAD, A.CONTENT_UPDATE),
     'deletes on hosted repos': (A.CONTENT_DELETE,),
     'cleanup runs': (A.CLEANUP_RUN,),
     'task changes': (A.TASK_UPDATE, A.TASK_RUN, A.TASK_RETRY, A.TASK_DISCARD),
