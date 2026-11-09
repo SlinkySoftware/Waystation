@@ -15,6 +15,7 @@ import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
+import { goModuleList, goVersionsFor } from './fixtures/go'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
@@ -101,7 +102,9 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!NAME_RE.test(body.name ?? '')) errors.push({ field: 'name', message: 'Use 2-63 letters, digits, dots, dashes or underscores, starting with a letter or digit.', code: 'pattern' })
     else if (world.repos.some((r) => r.name.toLowerCase() === body.name.toLowerCase())) errors.push({ field: 'name', message: 'A repository with this name already exists.', code: 'taken' })
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
-    if (body.type !== 'proxy' && body.format !== 'docker' && body.format !== 'pypi') {
+    if (body.format === 'go' && body.type === 'hosted') {
+      errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
+    } else if (body.type !== 'proxy' && body.format !== 'docker' && body.format !== 'pypi' && body.format !== 'go') {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -509,6 +512,28 @@ export const handlers = [
     const body = (await request.json()) as PypiYank
     if (!pypiYank(repo.name, body.project, body.version, body.reason ?? null, body.yanked)) return notFound()
     return HttpResponse.json({ project: body.project.toLowerCase(), version: body.version, yanked: body.yanked, files: 2 })
+  }),
+  http.get(`${API}/repositories/:name/go/modules`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'go')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    const items = goModuleList().filter((m) => !q || m.module.toLowerCase().includes(q))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/go/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'go')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    const found = goVersionsFor(repo.name, url.searchParams.get('module') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ module: found.module, ...paginate(found.versions, url) })
   }),
   http.get(`${API}/repositories/:name/apt/suites`, async ({ request, params }) => {
     const denied = guard(request)

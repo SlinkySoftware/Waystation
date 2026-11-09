@@ -65,7 +65,7 @@ const FORMATS: { format: Format; available: boolean; phase?: number }[] = [
   { format: 'yum', available: false, phase: 2 },
   { format: 'pypi', available: true },
   { format: 'maven', available: false, phase: 5 },
-  { format: 'go', available: false, phase: 5 },
+  { format: 'go', available: true },
   { format: 'helm', available: false, phase: 5 },
   { format: 'terraform', available: false, phase: 5 },
   { format: 'galaxy', available: false, phase: 5 },

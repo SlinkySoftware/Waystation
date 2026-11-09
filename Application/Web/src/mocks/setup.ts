@@ -215,8 +215,25 @@ function pypi(repo: Repository): SetupClient[] {
   return clients
 }
 
+/** Go: GOPROXY (the checksum database through the repository), private modules, .netrc credentials. */
+function go(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}`
+  const host = new URL(BASE_URL).host
+  const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupClient['snippets'][number] => ({ id, title, description, language, filename, os: null, content })
+  return [
+    { id: 'go', label: 'go', snippets: [
+      s('go-env', 'Use this repository for every module download', `go env -w GOPROXY=${url}\n# checksums are still verified against sum.golang.org, through this repository (sumdb/ proxy)\ngo mod download`, 'shell', null, 'Without ",direct" in GOPROXY every module comes through Waystation. The checksum database is reached through it too: the go command asks the proxy for sumdb/sum.golang.org/supported first.'),
+      s('go-once', 'One command', `GOPROXY=${url} go get example.com/some/module@latest`),
+      s('go-private', 'Private modules (not in the public checksum database)', '# fetched through Waystation, not looked up in the checksum database:\ngo env -w GONOSUMDB=example.com/private/*\n# GOPRIVATE=... would also bypass the proxy (GONOPROXY): use it only for modules fetched directly', 'shell', null, 'Add the same patterns to the repository\'s "nosumdb" option so Waystation does not look them up either.'),
+    ] },
+    { id: 'go-auth', label: 'Authentication', snippets: [
+      s('netrc', 'Credentials (when anonymous reads are not allowed)', `machine ${host}\nlogin {{USERNAME}}\npassword {{TOKEN}}`, 'text', '.netrc', '~/.netrc (Linux/macOS) or %USERPROFILE%\\_netrc (Windows). The go command sends .netrc credentials over HTTPS only (GOAUTH=netrc, the default). Use an API token as the password; NETRC points to another file.'),
+    ] },
+  ]
+}
+
 export function setupGuide(repo: Repository): SetupGuide {
-  const clients = repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'pypi' ? pypi(repo) : raw(repo)
+  const clients = repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {
