@@ -66,10 +66,19 @@ Windows containers support for the server.
 - **Negative cache** of 404s (default 10 min, per repo).
 - **Serve stale on error**: if the upstream errors or times out and a cached copy exists, serve it and flag the
   repo "degraded" (default on). **Offline mode** per repo: never contact the upstream.
-- **Auto-block**: after N consecutive upstream failures, stop calling it for an exponential backoff period
-  (visible in the UI); probes resume automatically.
+- **Auto-block** (per repo `auto_block`: on by default, 5 failures, 30 s doubling to 30 min): after N consecutive
+  upstream failures (connection or DNS failure, timeout, reset mid-body, 5xx, 429; 4xx, digest mismatches and SSRF
+  refusals do not count) stop calling it for an exponential backoff period: requests are answered from the cache
+  (stale-on-error) or with 503 + `Retry-After`. When the period ends, one request (or the server's background prober,
+  using the format's probe path) probes the upstream: success lifts the block, failure doubles the period up to the
+  maximum. Shown in upstream health (status `blocked` with `blocked_until`, a countdown in the UI), `upstream.state`
+  events, activity and metrics; saving the repository clears a block.
 - Upstream credentials per repo (basic, bearer, Docker Hub token login, GHCR PAT), stored encrypted.
-- Upstream TLS: verify by default; per-repo custom CA bundle; optional HTTP proxy per repo or global.
+- Upstream TLS: verify by default; per-repo custom CA bundle (`ca_pem`, added to the system CAs and
+  `WAYSTATION_EXTRA_CA_FILE` for that repo only); optional HTTP proxy per repo (`http_proxy`, no credentials) or
+  global (`WAYSTATION_HTTP_PROXY` / `WAYSTATION_NO_PROXY`, credentials allowed). Through a proxy the SSRF guard
+  checks every hop's target before the request; a repo with `allow_private_upstream` may use names only the proxy
+  resolves.
 - Respect and surface upstream rate limits (Docker Hub `ratelimit-remaining`, `Retry-After`); HEAD where the
   protocol allows to avoid consuming quota.
 - Content validation: verify digests/checksums the protocol provides (OCI digests, npm `integrity`, PyPI
@@ -303,6 +312,9 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   (`X-NuGet-ApiKey` for push, basic for read), apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic).
   Each format's auth is part of its Definition of Done (FORMATS.md).
 - Anonymous access: a configurable `anonymous` principal with its own roles (default: read on proxy repos only).
+  Now: `GET/PUT /api/v1/anonymous-access` (`user-admin`) sets its roles: the built-in `anonymous` role and/or roles
+  holding repository permissions only (no global action); empty = no anonymous access. Applies to the REST API,
+  format routes and Docker's anonymous registry tokens on every replica within moments.
 - Sessions: HttpOnly, Secure (https base URL), SameSite=Lax cookie `ws_session`; a new session on every sign-in;
   stored as a sha256 of the token; CSRF on unsafe methods (double submit: readable cookie `ws_csrf`, header
   `X-CSRF-Token`; bearer requests exempt); idle (`SESSION_IDLE_MINUTES`, default 8 h) and absolute
@@ -311,6 +323,17 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   `LOGIN_LOCKOUT_MINUTES` (local only). Sign-in failures never say which part was wrong.
 - First administrator: `init` creates local user `admin` (role `admin`) when there are no users, with
   `BOOTSTRAP_ADMIN_PASSWORD[_FILE]` or a one-time password printed once to the init container's stderr.
+- **One-time passwords**: the generated bootstrap password and a password an administrator sets (by default) carry
+  `must_change_password`. Such a session may only read `GET /auth/me` (which says so), change the password and sign
+  out; everything else answers 403. `docker login` with a one-time password is refused. The UI keeps the user on the
+  profile page until it is changed.
+- **Own account** (any signed-in user): `POST /auth/me/password` (local accounts; needs an interactive session and
+  the current password; rate limited like sign-in; at least 12 characters, not the username, not the current one;
+  ends the user's other sessions), `PATCH /auth/me` (display name, e-mail of a local account; providers overwrite
+  theirs at sign-in), `GET /auth/sessions` (newest first: created, last used, address, browser, OIDC provider,
+  which one is current; ids are derived from the stored session id and never usable as cookies),
+  `DELETE /auth/sessions/{id}` (also the current one, clearing its cookies) and `DELETE /auth/sessions` (every other
+  session), `GET /auth/me/permissions` (effective permissions, narrowed by the API token used).
 
 ### 4.10 RBAC
 - **Permissions** are `(action, scope)`: actions `browse`, `read` (download/pull), `write` (upload/push),
@@ -320,15 +343,35 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   type (`type:proxy`). Global actions are granted only with scope `*`; `write`, `delete` and `manage` imply `browse`
   and `read` on the same scope. A repository the principal can neither browse nor read is hidden (404 everywhere).
 - **Roles** bundle permissions; built-ins: `admin`, `reader` (browse+read all), `deployer` (read+write on scope),
-  `viewer` (browse + stats), `anonymous` (browse + read on `type:proxy`). Custom roles via UI/API (not yet: M0 has
-  the built-in roles only, assigned on the user record).
+  `viewer` (browse + stats), `anonymous` (browse + read on `type:proxy`). Custom roles via UI/API.
+  Now: built-in roles are read-only; custom roles (`/api/v1/roles`, `user-admin`) have a slug id (lower-case letters,
+  digits, `-`), a name, a description and 1-100 permissions `(action, scope)` (global actions only on `*`). A role
+  still held by a user, group or service account cannot be deleted (409); `GET /roles/{id}` shows who holds it.
+  `GET /roles` (any signed-in principal) lists the grantable roles with their permissions.
 - **Groups** (local, or mapped from LDAP groups / OIDC claims) hold roles; users hold roles directly or via groups.
   Now: a provider's group mapping (external group DN or name → roles) is stored as one group per row; a user gets
   the roles of the mapped groups among those reported at its last sign-in through that provider. Mapping changes
-  apply to signed-in users within seconds; membership changes on the next sign-in. `GET /roles` lists the grantable
-  (built-in) roles. Local group membership exists in the data model; its admin UI comes with T-U08.
+  apply to signed-in users within seconds; membership changes on the next sign-in. Local groups are managed under
+  `/api/v1/groups` (`user-admin`: create, rename, describe, roles, delete; members added and removed with
+  `/groups/{id}/members`); mapped groups are listed there read-only except for their roles (the same documents as
+  the provider's group mapping). The admin UI comes with T-U08.
+- **Users** (`/api/v1/users`, `user-admin`): list (username prefix, source, disabled, local group, direct role;
+  keyset paging), detail (source, linked identities, local and mapped groups, the groups a provider last reported,
+  effective roles, lockout), create a local user (with a password, or without one so that an LDAP/OIDC sign-in of
+  the same username links to it), update (display name, e-mail, disabled, roles, local groups), delete (sessions end,
+  API tokens are revoked), reset a local password (sessions end; one-time by default), unlock, and the effective
+  permissions (`/users/{id}/permissions`, also `/service-accounts/{id}/permissions`: roles with where they come from,
+  every permission held, global actions, the actions on each repository). Disabling ends the user's sessions.
+- **Delegation**: what a caller hands out is bounded by what it holds: roles (and groups, and custom role
+  permissions, and provider group mappings) it adds may carry only global actions the caller holds, and `admin` only
+  from an administrator; an account holding more than the caller (an administrator, for a `user-admin`) cannot be
+  changed, deleted, given a password or (service accounts) given tokens by it (403). Nobody can disable or delete
+  their own account, and the last enabled administrator (direct role or local group) cannot be disabled, deleted,
+  demoted or removed from its group (409).
 - Effective permissions are computed per request from a cached, versioned grant table (ARCHITECTURE §7) and
   checked in one place. Content listings and search are filtered, never just hidden.
+  Now: every RBAC change bumps `grant_version`; the replica that made it applies it at once, the others within
+  moments (MongoDB change stream; a 5 s poll if the stream is down).
 
 ### 4.11 Audit
 Append-only audit log of security-relevant actions: sign-in/out/failure, token create/revoke/use-refused,
@@ -336,7 +379,8 @@ user/group/role/provider changes, repo create/update/delete, uploads and deletes
 settings changes. Searchable in the UI, exported via API; retention configurable (default 400 days).
 - **Record**: time, action (`<category>.<verb>`, catalog `waystation_common.audit.AuditAction`), outcome
   (`success`/`failure`) and for failures a reason code (`bad_credentials`, `unknown_user`, `locked`, `disabled`,
-  `not_in_group`, `directory_unavailable`, `link_refused`, `invalid_token`, `too_many_failures`), the actor (user,
+  `not_in_group`, `directory_unavailable`, `link_refused`, `invalid_token`, `too_many_failures`,
+  `password_change_required`), the actor (user,
   service account, anonymous or `system`; how it authenticated: session, API token, basic, registry token; its
   sign-in provider; the API token id when one was used), the target (kind, id, name), the client address (after the
   trusted-proxy rules of §8.4) and the request id, plain `details`, and field-level `changes` (before/after).
@@ -347,13 +391,17 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   because Docker clients re-send the password with every token request; API-token `docker login`s are token use, not
   sign-ins), `auth.lockout`, `auth.logout`, `token.create`, `token.revoke`, `token.use_refused` (an invalid, expired
   or revoked token, with its display prefix; not past the failure rate limit), `service_account.create|update|delete`,
-  `user.create` (bootstrap admin, provider provisioning), `user.link` (an external account linked for the first time),
-  `user.groups_sync` (the groups a provider reports changed), `auth_provider.create|update|delete|test`,
-  `repository.create|update|delete|test_upstream`, `content.upload` (a manifest pushed to a docker hosted repository,
-  with image, tag, digest, media type and size) and `content.delete` (a docker tag, manifest or blob deleted). Not yet
-  (the feature does not exist): password change and session revoke (T-S02), user/group admin (T-U08), custom roles
-  (T-S03), cleanup runs (T-O01), settings (T-U08); `PENDING` in the catalog names them and the acceptance test fails when one is emitted
-  without a test.
+  `user.create` (bootstrap admin, provider provisioning, the users API), `user.link` (an external account linked for
+  the first time), `user.groups_sync` (the groups a provider reports changed), `user.update` (profile, status, roles,
+  groups, unlock; own profile changes too), `user.delete`, `auth.password_change` (own change, success or a wrong
+  current password; an administrator's reset with `details.by_admin`), `session.revoke`,
+  `group.create|update|delete` (membership changes as `group.update` with `details.members_added|members_removed`),
+  `role.create|update|delete` (anonymous access changes as `role.update` on target `anonymous_access`),
+  `auth_provider.create|update|delete|test`, `repository.create|update|delete|test_upstream`, `content.upload` (a
+  manifest pushed to a docker hosted repository, with image, tag, digest, media type and size) and
+  `content.delete` (a docker tag, manifest or blob deleted). Not yet (the feature does not exist): cleanup runs
+  (T-O01), settings (T-U08); `PENDING` in the catalog names them and the acceptance test fails when one is
+  emitted without a test.
 - **Writing never fails or slows a request**: records go to a bounded in-process queue (10 000) drained by one task
   with batched inserts (retried with backoff); on overflow or a lost batch the records are counted and logged at
   ERROR (`AUDIT RECORDS DROPPED`, at most every 10 s with the running total).
@@ -644,9 +692,9 @@ Waystation/
 | Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once (the scheduled job `stats.rollup`, every 10 s, since T-F08). Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
 | Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. No job API/UI yet (Tasks page) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
-| Local authentication (T-S02) | M0 slice 2026-11-08: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`. Password change, session list/revoke and profile endpoints pending |
-| Audit (T-S10) | Done 2026-11-09: audit catalog and records (actor, target, outcome/reason, client address, request id, details, redacted before/after changes), non-blocking batched writer, TTL retention (`WAYSTATION_AUDIT_RETENTION_DAYS`), `GET /api/v1/audit` (filters, cursor paging) and streamed CSV/NDJSON export, Audit log page. Actions whose features are pending (password change, user/group/role admin, cleanup, settings) are emitted by those tasks; `content.upload`/`content.delete` since T-P2-DOCKERH (docker hosted) |
-| RBAC (T-S03) | M0 slice 2026-11-08: one decision point (`security.access`), built-in roles, scopes incl. `type:`, hidden = 404, every route declares its rule (enumeration test), CSRF enforced app-wide for session requests. Since 2026-11-09 (T-A01): groups in MongoDB holding roles, effective roles = own ∪ group roles per request, `GET /roles`. Custom roles, group admin and the grant cache pending |
+| Local authentication (T-S02) | Done 2026-11-09: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`; one-time passwords enforced (only `/auth/me`, the password change and sign-out until changed; `docker login` refused), own password change, profile update, own sessions list/revoke (one, or every other), effective permissions; UI password card on the profile page and a router guard for one-time passwords |
+| Audit (T-S10) | Done 2026-11-09: audit catalog and records (actor, target, outcome/reason, client address, request id, details, redacted before/after changes), non-blocking batched writer, TTL retention (`WAYSTATION_AUDIT_RETENTION_DAYS`), `GET /api/v1/audit` (filters, cursor paging) and streamed CSV/NDJSON export, Audit log page. Actions whose features are pending (cleanup, settings) are emitted by those tasks; password change, session revoke and user/group/role admin since 2026-11-09 (T-S02/T-S03); `content.upload`/`content.delete` since T-P2-DOCKERH (docker hosted) |
+| RBAC (T-S03) | Done 2026-11-09: one decision point (`security.access`: `check`, `filter_repos`, `filter_query`), built-in and custom roles, scopes incl. `type:`, hidden = 404, every route declares its rule, CSRF enforced app-wide for session requests; groups (local and provider-mapped) holding roles; materialised grants cached per `grant_version` (in-process and Valkey) with change-stream invalidation across replicas; configurable anonymous access; delegation bounded by the caller's own powers, last-administrator guard. Admin APIs: users, groups and members, roles, anonymous access, effective permissions (UI in T-U08). Tests: route enumeration over included routers (it had silently seen none since a FastAPI upgrade), route × {anonymous, reader, deployer, admin} matrix for every REST route plus the format-route matrix, cross-replica role change |
 | API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audited (T-S10); the service-account admin UI (T-U08) pending |
 | Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Audited since T-S10. Hosted repositories (`hosted{write_policy, immutable_tag_patterns}`, per-type option rules) since T-P2-DOCKERH, for docker. Group and clone pending |
 | Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Formats: `echo` (self-test), `raw`, `npm` and `apt` (Debian 13 + Ubuntu 26.04 clients in one run: `CLIENT` may list several; `lib.sh` falls back to bash `/dev/tcp` where the image has no curl; apt fixture budget 32 MiB); `setup.sh` creates repositories through the API as a per-run bootstrap admin (`ws_login`/`ws_api` in `lib.sh`); nightly live smoke workflow stub |
@@ -659,7 +707,7 @@ Waystation/
 | Browse UI (T-U05 min) | M0 slice 2026-11-08 (built on mocks, now on the real API, T-S09 min): docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour of the real server (both themes, desktop + mobile): `Documents/Notes/UI_TOUR_M0.md` |
 | Browse API (T-S09 min) | M0 slice 2026-11-08: generic folder listing of cached assets for every format, npm packages/versions, apt suites/packages, docker images/tags/manifest, to the M0 contract; indexing in the background after cache fills (`npm_packages`, `apt_packages`, `docker_tags`/`docker_manifests`); every browse query index-backed (explain test); the raw, npm, apt and docker real-client harness runs check it. Components, `version_sort`, download counters and "where used" pending
 | Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
-| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block and per-repo CA/proxy pending; used by the raw plugin (T-P2-RAW) |
+| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. 2026-11-09: auto-block with exponential backoff, probes and automatic resume (shared across replicas), per-repo CA bundle and HTTP proxy (SSRF guard still applied through the proxy), all exposed in the repository form and upstream health. Pending: pass-through when the free-space guard trips, continuing a fill after its client disconnects; used by every proxy format |
 | Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Lease renewal independent of `fdatasync` (2026-11-09 fix for a second fetch under disk load). Followers on a second host against NFS not covered by CI yet |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
 | Activity and Storage pages (T-U07) | 2026-11-09: Activity page (live tail with pause and scroll-hold, filters in the URL incl. user, cache state, outcome and time window, history paging, detail drawer, CSV export through the new streaming `/activity/export`); Storage page (stored/free/de-duplication/blob KPIs, data volume bar, by-format donut, largest repositories, sortable repository table). Storage growth, largest artifacts, per-repository de-duplication and GC status pending |

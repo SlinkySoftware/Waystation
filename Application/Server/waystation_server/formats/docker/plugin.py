@@ -52,6 +52,7 @@ from waystation_server.proxy.engine import (
     StoredAsset,
     UpstreamInfo,
 )
+from waystation_server.proxy.http import network_of
 from waystation_server.repos.model import AuthKind, RepoType, secret_aad
 
 API_VERSION = 'Docker-Distribution-API-Version'
@@ -279,6 +280,7 @@ class DockerPlugin:
             upstream_url=proxy.upstream_url,
             scope=f'repository:{name}:pull',
             allow_private=proxy.allow_private_upstream,
+            network=network_of(proxy),
             credentials=credentials,
             bearer=bearer,
         )

@@ -14,6 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 DEFAULT_METADATA_MAX_AGE_S = 1800
 DEFAULT_NEGATIVE_TTL_S = 600
+DEFAULT_AUTO_BLOCK_FAILURES = 5
+DEFAULT_AUTO_BLOCK_INITIAL_S = 30
+DEFAULT_AUTO_BLOCK_MAX_S = 1800
 
 
 def secret_aad(repo_id: str) -> bytes:
@@ -51,6 +54,17 @@ class StoredUpstreamAuth(_Stored):
     secret_enc: str | None = None
 
 
+class StoredAutoBlock(_Stored):
+    """Auto-block (SPECIFICATION §4.1): after ``failures`` consecutive upstream failures stop calling the upstream
+    for ``initial_s``, doubling after every failed probe up to ``max_s``. The live state is in Valkey
+    (``upstream:<id>:health``, ``proxy.breaker``)."""
+
+    enabled: bool = True
+    failures: int = DEFAULT_AUTO_BLOCK_FAILURES
+    initial_s: int = DEFAULT_AUTO_BLOCK_INITIAL_S
+    max_s: int = DEFAULT_AUTO_BLOCK_MAX_S
+
+
 class StoredProxy(_Stored):
     upstream_url: str
     auth: StoredUpstreamAuth = Field(default_factory=StoredUpstreamAuth)
@@ -60,6 +74,9 @@ class StoredProxy(_Stored):
     stale_on_error: bool = True
     offline: bool = False
     allow_private_upstream: bool = False
+    ca_pem: str | None = None  # extra trusted CA certificates (PEM) for this repository's upstream TLS
+    http_proxy: str | None = None  # outbound proxy for this repository (null: WAYSTATION_HTTP_PROXY / NO_PROXY)
+    auto_block: StoredAutoBlock = Field(default_factory=StoredAutoBlock)
 
 
 class StoredHosted(_Stored):

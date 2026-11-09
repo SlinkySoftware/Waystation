@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Auth guard: private routes need a session; the sign-in page bounces signed-in users onwards.
+// Auth guard: private routes need a session; the sign-in page bounces signed-in users onwards; a user holding a
+// one-time password is kept on the profile page (where it is changed) until it is changed (the server refuses
+// everything else for that session anyway, SPEC §4.9).
 import type { RouteLocationNormalized, RouteLocationRaw } from 'vue-router'
 
 export interface GuardAuth {
   ensureChecked(): Promise<void>
   readonly signedIn: boolean
+  readonly mustChangePassword?: boolean
 }
 
 /** Only same-app paths are accepted as `next` (no open redirects). */
@@ -19,5 +22,6 @@ export async function authGuard(to: RouteLocationNormalized, auth: GuardAuth): P
     return true
   }
   if (!auth.signedIn) return { name: 'sign-in', query: to.fullPath === '/' ? {} : { next: to.fullPath } }
+  if (auth.mustChangePassword && to.name !== 'profile') return { name: 'profile' }
   return true
 }

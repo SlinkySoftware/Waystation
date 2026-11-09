@@ -83,6 +83,9 @@ class Session(BaseModel):
     capabilities: list[str]
     preferences: Preferences
     expires_at: datetime
+    must_change_password: bool = Field(
+        description='The account holds a one-time password: change it (`POST /auth/me/password`) before anything else'
+    )
 
 
 def registry_host(base_url: str) -> str:
@@ -99,6 +102,7 @@ async def _session_body(svc: Services, user: UserRecord, record: SessionRecord) 
         capabilities=access.capabilities(principal),
         preferences=user.preferences,
         expires_at=record.expires_at,
+        must_change_password=user.must_change_password,
     )
 
 
@@ -200,6 +204,7 @@ async def _signed_in(request: Request, svc: Services) -> tuple[UserRecord, Sessi
 
 @router.get('/auth/me', response_model=Session, operation_id='getMe')
 @access.authenticated
+@access.password_change_allowed
 async def me(request: Request, svc: ServicesDep) -> Session:
     user, record = await _signed_in(request, svc)
     return await _session_body(svc, user, record)

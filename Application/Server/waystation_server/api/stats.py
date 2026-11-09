@@ -291,7 +291,12 @@ def _rate_limit(raw: dict[str, str]) -> RateLimit | None:
 @router.get('/stats/upstreams', response_model=list[UpstreamHealth], operation_id='listUpstreamHealth')
 @access.requires(Action.STATS_READ)
 async def list_upstreams(request: Request, svc: ServicesDep) -> list[UpstreamHealth]:
-    repos = [r for r in await _visible(svc, request) if r.type is RepoType.PROXY and r.proxy is not None]
+    return await upstream_health(svc, await _visible(svc, request))
+
+
+async def upstream_health(svc: Services, visible: list[RepoConfig]) -> list[UpstreamHealth]:
+    """``UpstreamHealth`` of the proxy repositories among ``visible`` (also the ``upstream.state`` event payload)."""
+    repos = [r for r in visible if r.type is RepoType.PROXY and r.proxy is not None]
     states = await repo_stats.health(svc, repos)
     win = series.window('1h')
     rows = await series.collect(svc.db, svc.valkey, win, repo_ids=[r.id for r in repos], group_repo=True)
@@ -312,7 +317,7 @@ async def list_upstreams(request: Request, svc: ServicesDep) -> list[UpstreamHea
                 p95_latency_ms=None,
                 last_error=h.last_error,
                 last_error_at=h.last_error_at,
-                blocked_until=None,
+                blocked_until=h.block.blocked_until if h.block.blocked else None,
                 rate_limit=_rate_limit(h.rate_limit),
             )
         )

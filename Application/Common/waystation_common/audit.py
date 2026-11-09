@@ -122,16 +122,6 @@ SPEC_ACTIONS: dict[str, tuple[AuditAction, ...]] = {
 
 # Actions whose feature does not exist yet → the task that adds the feature (and emits the action).
 PENDING: dict[AuditAction, str] = {
-    A.AUTH_PASSWORD_CHANGE: 'T-S02',
-    A.SESSION_REVOKE: 'T-S02',
-    A.USER_UPDATE: 'T-U08',
-    A.USER_DELETE: 'T-U08',
-    A.GROUP_CREATE: 'T-U08',
-    A.GROUP_UPDATE: 'T-U08',
-    A.GROUP_DELETE: 'T-U08',
-    A.ROLE_CREATE: 'T-S03',
-    A.ROLE_UPDATE: 'T-S03',
-    A.ROLE_DELETE: 'T-S03',
     A.CLEANUP_RUN: 'T-O01',
     A.SETTINGS_UPDATE: 'T-U08 (settings API)',
 }

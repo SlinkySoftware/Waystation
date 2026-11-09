@@ -33,6 +33,14 @@ export interface RepoFormModel {
   // hosted
   writePolicy: WritePolicy
   immutableTags: string[]
+  /** Extra trusted CA certificates (PEM) for this upstream; empty = system CAs only. */
+  caPem: string
+  /** Outbound HTTP proxy for this upstream; empty = the server-wide proxy. */
+  httpProxy: string
+  autoBlock: boolean
+  autoBlockFailures: number
+  autoBlockInitialS: number
+  autoBlockMaxMin: number
   // docker
   aliases: string[]
   dockerHub: boolean
@@ -93,6 +101,12 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     allowPrivate: false,
     writePolicy: 'allow_redeploy',
     immutableTags: [],
+    caPem: '',
+    httpProxy: '',
+    autoBlock: true,
+    autoBlockFailures: 5,
+    autoBlockInitialS: 30,
+    autoBlockMaxMin: 30,
     aliases: [],
     dockerHub: false,
     defaultRepo: false,
@@ -128,6 +142,12 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     allowPrivate: p?.allow_private_upstream ?? false,
     writePolicy: h?.write_policy ?? 'allow_redeploy',
     immutableTags: h?.immutable_tag_patterns ?? [],
+    caPem: p?.ca_pem ?? '',
+    httpProxy: p?.http_proxy ?? '',
+    autoBlock: p?.auto_block?.enabled ?? true,
+    autoBlockFailures: p?.auto_block?.failures ?? 5,
+    autoBlockInitialS: p?.auto_block?.initial_s ?? 30,
+    autoBlockMaxMin: Math.round((p?.auto_block?.max_s ?? 1800) / 60),
     aliases: o.aliases ?? [],
     dockerHub: o.docker_hub ?? false,
     defaultRepo: o.default_repo ?? false,
@@ -186,6 +206,14 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
       stale_on_error: m.staleOnError,
       offline: m.offline,
       allow_private_upstream: m.allowPrivate,
+      ca_pem: m.caPem.trim() || null,
+      http_proxy: m.httpProxy.trim() || null,
+      auto_block: {
+        enabled: m.autoBlock,
+        failures: Math.max(1, Math.round(m.autoBlockFailures)),
+        initial_s: Math.max(1, Math.round(m.autoBlockInitialS)),
+        max_s: Math.max(1, Math.round(m.autoBlockMaxMin * 60)),
+      },
     },
   }
 }

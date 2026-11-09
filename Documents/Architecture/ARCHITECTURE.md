@@ -119,6 +119,13 @@ One shared `httpx.AsyncClient` per upstream host (HTTP/2, connection pooling, li
 plug-ins (basic, bearer, docker token negotiation with cached scoped tokens, GHCR), SSRF-checked resolver,
 timeouts (connect 10 s, read 60 s idle), retries only on idempotent requests and only before first byte.
 
+As implemented (T-S07): clients are keyed by origin, SSRF mode, the repository's CA bundle and its outbound proxy
+(`proxy.http.Network`), so a repository's CA or proxy never applies to another. Through an outbound proxy the proxy
+connects, so the guard resolves and checks every hop's target just before the request instead of at connect time
+(a DNS-rebinding window remains between the two lookups; the proxy itself is administrator-configured). Every
+upstream request first passes the repository's auto-block breaker (`proxy.breaker`, state in the Valkey health hash,
+one probe per ended period across replicas) and reports its outcome to it; Valkey down = no auto-block.
+
 ### 6.2 Freshness
 Each cached asset stores `fetched_at`, `etag`, `last_modified`, `upstream_status`. Metadata older than
 `metadata_max_age` is revalidated (conditional request); on 304 only timestamps change. Content assets are
@@ -164,10 +171,19 @@ Bytes are committed to `blobs/` only after the expected digest/size (when the pr
 Formats without upstream checksums record the computed sha256 and serve consistently.
 
 ## 7. Security model
-- One decision point: `waystation_server.security.access` exposes `check`, `filter_repos`, `filter_query`.
+- One decision point: `waystation_server.security.access` exposes `check`, `filter_repos`, `filter_query`
+  (a MongoDB filter on a repository-id field).
   Every route declares its required action (decorator); a test enumerates all routes and fails if one lacks it.
 - Grants are materialised per principal (roles ∪ group roles ∪ anonymous) into a compact table cached in Valkey
   keyed by `grant_version` (incremented on any RBAC change; change stream invalidation across replicas).
+  As implemented (T-S03): `security.rbac.RbacState` (`Services.rbac`) holds the custom roles, the groups and the
+  anonymous roles of the `grant_version` it loaded; it learns a new version from its own writes at once, from a
+  change stream on `rbac_state` within moments, and from a 5 s poll when the stream is down. Authentication
+  materialises the principal's effective roles into `Principal.grants` (in-process cache per
+  `(grant_version, roles)`, then Valkey `grants:<principal>:<grant_version>`); `access.check` decides from them
+  (built-in roles only when a principal carries none). A version change also drops resolved API-token principals.
+  Delegation is bounded in `access` too: `may_assign` (global actions only by holders, `admin` only by
+  administrators) and `may_manage` (no changing an account that holds more than the caller).
 - Token revocation: revoking an API token (or changing/disabling/deleting a service account) is announced on the
   Valkey pub/sub channel `revocations` (a token id, or `*` = drop everything); every replica's listener drops the
   cached entry at once (< 1 s), and clears its whole cache whenever it (re)subscribes. MongoDB stays
