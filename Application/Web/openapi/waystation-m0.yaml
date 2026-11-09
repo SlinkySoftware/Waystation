@@ -42,6 +42,7 @@ tags:
   - name: cleanup
   - name: tasks
   - name: admin
+  - name: import
 security:
   - session: []
   - bearer: []
@@ -748,6 +749,79 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /users/{user_id}/sessions:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [admin]
+      operationId: listUserSessions
+      summary: A user's sessions, newest first (`current` marks the caller's own session)
+      responses:
+        '200':
+          description: Sessions (ids are opaque and never usable as cookies)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SessionInfo' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [admin]
+      operationId: revokeUserSessions
+      summary: Sign a user out everywhere (every session ends; API tokens are not affected)
+      description: A user holding more than the caller cannot be signed out by it (403). Audited as `session.revoke`.
+      responses:
+        '200':
+          description: How many sessions ended
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionsRevoked' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /settings:
+    get:
+      tags: [admin]
+      operationId: getSettings
+      summary: Instance settings, and the limits set in the environment (read-only); needs `settings-admin`
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstanceSettings' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [admin]
+      operationId: updateSettings
+      summary: Change the instance settings (applied by every replica within seconds; audited as `settings.update`)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InstanceSettingsWrite' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstanceSettings' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /system:
+    get:
+      tags: [admin]
+      operationId: getSystem
+      summary: Version, MongoDB and Valkey health, and the data directory's usage; needs `admin`
+      responses:
+        '200':
+          description: System status (always 200; a component that does not answer is `unavailable`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SystemInfo' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /auth-providers:
     get:
       tags: [admin]
@@ -1348,6 +1422,57 @@ paths:
               schema: { $ref: '#/components/schemas/RepositoryCleanup' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  # ---------------------------------------------------------------- import from Nexus (T-M01; needs `admin`)
+  /import/nexus/preview:
+    post:
+      tags: [import]
+      operationId: previewNexusImport
+      summary: Dry run of an import from Nexus Repository 3 (nothing is written; needs `admin`)
+      description: |
+        Reads the repository configuration of the Nexus at `url` through its REST API (basic auth with a Nexus
+        administrator; the credentials are used for this request only, never stored, logged or returned) and plans
+        every repository: `create` (with the repository it would create), `exists` (name taken; never changed;
+        field-level `differences`), `unsupported` or `invalid` (with the reason). Nexus errors (unreachable, refused
+        credentials, private address without `allow_private`) answer 502 with the reason in `detail`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NexusImportRequest' }
+      responses:
+        '200':
+          description: The plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NexusImportReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+  /import/nexus/apply:
+    post:
+      tags: [import]
+      operationId: applyNexusImport
+      summary: Import repositories from Nexus Repository 3 (needs `admin`)
+      description: |
+        Reads Nexus again (nothing is kept from a preview) and creates the selected `create` repositories (members
+        before groups), each audited as `repository.create`. Idempotent: names that exist by then are reported
+        `exists` and left alone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NexusApplyRequest' }
+      responses:
+        '200':
+          description: What happened to each repository
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NexusImportReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '502': { $ref: '#/components/responses/BadGateway' }
 
   /cleanup-policies:
     get:
@@ -2144,6 +2269,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+    BadGateway:
+      description: A remote system the request depends on failed (the reason is in `detail`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
 
   schemas:
     # ---------------------------------------------------------------- common
@@ -2651,6 +2781,75 @@ components:
           items: { type: string }
 
     # ---------------------------------------------------------------- administration: sign-in providers, roles
+    InstanceSettings:
+      type: object
+      required: [general, limits, updated_at, updated_by]
+      properties:
+        general: { $ref: '#/components/schemas/GeneralSettings' }
+        limits: { $ref: '#/components/schemas/EnvironmentLimits' }
+        updated_at: { type: [string, 'null'], format: date-time, description: null until first saved }
+        updated_by: { type: [string, 'null'], description: Username of the last change }
+    InstanceSettingsWrite:
+      type: object
+      required: [general]
+      additionalProperties: false
+      properties:
+        general: { $ref: '#/components/schemas/GeneralSettings' }
+    GeneralSettings:
+      type: object
+      required: [instance_name]
+      additionalProperties: false
+      properties:
+        instance_name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Shown in the top bar, the sign-in page and the browser title (default `WAYSTATION_INSTANCE_NAME`)
+    EnvironmentLimits:
+      type: object
+      description: Set with environment variables (SPECIFICATION §9); shown for reference
+      required: [session_idle_minutes, session_max_hours, login_rate_limit, login_lockout_failures, login_lockout_minutes,
+                 token_failure_limit, audit_retention_days, stats_minute_retention_days, max_upload_bytes, min_free_bytes]
+      properties:
+        session_idle_minutes: { type: integer }
+        session_max_hours: { type: integer }
+        login_rate_limit: { type: integer, description: Sign-in attempts per client address per 5 minutes }
+        login_lockout_failures: { type: integer }
+        login_lockout_minutes: { type: integer }
+        token_failure_limit: { type: integer, description: Rejected API tokens per client address per 5 minutes }
+        audit_retention_days: { type: integer }
+        stats_minute_retention_days: { type: integer, description: Per-minute statistics are kept this long }
+        max_upload_bytes: { type: integer, description: Largest single upload or cached file }
+        min_free_bytes: { type: integer, description: New cache and upload writes are refused below this much free space }
+    SystemInfo:
+      type: object
+      required: [version, python, started_at, components, storage]
+      properties:
+        version: { type: string }
+        python: { type: string, description: Python version of the server process }
+        started_at: { $ref: '#/components/schemas/Timestamp', description: When the answering server process started }
+        components:
+          type: array
+          items: { $ref: '#/components/schemas/SystemComponent' }
+        storage: { $ref: '#/components/schemas/SystemStorage' }
+    SystemComponent:
+      type: object
+      required: [name, status, version, latency_ms, detail]
+      properties:
+        name: { type: string, enum: [mongodb, valkey] }
+        status: { type: string, enum: [ok, unavailable] }
+        version: { type: [string, 'null'] }
+        latency_ms: { type: [number, 'null'], description: Round trip of a ping }
+        detail: { type: [string, 'null'], description: Why it is unavailable (the error class only) }
+    SystemStorage:
+      type: object
+      required: [path, total_bytes, used_bytes, free_bytes, min_free_bytes]
+      properties:
+        path: { type: string, description: The data directory (`WAYSTATION_DATA_DIR`) }
+        total_bytes: { type: [integer, 'null'], description: null when the volume cannot be read }
+        used_bytes: { type: [integer, 'null'] }
+        free_bytes: { type: [integer, 'null'] }
+        min_free_bytes: { type: integer, description: New writes are refused below this much free space }
     AnonymousAccess:
       type: object
       required: [roles]
@@ -3198,6 +3397,147 @@ components:
         notes:
           type: array
           items: { type: string }
+
+    # ---------------------------------------------------------------- import from Nexus (T-M01)
+    NexusImportRequest:
+      type: object
+      additionalProperties: false
+      required: [url, username, password]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+        username: { type: string, minLength: 1, maxLength: 256, description: A Nexus administrator (reads the configuration) }
+        password: { type: string, format: password, minLength: 1, maxLength: 1024, writeOnly: true }
+        allow_private:
+          type: boolean
+          default: false
+          description: Allow a Nexus on a private or loopback address (SSRF guard exception)
+        ca_pem:
+          type: [string, 'null']
+          maxLength: 262144
+          description: Extra CA certificates (PEM) trusted for the Nexus TLS certificate
+        docker_aliases:
+          type: boolean
+          default: true
+          description: Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+        default_docker_repo:
+          type: [string, 'null']
+          maxLength: 63
+          description: Nexus docker repository to make the default docker repository; null = detect it
+    NexusApplyRequest:
+      type: object
+      additionalProperties: false
+      required: [url, username, password]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+        username: { type: string, minLength: 1, maxLength: 256, description: A Nexus administrator (reads the configuration) }
+        password: { type: string, format: password, minLength: 1, maxLength: 1024, writeOnly: true }
+        allow_private:
+          type: boolean
+          default: false
+          description: Allow a Nexus on a private or loopback address (SSRF guard exception)
+        ca_pem:
+          type: [string, 'null']
+          maxLength: 262144
+          description: Extra CA certificates (PEM) trusted for the Nexus TLS certificate
+        docker_aliases:
+          type: boolean
+          default: true
+          description: Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+        default_docker_repo:
+          type: [string, 'null']
+          maxLength: 63
+          description: Nexus docker repository to make the default docker repository; null = detect it
+        repositories:
+          type: [array, 'null']
+          maxItems: 1000
+          items: { type: string }
+          description: Names to import (from the preview); null = every repository the preview would create
+    ImportDifference:
+      type: object
+      required: [field, nexus, waystation, note]
+      properties:
+        field: { type: string, description: Waystation field or Nexus setting }
+        nexus: { type: [string, 'null'] }
+        waystation: { type: [string, 'null'] }
+        note: { type: string }
+    NexusImportAction:
+      type: string
+      enum: [create, exists, unsupported, invalid]
+    NexusImportOutcome:
+      type: string
+      enum: [created, exists, unsupported, invalid, failed, not_selected]
+    NexusImportItem:
+      type: object
+      required: [name, nexus_format, nexus_type, format, type, action, outcome, reason, repository, differences, notes]
+      properties:
+        name: { type: string }
+        nexus_format: { type: string }
+        nexus_type: { type: string }
+        format:
+          oneOf:
+            - $ref: '#/components/schemas/Format'
+            - type: 'null'
+        type:
+          oneOf:
+            - $ref: '#/components/schemas/RepositoryType'
+            - type: 'null'
+        action: { $ref: '#/components/schemas/NexusImportAction' }
+        outcome:
+          description: 'Apply only: what happened'
+          oneOf:
+            - $ref: '#/components/schemas/NexusImportOutcome'
+            - type: 'null'
+        reason: { type: [string, 'null'] }
+        repository:
+          description: The Waystation repository; created when `action` is `create`, for `exists` what the import would have created
+          oneOf:
+            - $ref: '#/components/schemas/RepositoryWrite'
+            - type: 'null'
+        differences:
+          type: array
+          items: { $ref: '#/components/schemas/ImportDifference' }
+        notes:
+          type: array
+          items: { type: string }
+    DefaultDockerChoice:
+      type: object
+      required: [name, reason]
+      properties:
+        name: { type: [string, 'null'], description: Repository that receives unprefixed docker names after the import }
+        reason: { type: string }
+    ImportSummary:
+      type: object
+      required: [total, create, exists, unsupported, invalid, created, failed]
+      properties:
+        total: { type: integer }
+        create: { type: integer }
+        exists: { type: integer }
+        unsupported: { type: integer }
+        invalid: { type: integer }
+        created: { type: integer }
+        failed: { type: integer }
+    NexusImportReport:
+      type: object
+      required: [applied, nexus_version, items, summary, default_docker_repo]
+      properties:
+        applied: { type: boolean }
+        nexus_version: { type: [string, 'null'], description: From the Nexus `Server` header, when it sends one }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/NexusImportItem' }
+        summary: { $ref: '#/components/schemas/ImportSummary' }
+        default_docker_repo:
+          oneOf:
+            - $ref: '#/components/schemas/DefaultDockerChoice'
+            - type: 'null'
 
     # ---------------------------------------------------------------- browse
     FolderEntry:

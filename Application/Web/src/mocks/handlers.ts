@@ -8,7 +8,9 @@ import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, Pa
 import { M0_FORMATS } from '@/api/types'
 
 import { activityCsv, activityPage, activityQuery } from './activity'
+import { adminHandlers, AdminWorld } from './admin'
 import { auditHandlers, recordAudit } from './audit'
+import { ADMIN_USER_ID, CUSTOM_ROLES } from './fixtures/admin'
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
@@ -16,11 +18,12 @@ import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
+import { nexusImportHandlers } from './nexusImport'
 import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
-import { tokenHandlers } from './tokens'
+import { serviceAccounts, tokenHandlers } from './tokens'
 import { upstreamHealth, world } from './world'
 
 const API = '/api/v1'
@@ -30,6 +33,8 @@ const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$/
 
 let preferences: Preferences = { theme: 'system', density: 'comfortable' }
 const providers = seedProviders()
+ROLES.push(...CUSTOM_ROLES.map((r) => ({ ...r, permissions: [...r.permissions] })))
+const admin = new AdminWorld({ roles: ROLES, providers: () => providers, repos: () => world.repos, serviceAccounts })
 
 function signedInUser(): string | null {
   try {
@@ -39,11 +44,16 @@ function signedInUser(): string | null {
   }
 }
 
+/** The mock session: a seeded user (sign in as `helpdesk` to see a user-admin who is not an administrator) or, for
+ * any other name, an administrator. */
 function session(username: string): Session {
+  const known = admin.users.find((u) => u.username === username)
   return {
-    user: { id: '01JC0000000000000000000ADM', username, display_name: username === 'admin' ? 'Administrator' : username, email: `${username}@example.com`, source: 'local' },
+    user: known
+      ? { id: known.id, username, display_name: known.display_name, email: known.email ?? null, source: known.source }
+      : { id: ADMIN_USER_ID, username, display_name: username === 'admin' ? 'Administrator' : username, email: `${username}@example.com`, source: 'local' },
     csrf_token: CSRF,
-    capabilities: ['admin', 'repositories.create', 'repositories.manage', 'stats.read', 'audit.read', 'users.admin', 'settings.admin'],
+    capabilities: admin.capabilities(username),
     preferences,
     expires_at: new Date(Date.now() + 12 * 3_600_000).toISOString(),
     must_change_password: false,
@@ -219,7 +229,7 @@ function repoGuard(name: string | readonly string[] | undefined, format?: Format
 export const handlers = [
   http.get(`${API}/config`, async () => {
     await latency()
-    return HttpResponse.json({ instance_name: 'Waystation', base_url: BASE_URL, version: '0.1.0-m0 (mock)', docker: { registry_host: REGISTRY_HOST, default_repo: world.repos.find((r) => (r.format_options as { default_repo?: boolean } | undefined)?.default_repo)?.name ?? null } })
+    return HttpResponse.json({ instance_name: admin.instanceName, base_url: BASE_URL, version: '0.1.0-m0 (mock)', docker: { registry_host: REGISTRY_HOST, default_repo: world.repos.find((r) => (r.format_options as { default_repo?: boolean } | undefined)?.default_repo)?.name ?? null } })
   }),
   http.get(`${API}/auth/providers`, () =>
     HttpResponse.json([
@@ -278,8 +288,14 @@ export const handlers = [
   // ---------------------------------------------------------------- cleanup policies and blob GC
   ...cleanupHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
+  // ---------------------------------------------------------------- users, groups, roles, settings, system (T-U08)
+  ...adminHandlers({ guard, problem, notFound, latency, currentUser: signedInUser, storage: () => ({ total: world.storageTotal, used: world.storageUsed + 312 * 1024 ** 3 }) }, admin),
+
   // ---------------------------------------------------------------- tasks and workers (T-O04)
   ...tasksHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
+
+  // ---------------------------------------------------------------- import from Nexus (T-M01)
+  ...nexusImportHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }, (body) => toRepository(body)),
 
   // ---------------------------------------------------------------- audit log (T-S10)
   ...auditHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
@@ -587,11 +603,6 @@ export const handlers = [
   }),
 
   // ---------------------------------------------------------------- administration: sign-in providers, roles
-  http.get(`${API}/roles`, async ({ request }) => {
-    const denied = guard(request)
-    if (denied) return denied
-    return HttpResponse.json(ROLES)
-  }),
   http.get(`${API}/auth-providers`, async ({ request }) => {
     const denied = guard(request)
     if (denied) return denied

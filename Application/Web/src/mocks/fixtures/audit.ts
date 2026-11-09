@@ -72,7 +72,7 @@ const TEMPLATES: Template[] = [
   { action: 'content.upload', weight: 2, make: () => ({ actor: ACTORS.ci, target: target('repository', 'raw-releases'), details: { path: 'tools/waystation-cli-1.4.2-linux-amd64.tar.gz', size: 18_402_311 } }) },
   { action: 'content.delete', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('repository', 'raw-releases'), details: { path: 'tools/waystation-cli-1.2.0-linux-amd64.tar.gz' } }) },
   { action: 'cleanup.run', weight: 3, make: (n) => ({ actor: ACTORS.system, target: repoTarget(n), details: { policy: 'Unused for 90 days', deleted_assets: Math.floor(between(3, 900, n)), reclaimed_bytes: Math.floor(between(1e6, 8e9, n)) } }) },
-  { action: 'settings.update', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('settings', 'security'), changes: [change('session_idle_minutes', 480, 240), change('audit_retention_days', 400, 730)] }) },
+  { action: 'settings.update', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('settings', 'general'), changes: [change('instance_name', 'Waystation', 'Package mirror')] }) },
 ]
 
 function requestId(next: () => number): string {

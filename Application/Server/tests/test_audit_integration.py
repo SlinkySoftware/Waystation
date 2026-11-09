@@ -444,6 +444,14 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     assert sorted(s['changes'][0]['after'] for s in syncs) == [[], ['ops']]
     rec.seen.add(A.USER_GROUPS_SYNC)
 
+    # --- instance settings
+    saved = await admin.put(f'{api}/settings', json={'general': {'instance_name': 'Package mirror'}})
+    assert saved.status_code == 200, saved.text
+    settings_changed = await rec.expect(A.SETTINGS_UPDATE, **{'target.id': 'general'})
+    assert settings_changed['changes'] == [
+        {'field': 'instance_name', 'before': 'Waystation', 'after': 'Package mirror', 'redacted': False}
+    ]
+
     # --- tasks: schedule edit, run now, dead-letter retry and discard
     await services.db[JOB_DEFINITIONS].insert_one(
         {'_id': 'blob.gc', 'kind': BlobGc.kind, 'params': {}, 'schedule': '0 */6 * * *', 'enabled': True}

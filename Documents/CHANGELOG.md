@@ -24,6 +24,30 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   client-harness step pushing to a hard-quota docker hosted repository.
 
 ## 2026-11-09
+- T-M01: Import from Nexus. `waystation_server.migration` reads a Nexus Repository 3 configuration over its REST API
+  (`/service/rest/v1/repositories` + per-format detail endpoints, list-entry fallback; basic auth per request, never
+  stored or logged; SSRF guard with `allow_private`, optional CA bundle, no redirects, bounded sizes, count and time),
+  maps each repository (name, format, type, upstream, metadata/content ages, negative cache, auto-block, blocked →
+  offline, docker Hub + upstream-host aliases, default docker repository from the request, a connector or the only
+  Hub proxy, apt distribution, raw disposition, hosted write policy and group members where supported) and reports
+  create / exists / unsupported / invalid with field-level differences. REST `POST /api/v1/import/nexus/preview`
+  (dry run) and `/apply` (selection, members before groups, idempotent, `repository.create` audit records with
+  `details.source=nexus_import`), contract + regenerated client, `repos.service.check` (dry-run validation). UI:
+  Repositories → "Import from Nexus" page (connect, plan table with selection and differences, apply), MSW mocks,
+  screenshot-tour entries. Tests on hand-written Nexus 3 REST fixtures served by the fake upstream (unit + API
+  integration); no live Nexus.
+- T-U08: Administration UI. Users (list with source badge, roles, last sign-in and status; filters in the URL;
+  keyset paging; create a local user with or without a password, edit, reset password, unlock, disable/enable, sign
+  out everywhere, delete) and a page per user (linked identities; local, mapped and provider-reported groups;
+  effective permissions with a repository × action matrix; sessions; API tokens). Groups (local CRUD and members,
+  mapped groups' roles), Roles (permission matrix editor with live scope matches, built-ins read-only, duplicate,
+  "held by") with an Anonymous access card, API tokens (every token, revoke) with Service accounts (tokens shown once,
+  permissions), Settings and System pages; 403/409 refusals shown with the server's reason; rail items by capability
+  (Auth providers now needs `settings.admin`, like its API). New API: `GET/DELETE /users/{id}/sessions` (audited
+  `session.revoke` with `details.by_admin`), `GET/PUT /settings` (instance name in the `settings` collection, served
+  by `/config`, audited `settings.update`; environment limits read-only), `GET /system` (version, MongoDB/Valkey
+  health, data volume). MSW mocks for every administration endpoint (`mocks/admin.ts`; sign in as `helpdesk` for a
+  user-admin who is not an administrator). T-A03 done with the Users/Groups pages.
 - T-P2-DOCKERG: docker group repositories (`formats/docker/group.py`). Model/REST/contract `group{members,
   writable_member}` (validated: existing docker members, no nesting, no duplicates, writable member hosted; the
   descriptor's `writable_group_member`); a repository in a group cannot be deleted (409). Reads try members in order,

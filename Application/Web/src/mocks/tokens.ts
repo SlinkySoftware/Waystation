@@ -6,11 +6,14 @@ import { http, HttpResponse } from 'msw'
 
 import type { ApiToken, ApiTokenCreate, FieldError, ServiceAccount, ServiceAccountCreate, ServiceAccountUpdate, TokenScope } from '@/api/types'
 
+import { ROLES } from './fixtures/authProviders'
+
 const API = '/api/v1'
 export const ALL_SCOPES: TokenScope[] = ['read', 'write', 'delete', 'manage', 'stats-read', 'metrics', 'admin']
 const PATTERN_RE = /^(?:format:[a-z0-9]+|type:(?:proxy|hosted|group)|[A-Za-z0-9._\-*?]{1,128})$/
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9._-]{1,62}$/
-const ROLES = ['admin', 'reader', 'deployer', 'viewer']
+/** Role ids a service account may hold: the shared mock role list (built-in and custom). */
+const roleIds = () => ROLES.map((r) => r.id)
 const DAY = 86_400_000
 
 export interface MockHelpers {
@@ -66,7 +69,23 @@ const tokens: StoredToken[] = [
 
 const accounts: ServiceAccount[] = [
   { id: '01JC00000000000000000SA001', name: 'ci-runner', description: 'Pipelines that build and push images', roles: ['deployer'], disabled: false, active_tokens: 0, created_at: ago(30 * DAY) },
+  { id: '01JC00000000000000000SA002', name: 'npm-release', description: 'Publishes the shared npm packages from CI', roles: ['npm-publisher'], disabled: false, active_tokens: 0, created_at: ago(75 * DAY) },
+  { id: '01JC00000000000000000SA003', name: 'legacy-backup', description: 'Old backup job (replaced)', roles: ['reader'], disabled: true, active_tokens: 0, created_at: ago(380 * DAY) },
 ]
+
+/** The service accounts (the identity mocks count who holds a role and compute effective permissions from them). */
+export const serviceAccounts = (): ServiceAccount[] => accounts
+
+tokens.push(
+  {
+    ownerKey: 'sa:01JC00000000000000000SA001',
+    token: seedToken('GitLab runner', ['read', 'write'], ['dockerhub-proxy', 'ghcr-proxy'], { owner: { kind: 'service_account', id: '01JC00000000000000000SA001', name: 'ci-runner' }, created_at: ago(28 * DAY), expires_at: ahead(62 * DAY), last_used_at: ago(11 * 60_000), last_used_ip: '192.0.2.41' }),
+  },
+  {
+    ownerKey: 'sa:01JC00000000000000000SA002',
+    token: seedToken('npm publish', ['read', 'write'], ['format:npm'], { owner: { kind: 'service_account', id: '01JC00000000000000000SA002', name: 'npm-release' }, created_at: ago(70 * DAY), expires_at: ahead(295 * DAY), last_used_at: ago(3 * DAY), last_used_ip: '192.0.2.42' }),
+  },
+)
 
 /** Seeded tokens belong to whoever is signed in to the mock (`user:*`). */
 function mine(user: string, stored: StoredToken): boolean {
@@ -127,11 +146,14 @@ function accountBody(account: ServiceAccount): ServiceAccount {
 }
 
 function accountScopes(account: ServiceAccount): TokenScope[] {
-  if (account.roles.includes('admin')) return ALL_SCOPES
+  const perms = account.roles.flatMap((id) => ROLES.find((r) => r.id === id)?.permissions ?? [])
+  if (perms.some((p) => p.action === 'admin')) return ALL_SCOPES
   const out = new Set<TokenScope>()
-  if (account.roles.some((r) => ['reader', 'deployer'].includes(r))) out.add('read')
-  if (account.roles.includes('deployer')) out.add('write')
-  if (account.roles.includes('viewer')) ['stats-read', 'metrics'].forEach((s) => out.add(s as TokenScope))
+  for (const p of perms) {
+    if (['browse', 'read', 'write', 'delete', 'manage'].includes(p.action)) out.add('read')
+    if (['write', 'delete', 'manage'].includes(p.action)) out.add(p.action as TokenScope)
+    if (p.action === 'stats-read') ['stats-read', 'metrics'].forEach((s) => out.add(s as TokenScope))
+  }
   return ALL_SCOPES.filter((s) => out.has(s))
 }
 
@@ -195,7 +217,7 @@ export function tokenHandlers(h: MockHelpers) {
       const errors: FieldError[] = []
       if (!ACCOUNT_RE.test(name)) errors.push({ field: 'name', message: 'Lower case letters, digits, ".", "_" and "-".', code: 'pattern' })
       ;(body.roles ?? []).forEach((r, i) => {
-        if (!ROLES.includes(r)) errors.push({ field: `roles.${i}`, message: `Unknown role '${r}'.`, code: 'role' })
+        if (!roleIds().includes(r)) errors.push({ field: `roles.${i}`, message: `Unknown role '${r}'.`, code: 'role' })
       })
       if (errors.length) return h.problem(422, 'Unprocessable Content', 'The request has invalid fields.', errors)
       if (accounts.some((a) => a.name === name)) return h.problem(409, 'Conflict', 'A service account with this name already exists.')
