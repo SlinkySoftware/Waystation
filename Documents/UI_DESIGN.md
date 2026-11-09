@@ -110,6 +110,9 @@ Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. 
   referrers (signatures, SBOM) list, pull commands by tag and by digest).
 - **npm / PyPI / Maven / NuGet / Helm / Galaxy / Swift**: package → versions table (version, published, size,
   downloads, deprecated/yanked flags), README rendered safely (sanitised markdown, no raw HTML), dependencies.
+  Built for Maven (T-P5-MAVEN): artifacts table (artifactId over its groupId, latest, version count, filter by
+  groupId or artifactId) → versions table (Maven order, SNAPSHOT badge, files, size, deployed by; a copyable
+  `<dependency>` snippet) → the version's files (name, size, modified, copy download URL).
 - **apt / yum**: suites/components/arches tree → package list with versions and arch.
 - **Raw**: folder listing.
 
