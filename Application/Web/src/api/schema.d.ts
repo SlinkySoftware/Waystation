@@ -1021,6 +1021,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/pypi/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Projects cached (proxy) or uploaded (hosted) in a PyPI repository; groups are browsed through their members */
+        get: operations["listPypiProjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/pypi/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One project and its versions with their files (newest first, PEP 440) */
+        get: operations["listPypiVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/pypi/yank": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Yank (PEP 592) or un-yank every file of a version of a hosted PyPI repository (needs `write`) */
+        post: operations["yankPypiVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/apt/suites": {
         parameters: {
             query?: never;
@@ -2451,8 +2508,15 @@ export interface components {
             /** @description `gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams */
             gpg_key?: string | null;
         };
+        PypiOptions: {
+            /**
+             * @description Proxy the legacy JSON API (`/pypi/<project>/json`) to the upstream (proxy repositories)
+             * @default true
+             */
+            json_api: boolean;
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["PypiOptions"];
         RepositoryWrite: {
             name: components["schemas"]["RepositoryName"];
             format: components["schemas"]["Format"];
@@ -2690,6 +2754,77 @@ export interface components {
             };
             items: components["schemas"]["NpmVersion"][];
             next_cursor: string | null;
+        };
+        PypiProject: {
+            /** @description Normalised project name (PEP 503) */
+            name: string;
+            display_name: string;
+            summary?: string | null;
+            /** @description Newest final release (PEP 440), else the newest version */
+            latest?: string | null;
+            /** @description Versions on the project page */
+            version_count: number;
+            /** @description Distribution files held: cached (proxy) or uploaded (hosted) */
+            files: number;
+            size_bytes: number;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+            downloads?: number;
+        };
+        PypiProjectPage: {
+            items: components["schemas"]["PypiProject"][];
+            next_cursor: string | null;
+        };
+        PypiFile: {
+            filename: string;
+            /** @enum {string} */
+            kind: "wheel" | "sdist" | "other";
+            size?: number | null;
+            sha256?: string | null;
+            requires_python?: string | null;
+            yanked?: boolean;
+            yanked_reason?: string | null;
+            /** @description A PEP 658 `.metadata` file is available */
+            core_metadata?: boolean;
+            /** @description Held by this repository (cached or uploaded) */
+            cached: boolean;
+            /** Format: date-time */
+            uploaded_at?: string | null;
+            /** @description Hosted: who uploaded the file */
+            uploaded_by?: string | null;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+            downloads?: number;
+        };
+        PypiVersion: {
+            version: string;
+            prerelease: boolean;
+            /** @description Every file of the version is yanked */
+            yanked: boolean;
+            files: components["schemas"]["PypiFile"][];
+            cached_files: number;
+            /** @description Bytes of the files held */
+            size_bytes: number;
+        };
+        PypiVersionPage: {
+            project: components["schemas"]["PypiProject"];
+            /** @description Newest first (PEP 440) */
+            items: components["schemas"]["PypiVersion"][];
+            next_cursor: string | null;
+        };
+        PypiYank: {
+            project: string;
+            version: string;
+            /** @description True: yank every file of the version (PEP 592); false: un-yank */
+            yanked: boolean;
+            reason?: string | null;
+        };
+        PypiYankResult: {
+            project: string;
+            version: string;
+            yanked: boolean;
+            /** @description Files changed */
+            files: number;
         };
         AptSuite: {
             suite: string;
@@ -5533,6 +5668,92 @@ export interface operations {
                     "application/json": components["schemas"]["NpmVersionPage"];
                 };
             };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPypiProjects: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Projects */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PypiProjectPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listPypiVersions: {
+        parameters: {
+            query: {
+                /** @description Project name (any spelling; normalised per PEP 503) */
+                project: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PypiVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    yankPypiVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PypiYank"];
+            };
+        };
+        responses: {
+            /** @description Files changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PypiYankResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
