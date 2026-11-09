@@ -1,0 +1,39 @@
+{
+  "name": "ubuntu-security",
+  "format": "apt",
+  "type": "proxy",
+  "url": "https://nexus.example.com/repository/ubuntu-security",
+  "online": true,
+  "storage": {
+    "blobStoreName": "default",
+    "strictContentTypeValidation": true
+  },
+  "cleanup": null,
+  "proxy": {
+    "remoteUrl": "http://security.ubuntu.com/ubuntu/",
+    "contentMaxAge": -1,
+    "metadataMaxAge": 60
+  },
+  "negativeCache": {
+    "enabled": true,
+    "timeToLive": 1440
+  },
+  "httpClient": {
+    "blocked": false,
+    "autoBlock": true,
+    "connection": {
+      "retries": null,
+      "userAgentSuffix": null,
+      "timeout": null,
+      "enableCircularRedirects": false,
+      "enableCookies": false,
+      "useTrustStore": false
+    },
+    "authentication": null
+  },
+  "routingRuleName": null,
+  "apt": {
+    "distribution": "noble-security",
+    "flat": false
+  }
+}

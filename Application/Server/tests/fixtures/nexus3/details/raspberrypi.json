@@ -1,0 +1,39 @@
+{
+  "name": "raspberrypi",
+  "format": "apt",
+  "type": "proxy",
+  "url": "https://nexus.example.com/repository/raspberrypi",
+  "online": true,
+  "storage": {
+    "blobStoreName": "default",
+    "strictContentTypeValidation": true
+  },
+  "cleanup": null,
+  "proxy": {
+    "remoteUrl": "http://archive.raspberrypi.com/debian/",
+    "contentMaxAge": -1,
+    "metadataMaxAge": 1440
+  },
+  "negativeCache": {
+    "enabled": true,
+    "timeToLive": 1440
+  },
+  "httpClient": {
+    "blocked": false,
+    "autoBlock": true,
+    "connection": {
+      "retries": null,
+      "userAgentSuffix": null,
+      "timeout": null,
+      "enableCircularRedirects": false,
+      "enableCookies": false,
+      "useTrustStore": false
+    },
+    "authentication": null
+  },
+  "routingRuleName": null,
+  "apt": {
+    "distribution": "trixie",
+    "flat": false
+  }
+}

@@ -18,6 +18,7 @@ import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
+import { nexusImportHandlers } from './nexusImport'
 import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
@@ -271,6 +272,9 @@ export const handlers = [
 
   // ---------------------------------------------------------------- tasks and workers (T-O04)
   ...tasksHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
+
+  // ---------------------------------------------------------------- import from Nexus (T-M01)
+  ...nexusImportHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }, (body) => toRepository(body)),
 
   // ---------------------------------------------------------------- audit log (T-S10)
   ...auditHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),

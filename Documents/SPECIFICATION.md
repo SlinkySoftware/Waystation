@@ -465,9 +465,40 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   (`GET/DELETE /api/v1/users/{id}/sessions`, `user-admin`; not for a user holding more than the caller).
 - UI: Administration → Users (and a page per user), Groups, Roles (with Anonymous access), Auth providers, API tokens
   (with Service accounts), Audit log, Settings, System; each rail item shows only with the matching capability.
-- **Import from Nexus**: read a Nexus instance's repository list via its REST API and create equivalent repos
-  (names, formats, types, upstreams, docker routing); cached content is re-fetched on demand, hosted content
-  can be migrated by a worker job (Phase 6).
+- **Import from Nexus** (`admin`; REST `POST /api/v1/import/nexus/preview` and `/apply`; UI Repositories → "Import
+  from Nexus"): reads a Nexus Repository 3 configuration through its REST API (`/service/rest/v1/repositories`, then
+  `/service/rest/v1/repositories/<format>/<type>/<name>` per repository, `maven` for `maven2`; a repository without
+  a detail endpoint is mapped from its list entry) and creates equivalent repositories; cached content is re-fetched
+  on demand, hosted content can be migrated by a worker job (Phase 6).
+  - **Connection**: the administrator gives the Nexus base URL (http(s), no credentials in it) and a Nexus
+    administrator's username and password, sent as basic auth to that origin only, for that request only: never
+    stored, logged, audited or returned. The SSRF guard applies (a Nexus on a private or loopback address needs
+    `allow_private`), optional extra CA certificates (`ca_pem`), no redirects followed, bodies bounded (list 8 MiB,
+    detail 1 MiB, 1000 repositories, 120 s overall). Unreachable Nexus, refused credentials (401/403), a redirect or
+    a non-Nexus answer → 502 problem with the reason; a bad URL or CA bundle → 422 field errors.
+  - **Mapping**: same name (ADR 0003), format (`maven2` → `maven`; formats Waystation does not serve, or types it
+    does not offer yet, are `unsupported` with the reason), type, `online`; proxy `remoteUrl` → `upstream_url`,
+    `metadataMaxAge` (minutes) → `metadata_max_age_s` (-1 keeps the default), `contentMaxAge` → `content_max_age_s`
+    for raw (docker, npm, apt and yum content is checksum-verified and kept forever), negative cache (disabled = 0),
+    `autoBlock` → `auto_block.enabled`, a blocked Nexus repository → `offline`. Docker: index `HUB` (or a Docker Hub
+    remote) → `docker_hub`; the upstream host becomes an alias (`docker.io` for Docker Hub, `ghcr.io`, ...; option
+    `docker_aliases`, default on; an alias already routed or equal to a repository name is dropped); connector ports
+    and subdomains are reported, not imported. apt `distribution`/`flat`; raw `contentDisposition`; hosted
+    `writePolicy` and group members/writable member when this server has hosted/group repositories of that format.
+    Upstream credentials cannot be imported (Nexus never returns passwords): the repository is created without
+    authentication and the report says so. Settings without an equivalent (cleanup policies, routing rules, blob
+    stores, truststore use, connection tuning, signing keys, ...) are listed as differences.
+  - **Default docker repository**: the one named in the request (`default_docker_repo`), else the Docker Hub proxy
+    behind a Nexus connector (directly, or the first Docker Hub member of a connector group), else the only Docker
+    Hub proxy; never changed when Waystation already has one.
+  - **Preview** (dry run, writes nothing): per Nexus repository `create` (with the exact repository it creates,
+    checked by the same validation as the repositories API), `exists` (a repository with that name exists,
+    case-insensitively: never changed; field-level differences against it), `unsupported` or `invalid` (with the
+    reason); field-level `differences` (setting, Nexus value, Waystation value, why) and notes on every item.
+  - **Apply** reads Nexus again (nothing is kept between the two calls), creates the selected `create` items
+    (all by default) members before groups, each audited as `repository.create` with `details.source`
+    `nexus_import`, and reports each outcome (`created`, `exists`, `failed` with the field errors, `not_selected`,
+    ...). Idempotent: a name that exists by then is reported `exists` and left alone.
 - Webhooks (Phase 6): on push/publish/delete, signed payloads.
 
 ## 5. Non-functional requirements
@@ -763,6 +794,7 @@ Waystation/
 | Blob GC (T-O02) | Done 2026-11-09: `blob.gc` worker job (every 6 h, 24 h grace): orphan uploads, adoption of untracked files, mark-and-sweep with a claim protocol that makes a racing cache fill safe (property test + real fill-vs-sweep race test), missing referenced blobs reported; GC status/run API and UI card; freed bytes as activity events and Prometheus counters (`waystation_gc_*`, `waystation_cleanup_*`) |
 | Tasks and workers (T-O04) | Done 2026-11-09: REST `/api/v1/tasks/*` (admin): scheduled tasks with last/next run, schedule edit (validated cron/macro/`@every` ≥ 10 s; restarts the timer; cleanup-policy schedules stay with the policy) and pause/resume, run now; job runs with filters, keyset cursor and detail with the capped log (`trigger` schedule/manual/retry on runs); workers (heartbeat health, running jobs with run ids, leader) and queue figures; dead letters with atomic, idempotent retry (`jobs:dead:retried`) and discard; all changes audited (`task.*`). Live: the worker publishes `job.progress`/`job.log` on `live:jobs`; SSE topic `tasks` (admin only) carries those plus `job.update`/`worker.update`. UI `/tasks`: summary strip, tabs Scheduled / Runs / Workers / Dead letters, schedule dialog, run drawer with live log viewer, mobile cards; contract + MSW mock job system with live events; Vitest + API integration tests. Later: GC grace/parameter editor, retry-all, per-kind retry metrics (T-O06) |
 | Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Left: substring matching, the 1M-asset p95 benchmark |
+| Import from Nexus (T-M01) | 2026-11-09: `POST /api/v1/import/nexus/preview` (dry run) and `/apply` (admin): reads a Nexus 3 configuration over its REST API (SSRF-guarded, optional CA bundle, bounded; credentials used per request, never stored or logged), maps names, formats, types, upstreams, ages, negative cache, auto-block, docker Hub/aliases/default repository, apt distribution, raw disposition, hosted write policy and group members (where Waystation has those types), reports create / exists / unsupported / invalid with field-level differences, applies the selection idempotently with a `repository.create` audit record per repository; UI page Repositories → "Import from Nexus" (connect, plan table with differences, selection, apply), MSW mocks. Tested against hand-written Nexus 3 REST fixtures (`Application/Server/tests/fixtures/nexus3`); not yet against a live Nexus 3 container |
 | Administration UI (T-U08) | Done 2026-11-09: Users (list, filters, keyset paging, create/edit, reset password, unlock, disable, sign out everywhere, delete) and a page per user (identities, groups, effective permissions, sessions, tokens); Groups (local + members, mapped roles); Roles (permission matrix editor, held by) and Anonymous access; API tokens (all tokens, revoke) and Service accounts (tokens shown once, permissions); Settings (instance name, docker default repository, environment limits); System (version, MongoDB/Valkey health, data volume). New API `GET/DELETE /users/{id}/sessions`, `GET/PUT /settings`, `GET /system`; MSW mocks for every admin endpoint. Editable retention and UI defaults, support bundle (T-O10) pending |
 | Everything else | Not started |
 | M0 feedback build (T-V02) | Done 2026-11-09, tagged `v0.1.0-m0`: `make e2e-m0` runs real docker, npm, apt (Debian 13) and raw clients through a running stack and checks the live stream, stats, activity and browse; `Documents/Operations/TRY_IT.md` (fresh host from images and an env file); real-server screenshot tour `Documents/Notes/UI_TOUR_M0.md`; feedback log `Documents/Notes/UI_FEEDBACK.md` |
