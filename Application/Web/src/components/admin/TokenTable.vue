@@ -42,7 +42,9 @@
     </template>
     <template #body-cell-actions="{ row }">
       <q-td class="text-right">
-        <q-btn v-if="row.status === 'active'" flat dense no-caps color="negative" :icon="iconBlocked" :label="t('tokens.revoke')" :aria-label="t('tokens.revokeWhat', { name: row.name })" @click="confirmRevoke(row)" />
+        <q-btn v-if="row.status === 'active'" flat round dense size="sm" color="negative" :icon="iconBlocked" :aria-label="t('tokens.revokeWhat', { name: row.name })" @click="confirmRevoke(row)">
+          <q-tooltip>{{ t('tokens.revokeWhat', { name: row.name }) }}</q-tooltip>
+        </q-btn>
       </q-td>
     </template>
 
