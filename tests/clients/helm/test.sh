@@ -1,7 +1,7 @@
 #!/bin/sh
 # Helm classic repositories with the real helm 3 client (client-helm container: alpine/helm + curl), the commands
 # of the "Set me up" snippets: proxy (repo add, search, pull, template; chart cached and verified against the index
-# digest), hosted (curl upload, ChartMuseum multipart API, index rebuilt by the worker, install --dry-run, delete)
+# digest), hosted (curl upload, ChartMuseum multipart API, index rebuilt by the worker, template, delete)
 # and group (merged index, pulls from both members, upload through the group).
 # Runs identically in record, replay and live mode; assertions use only what survives fixture scrubbing.
 set -eu
@@ -65,6 +65,7 @@ ws_login
 ws_token '["read", "write", "delete"]'
 token=$WS_TOKEN
 helm create mychart >/dev/null
+mkdir -p pulled via-group
 helm package mychart --version 0.1.0 >/dev/null
 helm package mychart --version 0.2.0 >/dev/null
 helm package mychart --version 0.3.0 >/dev/null
@@ -81,8 +82,8 @@ wait_for_chart mine mychart 0.2.0
 wait_for_chart mine mychart 0.1.0
 helm pull mine/mychart --version 0.1.0 -d pulled >/dev/null || fail 'helm pull (hosted)'
 cmp -s mychart-0.1.0.tgz pulled/mychart-0.1.0.tgz || fail 'pulled chart differs from the upload'
-helm install demo mine/mychart --version 0.2.0 --dry-run=client > dry.txt || fail 'helm install --dry-run'
-grep -q 'kind: Deployment' dry.txt || fail 'dry run rendered no Deployment'
+helm template demo mine/mychart --version 0.2.0 > dry.txt || fail 'helm template (hosted)'
+grep -q 'kind: Deployment' dry.txt || fail 'the hosted chart rendered no Deployment'
 
 step 'group: one index for both members; pulls from each; uploads land in the hosted member'
 helm repo add all "$group/" --username ci-bot --password "$token" >/dev/null || fail 'helm repo add (group)'

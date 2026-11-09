@@ -184,13 +184,29 @@ class FixtureStore:
 
     def _paths(self, key: RequestKey) -> tuple[Path, Path]:
         base = self.root / key.host / key.stem
+        return base.parent / f'{base.name}.json', base.parent / f'{base.name}.body'
+
+    def _legacy_paths(self, key: RequestKey) -> tuple[Path, Path]:
+        """Names written before 2026-11-10: ``with_suffix`` cut a stem with a dot in its last segment
+        (``get-index.yaml-<key16>`` -> ``get-index.json``), so such exchanges of one file collided."""
+        base = self.root / key.host / key.stem
         return base.with_suffix('.json'), base.with_suffix('.body')
 
     def load(self, key: RequestKey) -> Exchange | None:
         meta_path, body_path = self._paths(key)
         if not meta_path.is_file():
-            return None
+            meta_path, body_path = self._legacy_paths(key)
+            if not meta_path.is_file():
+                return None
         meta = json.loads(meta_path.read_text())
+        recorded = meta['request']
+        if (recorded['method'], recorded['url'], recorded['auth'], recorded.get('body_sha256')) != (
+            key.method,
+            key.url,
+            key.auth,
+            key.body_sha256,
+        ) or [list(h) for h in recorded['headers']] != [list(h) for h in key.headers]:
+            return None  # a legacy name shared by another exchange of the same file
         body = body_path.read_bytes() if body_path.is_file() else b''
         expected = meta['response'].get('body_sha256')
         if expected and hashlib.sha256(body).hexdigest() != expected:
