@@ -80,6 +80,11 @@ async def test_preview_then_apply_is_idempotent(
     assert oracle['proxy']['offline'] is True
     ghcr = (await admin.get('/api/v1/repositories/ghcr-proxy')).json()
     assert ghcr['proxy']['auth'] == {'kind': 'none', 'username': None, 'secret_set': False}
+    assert {'docker-hosted', 'docker-group'} <= creates  # the group is created after its members
+    group = (await admin.get('/api/v1/repositories/docker-group')).json()
+    assert group['group']['members'] == ['docker-hosted', 'dockerhub-proxy', 'ghcr-proxy']
+    assert group['group']['writable_member'] == 'docker-hosted'
+    assert (await admin.get('/api/v1/repositories/docker-hosted')).json()['type'] == 'hosted'
 
     # audited once per repository, with the source
     await services.audit.flush()
