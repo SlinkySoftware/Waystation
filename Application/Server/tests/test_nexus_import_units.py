@@ -233,7 +233,13 @@ async def test_preview_plans_every_repository(unit_services: Services, nexus: Fa
         'default_repo': True,
     }
     assert items['ghcr-proxy'].repository is not None
-    assert items['ghcr-proxy'].repository.format_options == {'aliases': ['ghcr.io']}
+    assert items['ghcr-proxy'].repository.format_options == {
+        'aliases': ['ghcr.io'],
+        'docker_hub': False,
+        'default_repo': False,
+    }
+    assert items['rocky'].repository is not None
+    assert items['rocky'].repository.format_options == {'repo_path': '', 'gpg_key': None}
     assert items['raspberrypi'].repository is not None
     assert items['raspberrypi'].repository.format_options == {'distribution': 'trixie', 'flat': False}
 
@@ -254,12 +260,12 @@ async def test_preview_against_existing_repositories(unit_services: Services, ne
     assert diffs['proxy.upstream_url'].nexus == 'http://deb.debian.org/debian/'
     # ghcr.io is already routed to quay: dropped with a difference
     ghcr = items['ghcr-proxy']
-    assert ghcr.repository is not None and ghcr.repository.format_options == {'aliases': []}
+    assert ghcr.repository is not None and ghcr.repository.format_options['aliases'] == []
     assert any(d.field == 'format_options.aliases' and 'quay' in d.note for d in ghcr.differences)
     # an existing default docker repository is kept
     assert report.default_docker_repo is not None and report.default_docker_repo.name == 'quay'
     hub = items['dockerhub-proxy'].repository
-    assert hub is not None and 'default_repo' not in hub.format_options
+    assert hub is not None and hub.format_options is not None and hub.format_options['default_repo'] is False
 
 
 async def test_default_docker_requested_and_undetermined(unit_services: Services, nexus: FakeUpstream) -> None:

@@ -325,11 +325,19 @@ async def _validate(svc: Services, principal: Principal, m: Mapped, pending: set
         messages = [f'{e.field}: {e.message}' for e in validation_errors(exc.errors())]
         m.refuse('invalid', '; '.join(messages))
         return None
-    if m.type == 'group' and any(n.lower() in pending for n in m.members):
-        return body  # members are created first when applied; the full check runs then
-    if errors := await service.check(svc, body, principal):
-        m.refuse('invalid', '; '.join(f'{e.field}: {e.message}' for e in errors))
-        return None
+    if not (m.type == 'group' and any(n.lower() in pending for n in m.members)):
+        # (a group whose members are created first when applied is fully checked then)
+        if errors := await service.check(svc, body, principal):
+            m.refuse('invalid', '; '.join(f'{e.field}: {e.message}' for e in errors))
+            return None
+    descriptor = svc.formats.descriptor(body.format)
+    if descriptor is not None:  # show the options exactly as they will be stored (defaults filled in)
+        try:
+            options = descriptor.parse_options(body.format_options).model_dump(mode='json')
+        except ValueError as exc:
+            m.refuse('invalid', f'format_options: {exc}')
+            return None
+        body = body.model_copy(update={'format_options': options})
     return body
 
 

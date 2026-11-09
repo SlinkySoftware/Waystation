@@ -29,6 +29,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       { path: '', name: 'dashboard', component: () => import('@/pages/DashboardPage.vue'), meta: { title: 'nav.dashboard' } },
       { path: 'repositories', name: 'repositories', component: () => import('@/pages/RepositoriesPage.vue'), meta: { title: 'nav.repositories' } },
+      { path: 'repositories/import/nexus', name: 'import-nexus', component: () => import('@/pages/NexusImportPage.vue'), meta: { title: 'nexusImport.title' } },
       {
         path: 'repositories/:name/:tab(overview|browse|cleanup|settings)?',
         name: 'repository',
