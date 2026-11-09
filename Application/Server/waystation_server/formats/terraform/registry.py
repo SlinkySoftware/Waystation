@@ -121,12 +121,13 @@ def latest_of(versions: list[str]) -> str | None:
     """The newest version that is not a pre-release (else the newest)."""
     ordered = newest_first(versions)
     final = [v for v in ordered if '-' not in v.split('+', 1)[0]]
-    return (final or ordered or [None])[0]
+    candidates = final or ordered
+    return candidates[0] if candidates else None
 
 
 def render_index(versions: dict[str, VersionInfo]) -> bytes:
     """The mirror's ``index.json``."""
-    body = {'versions': {version: {} for version in newest_first(list(versions))}}
+    body: dict[str, dict[str, dict[str, Any]]] = {'versions': {v: {} for v in newest_first(list(versions))}}
     return json.dumps(body, separators=(',', ':')).encode()
 
 
@@ -209,7 +210,7 @@ def archives(sums: dict[str, str], known: Download, platforms: tuple[tuple[str, 
     """The version's archives per platform: the ``SHA256SUMS`` entries named like ``known.filename`` with another
     platform (``<prefix>_<os>_<arch>.zip``), limited to the platforms the version list names (when it names any)."""
     if sums.get(known.filename) != known.shasum:
-        raise UpstreamError('SHA256SUMS does not list the archive with the registry\'s shasum')
+        raise UpstreamError("SHA256SUMS does not list the archive with the registry's shasum")
     suffix = f'_{known.os}_{known.arch}.zip'
     found: dict[tuple[str, str], Archive] = {}
     if known.filename.endswith(suffix):

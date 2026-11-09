@@ -101,7 +101,7 @@ def signature_check(signature: bytes, keys: tuple[str, ...]) -> Callable[[Binary
         try:
             certs = [cert for armor in keys for cert in openpgp.read_certs(armor.encode('utf-8'))]
         except openpgp.OpenPgpError, UnicodeEncodeError:
-            raise DigestMismatch('the registry\'s signing keys are malformed') from None
+            raise DigestMismatch("the registry's signing keys are malformed") from None
         if not certs:
             raise DigestMismatch('the registry publishes no signing key for this provider')
         try:
@@ -217,7 +217,9 @@ class TerraformPlugin:
             self._parsed.put(asset.blob_sha256, parsed)
         return parsed
 
-    async def download(self, req: FormatRequest, provider: Provider, version: str, os_: str, arch: str) -> registry.Download:
+    async def download(
+        self, req: FormatRequest, provider: Provider, version: str, os_: str, arch: str
+    ) -> registry.Download:
         """A platform's download document (kept: a release does not change)."""
         base = await self.registry_base(req, provider.hostname)
 
@@ -240,7 +242,9 @@ class TerraformPlugin:
         data = await req.proxy.read(asset, max_bytes=registry.MAX_DOWNLOAD)
         return registry.parse_download(data, os_, arch)
 
-    async def sums(self, req: FormatRequest, provider: Provider, version: str, known: registry.Download) -> dict[str, str]:
+    async def sums(
+        self, req: FormatRequest, provider: Provider, version: str, known: registry.Download
+    ) -> dict[str, str]:
         """The version's ``SHA256SUMS`` (file name -> sha256), cached only once its signature verified and it lists
         ``known``'s archive with the registry's shasum."""
         verify = self.options(req).verify_signatures
@@ -248,7 +252,7 @@ class TerraformPlugin:
         def validate(data: bytes, info: UpstreamInfo) -> None:
             listed = registry.parse_sums(data)
             if listed.get(known.filename) != known.shasum:
-                raise DigestMismatch(f'SHA256SUMS does not list {known.filename} with the registry\'s shasum')
+                raise DigestMismatch(f"SHA256SUMS does not list {known.filename} with the registry's shasum")
 
         async def expect() -> Expected | None:
             if not verify:
@@ -337,13 +341,15 @@ class TerraformPlugin:
         provider, version = route.provider, route.version
         known = await self.download(req, provider, version, route.os, route.arch)
         if known.filename != route.filename:
-            raise NotFound(f'not found: the {route.os}_{route.arch} archive of {provider.key} {version} is {known.filename}')
+            raise NotFound(
+                f'not found: the {route.os}_{route.arch} archive of {provider.key} {version} is {known.filename}'
+            )
         found: dict[str, str] = {}
 
         async def expect() -> Expected | None:
             listed = await self.sums(req, provider, version, known)
             if listed.get(known.filename) != known.shasum:
-                raise DigestMismatch(f'SHA256SUMS does not list {known.filename} with the registry\'s shasum')
+                raise DigestMismatch(f"SHA256SUMS does not list {known.filename} with the registry's shasum")
             return CheckedExpected(sha256=known.shasum, check=_h1_check(found))
 
         spec = AssetSpec(
@@ -405,4 +411,3 @@ class TerraformPlugin:
 
 def _validate_versions(data: bytes, info: UpstreamInfo) -> None:
     registry.parse_versions(data)
-

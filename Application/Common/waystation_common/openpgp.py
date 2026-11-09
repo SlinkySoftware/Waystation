@@ -427,14 +427,14 @@ def _check(key: Key, sig: Signature, signed: bytes, *, allow_weak: bool = False)
                 return False
             public.verify(value.rjust(size, b'\x00'), digest, padding.PKCS1v15(), Prehashed(algorithm))
         elif isinstance(public, ec.EllipticCurvePublicKey):
-            r, s = (int.from_bytes(v, 'big') for v in sig.values)
-            public.verify(encode_dss_signature(r, s), digest, ec.ECDSA(Prehashed(algorithm)))
+            der = encode_dss_signature(int.from_bytes(sig.values[0], 'big'), int.from_bytes(sig.values[1], 'big'))
+            public.verify(der, digest, ec.ECDSA(Prehashed(algorithm)))
         elif isinstance(public, ed25519.Ed25519PublicKey):
             if sig.algorithm == EDDSA_LEGACY:
-                r, s = sig.values
-                if len(r) > 32 or len(s) > 32:
+                first, second = sig.values
+                if len(first) > 32 or len(second) > 32:
                     return False
-                raw = r.rjust(32, b'\x00') + s.rjust(32, b'\x00')
+                raw = first.rjust(32, b'\x00') + second.rjust(32, b'\x00')
             else:
                 raw = sig.values[0]
             public.verify(raw, digest)
@@ -458,7 +458,7 @@ class Cert:
     def fingerprint(self) -> str:
         return self.primary.fingerprint.hex().upper()
 
-    def keys(self) -> list[Key]:
+    def all_keys(self) -> list[Key]:
         return [self.primary, *self.subkeys]
 
 
@@ -565,7 +565,7 @@ def verify_detached(data: bytes, signature: bytes, certs: Sequence[Cert], *, now
             continue
         signed = _canonical_text(data) if sig.type == TEXT else data
         for cert in certs:
-            for key in cert.keys():
+            for key in cert.all_keys():
                 if sig.names(key) and key.can_sign(when) and _check(key, sig, signed):
                     return Verified(cert.fingerprint, key.fingerprint.hex().upper(), sig.created or 0)
     if not found:
