@@ -68,6 +68,8 @@ linux.duke.edu
 fsf.org
 quasar.dev
 simpleicons.org
+# YAML tag URIs (tag:yaml.org,2002:null in the Helm index loader)
+yaml.org
 
 # npm package names that are also domains (package-lock.json "resolved" URLs)
 colorjs.io
