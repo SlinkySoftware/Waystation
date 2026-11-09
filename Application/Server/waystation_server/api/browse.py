@@ -44,6 +44,9 @@ from waystation_server.browse.models import (
     PypiVersionPage,
     PypiYank,
     PypiYankResult,
+    TerraformBrowser,
+    TerraformProviderPage,
+    TerraformVersionPage,
 )
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security import access
@@ -98,6 +101,13 @@ def _go(svc: Services, repo: RepoConfig) -> GoBrowser:
     browser = _browser(svc, repo, 'go')
     if not isinstance(browser, GoBrowser):
         raise NotFound('not a Go repository')
+    return browser
+
+
+def _terraform(svc: Services, repo: RepoConfig) -> TerraformBrowser:
+    browser = _browser(svc, repo, 'terraform')
+    if not isinstance(browser, TerraformBrowser):
+        raise NotFound('not a Terraform repository')
     return browser
 
 
@@ -462,3 +472,43 @@ async def list_go_versions(
     repo: RepoConfig = request.state.repo
     browser = _go(svc, repo)
     return await browser.versions(_context(svc, repo), module=module, cursor=cursor, limit=limit)
+
+
+ProviderAddress = Annotated[
+    str, Query(max_length=400, description='Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null`')
+]
+
+
+@router.get(
+    '/repositories/{name}/terraform/providers',
+    response_model=TerraformProviderPage,
+    operation_id='listTerraformProviders',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_terraform_providers(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> TerraformProviderPage:
+    repo: RepoConfig = request.state.repo
+    browser = _terraform(svc, repo)
+    return await browser.providers(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/terraform/versions',
+    response_model=TerraformVersionPage,
+    operation_id='listTerraformVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_terraform_versions(
+    name: str, request: Request, svc: ServicesDep, provider: ProviderAddress, cursor: Cursor = None, limit: Limit = 50
+) -> TerraformVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _terraform(svc, repo)
+    return await browser.versions(_context(svc, repo), provider=provider, cursor=cursor, limit=limit)
