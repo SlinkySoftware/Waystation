@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- The actions on one user: open, edit, reset password (local accounts), unlock (when locked), sign out everywhere,
+<!-- The actions on one user: open, edit, reset password (local accounts), unlock (when locked), reset two-factor
+     sign-in (when on, not yourself), sign out everywhere,
      disable/enable and delete (never on yourself). -->
 <template>
   <q-btn flat round dense size="sm" :icon="iconMore" :aria-label="t('admin.users.actions', { name: user.username })" @click.stop>
@@ -20,6 +21,10 @@
         <q-item v-if="user.locked" clickable @click="actions.unlock(user)">
           <q-item-section side><q-icon :name="iconUnlock" size="18px" /></q-item-section>
           <q-item-section>{{ t('admin.users.unlock') }}</q-item-section>
+        </q-item>
+        <q-item v-if="user.totp_enabled && !self" clickable @click="actions.resetTotp(user)">
+          <q-item-section side><q-icon :name="iconTwoFactor" size="18px" /></q-item-section>
+          <q-item-section>{{ t('admin.users.resetTotp') }}</q-item-section>
         </q-item>
         <q-item clickable @click="actions.signOut(user)">
           <q-item-section side><q-icon :name="iconLogout" size="18px" /></q-item-section>
@@ -47,7 +52,7 @@ import { computed } from 'vue'
 import type { UserDetail, UserSummary } from '@/api/types'
 import { t } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
-import { iconDelete, iconEdit, iconLogout, iconMore, iconPassword, iconPerson, iconPersonOff, iconPersonOn, iconUnlock } from '@/utils/icons'
+import { iconDelete, iconEdit, iconLogout, iconMore, iconPassword, iconPerson, iconPersonOff, iconPersonOn, iconTwoFactor, iconUnlock } from '@/utils/icons'
 
 import { useUserActions } from './useAdminActions'
 

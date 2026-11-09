@@ -32,6 +32,12 @@ describe('authGuard', () => {
     expect(await authGuard(route({ fullPath: '/profile', name: 'profile' }), pending)).toBe(true)
   })
 
+  it('keeps a user who must set up two-factor sign-in on the profile page', async () => {
+    const pending = { signedIn: true, totpSetupRequired: true, ensureChecked: async () => {} }
+    expect(await authGuard(route({ fullPath: '/users', name: 'admin-users' }), pending)).toEqual({ name: 'profile' })
+    expect(await authGuard(route({ fullPath: '/profile', name: 'profile' }), pending)).toBe(true)
+  })
+
   it('refuses open redirects', () => {
     expect(safeNext('//evil.example.com')).toBe('/')
     expect(safeNext('https://evil.example.com')).toBe('/')

@@ -27,6 +27,7 @@ const user = (over: Partial<UserDetail> = {}): UserDetail => ({
   source: 'local',
   disabled: false,
   locked: false,
+  totp_enabled: false,
   roles: ['reader'],
   groups: ['g1'],
   last_login: null,

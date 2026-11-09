@@ -48,6 +48,11 @@ ISSUER_MAX = 64
 Method = Literal['totp', 'recovery_code']
 
 
+def clock() -> float:
+    """The current time for TOTP checks (tests replace it)."""
+    return time.time()
+
+
 def secret_aad(user_id: str) -> bytes:
     return f'user-totp:{user_id}'.encode()
 
@@ -99,7 +104,7 @@ async def _claim_step(svc: Services, user_id: str, step: int) -> bool:
 
 def check_code(secret: str, code: str, now: float | None = None) -> int | None:
     """The step ``code`` belongs to (no replay check): enrolment confirmation and tests."""
-    return totp.match_step(secret, code, time.time() if now is None else now)
+    return totp.match_step(secret, code, clock() if now is None else now)
 
 
 async def verify(svc: Services, user: UserRecord, code: str, *, allow_recovery: bool = True) -> Method | None:
