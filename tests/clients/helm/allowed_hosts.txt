@@ -1,0 +1,3 @@
+# Public hosts that appear in the helm format's recorded upstream content (the metrics-server chart index).
+kubernetes-sigs.github.io
+artifacthub.io

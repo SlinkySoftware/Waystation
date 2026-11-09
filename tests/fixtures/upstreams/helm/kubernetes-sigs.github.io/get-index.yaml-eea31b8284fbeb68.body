@@ -1,0 +1,574 @@
+apiVersion: v1
+entries:
+  metrics-server:
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: "Add chart option to permit setting hostUsers for additional isolation."
+        - kind: added
+          description: "Add `namespaceOverride` which allows deploying to a namespace other than `.Release.namespace`."
+        - kind: changed
+          description: "Apply `tls.certManager.annotations` and `tls.certManager.labels` to the Cert Manager `Certificate` resource; these values are documented but were previously never rendered."
+        - kind: changed
+          description: "Use `metrics-server.fullname` instead of `metrics-server.name` for ClusterRole."
+        - kind: changed
+          description: "Update the _Metrics Server_ OCI image to [`0.9.0`](https://github.com/kubernetes-sigs/metrics-server/releases/tag/v0.9.0)."
+        - kind: fixed
+          description: "Stop rendering `annotations: null` on the cert-manager `Issuer`, which referenced an undefined `additionalAnnotations` value. This mirrors the earlier APIService fix and prevents permanent GitOps `OutOfSync`."
+    apiVersion: v2
+    appVersion: 0.9.0
+    created: "2026-08-19T11:35:24.161353595Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: c2ca1185c01e6e7f53dd1b7d131f0c9b3fa50e003ed068b784563a1b5a3422a1
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.14.0/metrics-server-3.14.0.tgz
+    version: 3.14.0
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: fixed
+          description: "Conditionally render `insecureSkipTLSVerify` field in APIService template to prevent GitOps sync drift when value is `false`."
+        - kind: fixed
+          description: "Do not render annotations as null in APIService template to prevent permanent OutOfSync in ArgoCD."
+        - kind: changed
+          description: "Update the Metrics Server OCI image to [`0.8.1`](https://github.com/kubernetes-sigs/metrics-server/releases/tag/v0.8.1)."
+    apiVersion: v2
+    appVersion: 0.8.1
+    created: "2026-06-11T10:23:35.43150644Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: 084e6edb680cf4e2acc30bd496568c53fdf663cbacf6e17876b25785c35b7a13
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.13.1/metrics-server-3.13.1.tgz
+    version: 3.13.1
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: "Add chart options to secure the connection between Metrics Server and the Kubernetes API Server."
+        - kind: added
+          description: "Add `unhealthyPodEvictionPolicy` to the Metrics Server PDB as a user enabled feature."
+        - kind: changed
+          description: "Update the _Addon Resizer_ OCI image to [`1.8.23`](https://github.com/kubernetes/autoscaler/releases/tag/addon-resizer-1.8.23)."
+        - kind: changed
+          description: "Update the _Metrics Server_ OCI image to [`0.8.0`](https://github.com/kubernetes-sigs/metrics-server/releases/tag/v0.8.0)."
+    apiVersion: v2
+    appVersion: 0.8.0
+    created: "2025-07-22T10:36:46.231327237Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: fb929902e3b7565663cdd1734f31d63735c932be1541a7228b5aeef6d2348a1f
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.13.0/metrics-server-3.13.0.tgz
+    version: 3.13.0
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: "Explicitly added the app protocol to the service."
+        - kind: changed
+          description: "Updated the _Metrics Server_ OCI image to [v0.7.2](https://github.com/kubernetes-sigs/metrics-server/releases/tag/v0.7.2)."
+        - kind: changed
+          description: "Updated the _addonResizer_ OCI image to [1.8.21](https://github.com/kubernetes/autoscaler/releases/tag/addon-resizer-1.8.21)"
+        - kind: fixed
+          description: "Fixed nanny's RoleBinding which contained a hard-coded namespace instead of the Helm's release namespace."
+    apiVersion: v2
+    appVersion: 0.7.2
+    created: "2024-10-07T21:28:39.993758246Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: e904ffa2fe33c429e12cac8aa013ba38f42d944e315d060e94230a53b98985cf
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.12.2/metrics-server-3.12.2.tgz
+    version: 3.12.2
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: changed
+          description: "Updated the _Metrics Server_ OCI image to [v0.7.1](https://github.com/kubernetes-sigs/metrics-server/releases/tag/v0.7.1)."
+    apiVersion: v2
+    appVersion: 0.7.1
+    created: "2024-04-05T19:13:22.40760665Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: bed08344ab4b070db463ad63c5effb2ad23a158090ffdb2c1a960895110ee12e
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.12.1/metrics-server-3.12.1.tgz
+    version: 3.12.1
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: changed
+          description: "Updated the _Metrics Server_ OCI image to [v0.7.0](https://github.com/kubernetes-sigs/metrics-server/releases/tag/v0.7.0)."
+        - kind: changed
+          description: "Updated the _addon-resizer_ OCI image to [v1.8.20](https://github.com/kubernetes/autoscaler/releases/tag/addon-resizer-1.8.20)."
+    apiVersion: v2
+    appVersion: 0.7.0
+    created: "2024-02-07T15:12:31.942957736Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: 19df2fa9c4c6e1ec4f134da56ae9c3e6b610bfd5674744115c9e9864c5f3debe
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.12.0/metrics-server-3.12.0.tgz
+    version: 3.12.0
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: "Added default Metrics Server resource requests."
+        - kind: changed
+          description: "Updated the Metrics Server OCI image to v0.6.3."
+        - kind: changed
+          description: "Updated the addon resizer OCI image to v1.8.19."
+        - kind: changed
+          description: "Changed the default addon resizer nanny resource configuration to match the documented Metrics Server autoscaling values."
+    apiVersion: v2
+    appVersion: 0.6.4
+    created: "2023-08-03T08:32:42.842622303Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: e7cba5a2d7e2b0949b3ea1aa48fc3780b71eba17e1edccc8273f5da67048164b
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.11.0/metrics-server-3.11.0.tgz
+    version: 3.11.0
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: fixed
+          description: "Fixed auth-reader role binding namespace to always use kube-system."
+        - kind: fixed
+          description: "Fixed addon resizer configuration."
+        - kind: added
+          description: "Added support for running under PodSecurity restricted."
+        - kind: fixed
+          description: "Fixed container port default not having been updated to 10250."
+    apiVersion: v2
+    appVersion: 0.6.3
+    created: "2023-04-12T16:56:53.683202606Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: a85c6df5b2cb9b1afeb1744637827f4bae25a02d526ba70142d2b42022f78b49
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.10.0/metrics-server-3.10.0.tgz
+    version: 3.10.0
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: "Added autoscaling support via the addon-resizer."
+        - kind: changed
+          description: "Updated the Metrics Server OCI image to v0.6.3."
+        - kind: fixed
+          description: "Fixed service labels/annotations."
+    apiVersion: v2
+    appVersion: 0.6.3
+    created: "2023-03-28T12:06:46.907298321Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: 211ed5798a8b44ecae271f5615dcfe101d919dbaf47dda447f952b174dce5395
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.9.0/metrics-server-3.9.0.tgz
+    version: 3.9.0
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: changed
+          description: "Changed the image registry location to registry.k8s.io."
+    apiVersion: v2
+    appVersion: 0.6.2
+    created: "2023-03-06T01:11:26.250671407Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: 48ec8d161e687a4be8de265b810505721b9850cf391b0031cb6051b19836fc9f
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.8.4/metrics-server-3.8.4.tgz
+    version: 3.8.4
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: "Added support for topologySpreadConstraints."
+        - kind: added
+          description: "Set resource namespaces explicitly."
+        - kind: added
+          description: "Allow configuring TLS on the APIService."
+        - kind: added
+          description: "Enabled service monitor relabelling."
+        - kind: added
+          description: "Added ability to set the scheduler name."
+        - kind: added
+          description: "Added support for common labels."
+        - kind: changed
+          description: "Updated Metrics Server image to v0.6.2."
+    apiVersion: v2
+    appVersion: 0.6.2
+    created: "2022-12-08T13:59:06.294153497Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: 6321fffa4bb34de22aee439a6893db329ff784e977e2204b5b57e8468ceb0e52
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.8.3/metrics-server-3.8.3.tgz
+    version: 3.8.3
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: changed
+          description: "Allow probes to be turned off completly (this is not advised unless you know what you're doing)."
+    apiVersion: v2
+    appVersion: 0.6.1
+    created: "2022-02-23T09:44:45.797837314Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: 4358fb2014c1e8311653d9495216555e4897db28464b95c96619b0be94b253ec
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.8.2/metrics-server-3.8.2.tgz
+    version: 3.8.2
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: changed
+          description: "Update Metrics Server image to v0.6.1."
+    apiVersion: v2
+    appVersion: 0.6.1
+    created: "2022-02-09T17:14:51.325242625Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: 1fab2a3aba53485bf793adea336d906f3b2572c6809684241c3ec1b704d13f2a
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.8.1/metrics-server-3.8.1.tgz
+    version: 3.8.1
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: "Add support for unauthenticated access to /metrics endpoint."
+        - kind: added
+          description: "Add PrometheusOperator ServiceMonitor."
+        - kind: changed
+          description: "Update Metrics Server image to v0.6.0."
+    apiVersion: v2
+    appVersion: 0.6.0
+    created: "2022-02-08T12:59:25.986313919Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: 8161033686436e5968cde37375aaa74b2a8d13b6391affa9c4eaeef9c28189cc
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.8.0/metrics-server-3.8.0.tgz
+    version: 3.8.0
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: changed
+          description: "Update Metrics Server image to v0.5.2."
+    apiVersion: v2
+    appVersion: 0.5.2
+    created: "2021-11-18T11:33:30.279796987Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    digest: 14647ff9bcd2c80cfbb9c44d86a370a3a86c07ae80cc71f59eb4c1a52244d9cf
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.7.0/metrics-server-3.7.0.tgz
+    version: 3.7.0
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: "New defaultArgs value to enable overriding the default arguments."
+        - kind: changed
+          description: "Update Metrics Server image to v0.5.1."
+    apiVersion: v2
+    appVersion: 0.5.1
+    created: "0001-01-01T00:00:00Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.6.0/metrics-server-3.6.0.tgz
+    version: 3.6.0
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: added
+          description: "Initial release from official repo."
+    apiVersion: v2
+    appVersion: 0.5.0
+    created: "0001-01-01T00:00:00Z"
+    description: Metrics Server is a scalable, efficient source of container resource
+      metrics for Kubernetes built-in autoscaling pipelines.
+    home: https://github.com/kubernetes-sigs/metrics-server
+    icon: https://avatars.githubusercontent.com/u/36015203?s=400&v=4
+    keywords:
+    - kubernetes
+    - metrics-server
+    - metrics
+    maintainers:
+    - name: stevehipwell
+      url: https://github.com/stevehipwell
+    - name: krmichel
+      url: https://github.com/krmichel
+    - name: endrec
+      url: https://github.com/endrec
+    name: metrics-server
+    sources:
+    - https://github.com/kubernetes-sigs/metrics-server
+    type: application
+    urls:
+    - https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-3.5.0/metrics-server-3.5.0.tgz
+    version: 3.5.0
+generated: "2026-08-19T11:35:24.161461547Z"
