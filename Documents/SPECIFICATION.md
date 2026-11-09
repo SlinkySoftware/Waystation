@@ -299,7 +299,31 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
     edits the guard.
 
 ### 4.9 Authentication
-- **Local** users (argon2id), optional TOTP 2FA (Phase 6).
+- **Local** users (argon2id), optional TOTP 2FA.
+  Now (T-O08): a local account with a password can turn on two-factor sign-in (RFC 6238 TOTP: HMAC-SHA1, 6
+  digits, 30 s steps, one step of clock drift either way). Set-up (profile page; needs an interactive session and
+  the current password): `POST /auth/me/totp/setup` returns a new 160-bit secret once, as base32 and as an
+  `otpauth://totp/<instance>:<username>` URI that the UI draws as a QR code in the browser; it stays pending
+  (encrypted) for 15 minutes; `POST /auth/me/totp/confirm` with a code from the app turns it on and returns 10
+  single-use recovery codes (`xxxxx-xxxxx`, about 50 bits each) once. The secret is stored AES-GCM encrypted
+  (`SECRET_KEYS`), recovery codes only as keyed hashes. `POST /auth/me/totp/recovery-codes` (a TOTP code) replaces
+  the recovery codes; `POST /auth/me/totp/disable` (current password and a TOTP or recovery code) turns it off;
+  `GET /auth/me/totp` shows the state. Sign-in becomes two steps: a correct password answers `202` with
+  `second_factor: totp` and a pending sign-in (not a session: `login_challenges`, 5 minutes, bound to the browser
+  by the HttpOnly, SameSite=Strict cookie `ws_mfa`); `POST /auth/login/totp` with a code or a recovery code
+  then creates the session. A TOTP code is accepted once per step per user (Valkey, and `users.totp_last_step` so
+  that MongoDB alone still refuses replays when Valkey is down; an earlier step after a later one is refused too),
+  a recovery code once. Wrong codes count towards the account lockout, and the password step does not reset the
+  failure count while the second factor is pending; after 5 wrong codes the pending sign-in ends (problem code
+  `second_factor_expired`); the second step is rate limited like sign-in. The password of an account with
+  two-factor sign-in is refused outside the UI (`docker login`, audit reason `totp_required`): package clients
+  use API tokens. LDAP and OIDC accounts are never asked (their provider owns their sign-in). An administrator
+  holding `user-admin` resets a user's second factor (lost phone) with `DELETE /users/{id}/totp` (not their own,
+  not an account holding more than they do). Settings → "Require two-factor sign-in for local administrators"
+  (`security.require_totp_for_admins`): a local administrator without it gets sessions that may only read
+  `GET /auth/me`, set it up and sign out (403 `totp_setup_required` otherwise; `Session.totp_setup_required`;
+  the UI keeps the user on the profile page), and `docker login` with the password is refused
+  (`totp_setup_required`). A pending one-time password is changed first.
 - **LDAP / LDAPS / StartTLS**: multiple servers with failover, service bind, user search base + filter, attribute
   mapping (uid, name, email), group discovery (memberOf or group search), nested groups optional,
   "require group" gate, custom CA file. Tested against FreeIPA and Active Directory schemas.
@@ -447,7 +471,7 @@ settings changes. Searchable in the UI, exported via API; retention configurable
 - **Record**: time, action (`<category>.<verb>`, catalog `waystation_common.audit.AuditAction`), outcome
   (`success`/`failure`) and for failures a reason code (`bad_credentials`, `unknown_user`, `locked`, `disabled`,
   `not_in_group`, `directory_unavailable`, `link_refused`, `invalid_token`, `too_many_failures`,
-  `password_change_required`), the actor (user,
+  `password_change_required`, `bad_second_factor`, `totp_required`, `totp_setup_required`), the actor (user,
   service account, anonymous or `system`; how it authenticated: session, API token, basic, registry token; its
   sign-in provider; the API token id when one was used), the target (kind, id, name), the client address (after the
   trusted-proxy rules of §8.4) and the request id, plain `details`, and field-level `changes` (before/after).
@@ -461,7 +485,11 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   `user.create` (bootstrap admin, provider provisioning, the users API), `user.link` (an external account linked for
   the first time), `user.groups_sync` (the groups a provider reports changed), `user.update` (profile, status, roles,
   groups, unlock; own profile changes too), `user.delete`, `auth.password_change` (own change, success or a wrong
-  current password; an administrator's reset with `details.by_admin`), `session.revoke`,
+  current password; an administrator's reset with `details.by_admin`), `auth.totp_enable` (two-factor sign-in
+  turned on), `auth.totp_disable` (turned off by the user, `details.with` the kind of code, or reset by an
+  administrator, `details.by_admin`), `auth.totp_recovery_codes` (recovery codes replaced); a two-step sign-in is
+  `auth.login` with `details.second_factor` (`totp`/`recovery_code`), a wrong code `auth.login` failure
+  `bad_second_factor` with `details.step` `second_factor`; codes and secrets are never recorded; `session.revoke`,
   `group.create|update|delete` (membership changes as `group.update` with `details.members_added|members_removed`),
   `role.create|update|delete` (anonymous access changes as `role.update` on target `anonymous_access`),
   `auth_provider.create|update|delete|test`, `repository.create|update|delete|test_upstream`, `task.update|run|retry|discard`
@@ -631,7 +659,7 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
   range `15m|1h|24h|7d|30d` split hit/upstream or by format, storage, upstream health incl. Docker Hub rate limit),
   live transfers, activity, browse (generic folder listing, docker images/tags/manifest, npm packages/versions, apt
   suites/packages) and the SSE event schemas (`LiveEvent`: `transfers.snapshot`, `transfer.started|progress|finished|failed`,
-  `stats.tick`, `upstream.state`, `activity`). Errors are RFC 9457 problem+json with field-level `errors[]`.
+  `stats.tick`, `upstream.state`, `activity`). Errors are RFC 9457 problem+json with field-level `errors[]` and the stable error `code` (`not_found`, `password_change_required`, `totp_setup_required`, `second_factor_expired`...).
   `make gen-api` regenerates the UI's TypeScript types (`src/api/schema.d.ts`); CI fails if they are stale. Once
   the server generates its own document, a contract test keeps it compatible with this file.
 - EventSource cannot set headers, so a client that reopens the stream itself passes `last_event_id` as a query

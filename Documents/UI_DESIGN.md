@@ -57,6 +57,7 @@ and patterns carry over.
 ### 4.1 Sign-in
 Centered card with logo, local username/password form, one button per OIDC provider ("Continue with
 <name>"), LDAP uses the same form (provider auto-resolved or a select when several). Error messages generic.
+Two-factor sign-in (T-O08): when the password is accepted for an account with it on, the same card asks for the 6-digit code from the authenticator app (numeric keyboard, `one-time-code` autofill), with "Use a recovery code" (switches the field to `xxxxx-xxxxx`) and "Back"; a wrong code keeps the step with a generic message; an expired step (5 min) returns to the password form with a note.
 
 ### 4.2 Dashboard (landing)
 Grid, responsive (12 cols ≥ 1440, 8 cols ≥ 1024, 1 col mobile):
@@ -185,7 +186,7 @@ As built (T-U08): **Users**: table (initials, display name and username, source 
 provider in a tooltip, direct roles as chips (administrator in amber), local group count, last sign-in, status badge
 Active/Disabled/Locked/Password change pending/Awaiting first sign-in), filters in the URL (`q` username prefix,
 `source`, `status`, `role`), "Load more" keyset paging, a row menu (open, edit, reset password for local accounts,
-unlock, sign out everywhere, disable/enable, delete with the username typed to confirm; never disable or delete
+unlock, reset two-factor sign-in (when it is on; not for yourself; confirm dialog), sign out everywhere, disable/enable, delete with the username typed to confirm; never disable or delete
 yourself). The user page (`/admin/users/<id>`): account facts, access (direct roles, local and mapped groups, the
 groups a provider last reported), linked accounts, an effective-permissions panel (roles with where they come from,
 global permissions, a repository × action matrix), sessions (browser, address, started, last used, expiry; sign out
@@ -198,7 +199,8 @@ manage, write/delete/manage tick browse and read, "matches N repositories" per r
 are disabled when the caller does not hold them); built-ins open read-only with "Duplicate". The **Anonymous
 access** card below lists which repositories anonymous requests could read. **API tokens**: tab Tokens (search,
 owner and status filters, revoke) and tab Service accounts (table; side panel with the account's tokens (create:
-the profile's token dialog, secret shown once) and permissions). **Settings**: General (instance name), Docker
+the profile's token dialog, secret shown once) and permissions). **Settings**: General (instance name), Two-factor sign-in (toggle "Require two-factor sign-in for
+local administrators", saved at once; turning it on for yourself takes you to the profile page), Docker
 routing (default repository, aliases), and the environment limits read-only with their variable names. **System**:
 version tiles, MongoDB/Valkey cards (status, version, round trip), the data volume bar with a marker at the
 free-space floor; refreshes every 15 s. Refusals: 403 shows "Not allowed", 409 "Not possible", with the server's
@@ -206,8 +208,13 @@ reason (dialogs for row actions, a banner in forms). Phones: every table becomes
 
 ### 4.11 Profile
 Display name, theme, density, password (local accounts; while a one-time password is pending the router keeps
-the user here and only this card is usable), my API tokens (create with scopes/expiry, shown once with copy),
-sessions.
+the user here and only this card is usable), two-factor sign-in (local accounts: state badge and recovery codes
+left; "Set up" opens a dialog: current password, then the QR code drawn in the browser as an SVG (no external
+service; dark on white whatever the theme) with the setup key in groups of four to copy, then a code from the
+app; the 10 recovery codes follow in a persistent dialog with copy and download (a text file made in the
+browser) that closes only through "I have saved them"; "New recovery codes" (needs a code) and "Turn off"
+(password + code or recovery code); a warning when policy requires it, and the router keeps the user here until
+it is on), my API tokens (create with scopes/expiry, shown once with copy), sessions.
 
 ## 5. Responsive behaviour
 - ≥ 1440: rail expanded, 12-col dashboard. 1024-1439: rail collapsed to icons. 600-1023: drawer nav, 2-col

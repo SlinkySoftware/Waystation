@@ -132,7 +132,7 @@ async def test_enrolment(services: Services, rita: httpx.AsyncClient, clock: lis
     assert len(secret) == 32 and body['account'] == 'rita'
     assert body['otpauth_uri'].startswith('otpauth://totp/') and f'secret={secret}' in body['otpauth_uri']
     doc = await services.db[USERS].find_one({'_id': 'id-rita'})
-    assert doc is not None and doc['totp_enc'] is None
+    assert doc is not None and doc.get('totp_enc') is None
     assert doc['totp_pending_enc'].startswith('ws1.') and secret not in doc['totp_pending_enc']
 
     bad = await rita.post(f'{API}/auth/me/totp/confirm', json={'code': code(secret, T0, 3)})
