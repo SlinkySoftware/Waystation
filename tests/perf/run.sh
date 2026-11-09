@@ -56,6 +56,7 @@ umask 077
   echo "WAYSTATION_SECRET_KEYS=$(head -c 32 /dev/urandom | base64)"
   echo "WAYSTATION_SESSION_SECRET=$(head -c 32 /dev/urandom | base64)"
 } > "$PERF_RUN_DIR/stack.env"
+printf '%s\n' "$PERF_ADMIN_PASSWORD" > "$PERF_RUN_DIR/admin-password"  # KEEP=1 debugging only; deleted with the run
 umask 022
 
 compose=(docker compose -p "$PERF_PROJECT" --env-file "$PERF_RUN_DIR/stack.env"

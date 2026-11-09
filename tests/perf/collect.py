@@ -54,7 +54,7 @@ def _round(value: float | None) -> float | None:
     return None if value is None else round(value, 2)
 
 
-def measured(k6: dict[str, Metrics], sse: dict[str, Any] | None) -> dict[str, float | None]:
+def measured(k6: dict[str, Metrics], sse: dict[str, Any] | None) -> dict[str, float | int | None]:
     p95 = 'p(95)'
     content = [
         v
@@ -72,9 +72,9 @@ def measured(k6: dict[str, Metrics], sse: dict[str, Any] | None) -> dict[str, fl
     live = None
     if sse:
         live = max(float(sse['event_latency_ms'][p95]), float(sse['started_latency_ms'][p95]))
-    errors = None
+    errors: int | None = None
     if 'concurrent' in k6:
-        errors = _value(k6, 'concurrent', 'ws_errors', 'count') or 0.0
+        errors = int(_value(k6, 'concurrent', 'ws_errors', 'count') or 0)
     return {
         'cache_hit_content_ttfb_p95_ms': _round(max(content)) if content else None,
         'cache_hit_metadata_p95_ms': _round(_value(k6, 'metadata', 'ws_hit_metadata', p95)),
@@ -103,8 +103,9 @@ def scenario_table(k6: dict[str, Metrics]) -> list[str]:
         for name, v in sorted(metrics.items()):
             if not name.startswith('ws_') or 'p(95)' not in v or not v.get('count'):
                 continue
-            unit = '' if name.endswith('_mbps') else ' ms'
-            label = name.removeprefix('ws_') + (' (MiB/s)' if name.endswith('_mbps') else '')
+            rate = '_mbps' in name
+            unit = '' if rate else ' ms'
+            label = name.removeprefix('ws_') + (' (MiB/s)' if rate else '')
             cells = [scenario, label, f'{int(v["count"])}', _fmt(v.get('med'), unit), _fmt(v.get('p(95)'), unit)]
             cells += [_fmt(v.get('p(99)'), unit), _fmt(v.get('max'), unit)]
             lines.append('| ' + ' | '.join(cells) + ' |')
@@ -116,6 +117,9 @@ def scenario_table(k6: dict[str, Metrics]) -> list[str]:
         reqs = metrics.get('http_reqs', {})
         if reqs.get('rate'):
             counters.append(f'- {scenario}: {int(reqs["count"])} requests, {reqs["rate"]:.0f}/s')
+        dropped = metrics.get('dropped_iterations', {}).get('count')
+        if dropped:
+            counters.append(f'- {scenario}: {int(dropped)} iterations dropped (the stack did not keep up with the rate)')
     return lines + ([''] + counters if counters else [])
 
 

@@ -125,7 +125,7 @@ REPOS = [
     proxy('npm-perf', 'npm', f'{ORIGIN}/npm/'),
     proxy('pypi-perf', 'pypi', f'{ORIGIN}/pypi'),
     proxy('maven-perf', 'maven', f'{ORIGIN}/maven/'),
-    proxy('apt-perf', 'apt', f'{ORIGIN}/apt/'),
+    proxy('apt-perf', 'apt', f'{ORIGIN}/apt/', format_options={'distribution': 'perf'}),
     proxy('docker-perf', 'docker', ORIGIN),
     proxy('perf-bulk', 'raw', f'{ORIGIN}/bulk/'),  # API list/search: seeded by seed_assets.py, never fetched
 ]
@@ -172,7 +172,13 @@ def warm(client: Client, t: dict[str, Any]) -> int:
         jobs.append((url, {'Accept': accept} | ({'Authorization': f'Bearer {token}'} if token else {})))
 
     def fetch(job: tuple[str, dict[str, str]]) -> str | None:
-        status, _, body = client.request('GET', job[0], headers=job[1])
+        # A new repository reaches every server process's catalog within moments (change stream): until then a
+        # process that has not seen it answers 404.
+        for _ in range(40):
+            status, _, body = client.request('GET', job[0], headers=job[1])
+            if status != 404:
+                break
+            time.sleep(0.25)
         return None if status == 200 else f'{job[0]}: {status} {body[:200]!r}'
 
     with ThreadPoolExecutor(8) as pool:

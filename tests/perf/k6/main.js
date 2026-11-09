@@ -13,8 +13,10 @@ const T = JSON.parse(open(__ENV.PERF_TARGETS || '/run-dir/targets.json'));
 const num = (name, fallback) => Number(__ENV[name] || fallback);
 
 const HIT_VUS = num('PERF_HIT_VUS', 10);
+const HIT_RATE = num('PERF_HIT_RATE', 200);
 const HIT_DURATION = `${num('PERF_HIT_DURATION_S', 15)}s`;
 const API_VUS = num('PERF_API_VUS', 10);
+const API_RATE = num('PERF_API_RATE', 50);
 const API_DURATION = `${num('PERF_API_DURATION_S', 15)}s`;
 const CONC_VUS = num('PERF_CONC_VUS', 100);
 const CONC_DURATION = `${num('PERF_CONC_DURATION_S', 20)}s`;
@@ -23,7 +25,6 @@ const BULK_COUNT = num('PERF_BULK_ASSETS', 100000);
 
 // ---------------------------------------------------------------------------- metrics
 const metrics = {
-  hit_content_ttfb: new Trend('ws_hit_content_ttfb', true), // every content hit: small, range, large
   hit_small_ttfb: new Trend('ws_hit_small_ttfb', true),
   hit_range_ttfb: new Trend('ws_hit_range_ttfb', true),
   hit_large_ttfb: new Trend('ws_hit_large_ttfb', true),
@@ -46,6 +47,18 @@ const apiTrends = Object.fromEntries(API_ENDPOINTS.map((e) => [e, new Trend(`ws_
 
 // ---------------------------------------------------------------------------- scenarios
 const constant = (fn, vus, duration) => ({ executor: 'constant-vus', exec: fn, vus, duration, gracefulStop: '30s' });
+// Latency budgets are measured at a steady request rate (an open model), not at saturation: p95 at full load says more
+// about the box than about the code path. `dropped_iterations` in the results means the stack could not keep up.
+const rate = (fn, perSecond, vus, duration) => ({
+  executor: 'constant-arrival-rate',
+  exec: fn,
+  rate: perSecond,
+  timeUnit: '1s',
+  duration,
+  preAllocatedVUs: vus,
+  maxVUs: vus * 4,
+  gracefulStop: '30s',
+});
 const serial = (fn, iterations, maxDuration) => ({
   executor: 'shared-iterations',
   exec: fn,
@@ -54,14 +67,14 @@ const serial = (fn, iterations, maxDuration) => ({
   maxDuration,
 });
 const SCENARIOS = {
-  hit_small: constant('hitSmall', HIT_VUS, HIT_DURATION),
-  hit_range: constant('hitRange', HIT_VUS, HIT_DURATION),
+  hit_small: rate('hitSmall', HIT_RATE, HIT_VUS, HIT_DURATION),
+  hit_range: rate('hitRange', HIT_RATE, HIT_VUS, HIT_DURATION),
   hit_large: serial('hitLarge', LARGE_ITERATIONS, '30m'),
-  metadata: constant('metadata', HIT_VUS, HIT_DURATION),
-  docker: constant('docker', HIT_VUS, HIT_DURATION),
+  metadata: rate('metadata', HIT_RATE, HIT_VUS, HIT_DURATION),
+  docker: rate('docker', HIT_RATE / 2, HIT_VUS, HIT_DURATION), // two requests (HEAD + GET) per iteration
   miss_small: serial('missSmall', T.miss_small.length, '15m'),
   miss_large: serial('missLarge', T.miss_large.length, '30m'),
-  api: constant('api', API_VUS, API_DURATION),
+  api: rate('api', API_RATE, API_VUS, API_DURATION),
   concurrent: constant('concurrent', CONC_VUS, CONC_DURATION),
 };
 if (!SCENARIOS[SCENARIO]) fail(`unknown SCENARIO ${SCENARIO}`);
@@ -128,7 +141,6 @@ export function hitSmall() {
   const res = http.get(BASE + pick(T.hit_small));
   if (ok(res, 200, 'hit_small')) {
     metrics.hit_small_ttfb.add(res.timings.waiting);
-    metrics.hit_content_ttfb.add(res.timings.waiting);
     countHit(res);
   }
 }
@@ -138,7 +150,6 @@ export function hitRange() {
   const res = http.get(BASE + T.hit_large, { headers: { Range: `bytes=${offset}-${offset + 65535}` } });
   if (ok(res, 206, 'hit_range')) {
     metrics.hit_range_ttfb.add(res.timings.waiting);
-    metrics.hit_content_ttfb.add(res.timings.waiting);
     countHit(res);
   }
 }
@@ -147,7 +158,6 @@ export function hitLarge() {
   const res = http.get(BASE + T.hit_large, { timeout: '600s' });
   if (ok(res, 200, 'hit_large')) {
     metrics.hit_large_ttfb.add(res.timings.waiting);
-    metrics.hit_content_ttfb.add(res.timings.waiting);
     metrics.hit_large_mbps.add(mbps(T.large_bytes, res));
     countHit(res);
   }
@@ -261,7 +271,7 @@ export function concurrent() {
 export function handleSummary(data) {
   const out = { scenario: SCENARIO, metrics: {} };
   for (const [name, metric] of Object.entries(data.metrics)) {
-    if (name.startsWith('ws_') || name === 'http_reqs' || name === 'http_req_failed' || name === 'iterations') {
+    if (name.startsWith('ws_') || ['http_reqs', 'http_req_failed', 'iterations', 'dropped_iterations'].includes(name)) {
       out.metrics[name] = metric.values;
     }
   }
