@@ -1,5 +1,6 @@
 """``assets`` and ``blobs`` collection access for the proxy engine. Every query uses ``repo_path_unique`` or
-``_id``. Writes happen on cache fills and revalidations only, never per cache hit (ARCHITECTURE §8).
+``_id``. Writes happen on cache fills and revalidations only, never per cache hit (ARCHITECTURE §8). Reads retry
+once on ``AutoReconnect`` (``waystation_common.db.retry``); writes never do.
 
 Every write and delete here also counts the bytes in the repository's usage (``waystation_common.db.usage``, one
 ``$inc``; quotas): a new asset adds its size, a replaced one the difference, a deleted one subtracts it."""
@@ -13,11 +14,13 @@ from pymongo import ReturnDocument
 from waystation_common.db import usage as usage_db
 from waystation_common.db.client import Database
 from waystation_common.db.collections import ASSETS
+from waystation_common.db.retry import read_retry
 from waystation_common.ids import new_id
 from waystation_common.searchkeys import file_keys
 from waystation_server.proxy.records import StoredAsset, UpstreamMeta
 
 
+@read_retry  # the cache-hit lookup: a transient AutoReconnect must not answer 500
 async def get(db: Database, repo_id: str, path: str) -> StoredAsset | None:
     doc = await db[ASSETS].find_one({'repo_id': repo_id, 'path': path})
     return StoredAsset.model_validate(doc) if doc else None
@@ -65,6 +68,7 @@ async def delete_path(db: Database, repo_id: str, path: str) -> StoredAsset | No
     return asset
 
 
+@read_retry
 async def sizes(db: Database, repo_id: str, paths: list[str]) -> dict[str, int]:
     """Which of ``paths`` the repository holds, with their sizes (index ``repo_path_unique``)."""
     if not paths:

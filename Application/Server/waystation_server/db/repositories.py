@@ -20,6 +20,7 @@ from waystation_common.db.collections import (
     UPLOAD_SESSIONS,
     YUM_PACKAGES,
 )
+from waystation_common.db.retry import read_retry
 from waystation_common.errors import Conflict
 from waystation_server.repos.model import RepoConfig
 
@@ -38,6 +39,7 @@ CONTENT_COLLECTIONS = (
 )
 
 
+@read_retry
 async def list_all(db: Database) -> list[RepoConfig]:
     return [RepoConfig.model_validate(doc) async for doc in db[REPOSITORIES].find({})]
 
