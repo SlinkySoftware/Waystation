@@ -105,7 +105,8 @@ class NexusImportItem(BaseModel):
     reason: str | None = None
     repository: RepositoryWrite | None = Field(
         default=None,
-        description='The Waystation repository: created when `action` is `create`; for `exists` what the import would have created',
+        description='The Waystation repository: created when `action` is `create`; for `exists` what the import '
+        'would have created',
     )
     differences: list[ImportDifference] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
@@ -328,11 +329,11 @@ async def _validate(svc: Services, principal: Principal, m: Mapped, pending: set
         messages = [f'{e.field}: {e.message}' for e in validation_errors(exc.errors())]
         m.refuse('invalid', '; '.join(messages))
         return None
-    if not (m.type == 'group' and any(n.lower() in pending for n in m.members)):
-        # (a group whose members are created first when applied is fully checked then)
-        if errors := await service.check(svc, body, principal):
-            m.refuse('invalid', '; '.join(f'{e.field}: {e.message}' for e in errors))
-            return None
+    # A group whose members are created first when applied is fully checked then.
+    deferred = m.type == 'group' and any(n.lower() in pending for n in m.members)
+    if not deferred and (errors := await service.check(svc, body, principal)):
+        m.refuse('invalid', '; '.join(f'{e.field}: {e.message}' for e in errors))
+        return None
     descriptor = svc.formats.descriptor(body.format)
     if descriptor is not None:  # show the options exactly as they will be stored (defaults filled in)
         try:
