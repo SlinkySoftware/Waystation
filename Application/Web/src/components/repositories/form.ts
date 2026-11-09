@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, DockerOptions, Format, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
+import type { AptOptions, DockerOptions, Format, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
 /** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (options carried through). */
@@ -12,7 +12,7 @@ export type FormType = 'proxy' | 'hosted' | 'group'
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
 export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'helm']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'helm']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'go', 'helm']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
 export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'pypi', 'helm']
 
@@ -62,6 +62,12 @@ export interface RepoFormModel {
   auditPassthrough: boolean
   // pypi
   jsonApi: boolean
+  // go (checksum database)
+  sumdbProxy: boolean
+  sumdbName: string
+  sumdbUrl: string
+  verifyChecksums: boolean
+  nosumdb: string[]
   // apt
   distribution: string
   flat: boolean
@@ -108,6 +114,7 @@ export const PRESETS: Record<M0Format, Preset[]> = {
     { id: 'gradle', label: 'Gradle plugins', apply: { name: 'gradle-plugins', upstreamUrl: 'https://plugins.gradle.org/m2/' } },
   ],
   pypi: [{ id: 'pypi', label: 'pypi.org', apply: { name: 'pypi-proxy', upstreamUrl: 'https://pypi.org' } }],
+  go: [{ id: 'goproxy', label: 'proxy.golang.org', apply: { name: 'go-proxy', upstreamUrl: 'https://proxy.golang.org' } }],
 }
 
 export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFormModel {
@@ -147,6 +154,11 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     defaultRepo: false,
     auditPassthrough: true,
     jsonApi: true,
+    sumdbProxy: true,
+    sumdbName: 'sum.golang.org',
+    sumdbUrl: 'https://sum.golang.org',
+    verifyChecksums: true,
+    nosumdb: [],
     distribution: '',
     flat: false,
     metadataRegex: '',
@@ -164,7 +176,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
   const h = repo.hosted
   const quotaBytes = repo.storage?.quota_bytes ?? null
   const quotaSize = quotaBytes ? fromBytes(quotaBytes) : { size: m.quotaSize, unit: m.quotaUnit }
-  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions
+  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions
   return {
     ...m,
     name: repo.name,
@@ -199,6 +211,11 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     defaultRepo: o.default_repo ?? false,
     auditPassthrough: o.audit_passthrough ?? true,
     jsonApi: o.json_api ?? true,
+    sumdbProxy: o.sumdb_proxy ?? true,
+    sumdbName: o.sumdb_name ?? 'sum.golang.org',
+    sumdbUrl: o.sumdb_url ?? 'https://sum.golang.org',
+    verifyChecksums: o.verify_checksums ?? true,
+    nosumdb: o.nosumdb ?? [],
     distribution: o.distribution ?? '',
     flat: o.flat ?? false,
     metadataRegex: o.metadata_path_regex ?? '',
@@ -220,6 +237,14 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       return { distribution: m.distribution.trim(), flat: m.flat }
     case 'pypi':
       return { json_api: m.jsonApi }
+    case 'go':
+      return {
+        sumdb_proxy: m.sumdbProxy,
+        sumdb_name: m.sumdbName.trim() || 'sum.golang.org',
+        sumdb_url: m.sumdbUrl.trim() || 'https://sum.golang.org',
+        verify_checksums: m.verifyChecksums,
+        nosumdb: m.nosumdb.map((p) => p.trim()).filter(Boolean),
+      }
     case 'yum':
       return { repo_path: m.repoPath, gpg_key: m.gpgKey }
     case 'helm':

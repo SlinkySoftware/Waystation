@@ -149,7 +149,7 @@ async def test_field_errors(admin: httpx.AsyncClient) -> None:
         },
     )
     assert fields(private) == {'proxy.upstream_url': 'ssrf'}
-    unknown = await admin.post(API, json=docker_hub(name='go-x', format='go'))
+    unknown = await admin.post(API, json=docker_hub(name='nuget-x', format='nuget'))
     assert fields(unknown)['format'] == 'unsupported'
 
 
@@ -271,6 +271,7 @@ async def test_openapi_documents_format_options(client: httpx.AsyncClient) -> No
         'AptOptions',
         'DockerOptions',
         'HelmOptions',
+        'GoOptions',
         'MavenOptions',
         'NpmOptions',
         'PypiOptions',

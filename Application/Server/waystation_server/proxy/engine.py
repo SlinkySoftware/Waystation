@@ -53,6 +53,7 @@ import asyncio
 import base64
 import contextlib
 import hashlib
+import io
 import logging
 import os
 import re
@@ -60,7 +61,8 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, BinaryIO, Protocol
 from urllib.parse import urljoin, urlsplit
 
 import anyio
@@ -101,6 +103,7 @@ if TYPE_CHECKING:
 __all__ = [
     'AssetKind',
     'AssetSpec',
+    'CheckedExpected',
     'Expected',
     'OnUpstream',
     'ProxyEngine',
@@ -160,6 +163,20 @@ class Expected:
                 except ValueError:
                     raise ValidationFailed('invalid integrity value') from None
         return cls(size=size, **found)
+
+
+@dataclass(frozen=True)
+class CheckedExpected(Expected):
+    """``Expected`` plus a format's own check of the complete bytes (e.g. Go's ``h1:`` hash of a module zip): called
+    in a thread with a seekable binary file before anything is committed (and before the last chunk is sent); raises
+    ``DigestMismatch`` to refuse them. Not run when a fill is passed through without being stored (hard quota, low
+    disk)."""
+
+    check: Callable[[BinaryIO], None] | None = field(default=None, compare=False)
+
+
+def _check_of(expected: Expected | None) -> Callable[[BinaryIO], None] | None:
+    return expected.check if isinstance(expected, CheckedExpected) else None
 
 
 @dataclass(frozen=True)
@@ -272,7 +289,16 @@ def _verify(expected: Expected | None, data: bytes) -> dict[str, str]:
         computed[alg] = got
         if got != want:
             raise DigestMismatch(f'{alg} does not match the expected digest')
+    check = _check_of(expected)
+    if check is not None:
+        check(io.BytesIO(data))
     return computed
+
+
+def _check_file(check: Callable[[BinaryIO], None], path: Path) -> None:
+    """Run a format's ``Expected.check`` on a written file (blocking: call in a thread)."""
+    with path.open('rb') as file:
+        check(file)
 
 
 class _Abandoned(Exception):  # noqa: N818 - control flow: the followed owner went away
@@ -1524,6 +1550,10 @@ class ProxyEngine:
                 for alg, hasher in fill.extra.items():
                     if hasher.hexdigest() != expected.digests()[alg]:
                         raise DigestMismatch(f'{alg} does not match the expected digest')
+                check = _check_of(expected)
+                if check is not None:
+                    await writer.flush()
+                    await asyncio.to_thread(_check_file, check, writer.path)
             ref = await self.blobs.commit(writer)
             committed = True
             checksums = {'sha256': ref.sha256, **{alg: h.hexdigest() for alg, h in fill.extra.items()}}

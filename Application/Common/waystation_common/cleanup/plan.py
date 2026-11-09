@@ -7,7 +7,8 @@ Components and versions come from asset paths (``coordinates``) until components
 
 * npm ``<pkg>/-/<name>-<version>.tgz``; apt pool ``<name>_<version>_<arch>.deb`` (grouped per name and arch); yum
   ``<name>-<version>-<release>.<arch>.rpm`` (per name and arch); pypi ``packages/<project>/<wheel or sdist>`` (and
-  its ``.metadata`` sidecar; per project, PEP 440, every file of a version shares its rank); every other format
+  its ``.metadata`` sidecar; per project, PEP 440, every file of a version shares its rank); go
+  ``<module>/@v/<version>.{zip,mod,info}`` (case-encoding decoded; per module, Go semver); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -111,7 +112,21 @@ def coordinates(fmt: str, path: str) -> Coord:
         if dist_version is not None:
             project = path.split('/')[1]
             return Coord(project, dist_version, project, True)
+    if fmt == 'go' and '/@v/' in path and filename.endswith(('.zip', '.mod', '.info')):
+        escaped, _, _ = path.partition('/@v/')
+        stem = filename.rsplit('.', 1)[0]
+        if escaped and stem.startswith('v'):
+            module = _go_unescape(escaped)
+            return Coord(module, _go_unescape(stem), module, True)
     return Coord(path, filename, _parent(path), False)
+
+
+_GO_BANG = re.compile(r'!([a-z])')
+
+
+def _go_unescape(text: str) -> str:
+    """A GOPROXY case-encoded module path or version (``!`` + lower-case = upper-case)."""
+    return _GO_BANG.sub(lambda m: m.group(1).upper(), text)
 
 
 _PYPI_SDIST = ('.tar.gz', '.zip', '.tar.bz2', '.tar.xz', '.tgz', '.tar')

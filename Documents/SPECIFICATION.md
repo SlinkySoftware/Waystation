@@ -160,8 +160,11 @@ Windows containers support for the server.
   writable member.
   Now (T-P5-PYPI): PyPI groups merge their members' project pages per request (union by file name, the first member
   wins; a proxy member's cached page, refreshed as needed), serve files from the first member holding them (else the
-  proxy members in order) and send uploads to a hosted writable member. Other formats' groups (npm... with their
-  metadata merges) are not built yet.
+  proxy members in order) and send uploads to a hosted writable member.
+  Now (T-P5-GO): Go groups (Go proxy members) merge `@v/list` per request (union, newest first, `ETag`/`304`), answer
+  `.info`/`.mod`/`.zip` from any member's cached copy first, then `@latest`, queries and misses from the members in
+  order, and the checksum database from the first member that proxies it. Other formats' groups (npm... with
+  their metadata merges) are not built yet.
 
 ### 4.4 Routing and URLs
 - One base URL (`WAYSTATION_BASE_URL`, e.g. `https://registry.example.com`). TLS is terminated by the web tier or
@@ -231,7 +234,11 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   repositories. PyPI (T-P5-PYPI): `pypi/projects` (summaries in
   `pypi_packages`: latest final release by PEP 440, version count, files held) and `pypi/versions?project=` (versions
   newest first, each with its wheels and sdist: size, sha256, requires-python, yanked, PEP 658 metadata, held or not,
-  uploader for hosted files) for proxy and hosted repositories; groups are browsed through their members.
+  uploader for hosted files) for proxy and hosted repositories; groups are browsed through their members. Go
+  (T-P5-GO): `go/modules` (summaries in `go_modules`: latest by Go semver, tagged versions, cached versions, zip bytes)
+  and `go/versions?module=` (cached list and cached files merged, newest first in semver order with pseudo-version,
+  pre-release and `+incompatible` flags, commit time from the `.info`, the `.info`/`.mod`/`.zip` files held) for
+  proxy repositories; search finds modules by path.
 - Global search across repositories the principal can read: name (prefix and substring), version, format,
   repository, digest/checksum lookup ("where is this sha256 used?"), with facets (format, repo, type).
   Target: results in < 150 ms p95 for 1M assets.
@@ -387,7 +394,8 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   repositories anonymous cannot see, which answer anonymous requests with 404, not a challenge: proposed ADR 0005),
   Helm classic repos (basic: `helm repo add --username --password`), Terraform/OpenTofu (`credentials` block → `Authorization: Bearer`), Ansible Galaxy
   (`Authorization: Token <api-token>`), Swift (`swift package-registry login`: basic or token), NuGet
-  (`X-NuGet-ApiKey` for push, basic for read), apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic).
+  (`X-NuGet-ApiKey` for push, basic for read), apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic;
+  the go command sends credentials over HTTPS only).
   Each format's auth is part of its Definition of Done (FORMATS.md).
 - Anonymous access: a configurable `anonymous` principal with its own roles (default: read on proxy repos only).
   Now: `GET/PUT /api/v1/anonymous-access` (`user-admin`) sets its roles: the built-in `anonymous` role and/or roles
@@ -552,7 +560,7 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   - **Mapping**: same name (ADR 0003), format (`maven2` → `maven`; formats Waystation does not serve, or types it
     does not offer yet, are `unsupported` with the reason), type, `online`; proxy `remoteUrl` → `upstream_url`,
     `metadataMaxAge` (minutes) → `metadata_max_age_s` (-1 keeps the default), `contentMaxAge` → `content_max_age_s`
-    for raw (docker, npm, apt and yum content is checksum-verified and kept forever), negative cache (disabled = 0),
+    for raw (docker, npm, apt, yum, PyPI and Go content is checksum-verified and kept forever), negative cache (disabled = 0),
     `autoBlock` → `auto_block.enabled`, a blocked Nexus repository → `offline`. Docker: index `HUB` (or a Docker Hub
     remote) → `docker_hub`; the upstream host becomes an alias (`docker.io` for Docker Hub, `ghcr.io`, ...; option
     `docker_aliases`, default on; an alias already routed or equal to a repository name is dropped); connector ports
@@ -866,6 +874,7 @@ Waystation/
 | apt format (T-P2-APT) | M0 slice 2026-11-08: apt proxy repositories pass `InRelease`/`Release` through untouched, serve index files only by the SHA256 the cached `Release` lists (by-hash fetch, one `Release` revalidation on mismatch, then 502), accept self-validating `by-hash` paths, index cached `Packages` files into `apt_pool_index` and validate pool files against it (or record them `unverified`); several suites per repository. apt on Debian 13 and Ubuntu 26.04 passes the real-client harness in replay (`*-updates` and `*-security` suites). Hosted, Raspberry Pi OS / arm64 clients and worker-side re-verification pending |
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
 | PyPI (T-P5-PYPI) | Done 2026-11-10: proxy (PEP 503 HTML and PEP 691 JSON pages negotiated by `Accept` and cached per representation, normalised-name and trailing-slash redirects, file URLs rewritten into the repository with hashes, requires-python, yanked and core-metadata kept; files and PEP 658 `.metadata` files verified against the page's hashes before they are cached; legacy JSON API pass-through), hosted (twine / `uv publish` upload API streamed into the blob store, metadata read from wheels and sdists in a thread with zip/tar-slip checks, write policy, `.metadata` for wheels, yank API), group (merged pages, files from members, uploads to the writable member); browse (`pypi/projects`, `pypi/versions`) and search on `pypi_packages`; PEP 440 version order for cleanup; UI create flow, options, browse with yank, "Set me up" (pip, uv, Poetry, PDM, twine, uv publish). Harness: pip 26, uv 0.13, twine 7 against recorded pypi.org fixtures. Poetry/PDM harness runs pending |
+| Go modules (T-P5-GO) | Done 2026-11-10: proxy (GOPROXY protocol: `@v/list` and `@latest` as metadata, canonical `.info`/`.mod`/`.zip` as content, `.info` queries as metadata; module paths and versions case-decoded, validated and re-encoded; upstream `404`/`410` → `404`; size limits), `.mod`/`.zip` verified against the checksum database's `go.sum` lines (`h1:` dirhash in a thread, bounded) before they are cached (`verify_checksums`, `nosumdb` patterns), checksum database proxy at `sumdb/<name>/` (`supported`, `latest`, `lookup`, tiles: full tiles immutable, hash tiles size-checked), group (merged `@v/list`, files from the first member holding them, sumdb from the first proxying member); `go_modules` browse (`go/modules`, `go/versions`) and search; Go semver order for cleanup; UI create flow, options, Go browser, "Set me up" (GOPROXY, GONOSUMDB, `.netrc`). Harness: go 1.25 `go mod download`/`go run` through a proxy of proxy.golang.org with sum.golang.org verified through the proxy, and through a group with `.netrc` over TLS, recorded and replayed. Left: k6 perf budgets (T-P2-PERF) |
 | Docker hosted (T-P2-DOCKERH) | Done 2026-11-09: docker hosted repositories (REST/UI type `hosted` with write policy and immutable tag patterns): chunked/monolithic/resumable uploads into the blob store (sha256-verified, `upload_sessions`), cross-repository mounts with RBAC on the source, manifest validation, tags with immutability, deletes, referrers API, `tags/list`, `/v2/_catalog` for proxies and hosted (RBAC-filtered), audit `content.upload`/`content.delete`, live upload transfers, browse of pushed images, "Set me up" for push/buildx/crane/oras/cosign. docker push and buildx multi-platform, skopeo, crane, oras and cosign 3 (offline, signatures via referrers) pass the client harness, and so does the OCI distribution-spec conformance suite v1.1.1. Quotas (T-O03): hard quotas refuse pushes with `403 DENIED` |
 | Docker group (T-P2-DOCKERG) | Done 2026-11-09: docker group repositories (REST/UI type `group`: ordered members, optional hosted writable member): reads in member order, blobs from any member's copy first, merged tags and referrers, pushes/uploads/deletes to the writable member with RBAC on it, read-only groups `405`; client harness push through a group, member order and merged tags; the OCI conformance suite passes through a group as well |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted and `_catalog` since T-P2-DOCKERH, groups since T-P2-DOCKERG; referrers for proxies and podman/containerd harness runs pending |
