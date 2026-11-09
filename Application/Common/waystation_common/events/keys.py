@@ -9,6 +9,7 @@ from typing import Final
 
 TRANSFERS: Final = 'transfers'  # hash: transfer id -> Transfer JSON
 LIVE: Final = 'live'  # pub/sub channel: LiveMessage JSON
+JOBS_LIVE: Final = 'live:jobs'  # pub/sub channel: JobLiveMessage JSON (job progress and log lines; no history)
 ACTIVITY: Final = 'activity'  # stream: fields {type, data(ActivityEvent JSON)}
 ACTIVITY_MAXLEN: Final = 200_000
 STATS_PENDING: Final = 'stats:pending'  # set of '<minute>:<repo_id>' with counters not yet rolled up

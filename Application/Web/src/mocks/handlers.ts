@@ -16,6 +16,7 @@ import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
+import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
@@ -255,6 +256,9 @@ export const handlers = [
 
   // ---------------------------------------------------------------- cleanup policies and blob GC
   ...cleanupHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
+
+  // ---------------------------------------------------------------- tasks and workers (T-O04)
+  ...tasksHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
   // ---------------------------------------------------------------- audit log (T-S10)
   ...auditHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
