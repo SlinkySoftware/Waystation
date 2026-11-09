@@ -306,7 +306,31 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
     edits the guard.
 
 ### 4.9 Authentication
-- **Local** users (argon2id), optional TOTP 2FA (Phase 6).
+- **Local** users (argon2id), optional TOTP 2FA.
+  Now (T-O08): a local account with a password can turn on two-factor sign-in (RFC 6238 TOTP: HMAC-SHA1, 6
+  digits, 30 s steps, one step of clock drift either way). Set-up (profile page; needs an interactive session and
+  the current password): `POST /auth/me/totp/setup` returns a new 160-bit secret once, as base32 and as an
+  `otpauth://totp/<instance>:<username>` URI that the UI draws as a QR code in the browser; it stays pending
+  (encrypted) for 15 minutes; `POST /auth/me/totp/confirm` with a code from the app turns it on and returns 10
+  single-use recovery codes (`xxxxx-xxxxx`, about 50 bits each) once. The secret is stored AES-GCM encrypted
+  (`SECRET_KEYS`), recovery codes only as keyed hashes. `POST /auth/me/totp/recovery-codes` (a TOTP code) replaces
+  the recovery codes; `POST /auth/me/totp/disable` (current password and a TOTP or recovery code) turns it off;
+  `GET /auth/me/totp` shows the state. Sign-in becomes two steps: a correct password answers `202` with
+  `second_factor: totp` and a pending sign-in (not a session: `login_challenges`, 5 minutes, bound to the browser
+  by the HttpOnly, SameSite=Strict cookie `ws_mfa`); `POST /auth/login/totp` with a code or a recovery code
+  then creates the session. A TOTP code is accepted once per step per user (Valkey, and `users.totp_last_step` so
+  that MongoDB alone still refuses replays when Valkey is down; an earlier step after a later one is refused too),
+  a recovery code once. Wrong codes count towards the account lockout, and the password step does not reset the
+  failure count while the second factor is pending; after 5 wrong codes the pending sign-in ends (problem code
+  `second_factor_expired`); the second step is rate limited like sign-in. The password of an account with
+  two-factor sign-in is refused outside the UI (`docker login`, audit reason `totp_required`): package clients
+  use API tokens. LDAP and OIDC accounts are never asked (their provider owns their sign-in). An administrator
+  holding `user-admin` resets a user's second factor (lost phone) with `DELETE /users/{id}/totp` (not their own,
+  not an account holding more than they do). Settings → "Require two-factor sign-in for local administrators"
+  (`security.require_totp_for_admins`): a local administrator without it gets sessions that may only read
+  `GET /auth/me`, set it up and sign out (403 `totp_setup_required` otherwise; `Session.totp_setup_required`;
+  the UI keeps the user on the profile page), and `docker login` with the password is refused
+  (`totp_setup_required`). A pending one-time password is changed first.
 - **LDAP / LDAPS / StartTLS**: multiple servers with failover, service bind, user search base + filter, attribute
   mapping (uid, name, email), group discovery (memberOf or group search), nested groups optional,
   "require group" gate, custom CA file. Tested against FreeIPA and Active Directory schemas.
@@ -455,7 +479,7 @@ settings changes. Searchable in the UI, exported via API; retention configurable
 - **Record**: time, action (`<category>.<verb>`, catalog `waystation_common.audit.AuditAction`), outcome
   (`success`/`failure`) and for failures a reason code (`bad_credentials`, `unknown_user`, `locked`, `disabled`,
   `not_in_group`, `directory_unavailable`, `link_refused`, `invalid_token`, `too_many_failures`,
-  `password_change_required`), the actor (user,
+  `password_change_required`, `bad_second_factor`, `totp_required`, `totp_setup_required`), the actor (user,
   service account, anonymous or `system`; how it authenticated: session, API token, basic, registry token; its
   sign-in provider; the API token id when one was used), the target (kind, id, name), the client address (after the
   trusted-proxy rules of §8.4) and the request id, plain `details`, and field-level `changes` (before/after).
@@ -469,7 +493,11 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   `user.create` (bootstrap admin, provider provisioning, the users API), `user.link` (an external account linked for
   the first time), `user.groups_sync` (the groups a provider reports changed), `user.update` (profile, status, roles,
   groups, unlock; own profile changes too), `user.delete`, `auth.password_change` (own change, success or a wrong
-  current password; an administrator's reset with `details.by_admin`), `session.revoke`,
+  current password; an administrator's reset with `details.by_admin`), `auth.totp_enable` (two-factor sign-in
+  turned on), `auth.totp_disable` (turned off by the user, `details.with` the kind of code, or reset by an
+  administrator, `details.by_admin`), `auth.totp_recovery_codes` (recovery codes replaced); a two-step sign-in is
+  `auth.login` with `details.second_factor` (`totp`/`recovery_code`), a wrong code `auth.login` failure
+  `bad_second_factor` with `details.step` `second_factor`; codes and secrets are never recorded; `session.revoke`,
   `group.create|update|delete` (membership changes as `group.update` with `details.members_added|members_removed`),
   `role.create|update|delete` (anonymous access changes as `role.update` on target `anonymous_access`),
   `auth_provider.create|update|delete|test`, `repository.create|update|delete|test_upstream`, `task.update|run|retry|discard`
@@ -639,7 +667,7 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
   range `15m|1h|24h|7d|30d` split hit/upstream or by format, storage, upstream health incl. Docker Hub rate limit),
   live transfers, activity, browse (generic folder listing, docker images/tags/manifest, npm packages/versions, apt
   suites/packages) and the SSE event schemas (`LiveEvent`: `transfers.snapshot`, `transfer.started|progress|finished|failed`,
-  `stats.tick`, `upstream.state`, `activity`). Errors are RFC 9457 problem+json with field-level `errors[]`.
+  `stats.tick`, `upstream.state`, `activity`). Errors are RFC 9457 problem+json with field-level `errors[]` and the stable error `code` (`not_found`, `password_change_required`, `totp_setup_required`, `second_factor_expired`...).
   `make gen-api` regenerates the UI's TypeScript types (`src/api/schema.d.ts`); CI fails if they are stale. Once
   the server generates its own document, a contract test keeps it compatible with this file.
 - EventSource cannot set headers, so a client that reopens the stream itself passes `last_event_id` as a query
@@ -840,6 +868,7 @@ Waystation/
 | Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. Job API and Tasks page: T-O04 (2026-11-09) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | Done 2026-11-09: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`; one-time passwords enforced (only `/auth/me`, the password change and sign-out until changed; `docker login` refused), own password change, profile update, own sessions list/revoke (one, or every other), effective permissions; UI password card on the profile page and a router guard for one-time passwords |
+| Two-factor sign-in (T-O08) | Done 2026-11-10: TOTP (RFC 6238) for local accounts: enrolment with a QR code drawn in the browser, 10 recovery codes, two-step sign-in with replay protection (Valkey + MongoDB), lockout and rate limits, `docker login` with the password refused for such accounts (API tokens instead), turn off, administrator reset, "require for local administrators" setting enforced like one-time passwords; LDAP/OIDC unaffected; audited |
 | Audit (T-S10) | Done 2026-11-09: audit catalog and records (actor, target, outcome/reason, client address, request id, details, redacted before/after changes), non-blocking batched writer, TTL retention (`WAYSTATION_AUDIT_RETENTION_DAYS`), `GET /api/v1/audit` (filters, cursor paging) and streamed CSV/NDJSON export, Audit log page. Actions whose features are pending (cleanup) are emitted by those tasks; password change, session revoke and user/group/role admin since 2026-11-09 (T-S02/T-S03); `content.upload`/`content.delete` since T-P2-DOCKERH (docker hosted); `settings.update` since T-U08 |
 | RBAC (T-S03) | Done 2026-11-09: one decision point (`security.access`: `check`, `filter_repos`, `filter_query`), built-in and custom roles, scopes incl. `type:`, hidden = 404, every route declares its rule, CSRF enforced app-wide for session requests; groups (local and provider-mapped) holding roles; materialised grants cached per `grant_version` (in-process and Valkey) with change-stream invalidation across replicas; configurable anonymous access; delegation bounded by the caller's own powers, last-administrator guard. Admin APIs: users, groups and members, roles, anonymous access, effective permissions (UI: T-U08). Tests: route enumeration over included routers (it had silently seen none since a FastAPI upgrade), route × {anonymous, reader, deployer, admin} matrix for every REST route plus the format-route matrix, cross-replica role change |
 | API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audited (T-S10); the service-account admin UI (T-U08) pending |

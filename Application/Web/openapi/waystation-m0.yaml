@@ -93,8 +93,47 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Session' }
+        '202':
+          description: |
+            The password was accepted and the account has two-factor sign-in: no session yet. `Set-Cookie` carries the
+            pending sign-in (`ws_mfa`, HttpOnly, SameSite=Strict, a few minutes); send the code to `POST /auth/login/totp`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SecondFactorRequired' }
         '401':
           description: Bad credentials (generic message; never says which part was wrong)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429':
+          description: Too many attempts; `Retry-After` header set
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/login/totp:
+    post:
+      tags: [auth]
+      operationId: loginSecondFactor
+      summary: Second sign-in step for accounts with two-factor sign-in; sets the session cookie
+      description: |
+        Needs the pending sign-in cookie from `POST /auth/login` (202). `code` is the 6-digit code from the
+        authenticator app (each code works once) or a recovery code (single use). Wrong codes count towards the
+        account lockout; after 5 the pending sign-in ends. Rate limited like sign-in.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SecondFactorLogin' }
+      responses:
+        '200':
+          description: Signed in. `Set-Cookie` carries the session and `ws_csrf` cookies.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+        '401':
+          description: Wrong code, or (problem `code` `second_factor_expired`) the pending sign-in is gone; start again
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -167,6 +206,123 @@ paths:
             schema: { $ref: '#/components/schemas/PasswordChange' }
       responses:
         '204': { description: Changed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429':
+          description: Too many attempts; `Retry-After` header set
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/me/totp:
+    get:
+      tags: [auth]
+      operationId: getMyTotp
+      summary: The caller's two-factor sign-in (TOTP) state
+      responses:
+        '200':
+          description: State
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TotpStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/me/totp/setup:
+    post:
+      tags: [auth]
+      operationId: startMyTotpSetup
+      summary: Start setting up two-factor sign-in (local accounts; needs the current password)
+      description: |
+        Returns a new secret (once) as base32 and as an `otpauth://` URI, which the UI shows as a QR code rendered in
+        the browser. It stays pending for 15 minutes until confirmed; starting again replaces it. 409 when it is
+        already on or the account signs in through a provider.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TotpSetupRequest' }
+      responses:
+        '200':
+          description: The pending secret
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TotpSetup' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429':
+          description: Too many attempts; `Retry-After` header set
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/me/totp/confirm:
+    post:
+      tags: [auth]
+      operationId: confirmMyTotp
+      summary: Turn two-factor sign-in on with a code from the app; returns the recovery codes once
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TotpCode' }
+      responses:
+        '200':
+          description: On. The recovery codes are shown only now.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TotpRecoveryCodes' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429':
+          description: Too many attempts; `Retry-After` header set
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/me/totp/recovery-codes:
+    post:
+      tags: [auth]
+      operationId: regenerateMyRecoveryCodes
+      summary: Replace the recovery codes (needs a code from the app); the old ones stop working
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TotpCode' }
+      responses:
+        '200':
+          description: The new recovery codes, shown only now
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TotpRecoveryCodes' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429':
+          description: Too many attempts; `Retry-After` header set
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/me/totp/disable:
+    post:
+      tags: [auth]
+      operationId: disableMyTotp
+      summary: Turn two-factor sign-in off (current password and a code from the app or a recovery code)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TotpDisable' }
+      responses:
+        '204': { description: Off }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -577,6 +733,20 @@ paths:
               schema: { $ref: '#/components/schemas/UserDetail' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{user_id}/totp:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    delete:
+      tags: [admin]
+      operationId: resetUserTotp
+      summary: Remove a user's two-factor sign-in (lost device); not one's own
+      description: The user signs in with the password alone and can set it up again. Audited (`auth.totp_disable`).
+      responses:
+        '204': { description: Removed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   /users/{user_id}/permissions:
     parameters:
@@ -2441,6 +2611,7 @@ components:
         status: { type: integer }
         detail: { type: string }
         instance: { type: string }
+        code: { type: string, description: 'Stable machine code (`password_change_required`, `totp_setup_required`, `second_factor_expired`...)' }
         errors:
           type: array
           items: { $ref: '#/components/schemas/FieldError' }
@@ -2527,7 +2698,7 @@ components:
         source: { type: string, description: '`local`, `ldap:<provider>` or `oidc:<provider>`' }
     Session:
       type: object
-      required: [user, csrf_token, capabilities, preferences, expires_at, must_change_password]
+      required: [user, csrf_token, capabilities, preferences, expires_at, must_change_password, totp_setup_required]
       properties:
         user: { $ref: '#/components/schemas/User' }
         csrf_token: { type: string, description: Echo in `X-CSRF-Token` on unsafe methods }
@@ -2543,6 +2714,28 @@ components:
         must_change_password:
           type: boolean
           description: The account holds a one-time password; change it (`POST /auth/me/password`) before anything else
+        totp_setup_required:
+          type: boolean
+          description: |
+            Two-factor sign-in is required for this account (local administrators, when the policy is on) and not set
+            up yet: set it up (`POST /auth/me/totp/setup`, then `/confirm`) before anything else (403 otherwise)
+    SecondFactorRequired:
+      type: object
+      required: [second_factor, expires_at]
+      properties:
+        second_factor: { type: string, const: totp, description: 'Send the code to `POST /auth/login/totp`' }
+        expires_at: { $ref: '#/components/schemas/Timestamp' }
+    SecondFactorLogin:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          minLength: 6
+          maxLength: 32
+          writeOnly: true
+          description: The 6-digit code from the authenticator app, or a recovery code (`xxxxx-xxxxx`)
 
     # ---------------------------------------------------------------- API tokens and service accounts
     TokenScope:
@@ -2663,6 +2856,51 @@ components:
       properties:
         current_password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
         new_password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true, description: At least 12 characters }
+    TotpStatus:
+      type: object
+      required: [available, enabled, enabled_at, required, recovery_codes_left]
+      properties:
+        available: { type: boolean, description: The account can use two-factor sign-in (a local account with a password) }
+        enabled: { type: boolean }
+        enabled_at: { type: [string, 'null'], format: date-time }
+        required: { type: boolean, description: Policy requires it for this account and it is not set up yet }
+        recovery_codes_left: { type: integer }
+    TotpSetupRequest:
+      type: object
+      required: [password]
+      additionalProperties: false
+      properties:
+        password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+    TotpSetup:
+      type: object
+      required: [secret, otpauth_uri, issuer, account, expires_at]
+      properties:
+        secret: { type: string, description: The shared secret (base32) for typing into an app by hand. Shown once. }
+        otpauth_uri: { type: string, description: '`otpauth://totp/...` for a QR code (render it locally, never via a service)' }
+        issuer: { type: string }
+        account: { type: string }
+        expires_at: { $ref: '#/components/schemas/Timestamp' }
+    TotpCode:
+      type: object
+      required: [code]
+      additionalProperties: false
+      properties:
+        code: { type: string, minLength: 6, maxLength: 32, writeOnly: true }
+    TotpDisable:
+      type: object
+      required: [password, code]
+      additionalProperties: false
+      properties:
+        password: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+        code: { type: string, minLength: 6, maxLength: 32, writeOnly: true, description: A code from the app or a recovery code }
+    TotpRecoveryCodes:
+      type: object
+      required: [recovery_codes]
+      properties:
+        recovery_codes:
+          type: array
+          description: Single-use codes for when the app is not at hand. Shown once.
+          items: { type: string }
     SessionInfo:
       type: object
       required: [id, current, created_at, last_seen_at, expires_at, ip, user_agent, provider_id]
@@ -2743,7 +2981,7 @@ components:
     # ---------------------------------------------------------------- administration: users and groups
     UserSummary:
       type: object
-      required: [id, username, display_name, email, source, disabled, locked, roles, groups, last_login, created_at]
+      required: [id, username, display_name, email, source, disabled, locked, totp_enabled, roles, groups, last_login, created_at]
       properties:
         id: { type: string }
         username: { type: string }
@@ -2752,6 +2990,7 @@ components:
         source: { type: string, description: '`local`, or the provider that created or linked the user (`ldap:<id>`)' }
         disabled: { type: boolean }
         locked: { type: boolean, description: Locked out after failed sign-ins (local accounts) }
+        totp_enabled: { type: boolean, description: Two-factor sign-in (TOTP) is on (local accounts) }
         roles:
           type: array
           description: Roles held directly
@@ -2794,7 +3033,7 @@ components:
         last_login: { type: [string, 'null'], format: date-time }
     UserDetail:
       type: object
-      required: [id, username, display_name, email, source, disabled, locked, roles, groups, last_login, created_at,
+      required: [id, username, display_name, email, source, disabled, locked, totp_enabled, roles, groups, last_login, created_at,
                  locked_until, must_change_password, has_password, group_refs, external_groups, identities, effective_roles]
       properties:
         id: { type: string }
@@ -2804,6 +3043,7 @@ components:
         source: { type: string }
         disabled: { type: boolean }
         locked: { type: boolean }
+        totp_enabled: { type: boolean, description: Two-factor sign-in (TOTP) is on (local accounts) }
         roles:
           type: array
           items: { type: string }
@@ -2937,9 +3177,10 @@ components:
     # ---------------------------------------------------------------- administration: sign-in providers, roles
     InstanceSettings:
       type: object
-      required: [general, limits, updated_at, updated_by]
+      required: [general, security, limits, updated_at, updated_by]
       properties:
         general: { $ref: '#/components/schemas/GeneralSettings' }
+        security: { $ref: '#/components/schemas/SecuritySettings' }
         limits: { $ref: '#/components/schemas/EnvironmentLimits' }
         updated_at: { type: [string, 'null'], format: date-time, description: null until first saved }
         updated_by: { type: [string, 'null'], description: Username of the last change }
@@ -2949,6 +3190,19 @@ components:
       additionalProperties: false
       properties:
         general: { $ref: '#/components/schemas/GeneralSettings' }
+        security:
+          description: Omit to keep the current security settings
+          oneOf:
+            - $ref: '#/components/schemas/SecuritySettings'
+            - type: 'null'
+    SecuritySettings:
+      type: object
+      required: [require_totp_for_admins]
+      additionalProperties: false
+      properties:
+        require_totp_for_admins:
+          type: boolean
+          description: Local administrators must set up two-factor sign-in (TOTP) before they can do anything else
     GeneralSettings:
       type: object
       required: [instance_name]

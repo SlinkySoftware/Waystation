@@ -9,7 +9,8 @@
   provider first, then the others; the first directory that knows the username decides. A success links and syncs
   the Waystation user (``security.external``). Directories enforce their own lockout.
 - Failures are indistinguishable: unknown user, wrong password, disabled, locked, not in the required group or
-  directory unavailable, or a one-time password used outside the UI (``docker login``) all raise the same
+  directory unavailable, or a one-time password used outside the UI (``docker login``), or the password of an
+  account with two-factor sign-in (or one that must enrol first) used outside the UI all raise the same
   ``Unauthorized`` (the reason is logged and goes to the audit record
   ``auth.login`` / failure; the attempt that locks an account also records ``auth.lockout``).
 """
@@ -24,7 +25,7 @@ from waystation_common.errors import Unauthorized
 from waystation_server import audit
 from waystation_server.audit import AuditAction, Outcome
 from waystation_server.db import users as users_db
-from waystation_server.security import passwords, ratelimit
+from waystation_server.security import passwords, ratelimit, second_factor
 from waystation_server.security.external import LinkRefused, link_identity
 from waystation_server.security.identity import UserRecord
 from waystation_server.security.ldap import LdapDirectory
@@ -96,33 +97,54 @@ async def _verify(svc: Services, name: str, password: str, *, provider: str | No
     return await _verify_ldap(svc, candidates, name, password, interactive=interactive)
 
 
-async def _verify_local(svc: Services, user: UserRecord, password: str, *, interactive: bool) -> UserRecord:
+async def count_failure(svc: Services, user: UserRecord, what: str) -> None:
+    """Count a failed sign-in step (wrong password or wrong second factor) towards the account lockout."""
     settings = svc.settings
+    locked_until = datetime.now(UTC) + timedelta(minutes=settings.login_lockout_minutes)
+    failures = await users_db.record_failure(
+        svc.db, user.id, threshold=settings.login_lockout_failures, locked_until=locked_until
+    )
+    log.info('sign-in failed', extra={'user_id': user.id, 'reason': what, 'failures': failures})
+    if failures >= settings.login_lockout_failures:
+        audit.record(
+            AuditAction.AUTH_LOCKOUT,
+            outcome=Outcome.FAILURE,
+            reason='too_many_failures',
+            target=audit.target('user', user.id, user.username),
+            details={'failures': failures, 'locked_until': locked_until},
+        )
+
+
+def is_locked(user: UserRecord, now: datetime) -> bool:
+    return user.locked_until is not None and user.locked_until > now
+
+
+async def _verify_local(svc: Services, user: UserRecord, password: str, *, interactive: bool) -> UserRecord:
     ok = await passwords.verify_password(user.password_hash, password)
     now = datetime.now(UTC)
-    if user.disabled or (user.locked_until is not None and user.locked_until > now):
+    if user.disabled or is_locked(user, now):
         reason = 'disabled' if user.disabled else 'locked'
         log.info('sign-in refused', extra={'user_id': user.id, 'reason': reason})
         raise LoginFailed(reason, user, LOCAL)
     if not ok:
-        locked_until = now + timedelta(minutes=settings.login_lockout_minutes)
-        failures = await users_db.record_failure(
-            svc.db, user.id, threshold=settings.login_lockout_failures, locked_until=locked_until
-        )
-        log.info('sign-in failed', extra={'user_id': user.id, 'reason': 'password', 'failures': failures})
-        if failures >= settings.login_lockout_failures:
-            audit.record(
-                AuditAction.AUTH_LOCKOUT,
-                outcome=Outcome.FAILURE,
-                reason='too_many_failures',
-                target=audit.target('user', user.id, user.username),
-                details={'failures': failures, 'locked_until': locked_until},
-            )
+        await count_failure(svc, user, 'password')
         raise LoginFailed('bad_credentials', user, LOCAL)
     if user.must_change_password and not interactive:
         # A one-time password only opens the UI, where it must be changed first (SPECIFICATION §4.9).
         log.info('sign-in refused', extra={'user_id': user.id, 'reason': 'password_change_required'})
         raise LoginFailed('password_change_required', user, LOCAL)
+    if second_factor.enrolled(user):
+        if not interactive:
+            # The password alone is not enough: package clients use API tokens (SPECIFICATION §4.9).
+            log.info('sign-in refused', extra={'user_id': user.id, 'reason': 'totp_required'})
+            raise LoginFailed('totp_required', user, LOCAL)
+        # Half way: success (and the reset of the failure count) is recorded after the second factor, so a known
+        # password does not buy unlimited code guesses.
+        log.info('password accepted, second factor pending', extra={'user_id': user.id})
+        return user
+    if not interactive and await second_factor.setup_required(svc, user):
+        log.info('sign-in refused', extra={'user_id': user.id, 'reason': 'totp_setup_required'})
+        raise LoginFailed('totp_setup_required', user, LOCAL)
     rehash = None
     if user.password_hash and passwords.needs_rehash(user.password_hash):
         rehash = await passwords.hash_password(password)

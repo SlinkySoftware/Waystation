@@ -17,6 +17,7 @@ import hashlib
 import io
 import json
 import secrets
+import time
 import zipfile
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
@@ -36,7 +37,7 @@ from waystation_common.settings import Settings
 from waystation_server import audit
 from waystation_server.api import audit as audit_api
 from waystation_server.bootstrap import ensure_bootstrap_admin
-from waystation_server.security import passwords
+from waystation_server.security import passwords, totp
 from waystation_server.security.external import ExternalGroup, ExternalIdentity, link_identity
 from waystation_server.services import Services
 
@@ -380,6 +381,40 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     assert docker_logins[0]['principal']['auth'] == 'basic'
     await rec.expect(A.AUTH_LOGIN, outcome='failure', **{'details.via': 'docker'})
 
+    # --- two-factor sign-in: enrol, new recovery codes, turn off, enrol again, an administrator's reset
+    await add_user(services, 'tess', ['reader'])
+    tess = await sign_in(services, 'tess')
+    totp_secrets: list[str] = []
+
+    async def enrol_tess() -> tuple[bytes, int]:
+        started = await tess.post(f'{api}/auth/me/totp/setup', json={'password': PASSWORD})
+        assert started.status_code == 200, started.text
+        totp_secrets.append(started.json()['secret'])
+        key, step = totp.secret_bytes(totp_secrets[-1]), totp.step_at(time.time())
+        confirmed = await tess.post(f'{api}/auth/me/totp/confirm', json={'code': totp.hotp(key, step)})
+        assert confirmed.status_code == 200, confirmed.text
+        totp_secrets.extend(confirmed.json()['recovery_codes'])
+        return key, step
+
+    key, step = await enrol_tess()
+    fresh = await tess.post(f'{api}/auth/me/totp/recovery-codes', json={'code': totp.hotp(key, step + 1)})
+    assert fresh.status_code == 200, fresh.text
+    totp_secrets.extend(fresh.json()['recovery_codes'])
+    off = await tess.post(
+        f'{api}/auth/me/totp/disable', json={'password': PASSWORD, 'code': fresh.json()['recovery_codes'][0]}
+    )
+    assert off.status_code == 204, off.text
+    await enrol_tess()
+    assert (await admin.delete(f'{api}/users/id-tess/totp')).status_code == 204
+    await tess.aclose()
+    enabled = await rec.expect(A.AUTH_TOTP_ENABLE, **{'target.id': 'id-tess'})
+    assert enabled['principal']['name'] == 'tess' and enabled['details'] == {'recovery_codes': 10}
+    await rec.expect(A.AUTH_TOTP_RECOVERY_CODES, **{'target.id': 'id-tess'})
+    own_off = await rec.expect(A.AUTH_TOTP_DISABLE, **{'target.id': 'id-tess', 'details.by_admin': False})
+    assert own_off['details']['with'] == 'recovery_code'
+    reset_2fa = await rec.expect(A.AUTH_TOTP_DISABLE, **{'target.id': 'id-tess', 'details.by_admin': True})
+    assert reset_2fa['principal']['name'] == 'admin'
+
     # --- uploads and deletes on a hosted repository (docker push of a manifest, delete of its tag)
     hosted = {'name': 'images', 'format': 'docker', 'type': 'hosted', 'online': True}
     assert (await admin.post(f'{api}/repositories', json=hosted)).status_code == 201
@@ -522,6 +557,8 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
         'erin-first-Passw0rd',
         'erin-reset-Passw0rd',
         'erin-own-Passw0rd-123',
+        *totp_secrets,
+        *(code.replace('-', '') for code in totp_secrets if '-' in code),
     ):
         assert secret not in stored
     assert 'secret_enc' not in stored.replace('"proxy.auth.secret_enc"', '')

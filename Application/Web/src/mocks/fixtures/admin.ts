@@ -92,6 +92,7 @@ function base(id: string, username: string, display: string, source: string, cre
     source,
     disabled: false,
     locked: false,
+    totp_enabled: false,
     roles: [],
     groups: [],
     last_login: null,
@@ -139,7 +140,7 @@ export function seedUsers(now = Date.now()): UserDetail[] {
     base('01JC0000000000000000000U06', 'grace', 'Grace Hopper-Lee', 'local', now - 2 * DAY, { has_password: false, roles: ['viewer'] }),
     base('01JC0000000000000000000U07', 'helpdesk', 'Help desk', 'local', now - 50 * DAY, { roles: ['user-manager'], last_login: iso(now - 4 * HOUR) }),
     base('01JC0000000000000000000U08', 'ivy', 'Ivy Chen', 'local', now - 1 * DAY, { must_change_password: true, groups: ['01JC00000000000000000GRP04'] }),
-    base('01JC0000000000000000000U09', 'sam', 'Sam Reyes', 'local', now - 70 * DAY, { groups: ['01JC00000000000000000GRP03'], last_login: iso(now - 30 * MIN) }),
+    base('01JC0000000000000000000U09', 'sam', 'Sam Reyes', 'local', now - 70 * DAY, { groups: ['01JC00000000000000000GRP03'], last_login: iso(now - 30 * MIN), totp_enabled: true }),
   ]
   let i = 0
   for (const first of FIRST) {
