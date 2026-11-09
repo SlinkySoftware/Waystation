@@ -35,6 +35,8 @@ Application/Web/playwright-report/
 tests/**/recordings-tmp/
 tests/clients/.run/
 tests/backup/.run/
+tests/perf/.run/
+tests/perf/.results/
 
 # Editors and OS
 .idea/

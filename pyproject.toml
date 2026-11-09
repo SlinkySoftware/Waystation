@@ -53,6 +53,7 @@ ignore = ["S101"]  # asserts are fine; tests use them and mypy narrowing relies 
 "Application/Common/waystation_common/errors.py" = ["N818"]  # HTTP-status style names (NotFound, Forbidden...)
 "tests/clients/harness/**" = ["T20", "S104"]  # CLI test tooling: prints progress, listens on container interfaces
 "Build/ci/**" = ["T20"]  # CI scripts print reports
+"tests/perf/**" = ["T20"]  # perf suite tooling prints progress and results
 
 [tool.ruff.lint.flake8-quotes]
 inline-quotes = "single"
@@ -65,14 +66,14 @@ known-first-party = ["waystation_common", "waystation_server", "waystation_worke
 python_version = "3.14"
 strict = true
 warn_unreachable = true
-mypy_path = ["Application/Common", "Application/Server", "Application/Worker", "tests/clients/harness", "Build/migration"]
+mypy_path = ["Application/Common", "Application/Server", "Application/Worker", "tests/clients/harness", "Build/migration", "tests/perf", "tests/perf/origin", "Build/ci"]
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 
 # ---------------------------------------------------------------- pytest
 [tool.pytest.ini_options]
-testpaths = ["Application/Common/tests", "Application/Server/tests", "Application/Worker/tests", "tests/clients/harness/tests", "Build/migration/tests"]
-pythonpath = ["tests/clients/harness", "Application/Server/tests/support", "Build/migration"]
+testpaths = ["Application/Common/tests", "Application/Server/tests", "Application/Worker/tests", "tests/clients/harness/tests", "Build/migration/tests", "tests/perf/tests"]
+pythonpath = ["tests/clients/harness", "Application/Server/tests/support", "Build/migration", "tests/perf", "tests/perf/origin", "Build/ci"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers --import-mode=importlib"

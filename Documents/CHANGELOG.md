@@ -22,6 +22,24 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   with retention, wipe, restore into an empty stack, verify (proxied asset marked and re-fetched, hosted files
   intact), a deleted hosted blob reported lost. `Documents/Operations/BACKUP.md` (procedures, NAS targets, cron and
   systemd timer); DEPLOYMENT.md §10 points to it.
+- T-P2-PERF: k6 performance suite, `make perf [PROFILE=ci|full] [STRICT=1]` (`tests/perf/README.md`). Each run
+  starts a throwaway stack as its own compose project (production images built from the checkout, CPU and memory
+  limits per profile) with a synthetic nginx upstream generated per profile (raw files, npm, PyPI, Maven, apt, yum,
+  Go, Helm and OCI content whose digests the proxies verify), creates one proxy repository per format, warms the cache,
+  bulk-seeds cached-file records for the API (100 000 in CI, 1 000 000 in the full profile), runs one k6 scenario
+  per SPECIFICATION §5.1 budget (content hits incl. ranges and a large file, metadata hits, docker manifests, miss
+  overhead against the origin, API list/search, 500 concurrent downloads in the full profile) plus a live-event
+  probe on the SSE stream, and always tears the stack down. It holds the machine-wide integration-test lock for the
+  whole run. `tests/perf/collect.py` turns the results into `tests/perf/.results/measured.json`, now the `source` of
+  the k6 budgets in `Build/ci/budgets.json`, and a Markdown report with per-scenario figures and container CPU and
+  memory. `make budgets STRICT=1` / `budgets.py --strict` fail on every budget over its limit (warn-only until M2
+  otherwise). Gitea workflow `perf.yml`: CI profile after every push to `main`, full profile nightly, results as an
+  artifact. First results (dev box): every measured budget within its limit in the CI profile (content hit p95 TTFB
+  4 ms, metadata 3.7 ms, docker manifests 3.8 ms, miss +3.6 ms TTFB and no throughput loss at 100 MiB/s, API p95
+  21 ms at 100 000 assets, live events 245 ms, 0 errors with 100 clients); full profile: API p95 35 ms at 1M assets,
+  1-2 failed downloads per run in about 115 000 with 500 concurrent clients (warning: a cache hit's asset lookup
+  got `pymongo AutoReconnect: Connection is closed` and answered 500 without a retry; to be investigated). A cached 10 GiB file is served at about
+  1.3 GiB/s with the server at 5% of one core, which completes T-S06's perf acceptance.
 - T-O05: signed webhooks. Definitions in `webhooks` (name, URL, events with categories and `*`, repository globs, enabled, secret and custom headers write-only and AES-GCM encrypted, private-target exception, timeout, attempts) through `/api/v1/webhooks` (admin; CRUD, `POST /{id}/test`, `GET /{id}/deliveries[/{delivery}]`, `POST .../redeliver`), audited `webhook.create|update|delete|test|redeliver`. Events are the successful audit records of `content.upload|delete|update` and `repository.create|update|delete`: `audit.record` hands them to a server-side notifier that writes a `webhook.event` job to the durable outbox when an enabled webhook wants it. Worker jobs `webhook.event` (fan-out into `webhook_deliveries`, attempted at once), `webhook.deliver` (test events, redeliveries) and the scheduled `webhook.sweep` (every 15 s): at-least-once with leases, HMAC-SHA256 `Waystation-Signature: t=<unix>,v1=<hex>` over `<t>.` + body, `Idempotency-Key`, exponential retries to a dead delivery, 1 KiB answer snippets, 30-day log. The SSRF guard moved to `waystation_common.ssrf` (re-exported by `waystation_server.proxy.ssrf`) so worker deliveries use it; common now depends on `httpcore`, the worker on `httpx`. Metrics `waystation_webhook_deliveries_total{outcome}` (Valkey `webhooks:totals`) and `waystation_webhook_deliveries_pending`. UI Administration → Webhooks (table, editor with a browser-generated secret, delivery drawer with attempts, request and redeliver), MSW mocks, screenshot tour entries. `Documents/Operations/WEBHOOKS.md` with Python and Node verification snippets. Test helper `FakeUpstream` now records request bodies.
 - T-P5-HELM: Helm classic chart repositories (`formats/helm/`). Proxy: `index.yaml` cached as metadata (revalidated),
   parsed with a safe, bounded YAML loader in a thread (only `null` resolved implicitly, no tags or aliases), chart

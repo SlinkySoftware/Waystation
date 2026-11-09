@@ -18,7 +18,9 @@ from typing import Any
 DEFAULT_BUDGETS = Path('Build/ci/budgets.json')
 
 
-def evaluate(budgets: dict[str, Any], root: Path) -> list[dict[str, Any]]:
+def evaluate(budgets: dict[str, Any], root: Path, *, strict: bool = False) -> list[dict[str, Any]]:
+    """One row per budget with its measured value and status. ``strict`` treats every budget as ``fail`` (what
+    milestone M2 switches on; `make perf STRICT=1` tries it early)."""
     rows = []
     for budget in budgets['budgets']:
         value = None
@@ -30,7 +32,7 @@ def evaluate(budgets: dict[str, Any], root: Path) -> list[dict[str, Any]]:
         elif value <= budget['limit']:
             status = 'ok'
         else:
-            status = 'FAIL' if budget['enforce'] == 'fail' else 'WARN'
+            status = 'FAIL' if strict or budget['enforce'] == 'fail' else 'WARN'
         rows.append({**budget, 'value': value, 'status': status})
     return rows
 
@@ -71,8 +73,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--budgets', type=Path, default=DEFAULT_BUDGETS)
     parser.add_argument('--root', type=Path, default=Path())
     parser.add_argument('--markdown', action='store_true', help='Markdown table (CI step summary)')
+    parser.add_argument('--strict', action='store_true', help="fail on every budget over its limit, 'warn' ones too")
     args = parser.parse_args(argv)
-    rows = evaluate(json.loads(args.budgets.read_text()), args.root)
+    rows = evaluate(json.loads(args.budgets.read_text()), args.root, strict=args.strict)
     sys.stdout.write(render(rows, args.markdown))
     failed = [r['id'] for r in rows if r['status'] == 'FAIL']
     warned = [r['id'] for r in rows if r['status'] == 'WARN']
