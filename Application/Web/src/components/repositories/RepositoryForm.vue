@@ -123,7 +123,7 @@
       />
     </section>
 
-    <section v-if="model.format !== 'yum'" class="repo-form__section">
+    <section v-if="model.format !== 'yum' && !(model.format === 'maven' && model.type === 'group')" class="repo-form__section">
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
       <template v-if="model.format === 'docker' && model.type !== 'proxy'">
         <q-toggle v-model="model.defaultRepo" :label="t('repoForm.defaultRepoHosted')" />
@@ -162,6 +162,12 @@
             :error-message="errors['format_options.distribution']"
           />
           <q-toggle v-model="model.flat" :label="t('repoForm.flat')" class="col-auto" />
+        </div>
+      </template>
+      <template v-else-if="model.format === 'maven'">
+        <div class="repo-form__row">
+          <q-select v-model="model.versionPolicy" outlined dense emit-value map-options :options="versionPolicyOptions" :label="t('repoForm.versionPolicy')" :hint="t('repoForm.versionPolicyHint')" class="col" />
+          <q-select v-model="model.layoutPolicy" outlined dense emit-value map-options :options="layoutPolicyOptions" :label="t('repoForm.layoutPolicy')" :hint="t('repoForm.layoutPolicyHint')" class="col" />
         </div>
       </template>
       <template v-else>
@@ -344,6 +350,15 @@ const authOptions = computed(() => [
   { label: t('repoForm.authNone'), value: 'none' },
   { label: t('repoForm.authBasic'), value: 'basic' },
   { label: t('repoForm.authBearer'), value: 'bearer' },
+])
+const versionPolicyOptions = computed(() => [
+  { label: t('repoForm.versionPolicies.release'), value: 'release' },
+  { label: t('repoForm.versionPolicies.snapshot'), value: 'snapshot' },
+  { label: t('repoForm.versionPolicies.mixed'), value: 'mixed' },
+])
+const layoutPolicyOptions = computed(() => [
+  { label: t('repoForm.layoutPolicies.strict'), value: 'strict' },
+  { label: t('repoForm.layoutPolicies.permissive'), value: 'permissive' },
 ])
 const dispositionOptions = computed(() => [
   { label: t('repoForm.attachment'), value: 'attachment' },
