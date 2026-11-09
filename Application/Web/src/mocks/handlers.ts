@@ -14,6 +14,7 @@ import { ADMIN_USER_ID, CUSTOM_ROLES } from './fixtures/admin'
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
+import { helmChartList, helmVersionsFor } from './fixtures/helm'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
@@ -100,7 +101,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!NAME_RE.test(body.name ?? '')) errors.push({ field: 'name', message: 'Use 2-63 letters, digits, dots, dashes or underscores, starting with a letter or digit.', code: 'pattern' })
     else if (world.repos.some((r) => r.name.toLowerCase() === body.name.toLowerCase())) errors.push({ field: 'name', message: 'A repository with this name already exists.', code: 'taken' })
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
-    if (body.type !== 'proxy' && body.format !== 'docker') {
+    if (body.type !== 'proxy' && !['docker', 'raw', 'helm'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -476,6 +477,28 @@ export const handlers = [
     const found = npmVersionsFor(url.searchParams.get('package') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ package: found.pkg, dist_tags: found.distTags, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/helm/charts`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'helm')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    const items = helmChartList().filter((c) => !q || c.name.includes(q)).sort((a, b) => a.name.localeCompare(b.name))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/helm/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'helm')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const found = helmVersionsFor(repo.name, url.searchParams.get('chart') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ chart: found.chart, ...paginate(found.versions, url) })
   }),
   http.get(`${API}/repositories/:name/apt/suites`, async ({ request, params }) => {
     const denied = guard(request)

@@ -10,11 +10,11 @@ export type FormFormat = M0Format | 'yum'
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'raw']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'helm']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'helm']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
-export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw']
+export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'helm']
 
 export interface RepoFormModel {
   name: string
@@ -92,6 +92,11 @@ export const PRESETS: Record<M0Format, Preset[]> = {
     { id: 'rpi', label: 'Raspberry Pi OS', apply: { name: 'raspberrypi', upstreamUrl: 'https://archive.raspberrypi.com/debian', distribution: 'trixie' } },
   ],
   raw: [{ id: 'github', label: 'GitHub releases', apply: { name: 'raw-github', upstreamUrl: 'https://github.com' } }],
+  helm: [
+    { id: 'prometheus', label: 'Prometheus community', apply: { name: 'prometheus-community', upstreamUrl: 'https://prometheus-community.github.io/helm-charts' } },
+    { id: 'jetstack', label: 'Jetstack (cert-manager)', apply: { name: 'jetstack', upstreamUrl: 'https://charts.jetstack.io' } },
+    { id: 'ingress-nginx', label: 'ingress-nginx', apply: { name: 'ingress-nginx', upstreamUrl: 'https://kubernetes.github.io/ingress-nginx' } },
+  ],
 }
 
 export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFormModel {
@@ -198,6 +203,8 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       return { distribution: m.distribution.trim(), flat: m.flat }
     case 'yum':
       return { repo_path: m.repoPath, gpg_key: m.gpgKey }
+    case 'helm':
+      return {}
     case 'raw':
     default:
       // Mutable-path revalidation is a proxy setting (the server refuses it on hosted and group repositories).

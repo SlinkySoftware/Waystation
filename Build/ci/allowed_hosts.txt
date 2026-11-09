@@ -54,6 +54,12 @@ dl.rockylinux.org
 repo.almalinux.org
 yum.oracle.com
 
+# Public upstreams: Helm chart repositories (form presets, client guide, the helm client harness)
+prometheus-community.github.io
+kubernetes.github.io
+kubernetes-sigs.github.io
+charts.jetstack.io
+
 # Standards, licences and tooling referenced in code and docs
 w3.org
 gnu.org

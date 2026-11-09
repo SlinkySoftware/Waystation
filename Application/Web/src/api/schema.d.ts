@@ -1021,6 +1021,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/helm/charts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Charts of a Helm repository (hosted uploads, a proxy's cached index, a group's members) */
+        get: operations["listHelmCharts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/helm/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One chart and its versions (newest first) */
+        get: operations["listHelmVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/apt/suites": {
         parameters: {
             query?: never;
@@ -2515,8 +2553,10 @@ export interface components {
             /** @description `gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams */
             gpg_key?: string | null;
         };
+        /** @description Helm (classic chart repositories): no options yet */
+        HelmOptions: Record<string, never>;
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["HelmOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -2907,6 +2947,43 @@ export interface components {
                 [key: string]: string;
             };
             items: components["schemas"]["NpmVersion"][];
+            next_cursor: string | null;
+        };
+        HelmChart: {
+            name: string;
+            latest_version: string;
+            app_version?: string | null;
+            description?: string | null;
+            /** @description The chart's icon URL (http/https), as its metadata gives it */
+            icon?: string | null;
+            /** @default false */
+            deprecated: boolean;
+            version_count: number;
+        };
+        HelmChartPage: {
+            items: components["schemas"]["HelmChart"][];
+            next_cursor: string | null;
+        };
+        HelmVersion: {
+            version: string;
+            app_version?: string | null;
+            description?: string | null;
+            /** Format: date-time */
+            created_at?: string | null;
+            /** @description sha256 of the chart package (hex), when known */
+            digest?: string | null;
+            size_bytes?: number | null;
+            /** @description The chart package is stored (always true in hosted repositories) */
+            cached: boolean;
+            /** @default false */
+            deprecated: boolean;
+            /** @description Path of the chart package in the repository */
+            path: string;
+            download_url: string;
+        };
+        HelmVersionPage: {
+            chart: components["schemas"]["HelmChart"];
+            items: components["schemas"]["HelmVersion"][];
             next_cursor: string | null;
         };
         AptSuite: {
@@ -5758,6 +5835,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NpmVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listHelmCharts: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Charts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelmChartPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listHelmVersions: {
+        parameters: {
+            query: {
+                /** @description Chart name */
+                chart: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelmVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];
