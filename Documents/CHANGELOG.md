@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-M01 (follow-up to T-P5-PYPI): the Nexus import maps PyPI proxies' content max age to "forever" like docker,
+  npm, apt and yum (PyPI files are verified against the project page's hashes), reporting the difference.
 - T-P5-PYPI: PyPI proxy, hosted and group repositories (`formats/pypi/`). Proxy: `simple/` and `simple/<project>/`
   in PEP 503 HTML and PEP 691 JSON (negotiated by `Accept`, cached per representation, `301` to the normalised name and
   trailing slash), rendered from the upstream's JSON or HTML page with relative file URLs into the repository and

@@ -527,7 +527,7 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   - **Mapping**: same name (ADR 0003), format (`maven2` → `maven`; formats Waystation does not serve, or types it
     does not offer yet, are `unsupported` with the reason), type, `online`; proxy `remoteUrl` → `upstream_url`,
     `metadataMaxAge` (minutes) → `metadata_max_age_s` (-1 keeps the default), `contentMaxAge` → `content_max_age_s`
-    for raw (docker, npm, apt and yum content is checksum-verified and kept forever), negative cache (disabled = 0),
+    for raw (docker, npm, apt, yum and PyPI content is checksum-verified and kept forever), negative cache (disabled = 0),
     `autoBlock` → `auto_block.enabled`, a blocked Nexus repository → `offline`. Docker: index `HUB` (or a Docker Hub
     remote) → `docker_hub`; the upstream host becomes an alias (`docker.io` for Docker Hub, `ghcr.io`, ...; option
     `docker_aliases`, default on; an alias already routed or equal to a repository name is dropped); connector ports
