@@ -1115,6 +1115,11 @@ export const en = {
       },
       attempt: '#{n}',
       loadMore: 'Load more',
+      summary: {
+        gc: 'Freed {n} blob · {size}|Freed {n} blobs · {size}',
+        cleanup: 'Removed {n} item · {size}|Removed {n} items · {size}',
+        done: 'Done',
+      },
       emptyTitle: 'No runs yet',
       emptyText: 'Runs appear here when a schedule fires or someone runs a task.',
       emptyFiltered: 'No runs match these filters',

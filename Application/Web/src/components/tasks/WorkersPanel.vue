@@ -45,7 +45,7 @@
         <template #body-cell-name="{ row }">
           <q-td>
             <span class="workers__queue-name">{{ queueLabel(row.name) }}</span>
-            <span class="workers__sub mono"> {{ row.name }}</span>
+            <span class="workers__sub mono q-ml-sm">{{ row.name }}</span>
           </q-td>
         </template>
         <template #body-cell-consumers="{ row }">

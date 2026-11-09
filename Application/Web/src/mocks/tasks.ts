@@ -59,7 +59,7 @@ function logFor(run: JobRunSummary): string[] {
     lines.push(`${at(200)} mark: scanning ${(148_220).toLocaleString('en')} blobs against assets and manifests`, `${at(4100)} mark: ${Math.round(between(40, 1300, next))} blobs newly unreferenced`, `${at(6400)} sweep: blobs unreferenced for over 24 h`, `${at(8800)} removed ${Math.round(between(0, 4, next))} orphan uploads older than 24 h`)
     if (run.status === 'succeeded') lines.push(`${at(9100)} freed ${String(run.result.freed_blobs ?? 0)} blobs, marked ${String(run.result.marked ?? 0)}, 0 referenced blobs missing`)
   } else if (run.kind === 'cleanup.run') {
-    for (const repo of repos.slice(0, 3)) lines.push(`${at(between(300, 6000, next))} ${repo}: ${Math.round(between(0, 90, next))} candidates (${(between(1, 900, next)).toFixed(1)} MiB)`)
+    repos.slice(0, 3).forEach((repo, i) => lines.push(`${at(600 + i * 2400 + between(0, 2000, next))} ${repo}: ${Math.round(between(0, 90, next))} candidates (${between(1, 900, next).toFixed(1)} MiB)`))
     if (run.status === 'succeeded') lines.push(`${at(9000)} removed ${String(run.result.removed ?? 0)} items`)
   }
   if (run.error) lines.push(`${at(9500)} ERROR ${run.error}`)

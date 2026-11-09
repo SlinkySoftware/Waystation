@@ -4,7 +4,7 @@
 import type { JobLogEvent, JobProgressEvent, JobRun, JobRunSummary, JobUpdateEvent, ScheduledTask, Worker } from '@/api/types'
 import { describeSchedule } from '@/components/cleanup/cleanup'
 import { type MessageKey, t } from '@/i18n'
-import { formatDuration } from '@/utils/format'
+import { formatBytes, formatCount, formatDuration } from '@/utils/format'
 import { iconError, iconOk, iconWarning } from '@/utils/icons'
 
 const KNOWN_KINDS = ['stats.rollup', 'blob.gc', 'cleanup.run'] as const
@@ -139,4 +139,13 @@ export const TASKS_TABS: readonly TasksTab[] = ['scheduled', 'runs', 'workers', 
 
 export function triggerLabel(trigger: JobRunSummary['trigger']): string {
   return t(`tasks.trigger.${trigger}`)
+}
+
+/** What a finished run reported, in a few words (the runs table's progress column). */
+export function runSummary(run: Pick<JobRunSummary, 'kind' | 'result'>): string {
+  const r = run.result
+  const num = (key: string) => (typeof r[key] === 'number' ? r[key] : 0)
+  if (run.kind === 'blob.gc') return t('tasks.runs.summary.gc', { count: num('freed_blobs'), n: formatCount(num('freed_blobs')), size: formatBytes(num('freed_bytes')) })
+  if (run.kind === 'cleanup.run') return t('tasks.runs.summary.cleanup', { count: num('removed'), n: formatCount(num('removed')), size: formatBytes(num('bytes')) })
+  return t('tasks.runs.summary.done')
 }

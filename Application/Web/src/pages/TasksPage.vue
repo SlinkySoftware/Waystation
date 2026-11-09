@@ -19,7 +19,7 @@
         <q-tab name="runs" :label="t('tasks.tab.runs')" />
         <q-tab name="workers" :label="t('tasks.tab.workers')" />
         <q-tab name="dead" :label="t('tasks.tab.dead')">
-          <q-badge v-if="deadCount" color="negative" floating rounded :label="deadCount" />
+          <q-badge v-if="deadCount" color="negative" rounded class="q-ml-xs" :label="deadCount" />
         </q-tab>
       </q-tabs>
 
