@@ -40,6 +40,7 @@ tags:
   - name: stats
   - name: live
   - name: cleanup
+  - name: tasks
   - name: admin
 security:
   - session: []
@@ -1012,6 +1013,187 @@ paths:
               schema: { $ref: '#/components/schemas/JobAccepted' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  # ---------------------------------------------------------------- tasks and workers (T-O04; all need `admin`)
+  /tasks/scheduled:
+    get:
+      tags: [tasks]
+      operationId: listScheduledTasks
+      summary: Scheduled tasks (job definitions) with their schedule, last run and next fire (needs `admin`)
+      responses:
+        '200':
+          description: Tasks by id
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledTaskList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/scheduled/{task_id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    patch:
+      tags: [tasks]
+      operationId: updateScheduledTask
+      summary: Change a task's schedule or enable / disable it (needs `admin`)
+      description: |
+        A changed schedule (or re-enabling) restarts the task's timer: the next fire is derived from the new
+        schedule, missed fires do not run. A cleanup policy's schedule belongs to the policy (409).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScheduledTaskUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScheduledTask' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /tasks/scheduled/{task_id}/run:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      tags: [tasks]
+      operationId: runScheduledTask
+      summary: Run a scheduled task now (a worker job; needs `admin`)
+      responses:
+        '202':
+          description: Queued (or merged into a pending run of the same task)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /tasks/runs:
+    get:
+      tags: [tasks]
+      operationId: listJobRuns
+      summary: Job runs (one per attempt), newest first (needs `admin`)
+      description: Routine housekeeping (the 10 s stats rollup) is left out unless `include_routine`, `task` or `job` is given.
+      parameters:
+        - name: status
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 5
+            items: { $ref: '#/components/schemas/RunStatus' }
+        - name: kind
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: queue
+          in: query
+          schema: { $ref: '#/components/schemas/JobQueue' }
+        - name: task
+          in: query
+          description: Runs of one scheduled task
+          schema: { type: string, maxLength: 128 }
+        - name: job
+          in: query
+          description: Attempts of one job
+          schema: { type: string, maxLength: 64 }
+        - name: include_routine
+          in: query
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Cursor'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: A page of runs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobRunPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /tasks/runs/{run_id}:
+    parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    get:
+      tags: [tasks]
+      operationId: getJobRun
+      summary: One run with its progress, result and log (the last 500 lines; needs `admin`)
+      responses:
+        '200':
+          description: The run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobRun' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/workers:
+    get:
+      tags: [tasks]
+      operationId: getWorkers
+      summary: Workers (host, version, queues, running jobs, heartbeat), queue figures and the dead-letter count (needs `admin`)
+      responses:
+        '200':
+          description: Workers and queues
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkerOverview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/dead-letters:
+    get:
+      tags: [tasks]
+      operationId: listDeadLetters
+      summary: Jobs that ran out of attempts, newest first (needs `admin`)
+      parameters:
+        - name: cursor
+          in: query
+          description: The last entry id of the previous page
+          schema: { type: string, pattern: '^\d{1,20}-\d{1,20}$' }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: A page of dead letters
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeadLetterPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/dead-letters/{letter_id}:
+    parameters:
+      - $ref: '#/components/parameters/LetterId'
+    delete:
+      tags: [tasks]
+      operationId: discardDeadLetter
+      summary: Discard a dead letter (idempotent; needs `admin`)
+      responses:
+        '204': { description: Discarded (or already gone) }
+
+  /tasks/dead-letters/{letter_id}/retry:
+    parameters:
+      - $ref: '#/components/parameters/LetterId'
+    post:
+      tags: [tasks]
+      operationId: retryDeadLetter
+      summary: Queue a dead-lettered job again with fresh attempts (idempotent; needs `admin`)
+      description: |
+        The dead letter is removed and its work queued as a new job (attempt counting starts again; the usual dedupe
+        applies). Retrying the same dead letter again answers `merged` with the job the first retry queued.
+      responses:
+        '202':
+          description: Queued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /search:
     get:
       tags: [search]
@@ -1220,7 +1402,9 @@ paths:
       description: |
         One long-lived `text/event-stream` per browser tab. Topics (comma-separated `topics` query parameter):
         `transfers` (live transfer state), `stats` (1 Hz KPI ticks), `activity` (durable events),
-        `repo:<name>` (all of the above restricted to one repository). Every topic is RBAC-filtered per subscriber.
+        `tasks` (job runs: `job.update`, `job.progress`, `job.log`; workers: `worker.update`; needs `admin`, 403
+        otherwise), `repo:<name>` (transfers and activity restricted to one repository). Every topic is RBAC-filtered
+        per subscriber.
 
         Framing: each message has `event: <LiveEvent.type>` and `data: <JSON LiveEvent>`. Only events from the
         durable activity stream carry an `id:`; send it back as `Last-Event-ID` on reconnect to resume. Live
@@ -1235,7 +1419,7 @@ paths:
           explode: false
           schema:
             type: array
-            items: { type: string, pattern: '^(transfers|stats|activity|repo:[A-Za-z0-9][A-Za-z0-9._-]{1,62})$' }
+            items: { type: string, pattern: '^(transfers|stats|activity|tasks|repo:[A-Za-z0-9][A-Za-z0-9._-]{1,62})$' }
         - name: Last-Event-ID
           in: header
           description: Sent by the browser on automatic reconnects
@@ -1251,6 +1435,7 @@ paths:
             text/event-stream:
               schema: { $ref: '#/components/schemas/LiveEvent' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
 components:
   securitySchemes:
@@ -1333,6 +1518,17 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 64 }
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }
+    LetterId:
+      name: letter_id
+      in: path
+      required: true
+      description: Dead-letter entry id
+      schema: { type: string, pattern: '^\d{1,20}-\d{1,20}$' }
     TokenId:
       name: token_id
       in: path
@@ -2492,6 +2688,10 @@ components:
         - $ref: '#/components/schemas/StatsTickEvent'
         - $ref: '#/components/schemas/UpstreamStateEvent'
         - $ref: '#/components/schemas/ActivityStreamEvent'
+        - $ref: '#/components/schemas/JobUpdateEvent'
+        - $ref: '#/components/schemas/JobProgressEvent'
+        - $ref: '#/components/schemas/JobLogEvent'
+        - $ref: '#/components/schemas/WorkerUpdateEvent'
       discriminator:
         propertyName: type
         mapping:
@@ -2503,6 +2703,10 @@ components:
           stats.tick: '#/components/schemas/StatsTickEvent'
           upstream.state: '#/components/schemas/UpstreamStateEvent'
           activity: '#/components/schemas/ActivityStreamEvent'
+          job.update: '#/components/schemas/JobUpdateEvent'
+          job.progress: '#/components/schemas/JobProgressEvent'
+          job.log: '#/components/schemas/JobLogEvent'
+          worker.update: '#/components/schemas/WorkerUpdateEvent'
     TransfersSnapshotEvent:
       type: object
       required: [type, ts, transfers]
@@ -2796,6 +3000,226 @@ components:
           type: array
           description: Recent runs, newest first (up to 20)
           items: { $ref: '#/components/schemas/GcRun' }
+
+    # ---------------------------------------------------------------- tasks and workers (T-O04)
+    RunStatus:
+      type: string
+      description: '`failed` - this attempt failed and the job will retry; `dead` - out of attempts (a dead letter); `interrupted` - the worker was lost (the job runs again)'
+      enum: [running, succeeded, failed, dead, interrupted]
+    JobQueue:
+      type: string
+      enum: [index, maintenance, stats, prefetch, import]
+    JobRunSummary:
+      type: object
+      required: [id, job_id, kind, queue, task_id, trigger, attempt, status, started_at, finished_at, duration_ms, progress, worker_id, error, result]
+      properties:
+        id: { type: string, description: Run id (one per attempt) }
+        job_id: { type: string, description: 'The job (the same across its attempts)' }
+        kind: { type: string, description: 'Job kind, e.g. `blob.gc`, `cleanup.run`' }
+        queue: { type: string }
+        task_id: { type: [string, 'null'], description: The scheduled task it belongs to }
+        trigger: { type: string, enum: [schedule, manual, retry] }
+        attempt: { type: integer }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        finished_at: { type: [string, 'null'], format: date-time }
+        duration_ms: { type: [number, 'null'] }
+        progress: { $ref: '#/components/schemas/JobProgress' }
+        worker_id: { type: [string, 'null'] }
+        error: { type: [string, 'null'] }
+        result:
+          type: object
+          additionalProperties: true
+          description: What the run reported (kind-specific figures)
+    JobRun:
+      allOf:
+        - $ref: '#/components/schemas/JobRunSummary'
+        - type: object
+          required: [log]
+          properties:
+            log:
+              type: array
+              description: The last 500 log lines, oldest first
+              items: { type: string }
+    JobRunPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/JobRunSummary' }
+        next_cursor: { type: [string, 'null'] }
+    TaskOwner:
+      type: object
+      required: [kind, id, name]
+      properties:
+        kind: { type: string, const: cleanup_policy }
+        id: { type: string }
+        name: { type: [string, 'null'] }
+    ScheduledTask:
+      type: object
+      required: [id, kind, queue, schedule, enabled, routine, params, next_run_at, last_fired_at, last_run, owner]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        queue: { type: string }
+        schedule: { type: string, description: '5-field UTC cron, a macro such as `@daily`, or `@every <n>s|m|h`' }
+        enabled: { type: boolean }
+        routine: { type: boolean, description: Housekeeping that runs every few seconds; its runs are hidden by default }
+        params:
+          type: object
+          additionalProperties: true
+        next_run_at: { type: [string, 'null'], format: date-time }
+        last_fired_at: { type: [string, 'null'], format: date-time }
+        last_run:
+          oneOf:
+            - $ref: '#/components/schemas/JobRunSummary'
+            - type: 'null'
+        owner:
+          description: Set when another object owns the schedule (edit it there)
+          oneOf:
+            - $ref: '#/components/schemas/TaskOwner'
+            - type: 'null'
+    ScheduledTaskList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ScheduledTask' }
+    ScheduledTaskUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        schedule: { type: [string, 'null'], maxLength: 100, description: '5-field UTC cron, a macro, or `@every <n>s|m|h` (at least 10 s)' }
+        enabled: { type: [boolean, 'null'] }
+    QueueFigures:
+      type: object
+      required: [name, waiting, running, delayed, oldest_waiting_age_s]
+      properties:
+        name: { type: string }
+        waiting: { type: integer }
+        running: { type: integer }
+        delayed: { type: integer, description: Retry backoff and jobs scheduled for later }
+        oldest_waiting_age_s: { type: number }
+    WorkerJob:
+      type: object
+      required: [job_id, run_id, kind, queue, started_at]
+      properties:
+        job_id: { type: string }
+        run_id: { type: [string, 'null'] }
+        kind: { type: string }
+        queue: { type: string }
+        started_at: { type: [string, 'null'], format: date-time }
+    Worker:
+      type: object
+      required: [id, hostname, version, queues, concurrency, leader, started_at, heartbeat_at, heartbeat_age_s, state, running_jobs]
+      properties:
+        id: { type: string }
+        hostname: { type: string }
+        version: { type: string }
+        queues:
+          type: array
+          items: { type: string }
+        concurrency: { type: [integer, 'null'] }
+        leader: { type: boolean, description: Holds the scheduler lease (fires schedules, dispatches the outbox) }
+        started_at: { type: [string, 'null'], format: date-time }
+        heartbeat_at: { $ref: '#/components/schemas/Timestamp' }
+        heartbeat_age_s: { type: number }
+        state: { type: string, enum: [ok, late, lost], description: '`late` after 30 s without a heartbeat, `lost` after 90 s' }
+        running_jobs:
+          type: array
+          items: { $ref: '#/components/schemas/WorkerJob' }
+    WorkerOverview:
+      type: object
+      required: [workers, queues, dead_letters]
+      properties:
+        workers:
+          type: array
+          items: { $ref: '#/components/schemas/Worker' }
+        queues:
+          type: array
+          items: { $ref: '#/components/schemas/QueueFigures' }
+        dead_letters: { type: integer }
+    DeadLetter:
+      type: object
+      required: [id, job_id, kind, queue, task_id, attempts, error, dead_at, enqueued_at, payload, retryable]
+      properties:
+        id: { type: string, description: Dead-letter entry id }
+        job_id: { type: [string, 'null'] }
+        kind: { type: [string, 'null'] }
+        queue: { type: [string, 'null'] }
+        task_id: { type: [string, 'null'] }
+        attempts: { type: integer }
+        error: { type: string }
+        dead_at: { $ref: '#/components/schemas/Timestamp' }
+        enqueued_at: { type: [string, 'null'], format: date-time }
+        payload:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: 'null'
+        retryable: { type: boolean, description: False for a malformed entry or a kind this version does not know }
+    DeadLetterPage:
+      type: object
+      required: [items, total, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DeadLetter' }
+        total: { type: integer }
+        next_cursor: { type: [string, 'null'] }
+    JobUpdateEvent:
+      type: object
+      description: 'Topic `tasks`: a job attempt started, finished or failed'
+      required: [type, ts, event, run_id, job_id, kind, queue, attempt, status]
+      properties:
+        type: { type: string, const: job.update }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        event: { type: string, enum: [started, finished, failed] }
+        run_id: { type: string }
+        job_id: { type: string }
+        kind: { type: string }
+        queue: { type: string }
+        attempt: { type: integer }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        worker_id: { type: [string, 'null'] }
+        error: { type: [string, 'null'] }
+    JobProgressEvent:
+      type: object
+      description: "Topic `tasks`: a running job's progress (at most once a second per run)"
+      required: [type, ts, run_id, job_id, kind, done]
+      properties:
+        type: { type: string, const: job.progress }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        run_id: { type: string }
+        job_id: { type: string }
+        kind: { type: string }
+        done: { type: integer }
+        total: { type: [integer, 'null'] }
+        message: { type: [string, 'null'] }
+    JobLogEvent:
+      type: object
+      description: 'Topic `tasks`: new log lines of a running job'
+      required: [type, ts, run_id, job_id, kind, lines]
+      properties:
+        type: { type: string, const: job.log }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        run_id: { type: string }
+        job_id: { type: string }
+        kind: { type: string }
+        lines:
+          type: array
+          items: { type: string }
+    WorkerUpdateEvent:
+      type: object
+      description: 'Topic `tasks`: a worker came online or stopped'
+      required: [type, ts, worker_id, state]
+      properties:
+        type: { type: string, const: worker.update }
+        ts: { $ref: '#/components/schemas/Timestamp' }
+        worker_id: { type: string }
+        state: { type: string, enum: [online, offline] }
 
     # ---------------------------------------------------------------- audit (SPEC §4.11, T-S10)
     AuditOutcome:
