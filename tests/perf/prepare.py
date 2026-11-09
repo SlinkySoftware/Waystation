@@ -28,10 +28,19 @@ PYPI_JSON = 'application/vnd.pypi.simple.v1+json'
 DOCKER_ACCEPT = 'application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
 BEARER = re.compile(r'(\w+)="([^"]*)"')
 CATALOG_TTL_S = 6.0  # waystation_server.repos.catalog refreshes every 5 s
+KEEP_BYTES = 4 * 1024 * 1024
 
 
 class SetupError(Exception):
     pass
+
+
+def _read_bounded(resp: Any) -> bytes:
+    """The body's first KEEP_BYTES (API answers, errors); the rest of a large file is read and dropped."""
+    kept = resp.read(KEEP_BYTES)
+    while resp.read(1024 * 1024):
+        pass
+    return bytes(kept)
 
 
 @dataclass
@@ -54,8 +63,8 @@ class Client:
             req.add_header('Cookie', self.cookie)
             req.add_header('X-CSRF-Token', self.csrf)
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                return resp.status, {k.lower(): v for k, v in resp.headers.items()}, resp.read()
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                return resp.status, {k.lower(): v for k, v in resp.headers.items()}, _read_bounded(resp)
         except urllib.error.HTTPError as exc:
             return exc.code, {k.lower(): v for k, v in exc.headers.items()}, exc.read()
 
