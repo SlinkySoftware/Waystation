@@ -118,3 +118,28 @@ class SessionRecord(BaseModel):
     user_agent: str | None = None
     provider_id: str | None = None  # the OIDC provider the session came from (RP-initiated logout)
     id_token_enc: str | None = None  # its ID token, encrypted (``id_token_hint`` at logout)
+
+
+class RolePermission(BaseModel):
+    """One ``(action, scope)`` of a custom role (validated by ``security.access.permission_error``)."""
+
+    model_config = ConfigDict(extra='ignore')
+
+    action: str
+    scope: str
+
+
+class RoleRecord(BaseModel):
+    """``roles``: a custom role (built-in roles live in code, ``security.access.BUILTIN_ROLES``)."""
+
+    model_config = ConfigDict(extra='ignore', populate_by_name=True)
+
+    id: str = Field(alias='_id')  # slug, also the name users/groups/service accounts store in ``roles[]``
+    name: str
+    description: str = ''
+    builtin: bool = False
+    permissions: list[RolePermission] = Field(default_factory=list)
+    created_at: datetime
+    created_by: str | None = None
+    updated_at: datetime | None = None
+    updated_by: str | None = None

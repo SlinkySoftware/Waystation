@@ -38,6 +38,7 @@ class GroupRecord(BaseModel):
     external_id: str | None = None  # ``group_key`` of ``external_group``
     external_group: str | None = None  # as entered in the mapping
     position: int = 0  # order within the provider's mapping
+    description: str = ''
     roles: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -92,3 +93,22 @@ def mapped_roles(mapping: list[tuple[str, list[str]]], groups: list[tuple[str, s
         if group_key(external) in keys:
             roles.extend(granted)
     return list(dict.fromkeys(roles))
+
+
+def role_sources(user: UserRecord, groups: list[GroupRecord]) -> list[tuple[str, str]]:
+    """Where each of the user's effective roles comes from, as ``(role, via)`` with ``via`` = ``direct`` or the
+    group's name (same matching as ``GroupDirectory.roles_for``; the effective-permissions view)."""
+    out: list[tuple[str, str]] = [(role, 'direct') for role in user.roles]
+    local = set(user.groups)
+    refs: set[tuple[str, str]] = set()
+    for ref in user.external_groups:
+        refs.add((ref.provider, group_key(ref.id)))
+        refs.add((ref.provider, group_key(ref.name)))
+    for group in groups:
+        if group.id in local or (
+            group.provider_id
+            and group.external_id
+            and (f'{group.source}:{group.provider_id}', group.external_id) in refs
+        ):
+            out.extend((role, group.name) for role in group.roles)
+    return list(dict.fromkeys(out))

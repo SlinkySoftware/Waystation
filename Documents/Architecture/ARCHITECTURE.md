@@ -163,10 +163,19 @@ Bytes are committed to `blobs/` only after the expected digest/size (when the pr
 Formats without upstream checksums record the computed sha256 and serve consistently.
 
 ## 7. Security model
-- One decision point: `waystation_server.security.access` exposes `check`, `filter_repos`, `filter_query`.
+- One decision point: `waystation_server.security.access` exposes `check`, `filter_repos`, `filter_query`
+  (a MongoDB filter on a repository-id field).
   Every route declares its required action (decorator); a test enumerates all routes and fails if one lacks it.
 - Grants are materialised per principal (roles ∪ group roles ∪ anonymous) into a compact table cached in Valkey
   keyed by `grant_version` (incremented on any RBAC change; change stream invalidation across replicas).
+  As implemented (T-S03): `security.rbac.RbacState` (`Services.rbac`) holds the custom roles, the groups and the
+  anonymous roles of the `grant_version` it loaded; it learns a new version from its own writes at once, from a
+  change stream on `rbac_state` within moments, and from a 5 s poll when the stream is down. Authentication
+  materialises the principal's effective roles into `Principal.grants` (in-process cache per
+  `(grant_version, roles)`, then Valkey `grants:<principal>:<grant_version>`); `access.check` decides from them
+  (built-in roles only when a principal carries none). A version change also drops resolved API-token principals.
+  Delegation is bounded in `access` too: `may_assign` (global actions only by holders, `admin` only by
+  administrators) and `may_manage` (no changing an account that holds more than the caller).
 - Token revocation: revoking an API token (or changing/disabling/deleting a service account) is announced on the
   Valkey pub/sub channel `revocations` (a token id, or `*` = drop everything); every replica's listener drops the
   cached entry at once (< 1 s), and clears its whole cache whenever it (re)subscribes. MongoDB stays

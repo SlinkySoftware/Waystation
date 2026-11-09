@@ -108,6 +108,7 @@ SPECS: tuple[CollectionSpec, ...] = (
         (
             _ix('username_unique', [('username', ASCENDING)], unique=True),
             _ix('source', [('source', ASCENDING)]),
+            _ix('groups', [('groups', ASCENDING)]),
         ),
     ),
     CollectionSpec(

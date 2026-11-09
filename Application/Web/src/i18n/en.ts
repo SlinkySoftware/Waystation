@@ -690,6 +690,19 @@ export const en = {
     email: 'Email',
     source: 'Sign-in source',
     sourceLocal: 'Local account',
+    password: {
+      title: 'Password',
+      caption: 'At least 12 characters, not your username. Your other sessions end when it changes.',
+      oneTime: 'You signed in with a one-time password. Choose your own password to continue.',
+      current: 'Current password',
+      new: 'New password',
+      confirm: 'Repeat the new password',
+      mismatch: 'The passwords differ',
+      tooShort: 'At least 12 characters',
+      required: 'Required',
+      submit: 'Change password',
+      changed: 'Password changed',
+    },
   },
   tokens: {
     title: 'API tokens',
@@ -1094,6 +1107,7 @@ export const en = {
       invalid_token: 'Invalid, expired or revoked token',
       not_in_group: 'Not in the required group',
       too_many_failures: 'Too many failed attempts',
+      password_change_required: 'One-time password not changed yet',
       not_found: 'Not found',
     },
     targetKind: {
@@ -1107,6 +1121,7 @@ export const en = {
       upstream: 'Upstream',
       group: 'Group',
       role: 'Role',
+      anonymous_access: 'Anonymous access',
     },
     auth: {
       session: 'Web session',
