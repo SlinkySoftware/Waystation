@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from waystation_common.jobs import JOB_TYPES, QUEUES, JobEnvelope, JobPayload, Queue, StatsRollup, parse_schedule
-from waystation_common.jobs.schedule import Cron, Every
+from waystation_common.jobs.schedule import Cron, Every, validate_schedule
 
 
 def ts(text: str) -> float:
@@ -113,3 +113,47 @@ def test_cron_fields() -> None:
     assert cron.hours == (0, 6, 12, 18)
     assert cron.months == frozenset({1, 2, 3})
     assert cron.weekdays == frozenset({0})
+
+
+@pytest.mark.parametrize(
+    ('typed', 'stored'),
+    [
+        ('  0   3 * * *  ', '0 3 * * *'),
+        ('@DAILY', '@daily'),
+        ('@every 10s', '@every 10s'),
+        ('@Every  5M', '@every 5m'),
+        ('*/15 9-17 * * MON-FRI', '*/15 9-17 * * MON-FRI'),
+    ],
+)
+def test_validate_schedule_normalises(typed: str, stored: str) -> None:
+    assert validate_schedule(typed) == stored
+    parse_schedule(stored)  # what is stored always parses
+
+
+@pytest.mark.parametrize(
+    ('typed', 'message'),
+    [
+        ('', 'required'),
+        ('   ', 'required'),
+        ('@every 5s', 'at least 10s'),
+        ('@every 0m', 'at least 1s'),
+        ('* * * *', '5 fields'),
+        ('61 * * * *', 'out of range'),
+        ('0 0 31 2 *', 'never fires'),
+        ('@sometimes', 'unknown schedule'),
+        ('0 0 * * xyz', 'invalid cron value'),
+        ('*/0 * * * *', 'step'),
+    ],
+)
+def test_validate_schedule_rejects(typed: str, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        validate_schedule(typed)
+
+
+def test_envelope_trigger_round_trips() -> None:
+    env = JobEnvelope.for_payload(StatsRollup(), definition_id='stats.rollup', trigger='schedule')
+    assert JobEnvelope.model_validate_json(env.to_json()).trigger == 'schedule'
+    # envelopes queued by an older version (no trigger) still decode
+    legacy = env.model_dump(mode='json')
+    del legacy['trigger']
+    assert JobEnvelope.model_validate(legacy).trigger is None
