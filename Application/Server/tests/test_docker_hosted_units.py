@@ -70,7 +70,11 @@ def test_check_referrer_and_index() -> None:
     assert checked.annotations == {'a': 'b'}
     assert checked.needs_empty
     index = json.dumps(
-        {'schemaVersion': 2, 'mediaType': p.OCI_INDEX, 'manifests': [{'mediaType': p.OCI_MANIFEST, 'digest': DIGEST, 'size': 3}]}
+        {
+            'schemaVersion': 2,
+            'mediaType': p.OCI_INDEX,
+            'manifests': [{'mediaType': p.OCI_MANIFEST, 'digest': DIGEST, 'size': 3}],
+        }
     ).encode()
     assert h.check_pushed_manifest(index, p.OCI_INDEX).manifests == (DIGEST,)
 
