@@ -1021,6 +1021,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/maven/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Artifacts (groupId, artifactId) a Maven repository holds (proxies: cached; hosted: deployed) */
+        get: operations["listMavenArtifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/maven/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One artifact's versions, highest first (Maven version order); browse a version's `path` for its files */
+        get: operations["listMavenVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/pypi/projects": {
         parameters: {
             query?: never;
@@ -2610,6 +2648,53 @@ export interface components {
             /** @description `gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams */
             gpg_key?: string | null;
         };
+        MavenArtifact: {
+            group_id: string;
+            artifact_id: string;
+            /** @description Highest version held (Maven order) */
+            latest?: string | null;
+            version_count: number;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        MavenArtifactPage: {
+            items: components["schemas"]["MavenArtifact"][];
+            next_cursor: string | null;
+        };
+        MavenVersion: {
+            version: string;
+            snapshot: boolean;
+            /** @description The version folder (browse it for the files) */
+            path: string;
+            file_count: number;
+            size_bytes: number;
+            /** Format: date-time */
+            created_at?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+            /** @description Hosted: who deployed it last */
+            uploaded_by?: string | null;
+        };
+        MavenVersionPage: {
+            group_id: string;
+            artifact_id: string;
+            items: components["schemas"]["MavenVersion"][];
+            next_cursor: string | null;
+        };
+        MavenOptions: {
+            /**
+             * @description Which versions the repository holds: releases, SNAPSHOTs or both (groups: not used)
+             * @default release
+             * @enum {string}
+             */
+            version_policy: "release" | "snapshot" | "mixed";
+            /**
+             * @description strict: only Maven layout paths (artifacts, checksums, signatures, maven-metadata.xml); permissive: any path
+             * @default strict
+             * @enum {string}
+             */
+            layout_policy: "strict" | "permissive";
+        };
         PypiOptions: {
             /**
              * @description Proxy the legacy JSON API (`/pypi/<project>/json`) to the upstream (proxy repositories)
@@ -2620,7 +2705,7 @@ export interface components {
         /** @description Helm (classic chart repositories): no options yet */
         HelmOptions: Record<string, never>;
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["HelmOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["HelmOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -5970,6 +6055,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NpmVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMavenArtifacts: {
+        parameters: {
+            query?: {
+                /** @description Substring of the groupId or artifactId */
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Artifacts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MavenArtifactPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMavenVersions: {
+        parameters: {
+            query: {
+                group_id: string;
+                artifact_id: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MavenVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];

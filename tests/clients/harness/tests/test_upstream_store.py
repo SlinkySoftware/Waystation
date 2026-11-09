@@ -128,3 +128,27 @@ def test_scrub_response_drops_configured_json_keys_at_any_depth() -> None:
     ).encode()
     out = scrub_response(200, [('content-type', 'application/json')], body, frozenset({'readme', '_npmUser'}))
     assert json.loads(out.body) == {'name': 'pkg', 'versions': {'1.0.0': {}}}
+
+
+def test_store_keeps_files_with_dotted_names_apart(tmp_path: Path) -> None:
+    store = FixtureStore(tmp_path)
+    pom = RequestKey.build('GET', 'https://repo.example.com/g/a/1.0/a-1.0.pom', {})
+    jar = RequestKey.build('GET', 'https://repo.example.com/g/a/1.0/a-1.0.jar', {})
+    store.save(pom, Exchange(200, [], b'<project/>'))
+    store.save(jar, Exchange(200, [], b'PK\x03\x04'))
+    assert (store.load(pom) or Exchange(0, [], b'')).body == b'<project/>'
+    assert (store.load(jar) or Exchange(0, [], b'')).body == b'PK\x03\x04'
+    assert len(list((tmp_path / 'repo.example.com').glob('*.json'))) == 2
+
+
+def test_store_reads_legacy_names_only_for_their_own_request(tmp_path: Path) -> None:
+    store = FixtureStore(tmp_path)
+    tgz = RequestKey.build('GET', 'https://registry.example.com/is/-/is-4.6.0.tgz', {})
+    meta = store.save(tgz, Exchange(200, [], b'tarball'))
+    legacy = (tmp_path / 'registry.example.com' / tgz.stem).with_suffix('.json')
+    meta.rename(legacy)
+    meta.with_suffix('.body').rename(legacy.with_suffix('.body'))
+    assert (store.load(tgz) or Exchange(0, [], b'')).body == b'tarball'
+    other = RequestKey.build('GET', 'https://registry.example.com/is/-/is-4.6.0.zip', {})
+    assert other.stem != tgz.stem and (tmp_path / 'registry.example.com' / other.stem).with_suffix('.json') == legacy
+    assert store.load(other) is None

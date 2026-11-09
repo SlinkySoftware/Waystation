@@ -36,6 +36,8 @@ npmjs.org
 pypi.org
 pythonhosted.org
 repo.maven.apache.org
+maven.google.com
+plugins.gradle.org
 proxy.golang.org
 sum.golang.org
 registry.terraform.io
@@ -65,6 +67,8 @@ w3.org
 gnu.org
 # XML namespace URIs of yum repodata (repomd.xml, primary.xml: xmlns="http://linux.duke.edu/metadata/...")
 linux.duke.edu
+# XML namespace URIs of Maven documents (settings.xml, maven-metadata.xml: xmlns="http://maven.apache.org/...")
+maven.apache.org
 fsf.org
 quasar.dev
 simpleicons.org

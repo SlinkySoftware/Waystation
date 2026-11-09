@@ -101,6 +101,18 @@ describe('repository form model', () => {
     expect(back).toMatchObject({ type: 'group', members: ['docker-hosted', 'docker-hub'], writableMember: 'docker-hosted' })
   })
 
+  it('builds Maven proxy, hosted and group repositories with their policies', () => {
+    const proxy = toWrite({ ...emptyModel('maven'), ...PRESETS.maven[0]!.apply })
+    expect(proxy).toMatchObject({ name: 'maven-central', format: 'maven', type: 'proxy', proxy: { upstream_url: 'https://repo.maven.apache.org/maven2/' } })
+    expect(proxy.format_options).toEqual({ version_policy: 'release', layout_policy: 'strict' })
+    const hosted = toWrite({ ...emptyModel('maven', 'hosted'), name: 'maven-snapshots', versionPolicy: 'snapshot', layoutPolicy: 'permissive' })
+    expect(hosted).toMatchObject({ type: 'hosted', format_options: { version_policy: 'snapshot', layout_policy: 'permissive' } })
+    const group = toWrite({ ...emptyModel('maven', 'group'), name: 'maven-public', members: ['maven-releases', 'maven-central'] })
+    expect(group).toMatchObject({ type: 'group', group: { members: ['maven-releases', 'maven-central'], writable_member: null } })
+    const back = modelFromRepository({ name: 'maven-snapshots', format: 'maven', type: 'hosted', online: true, format_options: { version_policy: 'mixed' } } as unknown as Repository)
+    expect([back.versionPolicy, back.layoutPolicy]).toEqual(['mixed', 'strict'])
+  })
+
   it('maps the network and auto-block options', () => {
     const m = { ...emptyModel('raw'), name: 'files', upstreamUrl: 'https://files.example.com' }
     expect(toWrite(m).proxy).toMatchObject({ ca_pem: null, http_proxy: null, auto_block: { enabled: true, failures: 5, initial_s: 30, max_s: 1800 } })

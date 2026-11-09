@@ -16,6 +16,7 @@ import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvi
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
 import { helmChartList, helmVersionsFor } from './fixtures/helm'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
+import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
@@ -102,7 +103,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!NAME_RE.test(body.name ?? '')) errors.push({ field: 'name', message: 'Use 2-63 letters, digits, dots, dashes or underscores, starting with a letter or digit.', code: 'pattern' })
     else if (world.repos.some((r) => r.name.toLowerCase() === body.name.toLowerCase())) errors.push({ field: 'name', message: 'A repository with this name already exists.', code: 'taken' })
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
-    if (body.type !== 'proxy' && !['docker', 'raw', 'pypi', 'helm'].includes(body.format)) {
+    if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'helm'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -419,7 +420,7 @@ export const handlers = [
     if (!repo) return error
     const url = new URL(request.url)
     const path = url.searchParams.get('path') ?? ''
-    const entries = repo.format === 'raw' ? rawListing(repo.name, path) : path ? [] : genericTree(repo.format)
+    const entries = repo.format === 'raw' ? rawListing(repo.name, path) : repo.format === 'maven' && path ? mavenListing(repo, path) : path ? [] : genericTree(repo.format)
     if (!entries) return notFound()
     const page = paginate(entries, url)
     return HttpResponse.json({ path, entries: page.items, next_cursor: page.next_cursor })
@@ -500,6 +501,30 @@ export const handlers = [
     const found = helmVersionsFor(repo.name, url.searchParams.get('chart') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ chart: found.chart, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/maven/artifacts`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'maven')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    const items = mavenArtifactsFor(repo).filter((a) => !q || `${a.group_id}:${a.artifact_id}`.toLowerCase().includes(q))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/maven/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'maven')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const groupId = url.searchParams.get('group_id') ?? ''
+    const artifactId = url.searchParams.get('artifact_id') ?? ''
+    const versions = mavenVersionsFor(repo, groupId, artifactId)
+    if (!versions) return notFound()
+    return HttpResponse.json({ group_id: groupId, artifact_id: artifactId, ...paginate(versions, url) })
   }),
   http.get(`${API}/repositories/:name/pypi/projects`, async ({ request, params }) => {
     const denied = guard(request)

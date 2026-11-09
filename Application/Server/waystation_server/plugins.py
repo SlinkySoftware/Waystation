@@ -2,8 +2,8 @@
 
 Lives outside ``waystation_server.formats`` so the format packages never import each other (ARCHITECTURE §3). A
 format package exposes ``DESCRIPTOR`` (``<format>.descriptor``) and, once implemented, a plugin; register both here
-(``registry.register(DESCRIPTOR, plugin)``). Built in: docker, npm, apt, raw and yum
-(T-P2-YUM) proxy repositories, pypi (T-P5-PYPI) and helm (T-P5-HELM) proxy, hosted and group repositories.
+(``registry.register(DESCRIPTOR, plugin)``). Built in: docker, npm, apt, raw and yum (T-P2-YUM) proxy repositories;
+helm (T-P5-HELM), maven (T-P5-MAVEN) and pypi (T-P5-PYPI) proxy, hosted and group repositories.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ from waystation_server.formats.docker.descriptor import DESCRIPTOR as DOCKER
 from waystation_server.formats.docker.plugin import DockerPlugin
 from waystation_server.formats.helm.descriptor import DESCRIPTOR as HELM
 from waystation_server.formats.helm.plugin import HelmPlugin
+from waystation_server.formats.maven.descriptor import DESCRIPTOR as MAVEN
+from waystation_server.formats.maven.plugin import MavenPlugin
 from waystation_server.formats.npm.descriptor import DESCRIPTOR as NPM
 from waystation_server.formats.npm.plugin import NpmPlugin
 from waystation_server.formats.pypi.descriptor import DESCRIPTOR as PYPI
@@ -27,7 +29,7 @@ from waystation_server.formats.yum.plugin import YumPlugin
 
 def default_registry() -> FormatRegistry:
     registry = FormatRegistry()
-    for descriptor in (DOCKER, NPM, APT, RAW, YUM, PYPI, HELM):
+    for descriptor in (DOCKER, NPM, APT, RAW, YUM, MAVEN, PYPI, HELM):
         registry.register(descriptor)
     registry.set_plugin(HelmPlugin())  # T-P5-HELM
     registry.set_plugin(RawPlugin())  # T-P2-RAW
@@ -35,5 +37,6 @@ def default_registry() -> FormatRegistry:
     registry.set_plugin(NpmPlugin())  # T-P2-NPM
     registry.set_plugin(DockerPlugin())  # docker / OCI proxy (T-P2-DOCKERP)
     registry.set_plugin(YumPlugin())  # T-P2-YUM
+    registry.set_plugin(MavenPlugin())  # T-P5-MAVEN
     registry.set_plugin(PypiPlugin())  # T-P5-PYPI: proxy, hosted, group
     return registry
