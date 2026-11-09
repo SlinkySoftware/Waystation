@@ -111,7 +111,7 @@ async def _session_body(svc: Services, user: UserRecord, record: SessionRecord) 
 async def get_config(svc: ServicesDep) -> UiConfig:
     default = await svc.catalog.default_docker()
     return UiConfig(
-        instance_name=svc.settings.instance_name,
+        instance_name=(await svc.instance.general()).instance_name,
         base_url=svc.base_url,
         version=VERSION,
         docker=DockerConfig(registry_host=registry_host(svc.base_url), default_repo=default.name if default else None),

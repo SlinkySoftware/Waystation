@@ -573,6 +573,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/{user_id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /** A user's sessions, newest first (`current` marks the caller's own session) */
+        get: operations["listUserSessions"];
+        put?: never;
+        post?: never;
+        /**
+         * Sign a user out everywhere (every session ends; API tokens are not affected)
+         * @description A user holding more than the caller cannot be signed out by it (403). Audited as `session.revoke`.
+         */
+        delete: operations["revokeUserSessions"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Instance settings, and the limits set in the environment (read-only); needs `settings-admin` */
+        get: operations["getSettings"];
+        /** Change the instance settings (applied by every replica within seconds; audited as `settings.update`) */
+        put: operations["updateSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/system": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Version, MongoDB and Valkey health, and the data directory's usage; needs `admin` */
+        get: operations["getSystem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth-providers": {
         parameters: {
             query?: never;
@@ -1015,6 +1073,52 @@ export interface paths {
         /** Attach cleanup policies to a repository (replaces the list; needs `manage` on it) */
         put: operations["setRepositoryCleanup"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/import/nexus/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry run of an import from Nexus Repository 3 (nothing is written; needs `admin`)
+         * @description Reads the repository configuration of the Nexus at `url` through its REST API (basic auth with a Nexus
+         *     administrator; the credentials are used for this request only, never stored, logged or returned) and plans
+         *     every repository: `create` (with the repository it would create), `exists` (name taken; never changed;
+         *     field-level `differences`), `unsupported` or `invalid` (with the reason). Nexus errors (unreachable, refused
+         *     credentials, private address without `allow_private`) answer 502 with the reason in `detail`.
+         */
+        post: operations["previewNexusImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/import/nexus/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import repositories from Nexus Repository 3 (needs `admin`)
+         * @description Reads Nexus again (nothing is kept from a preview) and creates the selected `create` repositories (members
+         *     before groups), each audited as `repository.create`. Idempotent: names that exist by then are reported
+         *     `exists` and left alone.
+         */
+        post: operations["applyNexusImport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1926,6 +2030,72 @@ export interface components {
         GroupMembersAdd: {
             user_ids: string[];
         };
+        InstanceSettings: {
+            general: components["schemas"]["GeneralSettings"];
+            limits: components["schemas"]["EnvironmentLimits"];
+            /**
+             * Format: date-time
+             * @description null until first saved
+             */
+            updated_at: string | null;
+            /** @description Username of the last change */
+            updated_by: string | null;
+        };
+        InstanceSettingsWrite: {
+            general: components["schemas"]["GeneralSettings"];
+        };
+        GeneralSettings: {
+            /** @description Shown in the top bar, the sign-in page and the browser title (default `WAYSTATION_INSTANCE_NAME`) */
+            instance_name: string;
+        };
+        /** @description Set with environment variables (SPECIFICATION §9); shown for reference */
+        EnvironmentLimits: {
+            session_idle_minutes: number;
+            session_max_hours: number;
+            /** @description Sign-in attempts per client address per 5 minutes */
+            login_rate_limit: number;
+            login_lockout_failures: number;
+            login_lockout_minutes: number;
+            /** @description Rejected API tokens per client address per 5 minutes */
+            token_failure_limit: number;
+            audit_retention_days: number;
+            /** @description Per-minute statistics are kept this long */
+            stats_minute_retention_days: number;
+            /** @description Largest single upload or cached file */
+            max_upload_bytes: number;
+            /** @description New cache and upload writes are refused below this much free space */
+            min_free_bytes: number;
+        };
+        SystemInfo: {
+            version: string;
+            /** @description Python version of the server process */
+            python: string;
+            /** @description When the answering server process started */
+            started_at: components["schemas"]["Timestamp"];
+            components: components["schemas"]["SystemComponent"][];
+            storage: components["schemas"]["SystemStorage"];
+        };
+        SystemComponent: {
+            /** @enum {string} */
+            name: "mongodb" | "valkey";
+            /** @enum {string} */
+            status: "ok" | "unavailable";
+            version: string | null;
+            /** @description Round trip of a ping */
+            latency_ms: number | null;
+            /** @description Why it is unavailable (the error class only) */
+            detail: string | null;
+        };
+        SystemStorage: {
+            /** @description The data directory (`WAYSTATION_DATA_DIR`) */
+            path: string;
+            /** @description null when the volume cannot be read */
+            total_bytes: number | null;
+            used_bytes: number | null;
+            free_bytes: number | null;
+            /** @description New writes are refused below this much free space */
+            min_free_bytes: number;
+        };
         AnonymousAccess: {
             /**
              * @description `anonymous` (browse and read proxy repositories, the default) and/or roles holding repository permissions
@@ -2499,6 +2669,106 @@ export interface components {
             format: components["schemas"]["Format"];
             clients: components["schemas"]["SetupClient"][];
             notes?: string[];
+        };
+        NexusImportRequest: {
+            /**
+             * Format: uri
+             * @description Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+             */
+            url: string;
+            /** @description A Nexus administrator (reads the configuration) */
+            username: string;
+            /** Format: password */
+            password: string;
+            /**
+             * @description Allow a Nexus on a private or loopback address (SSRF guard exception)
+             * @default false
+             */
+            allow_private: boolean;
+            /** @description Extra CA certificates (PEM) trusted for the Nexus TLS certificate */
+            ca_pem?: string | null;
+            /**
+             * @description Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+             * @default true
+             */
+            docker_aliases: boolean;
+            /** @description Nexus docker repository to make the default docker repository; null = detect it */
+            default_docker_repo?: string | null;
+        };
+        NexusApplyRequest: {
+            /**
+             * Format: uri
+             * @description Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+             */
+            url: string;
+            /** @description A Nexus administrator (reads the configuration) */
+            username: string;
+            /** Format: password */
+            password: string;
+            /**
+             * @description Allow a Nexus on a private or loopback address (SSRF guard exception)
+             * @default false
+             */
+            allow_private: boolean;
+            /** @description Extra CA certificates (PEM) trusted for the Nexus TLS certificate */
+            ca_pem?: string | null;
+            /**
+             * @description Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+             * @default true
+             */
+            docker_aliases: boolean;
+            /** @description Nexus docker repository to make the default docker repository; null = detect it */
+            default_docker_repo?: string | null;
+            /** @description Names to import (from the preview); null = every repository the preview would create */
+            repositories?: string[] | null;
+        };
+        ImportDifference: {
+            /** @description Waystation field or Nexus setting */
+            field: string;
+            nexus: string | null;
+            waystation: string | null;
+            note: string;
+        };
+        /** @enum {string} */
+        NexusImportAction: "create" | "exists" | "unsupported" | "invalid";
+        /** @enum {string} */
+        NexusImportOutcome: "created" | "exists" | "unsupported" | "invalid" | "failed" | "not_selected";
+        NexusImportItem: {
+            name: string;
+            nexus_format: string;
+            nexus_type: string;
+            format: components["schemas"]["Format"] | null;
+            type: components["schemas"]["RepositoryType"] | null;
+            action: components["schemas"]["NexusImportAction"];
+            /** @description Apply only: what happened */
+            outcome: components["schemas"]["NexusImportOutcome"] | null;
+            reason: string | null;
+            /** @description The Waystation repository; created when `action` is `create`, for `exists` what the import would have created */
+            repository: components["schemas"]["RepositoryWrite"] | null;
+            differences: components["schemas"]["ImportDifference"][];
+            notes: string[];
+        };
+        DefaultDockerChoice: {
+            /** @description Repository that receives unprefixed docker names after the import */
+            name: string | null;
+            reason: string;
+        };
+        ImportSummary: {
+            total: number;
+            create: number;
+            exists: number;
+            unsupported: number;
+            invalid: number;
+            created: number;
+            failed: number;
+        };
+        NexusImportReport: {
+            applied: boolean;
+            /** @description From the Nexus `Server` header */
+            nexus_version: string | null;
+            items: components["schemas"]["NexusImportItem"][];
+            summary: components["schemas"]["ImportSummary"];
+            default_docker_repo: components["schemas"]["DefaultDockerChoice"] | null;
         };
         FolderEntry: {
             name: string;
@@ -3474,6 +3744,15 @@ export interface components {
         };
         /** @description Request body failed validation; `errors[]` has field-level detail */
         ValidationFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description A remote system the request depends on failed (the reason is in `detail`) */
+        BadGateway: {
             headers: {
                 [name: string]: unknown;
             };
@@ -4615,6 +4894,121 @@ export interface operations {
             422: components["responses"]["ValidationFailed"];
         };
     };
+    listUserSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sessions (ids are opaque and never usable as cookies) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionInfo"][];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    revokeUserSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many sessions ended */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionsRevoked"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceSettings"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceSettingsWrite"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceSettings"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getSystem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description System status (always 200; a component that does not answer is `unavailable`) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemInfo"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
     listAuthProviderConfigs: {
         parameters: {
             query?: never;
@@ -5474,6 +5868,60 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
+        };
+    };
+    previewNexusImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NexusImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NexusImportReport"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            502: components["responses"]["BadGateway"];
+        };
+    };
+    applyNexusImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NexusApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description What happened to each repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NexusImportReport"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+            502: components["responses"]["BadGateway"];
         };
     };
     listCleanupPolicies: {

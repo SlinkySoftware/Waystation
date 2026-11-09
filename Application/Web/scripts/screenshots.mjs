@@ -53,6 +53,20 @@ const MOCK_SHOTS = [
   { name: 'audit-log', path: 'admin/audit?range=30d' },
   { name: 'audit-failures', path: 'admin/audit?range=30d&action=auth.*&outcome=failure' },
   { name: 'audit-record', path: 'admin/audit?range=30d&action=auth_provider.update', action: openAuditRecord },
+  { name: 'import-nexus', path: 'repositories/import/nexus' },
+  { name: 'import-nexus-plan', path: 'repositories/import/nexus', action: nexusPreview, full: true },
+  { name: 'admin-users', path: 'admin/users', full: true },
+  { name: 'admin-user-detail', path: 'admin/users/01JC0000000000000000000U01', settle: 2000, full: true },
+  { name: 'admin-user-create', path: 'admin/users', action: createUser },
+  { name: 'admin-groups', path: 'admin/groups', full: true },
+  { name: 'admin-group-members', path: 'admin/groups?open=01JC00000000000000000GRP04', settle: 2000 },
+  { name: 'admin-roles', path: 'admin/roles', full: true },
+  { name: 'admin-role-editor', path: 'admin/roles', action: editRole },
+  { name: 'admin-tokens', path: 'admin/tokens?status=all', full: true },
+  { name: 'admin-service-accounts', path: 'admin/tokens?tab=accounts' },
+  { name: 'admin-service-account-panel', path: 'admin/tokens?tab=accounts', action: openAccount },
+  { name: 'admin-settings', path: 'admin/settings', full: true },
+  { name: 'admin-system', path: 'admin/system', full: true },
   { name: 'tasks-scheduled', path: 'tasks', settle: 2500, full: true },
   { name: 'tasks-runs', path: 'tasks?tab=runs', settle: 3000, full: true },
   { name: 'tasks-run-log', path: 'tasks?tab=runs&status=running', settle: 2500, action: openRunLog },
@@ -171,6 +185,25 @@ async function tokenCreated(page) {
   await page.waitForTimeout(900)
 }
 
+async function createUser(page) {
+  await page.getByRole('button', { name: /create user/i }).first().click()
+  await page.waitForTimeout(500)
+  await page.getByLabel('Username', { exact: true }).fill('jordan')
+  await page.getByLabel('Display name', { exact: true }).fill('Jordan Ellis')
+  await page.getByRole('button', { name: /generate/i }).click()
+  await page.waitForTimeout(300)
+}
+
+async function editRole(page) {
+  await page.getByText('npm publisher', { exact: true }).first().click()
+  await page.waitForTimeout(900)
+}
+
+async function openAccount(page) {
+  await page.getByText('ci-runner', { exact: true }).first().click()
+  await page.waitForTimeout(900)
+}
+
 async function createFlow(page) {
   await page.getByRole('button', { name: /create repository/i }).first().click()
   await page.waitForTimeout(500)
@@ -179,6 +212,16 @@ async function createFlow(page) {
   await page.locator('.tile--type').first().click()
   await page.waitForTimeout(300)
   await page.getByText('Google (gcr.io)', { exact: true }).first().click()
+  await page.waitForTimeout(300)
+}
+
+async function nexusPreview(page) {
+  await page.getByLabel('Nexus URL').fill('https://nexus.example.com')
+  await page.getByLabel('Password', { exact: true }).fill('demo')
+  await page.getByRole('button', { name: /preview import/i }).click()
+  await page.waitForTimeout(1200)
+  const more = page.getByRole('button', { name: /detail/i }).first()
+  if (await more.isVisible()) await more.click() // desktop table; phone cards show the details inline
   await page.waitForTimeout(300)
 }
 

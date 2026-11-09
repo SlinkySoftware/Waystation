@@ -12,11 +12,13 @@ from waystation_server.api import (
     browse,
     cleanup,
     groups,
+    imports,
     live,
     maintenance,
     repositories,
     roles,
     search,
+    settings,
     stats,
     storage_guard,
     tasks,
@@ -38,6 +40,7 @@ def build_router() -> APIRouter:
     router.include_router(groups.router)
     router.include_router(roles.router)
     router.include_router(repositories.router)
+    router.include_router(imports.router)
     router.include_router(browse.router)
     router.include_router(cleanup.router)
     router.include_router(maintenance.router)
@@ -47,4 +50,5 @@ def build_router() -> APIRouter:
     router.include_router(storage_guard.router)
     router.include_router(live.router)
     router.include_router(audit.router)
+    router.include_router(settings.router)
     return router

@@ -1,0 +1,26 @@
+{
+  "name": "docker-group",
+  "format": "docker",
+  "type": "group",
+  "url": "https://nexus.example.com/repository/docker-group",
+  "online": true,
+  "storage": {
+    "blobStoreName": "docker",
+    "strictContentTypeValidation": true
+  },
+  "group": {
+    "memberNames": [
+      "docker-hosted",
+      "dockerhub-proxy",
+      "ghcr-proxy"
+    ],
+    "writableMember": "docker-hosted"
+  },
+  "docker": {
+    "v1Enabled": false,
+    "forceBasicAuth": false,
+    "httpPort": 8082,
+    "httpsPort": null,
+    "subdomain": null
+  }
+}

@@ -1,0 +1,184 @@
+[
+  {
+    "name": "dockerhub-proxy",
+    "format": "docker",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/dockerhub-proxy",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://registry-1.docker.io"
+      }
+    }
+  },
+  {
+    "name": "ghcr-proxy",
+    "format": "docker",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/ghcr-proxy",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://ghcr.io"
+      }
+    }
+  },
+  {
+    "name": "docker-hosted",
+    "format": "docker",
+    "type": "hosted",
+    "url": "https://nexus.example.com/repository/docker-hosted",
+    "attributes": {}
+  },
+  {
+    "name": "docker-group",
+    "format": "docker",
+    "type": "group",
+    "url": "https://nexus.example.com/repository/docker-group",
+    "attributes": {}
+  },
+  {
+    "name": "debian",
+    "format": "apt",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/debian",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "http://deb.debian.org/debian/"
+      }
+    }
+  },
+  {
+    "name": "debian-security",
+    "format": "apt",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/debian-security",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "http://security.debian.org/debian-security/"
+      }
+    }
+  },
+  {
+    "name": "ubuntu",
+    "format": "apt",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/ubuntu",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "http://archive.ubuntu.com/ubuntu/"
+      }
+    }
+  },
+  {
+    "name": "ubuntu-security",
+    "format": "apt",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/ubuntu-security",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "http://security.ubuntu.com/ubuntu/"
+      }
+    }
+  },
+  {
+    "name": "raspberrypi",
+    "format": "apt",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/raspberrypi",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "http://archive.raspberrypi.com/debian/"
+      }
+    }
+  },
+  {
+    "name": "rocky",
+    "format": "yum",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/rocky",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://dl.rockylinux.org/pub/rocky/"
+      }
+    }
+  },
+  {
+    "name": "almalinux",
+    "format": "yum",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/almalinux",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://repo.almalinux.org/almalinux/"
+      }
+    }
+  },
+  {
+    "name": "epel",
+    "format": "yum",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/epel",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://dl.fedoraproject.org/pub/epel/"
+      }
+    }
+  },
+  {
+    "name": "oracle",
+    "format": "yum",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/oracle",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://yum.oracle.com/repo/OracleLinux/"
+      }
+    }
+  },
+  {
+    "name": "npm",
+    "format": "npm",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/npm",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://registry.npmjs.org"
+      }
+    }
+  },
+  {
+    "name": "files",
+    "format": "raw",
+    "type": "hosted",
+    "url": "https://nexus.example.com/repository/files",
+    "attributes": {}
+  },
+  {
+    "name": "github-releases",
+    "format": "raw",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/github-releases",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://github.com/"
+      }
+    }
+  },
+  {
+    "name": "maven-central",
+    "format": "maven2",
+    "type": "proxy",
+    "url": "https://nexus.example.com/repository/maven-central",
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://repo.maven.apache.org/maven2/"
+      }
+    }
+  },
+  {
+    "name": "r-hosted",
+    "format": "r",
+    "type": "hosted",
+    "url": "https://nexus.example.com/repository/r-hosted",
+    "attributes": {}
+  }
+]

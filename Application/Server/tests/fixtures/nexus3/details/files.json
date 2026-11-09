@@ -1,0 +1,19 @@
+{
+  "name": "files",
+  "format": "raw",
+  "type": "hosted",
+  "url": "https://nexus.example.com/repository/files",
+  "online": true,
+  "storage": {
+    "blobStoreName": "default",
+    "strictContentTypeValidation": true,
+    "writePolicy": "ALLOW_ONCE"
+  },
+  "cleanup": null,
+  "component": {
+    "proprietaryComponents": false
+  },
+  "raw": {
+    "contentDisposition": "ATTACHMENT"
+  }
+}
