@@ -86,6 +86,8 @@ never `sum`.
 | `waystation_repository_quota_used_ratio` | `repo` | Stored bytes / quota (1 = quota reached; above 1 is possible for soft quotas and after a quota was lowered) |
 | `waystation_cleanup_removed_items_total`, `waystation_cleanup_removed_bytes_total` | none | Counters: items (assets, docker tags and manifests) and asset bytes removed by cleanup policies (T-O01), all runs |
 | `waystation_gc_runs_total`, `waystation_gc_freed_blobs_total`, `waystation_gc_freed_bytes_total`, `waystation_gc_orphan_uploads_removed_total` | none | Counters: blob GC runs, blobs and bytes it freed, orphan upload files it removed (T-O02). Read from the Valkey hash `maintenance:totals`, so they survive server restarts and need no multi-process merge |
+| `waystation_webhook_deliveries_total` | `outcome` | Counter of webhook delivery attempts (T-O05, [WEBHOOKS.md](WEBHOOKS.md)): `succeeded` (a 2xx answer), `failed` (will be retried), `dead` (gave up: attempts used up, or a target the SSRF guard refuses). From the Valkey hash `webhooks:totals` |
+| `waystation_webhook_deliveries_pending` | none | Webhook deliveries waiting for an attempt (first attempts and retries) |
 | `waystation_metrics_source_up` | `source` | 1 when `valkey`, `mongodb` or `filesystem` answered while building the cluster figures, else 0 |
 
 Derived figures used by the dashboard and the template:

@@ -19,6 +19,10 @@ DL_ASSETS: Final = 'dl:assets'  # hash: asset id -> downloads since the last flu
 # Low-disk guard state (string: ISO time free space fell below the guard; absent = enough space). Set and cleared by
 # the worker's ``storage.check`` (which announces ``storage.low`` / ``storage.ok``); read by the storage guard API.
 STORAGE_LOW: Final = 'storage:low'
+# Webhook delivery attempts by outcome (hash, no TTL; fields in WEBHOOK_OUTCOMES), written by the workers and exported
+# on /metrics as ``waystation_webhook_deliveries_total{outcome}`` (T-O05).
+WEBHOOK_TOTALS: Final = 'webhooks:totals'
+WEBHOOK_OUTCOMES: Final = ('succeeded', 'failed', 'dead')
 # Running totals of cleanup and blob GC (hash; fields in MAINTENANCE_FIELDS), exported on /metrics.
 MAINTENANCE_TOTALS: Final = 'maintenance:totals'
 MAINTENANCE_FIELDS: Final = (

@@ -22,6 +22,7 @@ class Seen:
     method: str
     path: str
     headers: dict[str, str]
+    body: bytes = b''
 
 
 @dataclass
@@ -106,9 +107,10 @@ class FakeUpstream:
                     if ':' in line:
                         k, v = line.split(':', 1)
                         headers[k.strip().lower()] = v.strip()
+                body_in = b''
                 if int(headers.get('content-length', '0') or 0):
-                    await reader.readexactly(int(headers['content-length']))
-                seen = Seen(method, target, headers)
+                    body_in = await reader.readexactly(int(headers['content-length']))
+                seen = Seen(method, target, headers, body_in)
                 self.seen.append(seen)
                 plan = self._resolve(seen)
                 if plan.hang:
