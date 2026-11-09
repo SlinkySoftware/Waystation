@@ -218,7 +218,7 @@ class FixtureStore:
         found = self._find(key)
         if found is None:
             return None
-        meta_path, body_path, meta = found
+        _, body_path, meta = found
         body = body_path.read_bytes() if body_path.is_file() else b''
         expected = meta['response'].get('body_sha256')
         if expected and hashlib.sha256(body).hexdigest() != expected:

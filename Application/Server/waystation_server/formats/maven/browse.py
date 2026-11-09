@@ -54,12 +54,12 @@ class MavenBrowse:
         docs = docs[:limit]
         ga = f'{group_id.replace(".", "/")}/{artifact_id}'
         folders = {str(d['version']): f'{ga}/{d["version"]}/' for d in docs}
-        stats = await maven_db.file_stats(ctx.db, ctx.repo.id, folders.values())
+        stats = await maven_db.file_stats(ctx.db, ctx.repo.id, ga, folders)
         items = []
         for d in docs:
             version = str(d['version'])
             folder = folders[version]
-            found = stats.get(folder)
+            found = stats.get(version)
             items.append(
                 MavenVersion(
                     version=version,

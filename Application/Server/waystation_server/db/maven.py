@@ -177,17 +177,24 @@ class FileStats:
     size: int
 
 
-async def file_stats(db: Database, repo_id: str, prefixes: Iterable[str]) -> dict[str, FileStats]:
-    """Files and bytes under each folder ``prefix`` (ending with ``/``)."""
-    ranges = [{'path': {'$gte': p, '$lt': subtree_end(p)}} for p in sorted(set(prefixes))]
-    if not ranges:
+async def file_stats(db: Database, repo_id: str, ga_path: str, versions: Iterable[str]) -> dict[str, FileStats]:
+    """Files and bytes in each version folder ``<ga_path>/<version>/`` (one aggregation over their path ranges)."""
+    wanted = sorted(set(versions))
+    if not wanted:
         return {}
+    ranges = [{'path': {'$gte': f'{ga_path}/{v}/', '$lt': subtree_end(f'{ga_path}/{v}/')}} for v in wanted]
+    depth = ga_path.count('/') + 1  # index of the version segment in the split path
+    pipeline: list[dict[str, Any]] = [
+        {'$match': {'repo_id': repo_id, '$or': ranges}},
+        {
+            '$group': {
+                '_id': {'$arrayElemAt': [{'$split': ['$path', '/']}, depth]},
+                'count': {'$sum': 1},
+                'size': {'$sum': '$size'},
+            }
+        },
+    ]
     out: dict[str, FileStats] = {}
-    for prefix, rng in zip(sorted(set(prefixes)), ranges, strict=True):
-        pipeline: list[dict[str, Any]] = [
-            {'$match': {'repo_id': repo_id, **rng}},
-            {'$group': {'_id': None, 'count': {'$sum': 1}, 'size': {'$sum': '$size'}}},
-        ]
-        async for doc in await db[ASSETS].aggregate(pipeline):
-            out[prefix] = FileStats(count=int(doc['count']), size=int(doc['size']))
+    async for doc in await db[ASSETS].aggregate(pipeline):
+        out[str(doc['_id'])] = FileStats(count=int(doc['count']), size=int(doc['size']))
     return out
