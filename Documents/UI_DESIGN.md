@@ -211,6 +211,21 @@ routing (default repository, aliases), and the environment limits read-only with
 version tiles, MongoDB/Valkey cards (status, version, round trip), the data volume bar with a marker at the
 free-space floor; refreshes every 15 s. Refusals: 403 shows "Not allowed", 409 "Not possible", with the server's
 reason (dialogs for row actions, a banner in forms). Phones: every table becomes cards with the actions inline.
+**Webhooks** (T-O05, `/admin/webhooks`, rail item for `admin`): one table (webhook icon, name, target URL in mono,
+description; events in words ("All events", "Content: upload, delete"); repository scope; last delivery as a status
+pill Delivered/Queued/Retrying/Failed with when, the event and "HTTP 503 · 198 ms"; on/off toggle; row actions send
+test event, deliveries, and a menu with edit and delete (confirm)). The editor (dialog): name and on/off, payload URL,
+description; events as "Every event" or grouped checkboxes with a line of help each; repositories as chips (names or
+patterns, suggestions from the catalogue); signing secret pre-filled with a 64-hex random value generated in the
+browser (show/hide, copy, Generate; on edit empty = keep), a collapsible "Verifying requests" note; custom headers as
+name/value rows (values masked; on edit the stored names show with "Replace headers"); delivery limits (timeout,
+attempts) and "Allow private network targets" with its risk explained. The delivery drawer (right side): tabs
+All / Queued-Retrying / Failed / Delivered, rows with status, event, repository, result, attempts and next attempt,
+"Load more"; a delivery opens in place (back arrow) with facts (event, ids, times, redelivery link), Redeliver, the
+attempts newest first (status icon, HTTP status, latency, error, the answer's first KiB in mono) and the request
+(headers with secret values masked, the JSON body pretty-printed). Sending a test event opens its delivery; the
+drawer and the table refresh every few seconds while something is queued or retrying. Phones: cards, full-screen
+drawer.
 
 ### 4.11 Profile
 Display name, theme, density, password (local accounts; while a one-time password is pending the router keeps

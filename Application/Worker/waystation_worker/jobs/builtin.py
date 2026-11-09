@@ -18,9 +18,12 @@ from waystation_common.jobs.model import (
     QuotaReconcile,
     StatsRollup,
     StorageCheck,
+    WebhookDeliver,
+    WebhookEvent,
+    WebhookSweep,
 )
 from waystation_common.storage import BlobStore
-from waystation_worker import cleanup, gc, helm, quota, rollup
+from waystation_worker import cleanup, gc, helm, quota, rollup, webhooks
 from waystation_worker.jobs.context import JobContext
 from waystation_worker.jobs.registry import handles
 
@@ -33,6 +36,8 @@ BUILTIN_DEFINITIONS: tuple[Definition, ...] = (
     # Quotas (SPEC §4.8): recount usage hourly (the server counts incrementally between runs); low-disk alert.
     Definition(id='quota.reconcile', kind=QuotaReconcile.kind, schedule='7 * * * *'),
     Definition(id='storage.check', kind=StorageCheck.kind, schedule='@every 1m'),
+    # Webhook retries that are due (and deliveries whose job was lost), SPEC §4.12.
+    Definition(id='webhook.sweep', kind=WebhookSweep.kind, schedule='@every 15s'),
 )
 log = logging.getLogger('waystation.worker.jobs')
 
@@ -137,3 +142,29 @@ async def helm_index(job: HelmIndex, ctx: JobContext) -> dict[str, Any]:
         return {'repo_id': job.repo_id, 'skipped': 'not a hosted Helm repository (deleted?)'}
     await ctx.log(f'published index.yaml: {result.charts} charts, {result.versions} versions, {result.size} bytes')
     return {'repo_id': job.repo_id, **result.as_dict()}
+
+
+@handles(WebhookEvent)
+async def webhook_event(job: WebhookEvent, ctx: JobContext) -> dict[str, Any]:
+    """One event -> a delivery per webhook that wants it, each attempted at once (``waystation_worker.webhooks``)."""
+    async with webhooks.Sender(ctx.settings) as sender:
+        deliverer = webhooks.deliverer(ctx.db, ctx.valkey, ctx.settings, sender, ctx.now)
+        return await deliverer.fan_out(
+            event_id=job.event_id, event=job.event, repository=job.repository, document=job.document
+        )
+
+
+@handles(WebhookDeliver)
+async def webhook_deliver(job: WebhookDeliver, ctx: JobContext) -> dict[str, Any]:
+    """Attempt one delivery now (a test event or a redelivery)."""
+    async with webhooks.Sender(ctx.settings) as sender:
+        deliverer = webhooks.deliverer(ctx.db, ctx.valkey, ctx.settings, sender, ctx.now)
+        status = await deliverer.attempt(job.delivery_id)
+    return {'delivery_id': job.delivery_id, 'status': status or 'not due'}
+
+
+@handles(WebhookSweep)
+async def webhook_sweep(job: WebhookSweep, ctx: JobContext) -> dict[str, Any]:
+    """Attempt the deliveries whose retry is due."""
+    async with webhooks.Sender(ctx.settings) as sender:
+        return await webhooks.deliverer(ctx.db, ctx.valkey, ctx.settings, sender, ctx.now).sweep()

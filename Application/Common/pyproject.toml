@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Waystation shared core: settings, logging, ids, crypto, events, jobs, storage."
 requires-python = ">=3.14"
 license = "GPL-3.0-or-later"
-dependencies = ["pydantic>=2.12", "pydantic-settings>=2.11", "python-ulid>=3.1", "cryptography>=46", "pymongo>=4.15", "redis>=7.0"]
+dependencies = ["pydantic>=2.12", "pydantic-settings>=2.11", "python-ulid>=3.1", "cryptography>=46", "pymongo>=4.15", "redis>=7.0", "httpcore>=1.0"]
 
 [build-system]
 requires = ["uv_build>=0.13,<0.14"]

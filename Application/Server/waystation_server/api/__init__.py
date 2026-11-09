@@ -25,6 +25,7 @@ from waystation_server.api import (
     tokens,
     two_factor,
     users,
+    webhooks,
 )
 
 API_PREFIX = '/api/v1'
@@ -53,4 +54,5 @@ def build_router() -> APIRouter:
     router.include_router(live.router)
     router.include_router(audit.router)
     router.include_router(settings.router)
+    router.include_router(webhooks.router)
     return router
