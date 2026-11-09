@@ -3,6 +3,18 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-U08: Administration UI. Users (list with source badge, roles, last sign-in and status; filters in the URL;
+  keyset paging; create a local user with or without a password, edit, reset password, unlock, disable/enable, sign
+  out everywhere, delete) and a page per user (linked identities; local, mapped and provider-reported groups;
+  effective permissions with a repository × action matrix; sessions; API tokens). Groups (local CRUD and members,
+  mapped groups' roles), Roles (permission matrix editor with live scope matches, built-ins read-only, duplicate,
+  "held by") with an Anonymous access card, API tokens (every token, revoke) with Service accounts (tokens shown once,
+  permissions), Settings and System pages; 403/409 refusals shown with the server's reason; rail items by capability
+  (Auth providers now needs `settings.admin`, like its API). New API: `GET/DELETE /users/{id}/sessions` (audited
+  `session.revoke` with `details.by_admin`), `GET/PUT /settings` (instance name in the `settings` collection, served
+  by `/config`, audited `settings.update`; environment limits read-only), `GET /system` (version, MongoDB/Valkey
+  health, data volume). MSW mocks for every administration endpoint (`mocks/admin.ts`; sign in as `helpdesk` for a
+  user-admin who is not an administrator). T-A03 done with the Users/Groups pages.
 - T-S03: RBAC administration and the grant cache. Custom roles (`roles` collection; `GET/POST /roles`,
   `GET/PUT/DELETE /roles/{id}`; built-ins read-only; permissions validated; in-use roles cannot be deleted), local
   groups and members (`/groups`, `/groups/{id}/members`; mapped groups read-only except roles), users (`/users`:
