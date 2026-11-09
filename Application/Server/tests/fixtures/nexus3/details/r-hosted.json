@@ -1,0 +1,16 @@
+{
+  "name": "r-hosted",
+  "format": "r",
+  "type": "hosted",
+  "url": "https://nexus.example.com/repository/r-hosted",
+  "online": true,
+  "storage": {
+    "blobStoreName": "default",
+    "strictContentTypeValidation": true,
+    "writePolicy": "ALLOW_ONCE"
+  },
+  "cleanup": null,
+  "component": {
+    "proprietaryComponents": false
+  }
+}

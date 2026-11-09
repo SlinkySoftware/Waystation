@@ -4,6 +4,7 @@
   <q-page class="ws-page">
     <PageHeader :title="t('nav.repositories')" :caption="caption">
       <template #actions>
+        <q-btn v-if="auth.can('admin')" flat no-caps :icon="iconDownload" :label="t('nexusImport.open')" :to="{ name: 'import-nexus' }" />
         <q-btn v-if="auth.can('repositories.create')" unelevated no-caps color="primary" :icon="iconAdd" :label="t('repos.create')" @click="creating = true" />
       </template>
     </PageHeader>
@@ -127,7 +128,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { formatLabel, LISTED_FORMATS, repoMark, statusMeta, typeMeta } from '@/utils/domain'
 import { formatCount, formatPercent } from '@/utils/format'
-import { iconAdd, iconLink, iconSearch } from '@/utils/icons'
+import { iconAdd, iconDownload, iconLink, iconSearch } from '@/utils/icons'
 
 const auth = useAuthStore()
 const route = useRoute()
