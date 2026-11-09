@@ -109,6 +109,8 @@ ignore_imports = [
     "waystation_server.formats.** -> waystation_server.formats.registry",
     # The proxy engine names FormatRequest for typing only; plugins reach base through it, not a sibling format.
     "waystation_server.proxy.engine -> waystation_server.formats.base",
+    # Same for the hosted store (uploads into hosted repositories).
+    "waystation_server.hosted.store -> waystation_server.formats.base",
 ]
 unmatched_ignore_imports_alerting = "none"
 

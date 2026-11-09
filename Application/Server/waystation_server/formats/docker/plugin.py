@@ -19,8 +19,8 @@ Browse (``browser``, ``formats.docker.browse``): every cached manifest is record
 cached tag manifest in ``docker_tags``, in the background after the fill (parsed in a thread). A tag resolved by an
 upstream ``HEAD`` (how the Docker daemon pulls) is recorded in ``docker_tags`` from its ``Docker-Content-Digest``.
 
-Not yet (later tasks): hosted/group repositories, ``_catalog`` and the referrers API (404 makes clients fall back to
-the tag schema).
+Hosted repositories (push, delete, referrers API) are served by ``formats.docker.hosted.DockerHosted``. Not yet:
+group repositories (T-P2-DOCKERG) and the referrers API for proxies (404 makes clients fall back to the tag schema).
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from waystation_server.formats.common.background import Background
 from waystation_server.formats.docker import protocol as p
 from waystation_server.formats.docker.browse import DockerBrowse, parse_manifest
 from waystation_server.formats.docker.descriptor import DESCRIPTOR, DockerOptions
+from waystation_server.formats.docker.hosted import DockerHosted
 from waystation_server.formats.docker.upstream_auth import RegistryAuth, TokenCache
 from waystation_server.problems import oci_error
 from waystation_server.proxy.engine import (
@@ -51,7 +52,7 @@ from waystation_server.proxy.engine import (
     StoredAsset,
     UpstreamInfo,
 )
-from waystation_server.repos.model import AuthKind, secret_aad
+from waystation_server.repos.model import AuthKind, RepoType, secret_aad
 
 API_VERSION = 'Docker-Distribution-API-Version'
 API_HEADERS = {API_VERSION: 'registry/2.0'}
@@ -99,6 +100,7 @@ class DockerPlugin:
     def __init__(self) -> None:
         self.tokens = TokenCache()
         self.browser = DockerBrowse()
+        self.hosted = DockerHosted()
         self._indexing = Background('docker-manifests')
 
     async def drain(self) -> None:
@@ -115,6 +117,8 @@ class DockerPlugin:
             op = p.parse(path)
         except p.RequestRejected as exc:
             return _error(exc.status, exc.message, exc.code)
+        if req.repo.type is RepoType.HOSTED:
+            return await self.hosted.handle(req, op)
         if req.method not in ('GET', 'HEAD'):
             return _error(405, 'this repository is a read-only proxy', 'UNSUPPORTED')
         if op.op == 'base':

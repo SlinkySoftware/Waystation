@@ -64,7 +64,7 @@ class Metrics:
         )
         self.bytes = Counter(
             'waystation_bytes',
-            'Bytes by repository and direction (out_cache, out_upstream, in_upstream).',
+            'Bytes by repository and direction (out_cache, out_upstream, in_upstream, in_upload).',
             ['repo', 'direction'],
             registry=self.registry,
         )

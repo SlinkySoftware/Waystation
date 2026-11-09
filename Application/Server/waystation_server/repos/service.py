@@ -10,8 +10,11 @@ Validation, reported as 422 field errors (``errors[].field`` a dotted path into 
   needs ``allow_private_upstream``;
 - ``auth``: ``basic`` needs a username; ``basic``/``bearer`` need a secret (kept from the stored config on update
   when omitted); secrets are encrypted with ``WAYSTATION_SECRET_KEYS`` (associated data ``repo:<id>``);
-- ``format_options`` against the format's ``options_model``; docker aliases must not collide with repository names
-  or other repositories' aliases; one default docker repository (setting it clears the others);
+- hosted repositories: ``hosted`` (write policy, immutable tag patterns that must compile as regular expressions;
+  defaults when omitted); other types must not send it;
+- ``format_options`` against the format's ``options_model`` and its per-type rules (``check_options``); docker
+  aliases must not collide with repository names or other repositories' aliases; one default docker repository
+  (setting it clears the others);
 - on update, ``name``, ``format`` and ``type`` cannot change.
 """
 
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
@@ -34,11 +38,12 @@ from waystation_server.repos.model import (
     AuthKind,
     RepoConfig,
     RepoType,
+    StoredHosted,
     StoredProxy,
     StoredUpstreamAuth,
     secret_aad,
 )
-from waystation_server.repos.schemas import ProxyConfig, RepositoryWrite
+from waystation_server.repos.schemas import HostedConfig, ProxyConfig, RepositoryWrite
 from waystation_server.security.principal import Principal
 from waystation_server.services import Services
 
@@ -94,7 +99,26 @@ def _options(services: Services, body: RepositoryWrite, errors: list[FieldError]
         for err in validation_errors(exc.errors()):
             errors.append(FieldError(field=f'format_options.{err.field}', message=err.message, code=err.code))
         return {}
+    for field, message in descriptor.check_options(options, body.type):
+        errors.append(FieldError(field=f'format_options.{field}', message=message, code='invalid'))
     return options.model_dump(mode='json')
+
+
+def _stored_hosted(hosted: HostedConfig, errors: list[FieldError]) -> StoredHosted:
+    for i, pattern in enumerate(hosted.immutable_tag_patterns):
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            errors.append(
+                FieldError(
+                    field=f'hosted.immutable_tag_patterns.{i}',
+                    message=f'not a regular expression: {exc.msg}',
+                    code='format',
+                )
+            )
+    return StoredHosted(
+        write_policy=hosted.write_policy, immutable_tag_patterns=tuple(dict.fromkeys(hosted.immutable_tag_patterns))
+    )
 
 
 def _aliases(options: dict[str, Any]) -> list[str]:
@@ -193,6 +217,13 @@ async def _build(
             proxy = _stored_proxy(services, body.proxy, repo_id, existing.proxy if existing else None, errors)
     elif body.proxy is not None:
         errors.append(FieldError(field='proxy', message='only proxy repositories have an upstream', code='invalid'))
+    hosted: StoredHosted | None = None
+    if body.type is RepoType.HOSTED:
+        hosted = _stored_hosted(body.hosted or HostedConfig(), errors)
+    elif body.hosted is not None:
+        errors.append(
+            FieldError(field='hosted', message='only hosted repositories have a write policy', code='invalid')
+        )
     if errors:
         raise FieldErrors(errors)
     now = datetime.now(UTC)
@@ -204,6 +235,7 @@ async def _build(
         online=body.online,
         description=body.description,
         proxy=proxy,
+        hosted=hosted,
         format_options=options,
         cleanup_policy_ids=existing.cleanup_policy_ids if existing else (),
         created_at=existing.created_at if existing else now,

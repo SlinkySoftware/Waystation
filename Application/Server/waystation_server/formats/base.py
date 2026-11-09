@@ -15,7 +15,8 @@ A format is two things:
 
    The plugin answers with a Starlette ``Response``. Cached content is served by ``req.proxy.serve(req, spec)``
    (``waystation_server.proxy``): fetch, tee, validate, commit, X-Accel; plugins never stream cached bytes
-   themselves.
+   themselves. Hosted repositories receive, store, serve and delete through ``req.hosted``
+   (``waystation_server.hosted.store``).
 
 Repository-level access (``read`` for GET/HEAD and for POST to the descriptor's ``read_posts``) is checked before
 ``handle`` is called; a plugin that performs other actions (``write`` on PUT...) checks them with
@@ -24,7 +25,7 @@ Repository-level access (``read`` for GET/HEAD and for POST to the descriptor's 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
@@ -36,6 +37,7 @@ from waystation_server.repos.model import RepoConfig, RepoType
 from waystation_server.security.principal import Principal
 
 if TYPE_CHECKING:
+    from waystation_server.hosted.store import HostedStore
     from waystation_server.proxy.engine import ProxyEngine
     from waystation_server.security.actions import Action
 
@@ -89,6 +91,10 @@ def _root_probe(options: BaseModel) -> str:
     return ''
 
 
+def _any_options(options: BaseModel, repo_type: RepoType) -> list[tuple[str, str]]:
+    return []
+
+
 @dataclass(frozen=True)
 class FormatDescriptor:
     name: str
@@ -102,6 +108,8 @@ class FormatDescriptor:
     notes: tuple[str, ...] = ()
     # Repository-relative paths where POST only queries (npm audit): the router authorises them as ``read``.
     read_posts: frozenset[str] = frozenset()
+    # Per-type option rules: ``(field, message)`` for options that make no sense for the repository type.
+    check_options: Callable[[BaseModel, RepoType], list[tuple[str, str]]] = _any_options
 
     def parse_options(self, raw: Mapping[str, Any] | None) -> BaseModel:
         """Validate format options (raises pydantic ``ValidationError``)."""
@@ -109,6 +117,14 @@ class FormatDescriptor:
 
 
 # ---------------------------------------------------------------------------- serving
+async def _no_resolve(name: str) -> tuple[RepoConfig, str] | None:
+    return None
+
+
+def _nothing_allowed(action: Action, repo: RepoConfig) -> bool:
+    return False
+
+
 @dataclass
 class FormatRequest:
     request: Request
@@ -117,8 +133,13 @@ class FormatRequest:
     path: str
     principal: Principal
     proxy: ProxyEngine
+    hosted: HostedStore  # hosted repositories: receive uploads, serve and delete stored content
     base_url: str
     _require: Callable[[Action], None] = field(repr=False)
+    # Another repository's access (cross-repository blob mounts): is ``action`` allowed on it?
+    _allows: Callable[[Action, RepoConfig], bool] = field(repr=False, default=_nothing_allowed)
+    # Registry names (docker ``/v2/`` routing: prefix, alias, default repository) → (repository, name within it).
+    _resolve: Callable[[str], Awaitable[tuple[RepoConfig, str] | None]] = field(repr=False, default=_no_resolve)
 
     @property
     def method(self) -> str:
@@ -139,6 +160,14 @@ class FormatRequest:
     def require(self, action: Action) -> None:
         """Authorise an extra action on this repository (raises: 404 when hidden, 401/403 otherwise)."""
         self._require(action)
+
+    def allows(self, action: Action, repo: RepoConfig) -> bool:
+        """May this request's principal ``action`` on another repository (decided by ``security.access``)?"""
+        return self._allows(action, repo)
+
+    async def resolve_name(self, name: str) -> tuple[RepoConfig, str] | None:
+        """Where a registry name (``other-repo/image``, ``docker.io/library/alpine``...) points."""
+        return await self._resolve(name)
 
     def log(self, **fields: Any) -> None:
         """Add fields to this request's access-log line."""
