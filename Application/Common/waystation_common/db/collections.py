@@ -178,6 +178,12 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('blob_sha256', [('blob_sha256', ASCENDING)]),
             _ix('component_id', [('component_id', ASCENDING)]),
             _ix('repo_last_downloaded_at', [('repo_id', ASCENDING), ('last_downloaded_at', ASCENDING)]),
+            # Blob verify marks (T-O07): only marked assets are indexed, so /metrics counts them cheaply.
+            _ix(
+                'blob_missing',
+                [('blob_missing.hosted', ASCENDING)],
+                partialFilterExpression={'blob_missing': {'$exists': True}},
+            ),
             *_search_indexes(base=False),
         ),
     ),

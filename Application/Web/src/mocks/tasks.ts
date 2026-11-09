@@ -27,6 +27,7 @@ let nextFire = Date.now() + 25_000
 const seen = new Map<string, { status: RunStatus; done: number; lines: number }>()
 const startedAt = Date.now()
 const rollup = { schedule: '@every 10s', enabled: true }
+const verify = { schedule: '30 3 * * 0', enabled: true }
 
 const WORKERS: Worker[] = [
   { id: 'ws-worker-1-48213-k2m9qd', hostname: 'ws-worker-1', version: '0.1.0', queues: ['index', 'maintenance', 'stats', 'prefetch', 'import'], concurrency: 4, leader: true, started_at: iso(startedAt - 3 * 86_400_000 - 4 * 3_600_000), heartbeat_at: iso(startedAt), heartbeat_age_s: 0, state: 'ok', running_jobs: [] },
@@ -119,6 +120,7 @@ export function scheduledTasks(now: number = Date.now()): ScheduledTask[] {
   const tasks: ScheduledTask[] = [
     { id: 'blob.gc', kind: 'blob.gc', queue: 'maintenance', schedule: gc.schedule, enabled: gc.enabled, routine: false, params: { grace_s: gc.grace_hours * 3600, upload_age_s: 86400 }, next_run_at: nextOf(gc.schedule, gc.enabled), last_fired_at: lastOf('blob.gc')?.started_at ?? null, last_run: lastOf('blob.gc'), owner: null },
     ...cleanupTasks(now).map((p) => ({ id: `cleanup:${p.id}`, kind: 'cleanup.run', queue: 'maintenance', schedule: p.schedule, enabled: p.enabled, routine: false, params: { policy_id: p.id }, next_run_at: nextOf(p.schedule, p.enabled), last_fired_at: null, last_run: lastOf(`cleanup:${p.id}`), owner: { kind: 'cleanup_policy' as const, id: p.id, name: p.name } })),
+    { id: 'blob.verify', kind: 'blob.verify', queue: 'maintenance', schedule: verify.schedule, enabled: verify.enabled, routine: false, params: { deep: false, repair: true }, next_run_at: nextOf(verify.schedule, verify.enabled), last_fired_at: null, last_run: null, owner: null },
     { id: 'stats.rollup', kind: 'stats.rollup', queue: 'stats', schedule: rollup.schedule, enabled: rollup.enabled, routine: true, params: {}, next_run_at: nextOf(rollup.schedule, rollup.enabled), last_fired_at: lastOf('stats.rollup')?.started_at ?? null, last_run: lastOf('stats.rollup'), owner: null },
   ]
   return tasks.sort((a, b) => a.id.localeCompare(b.id))
@@ -236,7 +238,7 @@ export function tasksHandlers(h: MockHelpers) {
       const error = validate(body)
       if (error) return h.problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'schedule', message: error, code: 'value_error' }])
       const schedule = body.schedule ? body.schedule.trim().replace(/\s+/g, ' ').replace(/^@\S+/, (m) => m.toLowerCase()) : undefined
-      const target = task.id === 'blob.gc' ? gcTask().settings : rollup
+      const target = task.id === 'blob.gc' ? gcTask().settings : task.id === 'blob.verify' ? verify : rollup
       const changes = []
       if (schedule && schedule !== target.schedule) changes.push({ field: 'schedule', before: target.schedule, after: schedule, redacted: false })
       if (typeof body.enabled === 'boolean' && body.enabled !== target.enabled) changes.push({ field: 'enabled', before: target.enabled, after: body.enabled, redacted: false })
@@ -253,7 +255,7 @@ export function tasksHandlers(h: MockHelpers) {
       let accepted: JobAccepted | null = null
       if (id === 'blob.gc') accepted = startTaskRun('gc')
       else if (id.startsWith('cleanup:')) accepted = startTaskRun(id.slice('cleanup:'.length))
-      else if (id === 'stats.rollup') accepted = { job_id: `job-rr-${Date.now()}`, status: 'enqueued' }
+      else if (id === 'stats.rollup' || id === 'blob.verify') accepted = { job_id: `job-${id}-${Date.now()}`, status: 'enqueued' }
       if (!accepted) return h.notFound()
       recordAudit({ action: 'task.run', outcome: 'success', actor: ADMIN, target: { kind: 'task', id, name: id }, details: { job_id: accepted.job_id, status: accepted.status } })
       return HttpResponse.json(accepted, { status: 202 })
