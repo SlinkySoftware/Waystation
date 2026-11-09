@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, DockerOptions, Format, M0Format, NpmOptions, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
+import type { AptOptions, DockerOptions, Format, M0Format, NpmOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
+import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
 /** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (options carried through). */
 export type FormFormat = M0Format | 'yum'
@@ -46,6 +47,11 @@ export interface RepoFormModel {
   autoBlockFailures: number
   autoBlockInitialS: number
   autoBlockMaxMin: number
+  // storage quota (proxy and hosted; groups store nothing)
+  quotaEnabled: boolean
+  quotaSize: number
+  quotaUnit: QuotaUnit
+  quotaMode: QuotaMode
   // docker
   aliases: string[]
   dockerHub: boolean
@@ -114,6 +120,10 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     autoBlockFailures: 5,
     autoBlockInitialS: 30,
     autoBlockMaxMin: 30,
+    quotaEnabled: false,
+    quotaSize: 50,
+    quotaUnit: 'GiB',
+    quotaMode: 'soft',
     aliases: [],
     dockerHub: false,
     defaultRepo: false,
@@ -131,6 +141,8 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
   const m = emptyModel(repo.format as FormFormat, repo.type)
   const p = repo.proxy
   const h = repo.hosted
+  const quotaBytes = repo.storage?.quota_bytes ?? null
+  const quotaSize = quotaBytes ? fromBytes(quotaBytes) : { size: m.quotaSize, unit: m.quotaUnit }
   const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions
   return {
     ...m,
@@ -157,6 +169,10 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     autoBlockFailures: p?.auto_block?.failures ?? 5,
     autoBlockInitialS: p?.auto_block?.initial_s ?? 30,
     autoBlockMaxMin: Math.round((p?.auto_block?.max_s ?? 1800) / 60),
+    quotaEnabled: quotaBytes !== null,
+    quotaSize: quotaSize.size,
+    quotaUnit: quotaSize.unit,
+    quotaMode: repo.storage?.quota_mode ?? 'soft',
     aliases: o.aliases ?? [],
     dockerHub: o.docker_hub ?? false,
     defaultRepo: o.default_repo ?? false,
@@ -186,12 +202,19 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
   }
 }
 
+/** The quota as written: none for groups (they store nothing) or when the limit is off. */
+export function storageOf(m: RepoFormModel): NonNullable<RepositoryWrite['storage']> {
+  const on = m.type !== 'group' && m.quotaEnabled && Number.isFinite(m.quotaSize) && m.quotaSize > 0
+  return { quota_bytes: on ? toBytes(m.quotaSize, m.quotaUnit) : null, quota_mode: m.quotaMode }
+}
+
 export function toWrite(m: RepoFormModel): RepositoryWrite {
   const common = {
     name: m.name.trim(),
     format: m.format as Format,
     online: m.online,
     description: m.description.trim(),
+    storage: storageOf(m),
     format_options: formatOptions(m),
   }
   if (m.type === 'hosted') {

@@ -93,7 +93,10 @@
   - `keys/`: per-repo signing keys, encrypted with `SECRET_KEYS`.
 - A blob is written once; identical content from any repo or format is stored once (refcounted via assets, GC'd
   by mark-and-sweep, SPEC §4.8). Never mutate a blob; never hard-link.
-- Free-space guard checked before opening writers (SPEC §4.8).
+- Free-space guard checked before opening writers (SPEC §4.8). As implemented (T-O03): the floor is the larger of the
+  low-disk guard's `min_free_bytes` and `min_free_percent` (settings document `storage`, kept in step on every server
+  replica by `repos.quota.GuardKeeper`); a refused proxy fill is passed through to the client uncached, never failed.
+  Hard repository quotas are checked by the server before a write (`repos.quota.Quotas`), never on a cache hit.
 
 As implemented (T-O02): mark-and-sweep runs as the worker job `blob.gc` (`waystation_worker.gc`) over the `blobs`
 collection. To make a cache fill racing the sweep safe, `BlobStore.commit` **claims** the blob through
