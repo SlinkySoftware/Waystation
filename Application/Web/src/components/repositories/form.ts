@@ -10,11 +10,11 @@ export type FormFormat = M0Format | 'yum'
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'helm']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'go', 'helm']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
-export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'pypi', 'helm']
+export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'pypi', 'helm']
 
 export interface RepoFormModel {
   name: string
