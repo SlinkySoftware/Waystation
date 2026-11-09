@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db.client import Database, Document, Session
@@ -128,6 +129,71 @@ async def recent_runs(db: Database, *, kind: str | None = None, limit: int = 100
     return [doc async for doc in db[JOB_RUNS].find(query, {'log': 0}).sort('started_at', -1).limit(limit)]
 
 
+@dataclass(frozen=True)
+class RunQuery:
+    """Filters of the Tasks page's run list (``page_runs``); ``exclude_kinds`` hides routine jobs by default."""
+
+    status: Sequence[str] = ()
+    kind: str | None = None
+    queue: str | None = None
+    definition_id: str | None = None
+    job_id: str | None = None
+    since: datetime | None = None
+    until: datetime | None = None
+    exclude_kinds: Sequence[str] = ()
+
+    def filter(self) -> dict[str, Any]:
+        query: dict[str, Any] = {}
+        if self.kind:
+            query['kind'] = self.kind
+        elif self.exclude_kinds:
+            query['kind'] = {'$nin': list(self.exclude_kinds)}
+        if self.status:
+            query['status'] = {'$in': list(self.status)}
+        if self.queue:
+            query['queue'] = self.queue
+        if self.definition_id:
+            query['definition_id'] = self.definition_id
+        if self.job_id:
+            query['job_id'] = self.job_id
+        started: dict[str, Any] = {}
+        if self.since is not None:
+            started['$gte'] = self.since
+        if self.until is not None:
+            started['$lte'] = self.until
+        if started:
+            query['started_at'] = started
+        return query
+
+
+async def page_runs(db: Database, query: RunQuery, *, after: tuple[datetime, str] | None, limit: int) -> list[Document]:
+    """Newest first without logs, keyset paged on ``(started_at, _id)``; up to ``limit + 1`` documents (the extra one
+    tells the caller there is a next page)."""
+    base = query.filter()
+    if after is not None:
+        started, run_id = after
+        keyset = {'$or': [{'started_at': {'$lt': started}}, {'started_at': started, '_id': {'$lt': run_id}}]}
+        base = {'$and': [base, keyset]} if base else keyset
+    cursor = db[JOB_RUNS].find(base, {'log': 0}).sort([('started_at', -1), ('_id', -1)]).limit(limit + 1)
+    return [doc async for doc in cursor]
+
+
+async def get_run(db: Database, run_id: str) -> Document | None:
+    return await db[JOB_RUNS].find_one({'_id': run_id})
+
+
+async def last_runs_by_definition(db: Database, definition_ids: Sequence[str]) -> dict[str, Document]:
+    """The newest run (without its log) of each definition (index ``definition_started``)."""
+    out: dict[str, Document] = {}
+    for definition_id in definition_ids:
+        doc = await db[JOB_RUNS].find_one(
+            {'definition_id': definition_id}, {'log': 0}, sort=[('started_at', -1), ('_id', -1)]
+        )
+        if doc is not None:
+            out[definition_id] = doc
+    return out
+
+
 # ---------------------------------------------------------------- definitions
 @dataclass(frozen=True)
 class Definition:
@@ -177,6 +243,22 @@ async def advance_definition(
 
 async def get_definition(db: Database, definition_id: str) -> Document | None:
     return await db[JOB_DEFINITIONS].find_one({'_id': definition_id})
+
+
+async def list_definitions(db: Database) -> list[Document]:
+    return [doc async for doc in db[JOB_DEFINITIONS].find({}).sort('_id', 1)]
+
+
+async def update_definition(db: Database, definition_id: str, fields: dict[str, Any]) -> Document | None:
+    """Set ``fields`` (``schedule``, ``enabled``). A changed schedule or a re-enabled definition restarts its timer
+    (``next_run_at`` = null: the scheduler derives the next fire on its next tick, so no missed fire runs at once).
+    Returns the updated document, None when it does not exist."""
+    update = dict(fields)
+    if 'schedule' in update or update.get('enabled'):
+        update['next_run_at'] = None
+    return await db[JOB_DEFINITIONS].find_one_and_update(
+        {'_id': definition_id}, {'$set': update}, return_document=ReturnDocument.AFTER
+    )
 
 
 # ---------------------------------------------------------------- workers

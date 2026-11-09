@@ -139,6 +139,7 @@ class Coordinator:
                 dedupe_key=payload.dedupe_key() or f'def:{definition_id}',
                 queue=queue if queue in QUEUES else None,
                 definition_id=definition_id,
+                trigger='schedule',
                 now=now,
             )
             await self.queue.enqueue(envelope)

@@ -1155,6 +1155,182 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tasks/scheduled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scheduled tasks (job definitions) with their schedule, last run and next fire (needs `admin`) */
+        get: operations["listScheduledTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/scheduled/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a task's schedule or enable / disable it (needs `admin`)
+         * @description A changed schedule (or re-enabling) restarts the task's timer: the next fire is derived from the new
+         *     schedule, missed fires do not run. A cleanup policy's schedule belongs to the policy (409).
+         */
+        patch: operations["updateScheduledTask"];
+        trace?: never;
+    };
+    "/tasks/scheduled/{task_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a scheduled task now (a worker job; needs `admin`) */
+        post: operations["runScheduledTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job runs (one per attempt), newest first (needs `admin`)
+         * @description Routine housekeeping (the 10 s stats rollup) is left out unless `include_routine`, `task` or `job` is given.
+         */
+        get: operations["listJobRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        /** One run with its progress, result and log (the last 500 lines; needs `admin`) */
+        get: operations["getJobRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/workers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Workers (host, version, queues, running jobs, heartbeat), queue figures and the dead-letter count (needs `admin`) */
+        get: operations["getWorkers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/dead-letters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Jobs that ran out of attempts, newest first (needs `admin`) */
+        get: operations["listDeadLetters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/dead-letters/{letter_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Dead-letter entry id */
+                letter_id: components["parameters"]["LetterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Discard a dead letter (idempotent; needs `admin`) */
+        delete: operations["discardDeadLetter"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/dead-letters/{letter_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Dead-letter entry id */
+                letter_id: components["parameters"]["LetterId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue a dead-lettered job again with fresh attempts (idempotent; needs `admin`)
+         * @description The dead letter is removed and its work queued as a new job (attempt counting starts again; the usual dedupe
+         *     applies). Retrying the same dead letter again answers `merged` with the job the first retry queued.
+         */
+        post: operations["retryDeadLetter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search": {
         parameters: {
             query?: never;
@@ -1322,7 +1498,9 @@ export interface paths {
          * Server-Sent Events stream (live transfers, stats ticks, activity)
          * @description One long-lived `text/event-stream` per browser tab. Topics (comma-separated `topics` query parameter):
          *     `transfers` (live transfer state), `stats` (1 Hz KPI ticks), `activity` (durable events),
-         *     `repo:<name>` (all of the above restricted to one repository). Every topic is RBAC-filtered per subscriber.
+         *     `tasks` (job runs: `job.update`, `job.progress`, `job.log`; workers: `worker.update`; needs `admin`, 403
+         *     otherwise), `repo:<name>` (transfers and activity restricted to one repository). Every topic is RBAC-filtered
+         *     per subscriber.
          *
          *     Framing: each message has `event: <LiveEvent.type>` and `data: <JSON LiveEvent>`. Only events from the
          *     durable activity stream carry an `id:`; send it back as `Last-Event-ID` on reconnect to resume. Live
@@ -2625,7 +2803,7 @@ export interface components {
             next_cursor: string | null;
         };
         /** @description One SSE message; `type` equals the SSE `event:` field. */
-        LiveEvent: components["schemas"]["TransfersSnapshotEvent"] | components["schemas"]["TransferStartedEvent"] | components["schemas"]["TransferProgressEvent"] | components["schemas"]["TransferFinishedEvent"] | components["schemas"]["TransferFailedEvent"] | components["schemas"]["StatsTickEvent"] | components["schemas"]["UpstreamStateEvent"] | components["schemas"]["ActivityStreamEvent"];
+        LiveEvent: components["schemas"]["TransfersSnapshotEvent"] | components["schemas"]["TransferStartedEvent"] | components["schemas"]["TransferProgressEvent"] | components["schemas"]["TransferFinishedEvent"] | components["schemas"]["TransferFailedEvent"] | components["schemas"]["StatsTickEvent"] | components["schemas"]["UpstreamStateEvent"] | components["schemas"]["ActivityStreamEvent"] | components["schemas"]["JobUpdateEvent"] | components["schemas"]["JobProgressEvent"] | components["schemas"]["JobLogEvent"] | components["schemas"]["WorkerUpdateEvent"];
         TransfersSnapshotEvent: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -2908,6 +3086,203 @@ export interface components {
             /** @description Recent runs, newest first (up to 20) */
             runs: components["schemas"]["GcRun"][];
         };
+        /**
+         * @description `failed` - this attempt failed and the job will retry; `dead` - out of attempts (a dead letter); `interrupted` - the worker was lost (the job runs again)
+         * @enum {string}
+         */
+        RunStatus: "running" | "succeeded" | "failed" | "dead" | "interrupted";
+        /** @enum {string} */
+        JobQueue: "index" | "maintenance" | "stats" | "prefetch" | "import";
+        JobRunSummary: {
+            /** @description Run id (one per attempt) */
+            id: string;
+            /** @description The job (the same across its attempts) */
+            job_id: string;
+            /** @description Job kind, e.g. `blob.gc`, `cleanup.run` */
+            kind: string;
+            queue: string;
+            /** @description The scheduled task it belongs to */
+            task_id: string | null;
+            /** @enum {string} */
+            trigger: "schedule" | "manual" | "retry";
+            attempt: number;
+            status: components["schemas"]["RunStatus"];
+            started_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            finished_at: string | null;
+            duration_ms: number | null;
+            progress: components["schemas"]["JobProgress"];
+            worker_id: string | null;
+            error: string | null;
+            /** @description What the run reported (kind-specific figures) */
+            result: {
+                [key: string]: unknown;
+            };
+        };
+        JobRun: components["schemas"]["JobRunSummary"] & {
+            /** @description The last 500 log lines, oldest first */
+            log: string[];
+        };
+        JobRunPage: {
+            items: components["schemas"]["JobRunSummary"][];
+            next_cursor: string | null;
+        };
+        TaskOwner: {
+            /** @constant */
+            kind: "cleanup_policy";
+            id: string;
+            name: string | null;
+        };
+        ScheduledTask: {
+            id: string;
+            kind: string;
+            queue: string;
+            /** @description 5-field UTC cron, a macro such as `@daily`, or `@every <n>s|m|h` */
+            schedule: string;
+            enabled: boolean;
+            /** @description Housekeeping that runs every few seconds; its runs are hidden by default */
+            routine: boolean;
+            params: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            next_run_at: string | null;
+            /** Format: date-time */
+            last_fired_at: string | null;
+            last_run: components["schemas"]["JobRunSummary"] | null;
+            /** @description Set when another object owns the schedule (edit it there) */
+            owner: components["schemas"]["TaskOwner"] | null;
+        };
+        ScheduledTaskList: {
+            items: components["schemas"]["ScheduledTask"][];
+        };
+        ScheduledTaskUpdate: {
+            /** @description 5-field UTC cron, a macro, or `@every <n>s|m|h` (at least 10 s) */
+            schedule?: string | null;
+            enabled?: boolean | null;
+        };
+        QueueFigures: {
+            name: string;
+            waiting: number;
+            running: number;
+            /** @description Retry backoff and jobs scheduled for later */
+            delayed: number;
+            oldest_waiting_age_s: number;
+        };
+        WorkerJob: {
+            job_id: string;
+            run_id: string | null;
+            kind: string;
+            queue: string;
+            /** Format: date-time */
+            started_at: string | null;
+        };
+        Worker: {
+            id: string;
+            hostname: string;
+            version: string;
+            queues: string[];
+            concurrency: number | null;
+            /** @description Holds the scheduler lease (fires schedules */
+            leader: boolean;
+            /** Format: date-time */
+            started_at: string | null;
+            heartbeat_at: components["schemas"]["Timestamp"];
+            heartbeat_age_s: number;
+            /**
+             * @description `late` after 30 s without a heartbeat, `lost` after 90 s
+             * @enum {string}
+             */
+            state: "ok" | "late" | "lost";
+            running_jobs: components["schemas"]["WorkerJob"][];
+        };
+        WorkerOverview: {
+            workers: components["schemas"]["Worker"][];
+            queues: components["schemas"]["QueueFigures"][];
+            dead_letters: number;
+        };
+        DeadLetter: {
+            /** @description Dead-letter entry id */
+            id: string;
+            job_id: string | null;
+            kind: string | null;
+            queue: string | null;
+            task_id: string | null;
+            attempts: number;
+            error: string;
+            dead_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            enqueued_at: string | null;
+            payload: {
+                [key: string]: unknown;
+            } | null;
+            /** @description False for a malformed entry or a kind this version does not know */
+            retryable: boolean;
+        };
+        DeadLetterPage: {
+            items: components["schemas"]["DeadLetter"][];
+            total: number;
+            next_cursor: string | null;
+        };
+        /** @description Topic `tasks`: a job attempt started, finished or failed */
+        JobUpdateEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "job.update";
+            ts: components["schemas"]["Timestamp"];
+            /** @enum {string} */
+            event: "started" | "finished" | "failed";
+            run_id: string;
+            job_id: string;
+            kind: string;
+            queue: string;
+            attempt: number;
+            status: components["schemas"]["RunStatus"];
+            worker_id?: string | null;
+            error?: string | null;
+        };
+        /** @description Topic `tasks`: a running job's progress (at most once a second per run) */
+        JobProgressEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "job.progress";
+            ts: components["schemas"]["Timestamp"];
+            run_id: string;
+            job_id: string;
+            kind: string;
+            done: number;
+            total?: number | null;
+            message?: string | null;
+        };
+        /** @description Topic `tasks`: new log lines of a running job */
+        JobLogEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "job.log";
+            ts: components["schemas"]["Timestamp"];
+            run_id: string;
+            job_id: string;
+            kind: string;
+            lines: string[];
+        };
+        /** @description Topic `tasks`: a worker came online or stopped */
+        WorkerUpdateEvent: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "worker.update";
+            ts: components["schemas"]["Timestamp"];
+            worker_id: string;
+            /** @enum {string} */
+            state: "online" | "offline";
+        };
         /** @enum {string} */
         AuditOutcome: "success" | "failure";
         /** @description Who acted. `system` = the server or a worker job acting on its own. */
@@ -3034,6 +3409,9 @@ export interface components {
         Until: string;
         TrafficMetric: "bytes" | "requests";
         PolicyId: string;
+        TaskId: string;
+        /** @description Dead-letter entry id */
+        LetterId: string;
         TokenId: string;
         AccountId: string;
         UserId: string;
@@ -5239,6 +5617,229 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    listScheduledTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tasks by id */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledTaskList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateScheduledTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduledTaskUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledTask"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    runScheduledTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued (or merged into a pending run of the same task) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listJobRuns: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["RunStatus"][];
+                kind?: string;
+                queue?: components["schemas"]["JobQueue"];
+                /** @description Runs of one scheduled task */
+                task?: string;
+                /** @description Attempts of one job */
+                job?: string;
+                include_routine?: boolean;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of runs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobRunPage"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getJobRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobRun"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getWorkers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workers and queues */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerOverview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listDeadLetters: {
+        parameters: {
+            query?: {
+                /** @description The last entry id of the previous page */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of dead letters */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadLetterPage"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    discardDeadLetter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Dead-letter entry id */
+                letter_id: components["parameters"]["LetterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discarded (or already gone) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    retryDeadLetter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Dead-letter entry id */
+                letter_id: components["parameters"]["LetterId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     search: {
         parameters: {
             query?: {
@@ -5492,6 +6093,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
 }

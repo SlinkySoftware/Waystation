@@ -258,6 +258,10 @@ fire is enqueued once even if two leaders overlap) and promotes delayed jobs. Va
 `jobs:epoch` token. Handlers (`@handles(Payload)`) get a `JobContext` (`progress`, `log`, db, valkey). The stats
 rollup (§8) runs as the scheduled job `stats.rollup` (`@every 10s`, queue `stats`). Graceful stop lets running jobs
 finish for 8 s; abandoned jobs are reclaimed. Liveness: the heartbeat file is withheld when the consumer loop stalls.
+Operators see and steer this through `/api/v1/tasks/*` (T-O04, `admin`): definitions (schedule/enabled edits reset
+`next_run_at`), runs, workers, and dead letters (retry = one Lua step that queues a fresh envelope and deletes the
+entry). `JobContext` progress and log lines are also published on `live:jobs`; the SSE hub relays them, plus job and
+worker activity, on the admin-only topic `tasks`.
 
 ## 11. Format plugin contract
 `waystation_server.formats.base.Format` (protocol) with: `name`, `routes()` (mounted under `/repository/<repo>/`
