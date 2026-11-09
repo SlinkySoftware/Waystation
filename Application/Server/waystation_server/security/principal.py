@@ -54,6 +54,9 @@ class Principal:
     grants: Grants | None = field(default=None, compare=False)
     # A local user still holding a one-time password: its sessions may only change it or sign out (SPEC §4.9).
     must_change_password: bool = field(default=False, compare=False)
+    # A local administrator who must enrol a second factor first (``security.require_totp_for_admins``): its sessions
+    # may only enrol or sign out (SPEC §4.9). Set for sessions only.
+    totp_setup_required: bool = field(default=False, compare=False)
 
     @property
     def is_anonymous(self) -> bool:
