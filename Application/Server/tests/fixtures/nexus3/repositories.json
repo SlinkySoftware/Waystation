@@ -164,6 +164,13 @@
     }
   },
   {
+    "name": "raw-group",
+    "format": "raw",
+    "type": "group",
+    "url": "https://nexus.example.com/repository/raw-group",
+    "attributes": {}
+  },
+  {
     "name": "maven-central",
     "format": "maven2",
     "type": "proxy",
