@@ -27,6 +27,7 @@ NPM_ABBREVIATED = 'application/vnd.npm.install-v1+json'
 PYPI_JSON = 'application/vnd.pypi.simple.v1+json'
 DOCKER_ACCEPT = 'application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
 BEARER = re.compile(r'(\w+)="([^"]*)"')
+CATALOG_TTL_S = 6.0  # waystation_server.repos.catalog refreshes every 5 s
 
 
 class SetupError(Exception):
@@ -204,6 +205,10 @@ def main(argv: list[str] | None = None) -> int:
         client.login(os.environ['PERF_ADMIN_PASSWORD'])
         for spec in REPOS:
             client.ensure_repo(spec)
+        # Every server process refreshes its repository catalog within CATALOG_TTL_S. Until then a process that has
+        # not seen a new repository answers 404, and its token service grants nothing on it (an anonymous docker pull
+        # token issued in that window is refused later), so wait it out once.
+        time.sleep(CATALOG_TTL_S)
         t = targets(json.loads(args.catalog.read_text()))
         started = time.monotonic()
         count = warm(client, t)
