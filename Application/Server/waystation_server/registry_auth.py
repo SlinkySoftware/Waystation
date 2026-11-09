@@ -49,10 +49,13 @@ log = logging.getLogger('waystation.registry_auth')
 router = APIRouter(include_in_schema=False)
 
 DOCKER_API_VERSION = {'Docker-Distribution-API-Version': 'registry/2.0'}
+# Docker action → repository actions a registry token carries (the first is the one RBAC must allow). ``push`` and
+# ``delete`` also carry ``browse`` (RBAC: write/delete imply it), so a delete-only token sees the repository instead of
+# getting the hidden-repository 404.
 ACTION_MAP: dict[str, tuple[Action, ...]] = {
     'pull': (Action.READ, Action.BROWSE),
-    'push': (Action.WRITE,),
-    'delete': (Action.DELETE,),
+    'push': (Action.WRITE, Action.BROWSE),
+    'delete': (Action.DELETE, Action.BROWSE),
 }
 _OPERATION = re.compile(r'/(manifests|blobs|tags|referrers)(/|$)')
 USER_CACHE_S = 30.0

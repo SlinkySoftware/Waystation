@@ -1,12 +1,17 @@
 #!/bin/sh
-# Docker format setup (client-docker container): create the proxy repositories, then start dockerd with the stack as
-# its Docker Hub mirror and as an insecure (plain HTTP) registry.
+# Docker format setup (runs in each client container: docker, then conformance): create the proxy and hosted
+# repositories (idempotent), then, in client-docker, start dockerd with the stack as its Docker Hub mirror and as an
+# insecure (plain HTTP) registry.
 set -eu
 . /harness/lib.sh
 
+ensure_repo() {  # ensure_repo <name> <json>: create the repository unless an earlier client already did
+  ws_api GET "/repositories/$1" > /dev/null 2>&1 || ws_api POST /repositories "$2" > /dev/null || fail "could not create $1"
+}
+
 step 'create docker proxy repositories docker-hub (default, alias docker.io) and ghcr (alias ghcr.io)'
 ws_login
-ws_api POST /repositories '{
+ensure_repo docker-hub '{
   "name": "docker-hub",
   "format": "docker",
   "type": "proxy",
@@ -14,8 +19,8 @@ ws_api POST /repositories '{
   "description": "Docker Hub (client harness)",
   "proxy": {"upstream_url": "https://registry-1.docker.io"},
   "format_options": {"docker_hub": true, "default_repo": true, "aliases": ["docker.io"]}
-}' >/dev/null || fail 'could not create docker-hub'
-ws_api POST /repositories '{
+}'
+ensure_repo ghcr '{
   "name": "ghcr",
   "format": "docker",
   "type": "proxy",
@@ -23,7 +28,21 @@ ws_api POST /repositories '{
   "description": "GitHub Container Registry (client harness)",
   "proxy": {"upstream_url": "https://ghcr.io"},
   "format_options": {"aliases": ["ghcr.io"]}
-}' >/dev/null || fail 'could not create ghcr'
+}'
+
+step 'create docker hosted repositories docker-hosted (immutable v<semver> tags) and docker-hosted-copy'
+ensure_repo docker-hosted '{
+  "name": "docker-hosted",
+  "format": "docker",
+  "type": "hosted",
+  "online": true,
+  "description": "Hosted images (client harness)",
+  "hosted": {"write_policy": "allow_redeploy", "immutable_tag_patterns": ["v[0-9]+(\\.[0-9]+)*"]}
+}'
+ensure_repo docker-hosted-copy '{"name": "docker-hosted-copy", "format": "docker", "type": "hosted", "online": true}'
+
+# The conformance client only needs the repositories; the rest prepares the docker client container.
+[ "${HARNESS_CLIENT:-docker}" = docker ] || exit 0
 
 step 'cut the client off from the upstreams (a pull can only succeed through Waystation)'
 # run.sh points the upstream names at the fake upstream in every container. Here they must not resolve to anything
