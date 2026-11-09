@@ -112,7 +112,7 @@ and the browse renderer for that format. Order = priority (PyPI and Maven first,
 
 | ID | Task | Depends | Status |
 |---|---|---|---|
-| T-P5-PYPI | PyPI proxy + hosted + group (PEP 503/691/658/700, twine/uv publish, yank) | S08, P2-HARNESS, U05 | IN PROGRESS |
+| T-P5-PYPI | PyPI proxy + hosted + group (PEP 503/691/658/700, twine/uv publish, yank) | S08, P2-HARNESS, U05 | DONE 2026-11-10 (`formats/pypi/`: proxy (negotiated HTML/JSON pages cached per representation, normalised redirects, hash-verified files and PEP 658 `.metadata`, legacy JSON), hosted (twine/`uv publish` upload API, metadata from wheels/sdists with archive guards, write policy, yank API), group (merged pages, uploads to the writable member); `pypi_packages` browse/search; PEP 440 order for cleanup; UI create/options/browse/yank, "Set me up"; harness with pip, uv, twine, uv publish, Poetry, PDM in replay and live. Left: k6 perf budgets (T-P2-PERF), substring search) |
 | T-P5-MAVEN | Maven proxy + hosted (release/snapshot, metadata regeneration) + group | S08, P2-HARNESS, U05 | TODO |
 | T-P5-NPMH | npm hosted (publish, unpublish, deprecate, dist-tags) | P2-NPM, S04 | TODO |
 | T-P5-HELM | Helm classic proxy + hosted + group (index rewrite/regeneration) | S08, F08, P2-HARNESS, U05 | TODO |
