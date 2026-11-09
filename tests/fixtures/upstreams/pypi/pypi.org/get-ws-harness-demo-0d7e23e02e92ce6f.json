@@ -1,0 +1,37 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.pypi.simple.v1+json, application/vnd.pypi.simple.v1+html;q=0.2, text/html;q=0.01"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://pypi.org/simple/ws-harness-demo/"
+  },
+  "response": {
+    "body_sha256": "7d04f7431bbfa41a04bcc7e6b98b9de0d919756c4c671c5785c99fff45f16402",
+    "body_size": 13,
+    "headers": [
+      [
+        "content-length",
+        "13"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=UTF-8"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ]
+    ],
+    "status": 404
+  }
+}

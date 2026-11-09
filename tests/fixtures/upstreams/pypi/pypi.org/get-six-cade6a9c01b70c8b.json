@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.pypi.simple.v1+json, application/vnd.pypi.simple.v1+html;q=0.2, text/html;q=0.01"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://pypi.org/simple/six/"
+  },
+  "response": {
+    "body_sha256": "2459c9e9cba3dd414db30bcbf3f625b089d89e847ff2573aeb7b342bfe9f5122",
+    "body_size": 24040,
+    "headers": [
+      [
+        "content-length",
+        "24040"
+      ],
+      [
+        "etag",
+        "\"Ghww6F9/Rbp5gArvPp/jxQ\""
+      ],
+      [
+        "cache-control",
+        "max-age=600, public"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-type",
+        "application/vnd.pypi.simple.v1+json"
+      ],
+      [
+        "vary",
+        "Accept-Encoding, Accept"
+      ]
+    ],
+    "status": 200
+  }
+}
