@@ -36,3 +36,21 @@ def needs_rehash(stored: str) -> bool:
 def generate_password() -> str:
     """A one-time password (bootstrap admin)."""
     return secrets.token_urlsafe(18)
+
+
+MIN_LENGTH = 12
+MAX_LENGTH = 1024
+
+
+def password_problem(password: str, *, username: str) -> str | None:
+    """Why ``password`` is not acceptable as a new local password, or None (SPECIFICATION §4.9: at least 12
+    characters, not the username)."""
+    if len(password) < MIN_LENGTH:
+        return f'at least {MIN_LENGTH} characters'
+    if len(password) > MAX_LENGTH:
+        return f'at most {MAX_LENGTH} characters'
+    if not password.strip():
+        return 'not only spaces'
+    if password.strip().lower() == username.strip().lower():
+        return 'must not be the username'
+    return None
