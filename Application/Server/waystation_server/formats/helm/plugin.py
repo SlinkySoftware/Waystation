@@ -57,6 +57,7 @@ log = logging.getLogger('waystation.formats.helm')
 
 INDEX_MAX_BYTES = 64 * 1024 * 1024
 MERGES_KEPT = 256
+RECLAIM_S = 3600.0  # well inside blob GC's grace period (24 h)
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,7 @@ class _Merged:
     sha256: str
     size: int
     at: datetime
+    claimed: float  # time.monotonic() of the last GC claim
 
 
 def is_chart_file(path: str) -> bool:
@@ -251,6 +253,10 @@ class HelmPlugin:
             merged = self._merged.get(req.repo.id)
             if merged is None or merged.key != key or not await req.hosted.blobs.exists(merged.sha256):
                 merged = await self._merge(req, sources, key)
+            elif time.monotonic() - merged.claimed > RECLAIM_S and req.hosted.blobs.guard is not None:
+                # no asset references the merge: keep claiming it so blob GC leaves it alone while it is served
+                await req.hosted.blobs.guard.claim(merged.sha256, merged.size)
+                merged = dataclasses.replace(merged, claimed=time.monotonic())
             self._merged[req.repo.id] = merged
             self._merged.move_to_end(req.repo.id)
             while len(self._merged) > MERGES_KEPT:
@@ -268,7 +274,7 @@ class HelmPlugin:
             await writer.write(body)
             ref = await req.hosted.blobs.commit(writer)
         req.log(merged_ms=round((time.perf_counter() - started) * 1000, 1), cache=CacheState.FETCHING.value)
-        return _Merged(key=key, sha256=ref.sha256, size=ref.size, at=now)
+        return _Merged(key=key, sha256=ref.sha256, size=ref.size, at=now, claimed=time.monotonic())
 
     async def _group_write(self, req: FormatRequest) -> Response:
         group = req.repo.group
