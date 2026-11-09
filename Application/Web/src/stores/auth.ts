@@ -58,9 +58,12 @@ export const useAuthStore = defineStore('auth', () => {
     checked.value = true
   }
 
-  async function logout(): Promise<void> {
+  /** Sign out. Resolves to the identity provider's sign-out page when the session came from an OIDC provider with
+   * RP-initiated logout (the caller navigates there), else null. */
+  async function logout(): Promise<string | null> {
     try {
-      await call(api.POST('/auth/logout'))
+      const result = await call(api.POST('/auth/logout'))
+      return result?.end_session_url ?? null
     } finally {
       adopt(null)
     }

@@ -75,23 +75,32 @@ test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 1
 
 # One throwaway MongoDB/Valkey project per checkout, so parallel worktrees don't collide.
 TEST_PROJECT := waystation-test-$(shell printf '%s' '$(CURDIR)' | md5sum | cut -c1-8)
-COMPOSE_TEST  = docker compose -p $(TEST_PROJECT) -f Build/Containers/compose.test.yaml
-# Each run starts MongoDB, Valkey, OpenLDAP and Samba AD, so parallel runs can exhaust a dev box's RAM.
+COMPOSE_TEST  = docker compose -p $(TEST_PROJECT) -f Build/Containers/compose.test.yaml $(TEST_PROFILES)
+# authentik (OIDC tests) is opt-in: make test-integration-authentik
+TEST_PROFILES ?=
+TEST_AUTHENTIK_URL ?=
+# Each run starts MongoDB, Valkey, OpenLDAP and Samba AD (and Keycloak), so parallel runs can exhaust a dev box's RAM.
 # Runs from every checkout and worktree on one machine queue on this lock. TEST_LOCK= turns it off.
 TEST_LOCK    ?= /tmp/waystation-test-integration.lock
-.PHONY: test-integration
+.PHONY: test-integration test-integration-authentik
 test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
   -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
   -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0' \
   -v $(TEST_PROJECT)_ldap-tls:/ldap-tls:ro -e WAYSTATION_TEST_LDAP_CA=/ldap-tls/ca.crt \
-  -e WAYSTATION_TEST_OPENLDAP_HOST=ldap1.example.com -e WAYSTATION_TEST_SAMBA_HOST=dc1.example.com
-test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey/OpenLDAP/Samba AD containers
+  -e WAYSTATION_TEST_OPENLDAP_HOST=ldap1.example.com -e WAYSTATION_TEST_SAMBA_HOST=dc1.example.com \
+  -e WAYSTATION_TEST_KEYCLOAK_URL=http://keycloak.example.com:8080 \
+  -e WAYSTATION_TEST_AUTHENTIK_URL=$(TEST_AUTHENTIK_URL) -e WAYSTATION_TEST_AUTHENTIK_TOKEN=waystation-authentik-test-token
+test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey/OpenLDAP/Samba AD/Keycloak containers
 	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
 	  flock -n 9 || { echo "test-integration: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
 	$(COMPOSE_TEST) up -d --wait --build --quiet-pull || { $(COMPOSE_TEST) logs --no-color --tail 80; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }; \
 	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
+
+test-integration-authentik: ## OIDC tests against authentik too (opt-in: PostgreSQL + server + worker, a few minutes to start)
+	$(MAKE) test-integration TEST_PROFILES='--profile authentik' TEST_AUTHENTIK_URL=http://authentik.example.com:9000 \
+	  ARGS='Application/Server/tests/test_oidc_providers_integration.py $(ARGS)'
 
 .PHONY: check
 check: forbidden-strings workflow-lint fmt-check lint typecheck test test-integration clients-check frontend-check budgets ## Everything CI runs on a PR (grows as tasks land)

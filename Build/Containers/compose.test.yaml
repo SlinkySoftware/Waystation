@@ -1,4 +1,5 @@
-# Throwaway MongoDB + Valkey, plus OpenLDAP and Samba AD test directories (Build/Containers/test/), for
+# Throwaway MongoDB + Valkey, plus OpenLDAP and Samba AD test directories and Keycloak (authentik opt-in: profile
+# `authentik`) OpenID providers (Build/Containers/test/), for
 # `make test-integration` (project name is unique per checkout; volumes are removed on `down -v`). Tests run in the
 # dev image attached to this project's default network.
 services:
@@ -73,6 +74,88 @@ services:
     networks:
       default:
         aliases: [dc1.example.com]
+
+  # ---- OpenID providers for the T-A02 tests (throwaway realm / blueprint, test-only accounts; Build/Containers/test/)
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_HOSTNAME: http://keycloak.example.com:8080
+      KC_DB: dev-mem
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: Keycloak-Admin-Passw0rd1
+      JAVA_OPTS_KC_HEAP: "-XX:MaxRAMPercentage=25"
+    volumes: ["./test/keycloak:/opt/keycloak/data/import:ro"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      default:
+        aliases: [keycloak.example.com]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 3s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+
+  # authentik: opt-in (make test-integration-authentik), it needs PostgreSQL plus a server and a worker.
+  authentik-postgresql:
+    image: postgres:16-alpine
+    profiles: [authentik]
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: authentik-test-db
+      POSTGRES_DB: authentik
+    tmpfs: [/var/lib/postgresql/data]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-d", "authentik", "-U", "authentik"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  authentik-server: &authentik
+    image: ghcr.io/goauthentik/server:2025.10
+    profiles: [authentik]
+    command: server
+    environment: &authentik-env
+      AUTHENTIK_SECRET_KEY: waystation-authentik-test-only-secret-key-0123456789
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: authentik-test-db
+      AUTHENTIK_BOOTSTRAP_PASSWORD: Akadmin-Passw0rd1
+      AUTHENTIK_BOOTSTRAP_TOKEN: waystation-authentik-test-token
+      AUTHENTIK_BOOTSTRAP_EMAIL: akadmin@example.com
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+    volumes: ["./test/authentik:/blueprints/waystation:ro"]
+    depends_on:
+      authentik-postgresql: {condition: service_healthy}
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      default:
+        aliases: [authentik.example.com]
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+
+  authentik-worker:
+    <<: *authentik
+    command: worker
+    networks: [default]
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
 
 volumes:
   ldap-tls:

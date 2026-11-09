@@ -62,7 +62,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** End the current session */
+        /**
+         * End the current session
+         * @description For a session that came from an OIDC provider with RP-initiated logout, `end_session_url` is the provider's
+         *     sign-out page; the UI navigates there (the provider sends the browser back to the sign-in page).
+         */
         post: operations["logout"];
         delete?: never;
         options?: never;
@@ -267,8 +271,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Configured external sign-in providers (LDAP), in sign-in order
-         * @description Needs `settings-admin`. Secrets are never returned (`bind_password_set` instead).
+         * Configured external sign-in providers (LDAP, OIDC), in sign-in order
+         * @description Needs `settings-admin`. Secrets are never returned (`bind_password_set` / `client_secret_set` instead).
          */
         get: operations["listAuthProviderConfigs"];
         put?: never;
@@ -290,8 +294,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Check every LDAP server of a (possibly unsaved) provider; connect, TLS, service bind, search bases
-         * @description Always 200 with the findings. Pass `id` to reuse the stored bind password when it is omitted.
+         * Check a (possibly unsaved) provider: every LDAP server (connect, TLS, service bind, search bases), or OIDC discovery, keys, PKCE and client credentials
+         * @description Always 200 with the findings. Pass `id` to reuse the stored bind password or client secret when it is omitted.
          */
         post: operations["testAuthProviderConnection"];
         delete?: never;
@@ -310,7 +314,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Look a user up (and optionally check a password) with a (possibly unsaved) provider
+         * Look a user up (and optionally check a password) with a (possibly unsaved) LDAP provider
          * @description Shows the attributes and groups the provider would sync, whether the require-group gate passes and the
          *     roles the group mapping gives. Needs `username`; `password` is optional (a bind is attempted only when
          *     given). Always 200 with the findings.
@@ -1064,8 +1068,12 @@ export interface components {
             kind: "local" | "ldap" | "oidc";
             /** @description Display name ("Continue with <name>" for OIDC) */
             name: string;
-            /** @description OIDC only; the browser navigates here */
-            login_url?: string;
+            /** @description OIDC only; the browser navigates here (append `?next=<SPA path>`) */
+            login_url?: string | null;
+        };
+        LogoutResult: {
+            /** @description The OIDC provider's sign-out page (RP-initiated logout), if any */
+            end_session_url: string | null;
         };
         LoginRequest: {
             username: string;
@@ -1269,9 +1277,78 @@ export interface components {
             external_group: string;
             roles: string[];
         };
+        /**
+         * @description OpenID Connect provider (authorization code + PKCE S256). Register `redirect_uri` (and
+         *     `post_logout_redirect_uri` for RP-initiated logout) at the provider.
+         */
+        OidcConfig: {
+            /** @description Issuer URL exactly as the provider states it; discovery reads `<issuer>/.well-known/openid-configuration`. http only with `allow_private`. */
+            issuer: string;
+            client_id: string;
+            /** @description Omit or null on update to keep the stored secret */
+            client_secret?: string | null;
+            readonly client_secret_set?: boolean;
+            /**
+             * @description `none` = public client (PKCE only)
+             * @default client_secret_basic
+             * @enum {string}
+             */
+            client_auth: "client_secret_basic" | "client_secret_post" | "none";
+            /**
+             * @description `openid` is always sent
+             * @default [
+             *       "openid",
+             *       "profile",
+             *       "email"
+             *     ]
+             */
+            scopes: string[];
+            /** @default preferred_username */
+            username_claim: string;
+            /** @default name */
+            display_name_claim: string;
+            /** @default email */
+            email_claim: string;
+            /**
+             * @description Claim listing the groups (dotted path allowed, e.g. `realm_access.roles`); null = no group sync
+             * @default groups
+             */
+            groups_claim: string | null;
+            /** @description Only members of this group may sign in */
+            require_group?: string | null;
+            /**
+             * @description Create a Waystation user at the first sign-in
+             * @default true
+             */
+            auto_provision: boolean;
+            /**
+             * @description Also read claims from the userinfo endpoint
+             * @default false
+             */
+            use_userinfo: boolean;
+            /**
+             * @description Also sign out at the provider when it supports RP-initiated logout
+             * @default true
+             */
+            rp_logout: boolean;
+            /**
+             * @description The provider may resolve to private addresses (SSRF guard)
+             * @default false
+             */
+            allow_private: boolean;
+            /** @description Accepted ID token algorithms (asymmetric only; `none` and HMAC are never accepted) */
+            signing_algs?: ("RS256" | "RS384" | "RS512" | "PS256" | "PS384" | "PS512" | "ES256" | "ES384" | "ES512" | "EdDSA" | "Ed25519")[];
+            /** @default 10 */
+            timeout_s: number;
+            /** @description Register at the provider */
+            readonly redirect_uri?: string;
+            /** @description Register at the provider */
+            readonly post_logout_redirect_uri?: string;
+        };
+        /** @description `ldap` for kind `ldap`, `oidc` for kind `oidc` (the other one omitted or null) */
         AuthProviderWrite: {
             /** @enum {string} */
-            kind: "ldap";
+            kind: "ldap" | "oidc";
             /** @description Shown on the sign-in page */
             name: string;
             /** @default true */
@@ -1281,17 +1358,19 @@ export interface components {
              * @default 100
              */
             order: number;
-            ldap: components["schemas"]["LdapConfig"];
+            ldap?: components["schemas"]["LdapConfig"] | null;
+            oidc?: components["schemas"]["OidcConfig"] | null;
             group_mapping?: components["schemas"]["GroupMapping"][];
         };
         AuthProviderConfig: {
             id: string;
             /** @enum {string} */
-            kind: "ldap";
+            kind: "ldap" | "oidc";
             name: string;
             enabled: boolean;
             order: number;
-            ldap: components["schemas"]["LdapConfig"];
+            ldap: components["schemas"]["LdapConfig"] | null;
+            oidc: components["schemas"]["OidcConfig"] | null;
             group_mapping: components["schemas"]["GroupMapping"][];
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
@@ -1322,7 +1401,27 @@ export interface components {
         AuthProviderConnectionTest: {
             /** @description Every server passed */
             ok: boolean;
+            /** @description LDAP: one entry per server. OIDC: one entry (the issuer) with the discovery checks */
             servers: components["schemas"]["LdapServerTest"][];
+            /** @description OIDC: what discovery found */
+            discovery?: components["schemas"]["OidcDiscovery"] | null;
+        };
+        OidcDiscovery: {
+            issuer: string;
+            authorization_endpoint: string;
+            token_endpoint: string;
+            jwks_uri: string;
+            userinfo_endpoint: string | null;
+            /** @description RP-initiated logout; null = sign-out stays local */
+            end_session_endpoint: string | null;
+            /** @description `id_token_signing_alg_values_supported` */
+            signing_algs: string[] | null;
+            scopes_supported: string[] | null;
+            /** @description Signing keys usable with the accepted algorithms */
+            keys: number;
+            /** @description Register this redirect URI at the provider */
+            redirect_uri: string;
+            post_logout_redirect_uri: string;
         };
         ExternalGroup: {
             /** @description Group DN (LDAP) or claim value (OIDC) */
@@ -2442,11 +2541,13 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Signed out (also when no session existed) */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogoutResult"];
+                };
             };
         };
     };

@@ -37,6 +37,7 @@ from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security.groups import GroupDirectory
 from waystation_server.security.ldap import LdapAuthenticator
+from waystation_server.security.oidc import OidcClient, UpstreamHttp
 from waystation_server.security.principal import Principal
 from waystation_server.security.providers import ProviderCatalog
 from waystation_server.security.registry_token import SignerHolder
@@ -70,6 +71,7 @@ class Services:
     auth_providers: ProviderCatalog  # external sign-in providers (security.providers)
     groups: GroupDirectory  # group → roles (security.groups)
     ldap: LdapAuthenticator  # LDAP thread pool front end + bind cache (security.ldap)
+    oidc: OidcClient  # OIDC discovery/JWKS caches and protocol steps (security.oidc)
     jobs: JobClient  # enqueue worker jobs (durable via the outbox inside a transaction, or best effort; ARCH §10)
     audit: AuditWriter  # audit records, queued and batched (``waystation_server.audit.record``)
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
@@ -140,6 +142,7 @@ class Services:
             auth_providers=ProviderCatalog(lambda: auth_providers_db.list_all(db)),
             groups=groups,
             ldap=LdapAuthenticator(),
+            oidc=OidcClient(UpstreamHttp(upstream)),
             jobs=JobClient(redis, db),
             audit=AuditWriter(audit_db.inserter(db), retention_days=settings.audit_retention_days),
             proxy=ProxyEngine(
