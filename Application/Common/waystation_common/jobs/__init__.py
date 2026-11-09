@@ -25,6 +25,9 @@ from waystation_common.jobs.model import (
     QuotaReconcile,
     StatsRollup,
     StorageCheck,
+    WebhookDeliver,
+    WebhookEvent,
+    WebhookSweep,
 )
 from waystation_common.jobs.queue import Delivery, EnqueueResult, JobQueue
 from waystation_common.jobs.schedule import parse_schedule
@@ -44,5 +47,8 @@ __all__ = [
     'QuotaReconcile',
     'StatsRollup',
     'StorageCheck',
+    'WebhookDeliver',
+    'WebhookEvent',
+    'WebhookSweep',
     'parse_schedule',
 ]

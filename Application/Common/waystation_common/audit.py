@@ -89,6 +89,11 @@ class AuditAction(StrEnum):
     TASK_RETRY = 'task.retry'  # a dead-lettered job queued again
     TASK_DISCARD = 'task.discard'  # a dead-lettered job dropped
     SETTINGS_UPDATE = 'settings.update'
+    WEBHOOK_CREATE = 'webhook.create'
+    WEBHOOK_UPDATE = 'webhook.update'
+    WEBHOOK_DELETE = 'webhook.delete'
+    WEBHOOK_TEST = 'webhook.test'  # a test event sent
+    WEBHOOK_REDELIVER = 'webhook.redeliver'  # a delivery sent again from the delivery log
 
     @property
     def category(self) -> str:
@@ -130,6 +135,7 @@ SPEC_ACTIONS: dict[str, tuple[AuditAction, ...]] = {
     'cleanup runs': (A.CLEANUP_RUN,),
     'task changes': (A.TASK_UPDATE, A.TASK_RUN, A.TASK_RETRY, A.TASK_DISCARD),
     'settings changes': (A.SETTINGS_UPDATE,),
+    'webhook changes': (A.WEBHOOK_CREATE, A.WEBHOOK_UPDATE, A.WEBHOOK_DELETE, A.WEBHOOK_TEST, A.WEBHOOK_REDELIVER),
 }
 
 # Actions whose feature does not exist yet → the task that adds the feature (and emits the action).

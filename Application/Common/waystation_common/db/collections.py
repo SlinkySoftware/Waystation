@@ -17,6 +17,7 @@ REPOSITORIES = 'repositories'
 CLEANUP_POLICIES = 'cleanup_policies'
 SETTINGS = 'settings'
 AUTH_PROVIDERS = 'auth_providers'
+WEBHOOKS = 'webhooks'
 # --- identity and access
 USERS = 'users'
 GROUPS = 'groups'
@@ -49,6 +50,7 @@ JOB_DEFINITIONS = 'job_definitions'
 JOB_RUNS = 'job_runs'
 JOB_OUTBOX = 'job_outbox'
 WORKERS = 'workers'
+WEBHOOK_DELIVERIES = 'webhook_deliveries'  # one per (event, webhook), test or redelivery (T-O05)
 
 DAY_S = 86_400
 STATS_MINUTE_RETENTION_DAYS = 7  # per-minute statistics (time-series TTL)
@@ -108,6 +110,7 @@ SPECS: tuple[CollectionSpec, ...] = (
         (_ix('name_unique', [('name', ASCENDING)], unique=True, collation=CASE_INSENSITIVE),),
     ),
     CollectionSpec(SETTINGS),
+    CollectionSpec(WEBHOOKS, (_ix('name_unique', [('name', ASCENDING)], unique=True, collation=CASE_INSENSITIVE),)),
     CollectionSpec(AUTH_PROVIDERS, (_ix('order', [('order', ASCENDING)]),)),
     CollectionSpec(
         USERS,
@@ -333,6 +336,20 @@ SPECS: tuple[CollectionSpec, ...] = (
         (
             _ix('sent_at', [('sent_at', ASCENDING)]),
             _ix('done_at_ttl', [('done_at', ASCENDING)], expireAfterSeconds=7 * DAY_S),
+        ),
+    ),
+    CollectionSpec(
+        WEBHOOK_DELIVERIES,
+        (
+            # A webhook's delivery log, newest first.
+            _ix('webhook_created', [('webhook_id', ASCENDING), ('created_at', DESCENDING), ('_id', DESCENDING)]),
+            # Deliveries due for an attempt (the retry sweep); only pending ones are indexed.
+            _ix(
+                'pending_due',
+                [('next_attempt_at', ASCENDING)],
+                partialFilterExpression={'status': 'pending'},
+            ),
+            _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
         ),
     ),
     CollectionSpec(WORKERS, (_ix('heartbeat_at_ttl', [('heartbeat_at', ASCENDING)], expireAfterSeconds=300),)),
