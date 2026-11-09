@@ -64,7 +64,7 @@ export function seedProviders(): AuthProviderConfig[] {
   const created = new Date(Date.now() - 21 * 86_400_000).toISOString()
   return [
     {
-      id: '01JC0000000000000000000LDP',
+      id: LDAP_ID,
       kind: 'ldap',
       name: 'Corporate directory',
       enabled: true,
@@ -139,7 +139,8 @@ export function seedProviders(): AuthProviderConfig[] {
   ]
 }
 
-const OIDC_ID = '01JC0000000000000000000OID'
+export const OIDC_ID = '01JC0000000000000000000OID'
+export const LDAP_ID = '01JC0000000000000000000LDP'
 const MOCK_BASE = 'https://registry.example.com'
 const redirectUri = (id: string) => `${MOCK_BASE}/auth/oidc/${id}/callback`
 
