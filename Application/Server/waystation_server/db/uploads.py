@@ -102,11 +102,3 @@ async def release(db: Database, session_id: str, *, bytes_received: int) -> None
 
 async def delete(db: Database, session_id: str) -> None:
     await db[UPLOAD_SESSIONS].delete_one({'_id': session_id})
-
-
-async def delete_repo(db: Database, repo_id: str) -> list[str]:
-    """Drop a deleted repository's sessions; returns their ids (the caller discards the upload files)."""
-    ids = [str(doc['_id']) async for doc in db[UPLOAD_SESSIONS].find({'repo_id': repo_id}, {'_id': 1})]
-    if ids:
-        await db[UPLOAD_SESSIONS].delete_many({'_id': {'$in': ids}})
-    return ids
