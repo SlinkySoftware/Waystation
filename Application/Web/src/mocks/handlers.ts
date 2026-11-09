@@ -4,7 +4,7 @@
 // CSRF header on unsafe methods, cursor pagination, realistic latency.
 import { delay, http, HttpResponse } from 'msw'
 
-import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, Preferences, Problem, Repository, RepositoryWrite, Session, StatsRange } from '@/api/types'
+import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, Problem, Repository, RepositoryWrite, Session, StatsRange } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
 import { activityCsv, activityPage, activityQuery } from './activity'
@@ -42,9 +42,10 @@ function session(username: string): Session {
   return {
     user: { id: '01JC0000000000000000000ADM', username, display_name: username === 'admin' ? 'Administrator' : username, email: `${username}@example.com`, source: 'local' },
     csrf_token: CSRF,
-    capabilities: ['admin', 'repositories.create', 'repositories.manage', 'stats.read', 'audit.read'],
+    capabilities: ['admin', 'repositories.create', 'repositories.manage', 'stats.read', 'audit.read', 'users.admin', 'settings.admin'],
     preferences,
     expires_at: new Date(Date.now() + 12 * 3_600_000).toISOString(),
+    must_change_password: false,
   }
 }
 
@@ -190,6 +191,18 @@ export const handlers = [
     await delay(40)
     const user = signedInUser()
     return user ? HttpResponse.json(session(user)) : problem(401, 'Unauthorized', 'Sign in to continue.')
+  }),
+  http.post(`${API}/auth/me/password`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    const body = (await request.json()) as PasswordChange
+    if (body.new_password.length < 12) {
+      return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [
+        { field: 'new_password', message: 'at least 12 characters', code: 'password' },
+      ])
+    }
+    await latency()
+    return new HttpResponse(null, { status: 204 })
   }),
   http.put(`${API}/auth/me/preferences`, async ({ request }) => {
     const denied = guard(request)
