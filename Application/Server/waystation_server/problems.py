@@ -77,6 +77,9 @@ class Problem(BaseModel):
     status: int
     detail: str | None = None
     instance: str | None = None
+    code: str | None = (
+        None  # the domain error's stable code (``password_change_required``, ``second_factor_expired``...)
+    )
     errors: list[FieldError] | None = None
 
 
@@ -99,9 +102,15 @@ def problem(
     type_: str = 'about:blank',
     errors: Sequence[FieldError] | None = None,
     headers: Mapping[str, str] | None = None,
+    code: str | None = None,
 ) -> JSONResponse:
     body = Problem(
-        type=type_, title=title or TITLES.get(status, 'Error'), status=status, detail=detail, errors=errors or None
+        type=type_,
+        title=title or TITLES.get(status, 'Error'),
+        status=status,
+        detail=detail,
+        code=code,
+        errors=errors or None,
     )
     return JSONResponse(
         body.model_dump(exclude_none=True), status_code=status, media_type=PROBLEM_JSON, headers=dict(headers or {})
@@ -134,13 +143,15 @@ def _style(path: str) -> str:
     return 'problem'
 
 
-def error_response(request: Request, status: int, detail: str, *, headers: Mapping[str, str] | None = None) -> Response:
+def error_response(
+    request: Request, status: int, detail: str, *, headers: Mapping[str, str] | None = None, code: str | None = None
+) -> Response:
     style = _style(request.url.path)
     if style == 'oci':
         return oci_error(status, detail, headers=headers)
     if style == 'native':
         return native_error(status, detail, headers=headers)
-    return problem(status, detail, headers=headers)
+    return problem(status, detail, headers=headers, code=code)
 
 
 def _field_path(loc: Sequence[int | str]) -> str:
@@ -178,7 +189,7 @@ def install(app: FastAPI) -> None:
         if exc.status == 401 and _style(request.url.path) == 'native':
             # Format clients (apt, pip, Maven, curl --anyauth...) send credentials after a Basic challenge.
             headers = {**(headers or {}), 'WWW-Authenticate': BASIC_CHALLENGE}
-        return error_response(request, exc.status, exc.detail, headers=headers)
+        return error_response(request, exc.status, exc.detail, headers=headers, code=exc.code)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> Response:

@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Administration → Settings (UI_DESIGN §4.10, SPEC §4.12): the instance name, docker routing, and (read-only, from
+<!-- Administration → Settings (UI_DESIGN §4.10, SPEC §4.12): the instance name, the two-factor policy, docker routing,
+     and (read-only, from
      the environment) sign-in, session, retention and storage limits. -->
 <template>
   <q-page class="ws-page">
@@ -39,6 +40,17 @@
         </div>
       </PageCard>
 
+      <PageCard :title="t('admin.settings.twoFactor')" :caption="t('admin.settings.twoFactorCaption')">
+        <ProblemBanner :error="policyProblem" />
+        <q-toggle
+          :model-value="state.data.value?.security.require_totp_for_admins ?? false"
+          :disable="!state.data.value || savingPolicy"
+          :label="t('admin.settings.requireTotp')"
+          @update:model-value="savePolicy"
+        />
+        <div class="settings__hint text-faint">{{ t('admin.settings.requireTotpHint') }}</div>
+      </PageCard>
+
       <DockerRoutingCard v-if="auth.can('repositories.manage')" />
 
       <div class="settings__pair">
@@ -55,6 +67,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { api, ApiError, call, errorMessage } from '@/api/client'
 import type { EnvironmentLimits } from '@/api/types'
@@ -75,6 +88,7 @@ import { formatBytes, relativeTime } from '@/utils/format'
 const notify = useNotify()
 const auth = useAuthStore()
 const config = useConfigStore()
+const router = useRouter()
 const state = useAsync(() => call(api.GET('/settings')))
 
 const instanceName = ref('')
@@ -99,6 +113,29 @@ async function save(): Promise<void> {
     problem.value = error
   } finally {
     saving.value = false
+  }
+}
+
+const savingPolicy = ref(false)
+const policyProblem = ref<unknown>(null)
+
+/** Saved on toggle; the instance name sent is the stored one (an unsaved edit above stays unsaved). */
+async function savePolicy(value: boolean): Promise<void> {
+  const current = state.data.value
+  if (!current) return
+  savingPolicy.value = true
+  policyProblem.value = null
+  try {
+    state.data.value = await call(api.PUT('/settings', { body: { general: current.general, security: { require_totp_for_admins: value } } }))
+    notify.success(t(value ? 'admin.settings.requireTotpOn' : 'admin.settings.requireTotpOff'))
+    if (value) {
+      await auth.refresh() // the change may apply to the caller at once: then set it up first
+      if (auth.totpSetupRequired) await router.push({ name: 'profile' })
+    }
+  } catch (error) {
+    policyProblem.value = error
+  } finally {
+    savingPolicy.value = false
   }
 }
 
@@ -142,6 +179,11 @@ const retentionItems = computed<LimitItem[]>(() => [
   align-items: flex-start;
   gap: 10px;
   max-width: 720px;
+}
+
+.settings__hint {
+  margin: 4px 0 0 44px;
+  font-size: var(--fs-12);
 }
 
 .settings__meta {

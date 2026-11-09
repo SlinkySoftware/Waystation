@@ -24,6 +24,7 @@ ROLES = 'roles'
 API_TOKENS = 'api_tokens'
 SERVICE_ACCOUNTS = 'service_accounts'
 SESSIONS = 'sessions'
+LOGIN_CHALLENGES = 'login_challenges'  # pending second sign-in steps (TOTP), minutes long
 RBAC_STATE = 'rbac_state'
 # --- content metadata
 COMPONENTS = 'components'
@@ -140,6 +141,11 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
             _ix('user_id', [('user_id', ASCENDING)]),
         ),
+    ),
+    # A password accepted, the second factor (TOTP) not yet: read by ``_id`` (sha256 of the cookie) only.
+    CollectionSpec(
+        LOGIN_CHALLENGES,
+        (_ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),),
     ),
     CollectionSpec(RBAC_STATE),
     CollectionSpec(
