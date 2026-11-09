@@ -37,12 +37,16 @@ async def save(db: Database, asset: StoredAsset) -> StoredAsset:
         {'$set': fields, '$setOnInsert': {'_id': asset_id, 'created_at': asset.created_at}},
         upsert=True,
         return_document=ReturnDocument.BEFORE,
-        projection={'_id': 1, 'created_at': 1, 'size': 1},
+        projection={'_id': 1, 'created_at': 1, 'size': 1, 'kind': 1},
     )
+    artifact = int(asset.kind == 'content')
     if before is None:
-        await usage_db.add(db, asset.repo_id, asset.size, 1)
+        await usage_db.add(db, asset.repo_id, asset.size, 1, artifacts_delta=artifact)
         return asset.model_copy(update={'id': asset_id})
-    await usage_db.add(db, asset.repo_id, asset.size - int(before.get('size') or 0))
+    was_artifact = int(before.get('kind') == 'content')
+    await usage_db.add(
+        db, asset.repo_id, asset.size - int(before.get('size') or 0), artifacts_delta=artifact - was_artifact
+    )
     return asset.model_copy(update={'id': str(before['_id']), 'created_at': before['created_at']})
 
 
@@ -53,9 +57,10 @@ async def mark_revalidated(db: Database, asset_id: str, upstream: UpstreamMeta, 
 
 
 async def delete(db: Database, asset_id: str) -> None:
-    doc = await db[ASSETS].find_one_and_delete({'_id': asset_id}, projection={'repo_id': 1, 'size': 1})
+    doc = await db[ASSETS].find_one_and_delete({'_id': asset_id}, projection={'repo_id': 1, 'size': 1, 'kind': 1})
     if doc is not None:
-        await usage_db.add(db, str(doc['repo_id']), -int(doc.get('size') or 0), -1)
+        artifact = int(doc.get('kind') == 'content')
+        await usage_db.add(db, str(doc['repo_id']), -int(doc.get('size') or 0), -1, artifacts_delta=-artifact)
 
 
 async def delete_path(db: Database, repo_id: str, path: str) -> StoredAsset | None:
@@ -64,7 +69,7 @@ async def delete_path(db: Database, repo_id: str, path: str) -> StoredAsset | No
     if doc is None:
         return None
     asset = StoredAsset.model_validate(doc)
-    await usage_db.add(db, repo_id, -asset.size, -1)
+    await usage_db.add(db, repo_id, -asset.size, -1, artifacts_delta=-int(asset.kind == 'content'))
     return asset
 
 

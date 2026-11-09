@@ -41,9 +41,16 @@ async def repo(db: Database, repo_id: str, quota: int | None = None, mode: str =
     )
 
 
-async def asset(db: Database, repo_id: str, path: str, size: int) -> None:
+async def asset(db: Database, repo_id: str, path: str, size: int, kind: str = 'content') -> None:
     await db[ASSETS].insert_one(
-        {'_id': f'{repo_id}:{path}', 'repo_id': repo_id, 'path': path, 'size': size, 'blob_sha256': 'a' * 64}
+        {
+            '_id': f'{repo_id}:{path}',
+            'repo_id': repo_id,
+            'path': path,
+            'kind': kind,
+            'size': size,
+            'blob_sha256': 'a' * 64,
+        }
     )
 
 
@@ -70,7 +77,7 @@ async def test_reconcile_fixes_drift_and_announces_thresholds(db: Database, valk
     await repo(db, 'small', quota=1000)
     await repo(db, 'free')
     await asset(db, 'big', 'a', 700)
-    await asset(db, 'big', 'b', 400)  # 1100: over the quota
+    await asset(db, 'big', 'b', 400, kind='metadata')  # 1100: over the quota
     await asset(db, 'small', 'a', 850)  # 85 %: warning
     await asset(db, 'free', 'a', 10)
     await usage_db.add(db, 'big', 5)  # drifted (e.g. content from before usage was counted)
@@ -89,6 +96,7 @@ async def test_reconcile_fixes_drift_and_announces_thresholds(db: Database, valk
     assert again is not None and again['drifted'] == 0 and again['announced'] == 0
     usage = await usage_db.get_many(db, ['big', 'small', 'free'])
     assert (usage['big'].bytes, usage['big'].assets, usage['big'].alert_level) == (1100, 2, 100)
+    assert (usage['big'].artifacts, usage['small'].artifacts) == (1, 1)  # metadata is not an artifact
     assert (usage['small'].bytes, usage['small'].alert_level) == (850, 80)
     assert usage['free'].bytes == 10 and usage['free'].reconciled_at is not None
     assert await db[REPO_USAGE].find_one({'_id': 'gone'}) is None

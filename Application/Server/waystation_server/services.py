@@ -245,6 +245,7 @@ class Services:
             return
         self._started = False
         await self.metrics.stop()
+        await self.storage.aclose()
         await self.guard.stop()
         await self.proxy.breaker.stop()
         await self.hub.stop()

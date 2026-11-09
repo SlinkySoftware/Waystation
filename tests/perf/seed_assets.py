@@ -83,7 +83,10 @@ def main(argv: list[str] | None = None) -> int:
         db[ASSETS].insert_many(batch, ordered=False)
     db[REPO_USAGE].update_one(
         {'_id': repo_id},
-        {'$inc': {'bytes': SIZE * args.count, 'assets': args.count}, '$set': {'updated_at': now}},
+        {
+            '$inc': {'bytes': SIZE * args.count, 'assets': args.count, 'artifacts': args.count},
+            '$set': {'updated_at': now},
+        },
         upsert=True,
     )
     elapsed = time.monotonic() - started
