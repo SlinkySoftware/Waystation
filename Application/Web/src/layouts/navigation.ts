@@ -56,7 +56,7 @@ export const navigation: NavGroup[] = [
       { label: 'nav.groups', icon: iconGroups, to: '/admin/groups', name: 'admin-groups', capability: 'users.admin' },
       { label: 'nav.roles', icon: iconRoles, to: '/admin/roles', name: 'admin-roles', capability: 'users.admin' },
       { label: 'nav.authProviders', icon: iconAuthProviders, to: '/admin/auth-providers', name: 'admin-auth', capability: 'settings.admin' },
-      { label: 'nav.apiTokens', icon: iconToken, to: '/admin/tokens', name: 'admin-tokens', capability: 'admin', planned: true },
+      { label: 'nav.apiTokens', icon: iconToken, to: '/admin/tokens', name: 'admin-tokens', capability: 'users.admin' },
       { label: 'nav.audit', icon: iconAudit, to: '/admin/audit', name: 'admin-audit', capability: 'audit.read' },
       { label: 'nav.settings', icon: iconSettings, to: '/admin/settings', name: 'admin-settings', capability: 'admin', planned: true },
       { label: 'nav.system', icon: iconSystem, to: '/admin/system', name: 'admin-system', capability: 'admin', planned: true },

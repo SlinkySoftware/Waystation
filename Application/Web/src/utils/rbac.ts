@@ -84,7 +84,7 @@ export function toMatrix(permissions: readonly RolePermission[]): PermissionMatr
     if (isGlobalAction(p.action)) global.add(p.action)
     else {
       const set = rows.get(p.scope) ?? new Set<RepoAction>()
-      set.add(p.action as RepoAction)
+      for (const a of impliedActions(p.action as RepoAction)) set.add(a) // shown as held, as the server treats them
       rows.set(p.scope, set)
     }
   }

@@ -93,7 +93,8 @@ import { iconWarning } from '@/utils/icons'
 
 import { dateModel, EXPIRY_CHOICES, type ExpiryChoice, expiresAt, isFutureDate, SCOPES, scopeHelp, scopeLabel } from './tokens'
 
-const props = defineProps<{ available: TokenScope[] }>()
+/** `accountId`: create the token for that service account (administration) instead of the signed-in user. */
+const props = withDefaults(defineProps<{ available: TokenScope[]; accountId?: string | null }>(), { accountId: null })
 const open = defineModel<boolean>({ required: true })
 const emit = defineEmits<{ created: [created: ApiTokenCreated] }>()
 
@@ -143,15 +144,16 @@ async function save(): Promise<void> {
   formError.value = null
   fieldErrors.value = {}
   try {
+    const body = {
+      name: name.value.trim(),
+      scopes: SCOPES.filter((s) => scopes.value.includes(s)),
+      repositories: repositories.value,
+      expires_at: expiresAt(expiry.value, customDate.value),
+    }
     const created = await call(
-      api.POST('/auth/me/tokens', {
-        body: {
-          name: name.value.trim(),
-          scopes: SCOPES.filter((s) => scopes.value.includes(s)),
-          repositories: repositories.value,
-          expires_at: expiresAt(expiry.value, customDate.value),
-        },
-      }),
+      props.accountId
+        ? api.POST('/service-accounts/{account_id}/tokens', { params: { path: { account_id: props.accountId } }, body })
+        : api.POST('/auth/me/tokens', { body }),
     )
     open.value = false
     emit('created', created)
