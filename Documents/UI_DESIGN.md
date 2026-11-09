@@ -95,6 +95,10 @@ Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. 
   referrers (signatures, SBOM) list, pull commands by tag and by digest).
 - **npm / PyPI / Maven / NuGet / Helm / Galaxy / Swift**: package → versions table (version, published, size,
   downloads, deprecated/yanked flags), README rendered safely (sanitised markdown, no raw HTML), dependencies.
+  Built for PyPI (T-P5-PYPI): projects table (name, summary, latest, files held / versions, size) → project page
+  (summary, latest, `pip install` snippet; versions newest first with pre-release and yanked badges, expandable to
+  their wheels and sdist with kind, size, cache state, PEP 658 metadata badge, uploader, short sha256). Hosted
+  repositories add Yank / Un-yank per version (dialog with an optional reason); groups show their members to browse.
 - **apt / yum**: suites/components/arches tree → package list with versions and arch.
 - **Raw**: folder listing.
 

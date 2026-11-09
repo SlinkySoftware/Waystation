@@ -6,10 +6,9 @@ use `https://waystation.example.com` and repositories called `pypi-proxy` (a pro
 (hosted) and `pypi` (a group of both).
 
 Status (T-P5-PYPI): proxy, hosted and group repositories. Verified by the real-client harness (`tests/clients/pypi/`)
-with pip 26, uv 0.13 and twine 7: installs through a proxy of pypi.org (PEP 691 JSON pages, PEP 658 `.metadata`
-files), `twine upload` and `uv publish` to a hosted repository and through a group, installs through a group,
-yanking, narrowed and revoked tokens. Poetry and PDM use the same simple API and are expected to work but are not yet
-in the harness.
+with pip 26, uv 0.13, twine 7, Poetry 2.5 and PDM 2.29: installs through a proxy of pypi.org (PEP 691 JSON pages,
+PEP 658 `.metadata` files), `twine upload` and `uv publish` to a hosted repository and through a group, `poetry
+install` and `pdm install` (lock + install) through a group, yanking, a token narrowed to other repositories.
 
 ## Repository types
 
@@ -68,6 +67,16 @@ poetry config http-basic.waystation <username> <api-token>
 ```sh
 pdm config pypi.url https://waystation.example.com/repository/pypi/simple/
 ```
+
+or per project (`pyproject.toml`; PDM expands environment variables in the URL):
+
+```toml
+[[tool.pdm.source]]
+name = "pypi"
+url = "https://__token__:${WAYSTATION_TOKEN}@waystation.example.com/repository/pypi/simple/"
+```
+
+A plain-HTTP deployment also needs `verify_ssl = false` on the source: PDM ignores untrusted hosts otherwise.
 
 ## Uploading (twine, uv publish)
 
