@@ -1110,6 +1110,7 @@ export const en = {
         anyKind: 'Every job',
         routine: 'Include routine jobs',
         task: 'Task {task}',
+        job: 'Job {job}',
         clear: 'Clear filters',
       },
       attempt: '#{n}',

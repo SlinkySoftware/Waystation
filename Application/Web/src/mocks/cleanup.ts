@@ -222,6 +222,42 @@ export function validatePolicy(body: CleanupPolicyWrite, selfId?: string): Field
   return errors
 }
 
+// ---------------------------------------------------------------- bridge for the Tasks mock (mocks/tasks.ts)
+
+/** Scheduled policies (each is the task `cleanup:<id>`) with their runs, newest first; runs advanced to now. */
+export function cleanupTasks(now: number = Date.now()): { id: string; name: string; schedule: string; enabled: boolean; attached: string[]; runs: CleanupRunSummary[] }[] {
+  advance(now)
+  return policies
+    .filter((p) => p.schedule)
+    .map((p) => ({ id: p.id, name: p.name, schedule: p.schedule!, enabled: p.enabled, attached: attachedTo(p.id), runs: (runs.get(p.id) ?? []).map((s) => s.run) }))
+}
+
+/** Blob GC settings (shared with the GC card, so a schedule edited on the Tasks page shows there) and runs. */
+export function gcTask(now: number = Date.now()): { settings: typeof gc; runs: GcRun[] } {
+  advance(now)
+  return { settings: gc, runs: gcRuns.map((s) => s.run) }
+}
+
+/** Run a policy or GC now (Tasks page "Run now"); merges into a running one like the real job system. */
+export function startTaskRun(task: 'gc' | string, trigger: 'schedule' | 'manual' = 'manual'): JobAccepted | null {
+  advance()
+  if (task === 'gc') {
+    const current = gcRuns.find((s) => s.run.status === 'running')
+    if (current) return { job_id: current.run.id, status: 'merged' }
+    const run: GcRun = { id: nextId('gc'), status: 'running', trigger, started_at: iso(Date.now()), finished_at: null, progress: { done: 0, total: 148_220, message: 'Marking unreferenced blobs' }, freed_blobs: 0, freed_bytes: 0, marked: 0, uploads_removed: 0, error: null }
+    gcRuns.unshift({ run, durationMs: 9000 })
+    return { job_id: run.id, status: 'enqueued' }
+  }
+  const p = policies.find((x) => x.id === task)
+  if (!p) return null
+  const list = runs.get(p.id) ?? []
+  const current = list.find((r) => r.run.status === 'running')
+  if (current) return { job_id: current.run.id, status: 'merged' }
+  const sim: SimRun = { run: { id: nextId('cr'), status: 'running', trigger, started_at: iso(Date.now()), finished_at: null, progress: { done: 0, total: null, message: 'Queued' }, removed: 0, bytes: 0, error: null }, durationMs: 9000 + Math.random() * 4000 }
+  runs.set(p.id, [sim, ...list].slice(0, 50))
+  return { job_id: sim.run.id, status: 'enqueued' }
+}
+
 export function cleanupHandlers(h: MockHelpers) {
   const invalid = (errors: FieldError[]) => h.problem(422, 'Unprocessable Content', 'The request has invalid fields.', errors)
   const find = (id: unknown) => policies.find((p) => p.id === id)

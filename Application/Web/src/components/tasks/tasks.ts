@@ -133,3 +133,10 @@ export function resultEntries(result: Record<string, unknown>): { key: string; v
     value: typeof value === 'string' ? value : JSON.stringify(value),
   }))
 }
+
+export type TasksTab = 'scheduled' | 'runs' | 'workers' | 'dead'
+export const TASKS_TABS: readonly TasksTab[] = ['scheduled', 'runs', 'workers', 'dead']
+
+export function triggerLabel(trigger: JobRunSummary['trigger']): string {
+  return t(`tasks.trigger.${trigger}`)
+}
