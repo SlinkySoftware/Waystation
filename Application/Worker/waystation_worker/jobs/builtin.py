@@ -12,6 +12,7 @@ from waystation_common.events import keys
 from waystation_common.events.schema import ActivityEvent, EventType
 from waystation_common.jobs.model import (
     BlobGc,
+    BlobVerify,
     CleanupRun,
     HelmIndex,
     JobEnvelope,
@@ -23,7 +24,7 @@ from waystation_common.jobs.model import (
     WebhookSweep,
 )
 from waystation_common.storage import BlobStore
-from waystation_worker import cleanup, gc, helm, quota, rollup, webhooks
+from waystation_worker import cleanup, gc, helm, quota, rollup, verify, webhooks
 from waystation_worker.jobs.context import JobContext
 from waystation_worker.jobs.registry import handles
 
@@ -33,6 +34,8 @@ BUILTIN_DEFINITIONS: tuple[Definition, ...] = (
     Definition(
         id='blob.gc', kind=BlobGc.kind, schedule='0 */6 * * *', params={'grace_s': 86400, 'upload_age_s': 86400}
     ),
+    # Blob verify weekly (Sunday 03:30 UTC) and after every restore (SPEC §8.5): missing/damaged blobs.
+    Definition(id='blob.verify', kind=BlobVerify.kind, schedule='30 3 * * 0', params={'deep': False, 'repair': True}),
     # Quotas (SPEC §4.8): recount usage hourly (the server counts incrementally between runs); low-disk alert.
     Definition(id='quota.reconcile', kind=QuotaReconcile.kind, schedule='7 * * * *'),
     Definition(id='storage.check', kind=StorageCheck.kind, schedule='@every 1m'),
@@ -97,6 +100,48 @@ async def blob_gc(job: BlobGc, ctx: JobContext) -> dict[str, Any]:
                 detail={
                     'kind': BlobGc.kind,
                     'summary': f'Blob GC freed {result.freed_blobs} blobs ({cleanup.human_bytes(result.freed_bytes)})',
+                },
+            )
+        )
+    return result.as_dict()
+
+
+@handles(BlobVerify)
+async def blob_verify(job: BlobVerify, ctx: JobContext) -> dict[str, Any]:
+    """Missing or damaged blobs: proxies marked for re-fetch, hosted losses reported (``waystation_worker.verify``)."""
+    if ctx.settings is None:
+        raise RuntimeError('blob verify needs the worker settings (data directory)')
+    store = BlobStore.from_settings(ctx.settings)
+    result = await verify.verify(
+        ctx.db, store, deep=job.deep, repair=job.repair, now=ctx.now(), progress=ctx.progress, log_line=ctx.log
+    )
+    await ctx.log(result.summary())
+    try:
+        async with ctx.valkey.pipeline(transaction=False) as pipe:
+            pipe.hincrby(keys.MAINTENANCE_TOTALS, 'verify_runs', 1)
+            pipe.hincrby(keys.MAINTENANCE_TOTALS, 'verify_missing_blobs', result.missing_blobs)
+            pipe.hincrby(keys.MAINTENANCE_TOTALS, 'verify_damaged_blobs', result.damaged_blobs)
+            pipe.hincrby(keys.MAINTENANCE_TOTALS, 'verify_refetch_marked', result.proxy_marked)
+            pipe.hincrby(keys.MAINTENANCE_TOTALS, 'verify_hosted_lost', result.hosted_lost)
+            await pipe.execute()
+    except Exception as exc:  # metrics only
+        log.warning('could not record verify totals', extra={'error': repr(exc)})
+    if ctx.emitter is not None and (result.hosted_lost or result.proxy_marked):
+        lost = ', '.join(f'{name} ({n})' for name, n in sorted(result.lost_repositories.items())[:5])
+        summary = (
+            f'Blob verify: {result.hosted_lost} hosted assets lost ({lost}); '
+            if result.hosted_lost
+            else 'Blob verify: '
+        ) + f'{result.proxy_marked} cached assets will be re-fetched'
+        ctx.emitter.activity(
+            ActivityEvent(
+                type=EventType.BLOBS_MISSING,
+                ts=ctx.now(),
+                detail={
+                    'kind': BlobVerify.kind,
+                    'summary': summary,
+                    'hosted_lost': result.hosted_lost,
+                    'proxy_marked': result.proxy_marked,
                 },
             )
         )

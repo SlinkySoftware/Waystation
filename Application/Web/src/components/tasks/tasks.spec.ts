@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { JobRun, JobRunSummary, TaskEvent } from '@/api/types'
 import { useLiveStore } from '@/stores/live'
 
-import { appendLog, applyRunEvent, describeTaskSchedule, heartbeatAge, kindLabel, queueLabel, resultEntries, scheduleError, taskLabel, workerStateMeta } from './tasks'
+import { appendLog, applyRunEvent, describeTaskSchedule, heartbeatAge, kindLabel, queueLabel, resultEntries, runSummary, scheduleError, taskLabel, workerStateMeta } from './tasks'
 
 function run(partial: Partial<JobRunSummary> = {}): JobRunSummary {
   return {
@@ -32,6 +32,7 @@ describe('task labels', () => {
   it('names known kinds and passes unknown ones through', () => {
     expect(kindLabel('blob.gc')).toBe('Blob garbage collection')
     expect(kindLabel('index.apt')).toBe('index.apt')
+    expect(kindLabel('blob.verify')).toBe('Blob verify')
     expect(taskLabel({ kind: 'cleanup.run', owner: { kind: 'cleanup_policy', id: 'p1', name: 'npm-unused-90d' } })).toBe('Policy npm-unused-90d')
     expect(queueLabel('maintenance')).toBe('Maintenance')
     expect(queueLabel('custom')).toBe('custom')
@@ -41,6 +42,14 @@ describe('task labels', () => {
     expect(describeTaskSchedule('@every 10s')).toBe('Every 10 seconds')
     expect(describeTaskSchedule('@every 5m')).toBe('Every 5 minutes')
     expect(describeTaskSchedule('0 3 * * *')).toBe('Daily at 03:00 UTC')
+  })
+})
+
+describe('run summaries', () => {
+  it('summarises blob verify: re-fetches, or hosted losses first', () => {
+    expect(runSummary({ kind: 'blob.verify', result: { assets: 1200, proxy_marked: 3, hosted_lost: 0 } })).toBe('1,200 assets checked · 3 to re-fetch')
+    expect(runSummary({ kind: 'blob.verify', result: { assets: 1200, proxy_marked: 3, hosted_lost: 2 } })).toBe('2 hosted assets lost')
+    expect(runSummary({ kind: 'blob.verify', result: { hosted_lost: 1 } })).toBe('1 hosted asset lost')
   })
 })
 
