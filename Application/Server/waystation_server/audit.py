@@ -34,6 +34,7 @@ from waystation_common.audit import (
     sanitize,
 )
 from waystation_server.security.principal import Principal, PrincipalKind
+from waystation_server.webhooks import WebhookNotifier
 
 __all__ = ['AuditAction', 'AuditTarget', 'Outcome', 'actor_of', 'bind', 'diff', 'record', 'reset', 'target']
 
@@ -89,6 +90,12 @@ def _writer(ctx: _Context | None) -> AuditWriter | None:
     return writer if isinstance(writer, AuditWriter) else None
 
 
+def _notifier(ctx: _Context | None) -> WebhookNotifier | None:
+    services = getattr(getattr(getattr(ctx, 'app', None), 'state', None), 'services', None)
+    notifier = getattr(services, 'webhooks', None)
+    return notifier if isinstance(notifier, WebhookNotifier) else None
+
+
 def record(
     action: AuditAction,
     *,
@@ -111,18 +118,20 @@ def record(
         who = actor if actor is not None else state.get('principal')
         if isinstance(who, Principal):
             who = actor_of(who)
-        sink.record(
-            AuditEvent(
-                action=action.value,
-                outcome=outcome,
-                actor=who if isinstance(who, AuditActor) else ANONYMOUS,
-                target=target,
-                ip=state.get('client_ip'),
-                request_id=state.get('request_id'),
-                reason=reason,
-                details=sanitize(details),
-                changes=changes or [],
-            )
+        event = AuditEvent(
+            action=action.value,
+            outcome=outcome,
+            actor=who if isinstance(who, AuditActor) else ANONYMOUS,
+            target=target,
+            ip=state.get('client_ip'),
+            request_id=state.get('request_id'),
+            reason=reason,
+            details=sanitize(details),
+            changes=changes or [],
         )
+        sink.record(event)
+        notifier = _notifier(ctx)
+        if notifier is not None:  # content and repository changes are webhook events too (SPEC §4.12)
+            notifier.offer(event)
     except Exception:  # never fail the request because of the audit trail
         log.exception('audit record failed', extra={'action': getattr(action, 'value', str(action))})

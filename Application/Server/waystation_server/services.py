@@ -50,6 +50,7 @@ from waystation_server.security.sessions import SessionManager
 from waystation_server.security.tokens import TokenService
 from waystation_server.sse.hub import Hub
 from waystation_server.stats.storage import StorageStats
+from waystation_server.webhooks import WebhookNotifier
 
 log = logging.getLogger('waystation.server')
 
@@ -86,6 +87,7 @@ class Services:
     instance: (
         InstanceSettings  # stored instance settings over the environment defaults (``waystation_server.instance``)
     )
+    webhooks: WebhookNotifier  # webhook events -> the outbox (``waystation_server.webhooks``, SPEC §4.12)
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
@@ -135,6 +137,7 @@ class Services:
             return current.used_bytes, current.artifacts
 
         upstream = UpstreamClients(settings)
+        jobs = JobClient(redis, db)
         hub = Hub(redis, visible, figures)
         metrics.track(metrics.sse_clients, lambda: float(len(hub.subscribers)))
         return cls(
@@ -159,7 +162,8 @@ class Services:
             groups=rbac.groups,
             ldap=LdapAuthenticator(),
             oidc=OidcClient(UpstreamHttp(upstream)),
-            jobs=JobClient(redis, db),
+            jobs=jobs,
+            webhooks=WebhookNotifier(db, jobs, source=settings.base_url or None),
             audit=AuditWriter(audit_db.inserter(db), retention_days=settings.audit_retention_days),
             instance=InstanceSettings(db, settings),
             proxy=ProxyEngine(
@@ -225,6 +229,7 @@ class Services:
             log.warning('WAYSTATION_SECRET_KEYS is not set: upstream credentials cannot be stored')
         await self.emitter.start()
         self.audit.start()
+        self.webhooks.start()
         await self.proxy.coalescer.start()
         self.tokens.start()
         self.rbac.on_change.append(self.tokens.clear)  # resolved token principals carry materialised grants
@@ -245,6 +250,7 @@ class Services:
         await self.proxy.coalescer.aclose()
         await self.tokens.stop()
         await self.rbac.stop()
+        await self.webhooks.aclose()
         await self.audit.aclose()
         await self.emitter.aclose()
         await self.upstream.aclose()
