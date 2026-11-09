@@ -9,7 +9,7 @@ import exec from 'k6/execution';
 
 const BASE = __ENV.PERF_BASE || 'http://waystation-web:8080';
 const SCENARIO = __ENV.SCENARIO || 'hit_small';
-const T = JSON.parse(open(__ENV.PERF_TARGETS || '/run-dir/targets.json'));
+const T = JSON.parse(open('/run-dir/targets.json')); // mounted by compose.perf.yaml
 const num = (name, fallback) => Number(__ENV[name] || fallback);
 
 const HIT_VUS = num('PERF_HIT_VUS', 10);
@@ -276,7 +276,7 @@ export function handleSummary(data) {
     }
   }
   return {
-    [`${__ENV.PERF_RESULTS || '/results'}/k6-${SCENARIO}.json`]: JSON.stringify(out, null, 1),
+    [`/results/k6-${SCENARIO}.json`]: JSON.stringify(out, null, 1),
     stdout: `${SCENARIO}: ${Object.entries(out.metrics)
       .filter(([n]) => n.startsWith('ws_'))
       .map(([n, v]) => `${n} ${v['p(95)'] !== undefined ? `p95=${v['p(95)'].toFixed(2)} med=${v.med.toFixed(2)} n=${v.count}` : `count=${v.count}`}`)
