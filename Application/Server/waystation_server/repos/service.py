@@ -205,6 +205,7 @@ async def _build(
         description=body.description,
         proxy=proxy,
         format_options=options,
+        cleanup_policy_ids=existing.cleanup_policy_ids if existing else (),
         created_at=existing.created_at if existing else now,
         updated_at=now,
         created_by=existing.created_by if existing else principal.id,
@@ -221,7 +222,7 @@ async def _after_write(services: Services, repo: RepoConfig) -> None:
 
 async def create(services: Services, body: RepositoryWrite, principal: Principal) -> RepoConfig:
     if await services.catalog.get_ci(body.name) is not None:
-        raise Conflict('a repository with this name already exists')
+        raise Conflict('A repository with this name already exists.', field='name')
     repo = await _build(services, body, principal, None)
     await repos_db.insert(services.db, repo)
     await _after_write(services, repo)

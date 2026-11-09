@@ -10,7 +10,7 @@ import httpx
 import pytest
 from ws_fake_upstream import FakeUpstream, Respond, Seen
 
-from waystation_common.db.collections import ASSETS, REPOSITORIES
+from waystation_common.db.collections import ASSETS, DOCKER_TAGS, REPOSITORIES
 from waystation_common.events import keys
 from waystation_common.settings import Settings
 from waystation_server.problems import ResponseAborted
@@ -261,6 +261,17 @@ async def test_head_miss_asks_upstream_with_head(
     assert blob.headers['content-length'] == str(len(LAYER))
     assert blob.headers['docker-content-digest'] == digest(LAYER)
     assert await services.db[ASSETS].count_documents({}) == 0
+
+
+async def test_head_resolved_tag_is_recorded_for_browse(
+    client: httpx.AsyncClient, services: Services, registry: Registry, hub: str
+) -> None:
+    # The Docker daemon resolves a tag with HEAD and then pulls by digest: the tag must still show in browse.
+    head = await client.head('/repository/hub/v2/library/hello/manifests/latest')
+    assert head.headers['x-ws-cache'] == 'FETCHING'
+    await services.formats.plugin('docker').drain()  # type: ignore[union-attr]
+    tag = await services.db[DOCKER_TAGS].find_one({'repo_id': hub, 'image': 'library/hello', 'tag': 'latest'})
+    assert tag is not None and tag['manifest_digest'] == MANIFEST_DIGEST
 
 
 async def test_blob_digest_mismatch_caches_nothing(

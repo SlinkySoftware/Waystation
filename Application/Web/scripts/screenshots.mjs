@@ -1,25 +1,33 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Screenshot tour of the mock UI (both themes, desktop + mobile) for review. Runs in the official Playwright
-// image against a running `npm run dev:mock` (or a mock build), on the host network so the page is a secure
-// context (http://localhost) and the MSW service worker can start:
+// Screenshot tour (both themes, desktop + mobile) for review. Runs in the official Playwright image on the host
+// network (so http://localhost is a secure context), against either
+//   - the mock UI: a running `npm run dev:mock` (or a mock build); the MSW service worker supplies the data, or
+//   - a REAL stack (REAL=1): signs in through the form with ADMIN_PASSWORD_FILE and shows what the server has
+//     cached (run `make e2e-m0` first so docker, npm, apt and raw content exists). This is how the M0 tour
+//     (Documents/Notes/UI_TOUR_M0.md) is taken.
 //   docker run --rm --network host -v "$PWD:/src" -w /src/Application/Web mcr.microsoft.com/playwright:v1.65.0-noble \
 //     sh -c 'npm i --no-save --prefix /tmp/pw playwright@1.65.0 >/dev/null && NODE_PATH=/tmp/pw/node_modules node scripts/screenshots.mjs'
-// Env: BASE (default http://localhost:9173/ui/), OUT (default ../../Documents/Notes/screenshots/m0), ONLY (regex on shot name).
-import { mkdirSync } from 'node:fs'
+// Env: BASE (default http://localhost:9173/ui/, REAL: http://localhost:8080/ui/), OUT (default
+// ../../Documents/Notes/screenshots/m0), ONLY (regex on shot name), REAL=1, ADMIN_USER (default admin),
+// ADMIN_PASSWORD_FILE (REAL only; mount it read-only into the container).
+import { mkdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
 const require = createRequire(import.meta.url)
 const { chromium } = require('playwright')
 
-const BASE = process.env.BASE ?? 'http://localhost:9173/ui/'
+const REAL = process.env.REAL === '1'
+const BASE = process.env.BASE ?? (REAL ? 'http://localhost:8080/ui/' : 'http://localhost:9173/ui/')
+const ADMIN_USER = process.env.ADMIN_USER ?? 'admin'
+const ADMIN_PASSWORD = REAL ? readFileSync(process.env.ADMIN_PASSWORD_FILE ?? '/run/adminpw', 'utf8').trim() : ''
 const OUT = process.env.OUT ?? '../../Documents/Notes/screenshots/m0'
 const ONLY = process.env.ONLY ? new RegExp(process.env.ONLY) : null
 const WIDTHS = { desktop: { width: 1440, height: 900 }, mobile: { width: 390, height: 844 } }
 const THEMES = ['light', 'dark']
 
 /** name, path, signed in?, optional action before the shot, settle time (ms), full page? */
-const SHOTS = [
+const MOCK_SHOTS = [
   { name: 'sign-in', path: 'sign-in', auth: false },
   { name: 'dashboard', path: '', settle: 7000, full: true, fullMobile: true },
   { name: 'repositories', path: 'repositories', full: true },
@@ -42,11 +50,54 @@ const SHOTS = [
   { name: 'profile-tokens', path: 'profile', full: true },
   { name: 'create-token', path: 'profile', action: createToken },
   { name: 'token-created', path: 'profile', action: tokenCreated },
+  { name: 'audit-log', path: 'admin/audit?range=30d' },
+  { name: 'audit-failures', path: 'admin/audit?range=30d&action=auth.*&outcome=failure' },
+  { name: 'audit-record', path: 'admin/audit?range=30d&action=auth_provider.update', action: openAuditRecord },
 ]
+
+/** The real-server tour: the demo repositories and the content `make e2e-m0` caches. */
+const REAL_SHOTS = [
+  { name: 'sign-in', path: 'sign-in', auth: false },
+  { name: 'dashboard', path: '', settle: 7000, full: true, fullMobile: true },
+  { name: 'repositories', path: 'repositories', full: true },
+  { name: 'create-repository', path: 'repositories', action: createFlow },
+  { name: 'repo-dockerhub-proxy-setup', path: 'repositories/dockerhub-proxy', action: openSetup },
+  { name: 'repo-npm-setup', path: 'repositories/npm', action: openSetup },
+  { name: 'repo-debian-setup', path: 'repositories/debian', action: openSetup },
+  { name: 'repo-raw-releases-setup', path: 'repositories/raw-releases', action: openSetup },
+  { name: 'repo-debian-overview', path: 'repositories/debian', settle: 2500, full: true },
+  { name: 'browse-docker-images', path: 'repositories/dockerhub-proxy/browse', full: true },
+  { name: 'browse-docker-tags', path: 'repositories/dockerhub-proxy/browse?image=library%2Fnginx', full: true },
+  { name: 'browse-docker-manifest', path: 'repositories/dockerhub-proxy/browse?image=library%2Fnginx&ref=latest', full: true },
+  { name: 'browse-npm-versions', path: 'repositories/npm/browse?package=chalk', full: true },
+  { name: 'browse-apt-packages', path: 'repositories/debian/browse?suite=trixie', full: true },
+  { name: 'browse-raw', path: 'repositories/raw-releases/browse?path=jqlang%2Fjq%2Freleases%2Fdownload%2Fjq-1.8.1', full: true },
+  { name: 'browse-all', path: 'browse', full: true },
+  { name: 'activity', path: 'activity', settle: 2500, full: true },
+  { name: 'storage', path: 'storage', settle: 2500, full: true },
+  { name: 'repo-settings', path: 'repositories/dockerhub-proxy/settings', full: true },
+  { name: 'auth-providers', path: 'admin/auth-providers' },
+  { name: 'audit-log', path: 'admin/audit', settle: 2500, full: true },
+  { name: 'profile-tokens', path: 'profile', full: true }, // no token creation: it would put a live secret on screen
+]
+const SHOTS = REAL ? REAL_SHOTS : MOCK_SHOTS
+
+async function signIn(page) {
+  await page.goto(BASE + 'sign-in', { waitUntil: 'networkidle' })
+  await page.locator('input[autocomplete=username]').fill(ADMIN_USER)
+  await page.locator('input[autocomplete=current-password]').fill(ADMIN_PASSWORD)
+  await page.getByRole('button', { name: /sign in/i }).click()
+  await page.waitForURL((u) => !u.pathname.includes('sign-in'), { timeout: 15000 })
+}
 
 async function openSetup(page) {
   await page.getByRole('button', { name: /set me up/i }).first().click()
   await page.waitForTimeout(900)
+}
+
+async function openAuditRecord(page) {
+  await page.locator('.ws-table tbody tr, .audit__card').first().click()
+  await page.waitForTimeout(700)
 }
 
 async function createToken(page) {
@@ -97,13 +148,14 @@ for (const [device, viewport] of Object.entries(WIDTHS)) {
       await context.addInitScript(
         ([t, a]) => {
           localStorage.setItem('ws.theme', t)
-          if (a) localStorage.setItem('ws.mock.session', 'admin')
+          if (a === 'mock') localStorage.setItem('ws.mock.session', 'admin')
           else localStorage.removeItem('ws.mock.session')
         },
-        [theme, auth],
+        [theme, auth && !REAL ? 'mock' : ''],
       )
       const page = await context.newPage()
       page.on('pageerror', (e) => console.error(`[${device}/${theme}] page error: ${e.message}`))
+      if (REAL && auth) await signIn(page)
       for (const shot of SHOTS.filter((s) => (s.auth ?? true) === auth)) {
         if (ONLY && !ONLY.test(shot.name)) continue
         await page.goto(BASE + shot.path, { waitUntil: 'networkidle' }).catch(() => undefined)

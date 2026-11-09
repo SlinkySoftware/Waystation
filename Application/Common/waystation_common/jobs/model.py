@@ -123,3 +123,31 @@ class StatsRollup(JobPayload):
 
     def dedupe_key(self) -> str | None:
         return 'stats.rollup'
+
+
+class CleanupRun(JobPayload):
+    """Run a cleanup policy on its attached repositories (SPEC §4.8; ``waystation_worker.cleanup``). Scheduled runs
+    come from the ``job_definitions`` entry ``cleanup:<policy id>``; manual runs share the dedupe key."""
+
+    kind: ClassVar[str] = 'cleanup.run'
+    queue: ClassVar[Queue] = 'maintenance'
+    max_attempts: ClassVar[int] = 3
+
+    policy_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'cleanup:{self.policy_id}'
+
+
+class BlobGc(JobPayload):
+    """Mark-and-sweep blob garbage collection plus the orphan upload sweep (SPEC §4.8; ``waystation_worker.gc``)."""
+
+    kind: ClassVar[str] = 'blob.gc'
+    queue: ClassVar[Queue] = 'maintenance'
+    max_attempts: ClassVar[int] = 3
+
+    grace_s: int = 24 * 3600  # a blob is deleted only after being unreferenced (and unclaimed) this long
+    upload_age_s: int = 24 * 3600  # orphan upload files older than this are removed
+
+    def dedupe_key(self) -> str | None:
+        return 'blob.gc'

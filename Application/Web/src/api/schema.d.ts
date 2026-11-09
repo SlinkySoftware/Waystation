@@ -364,6 +364,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Audit log, newest first (needs `audit-read`; `admin` implies it)
+         * @description Append-only record of security-relevant actions (SPEC §4.11). Filters combine with AND; `action` may be
+         *     repeated (OR) and accepts a category wildcard such as `token.*`. Cursor paging, newest first.
+         */
+        get: operations["listAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the matching audit records (streamed CSV or NDJSON, newest first, at most 100 000 records)
+         * @description Same filters as `GET /audit`. NDJSON lines are `AuditRecord` objects. CSV has one row per record with
+         *     `changes` and `details` as JSON text; cells a spreadsheet would treat as a formula are prefixed with `'`.
+         *     The response is an attachment. When the limit is reached the export stops and says so: the last NDJSON line
+         *     is `{"truncated": true}`, the last CSV row starts with `# truncated`.
+         */
+        get: operations["exportAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories": {
         parameters: {
             query?: never;
@@ -613,6 +657,187 @@ export interface paths {
         };
         /** Packages listed by a cached index (suite/component/arch), with cache state per package */
         get: operations["listAptPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Cleanup policies attached to a repository (needs `manage` on it) */
+        get: operations["getRepositoryCleanup"];
+        /** Attach cleanup policies to a repository (replaces the list; needs `manage` on it) */
+        put: operations["setRepositoryCleanup"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cleanup-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cleanup policies by name (needs `admin`, or `manage` on a repository to pick policies to attach) */
+        get: operations["listCleanupPolicies"];
+        put?: never;
+        /** Create a cleanup policy (needs `admin`) */
+        post: operations["createCleanupPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cleanup-policies/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dry run of a (saved or draft) policy - what a run would remove now, with sizes; removes nothing
+         * @description Evaluates the criteria against the repositories exactly as a run does (the same code), so the preview
+         *     equals the result of running the policy now. `limit: 0` returns only the totals (live counts in the editor).
+         *     Repositories: the request's list; else the saved policy's attached repositories (`policy_id`); else every
+         *     repository of the policy's format. Needs `admin`, or `manage` on every listed repository.
+         */
+        post: operations["previewCleanup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cleanup-policies/{policy_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: components["parameters"]["PolicyId"];
+            };
+            cookie?: never;
+        };
+        /** One cleanup policy */
+        get: operations["getCleanupPolicy"];
+        /** Replace a cleanup policy (needs `admin`) */
+        put: operations["updateCleanupPolicy"];
+        post?: never;
+        /** Delete a cleanup policy (detaches it from every repository; needs `admin`) */
+        delete: operations["deleteCleanupPolicy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cleanup-policies/{policy_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: components["parameters"]["PolicyId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a policy now on its attached repositories (a worker job; needs `admin`) */
+        post: operations["runCleanupPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cleanup-policies/{policy_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: components["parameters"]["PolicyId"];
+            };
+            cookie?: never;
+        };
+        /** The policy's recent runs (newest first, up to 50) with progress and what they removed */
+        get: operations["listCleanupRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/maintenance/gc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Blob garbage collection status - schedule, grace period, pending and recent runs (needs `admin`) */
+        get: operations["getBlobGc"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/maintenance/gc/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run blob garbage collection now (a worker job; needs `admin`) */
+        post: operations["runBlobGc"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search packages, images and files across every repository the principal can browse
+         * @description Name search: `q` is `<name prefix>[ <version prefix>]`, case-insensitive; the name prefix matches a full name
+         *     or its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`). Sources: docker tags,
+         *     npm packages, apt and yum index listings, cached files (by file name; not docker layers). Results are ordered
+         *     by the matched name. An empty `q` lists everything.
+         *     Digest search: `sha256:<8-64 hex digits>` or 64 hex digits finds every cached file with that blob in any
+         *     repository and format, and the docker tags pointing at it.
+         *     Hidden repositories are never searched: they appear in no result, count or facet value.
+         *     Facets (first page): counts per value with every other filter applied.
+         */
+        get: operations["search"];
         put?: never;
         post?: never;
         delete?: never;
@@ -876,7 +1101,7 @@ export interface components {
             csrf_token: string;
             /**
              * @description Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
-             *     replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`,
+             *     replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
              *     `admin`.
              */
             capabilities: string[];
@@ -1569,6 +1794,62 @@ export interface components {
             items: components["schemas"]["AptPackage"][];
             next_cursor: string | null;
         };
+        /** @enum {string} */
+        SearchKind: "package" | "image" | "file";
+        SearchBrowseLink: {
+            repository: string;
+            /** @description Query of the repository Browse view: `image` + `ref` (docker), `package` (npm), `suite` + `arch` + `q` (apt), `path` (the folder listing of every other format) */
+            query: {
+                [key: string]: string;
+            };
+        };
+        SearchHit: {
+            kind: components["schemas"]["SearchKind"];
+            format: components["schemas"]["Format"];
+            repository: string;
+            repository_type: components["schemas"]["RepositoryType"];
+            /** @description Package, image or file name */
+            name: string;
+            /** @description Version (packages) or tag (images) */
+            version: string | null;
+            /** @description Where it is listed: suite/component and architecture (apt), arch (yum) */
+            qualifier: string | null;
+            /** @description File path in the repository (files */
+            path: string | null;
+            size: number | null;
+            /** @description Blob sha256 (files) or manifest digest (images) */
+            sha256: string | null;
+            /** Format: date-time */
+            updated_at: string | null;
+            /** @description In the cache (a listed apt/yum package may not be); null if unknown */
+            cached: boolean | null;
+            browse: components["schemas"]["SearchBrowseLink"];
+        };
+        SearchFacetValue: {
+            value: string;
+            count: number;
+        };
+        SearchFacets: {
+            format: components["schemas"]["SearchFacetValue"][];
+            repository: components["schemas"]["SearchFacetValue"][];
+            kind: components["schemas"]["SearchFacetValue"][];
+            type: components["schemas"]["SearchFacetValue"][];
+            /** @description Matches with every filter applied */
+            total: number;
+            /** @description Counting stopped early: counts are lower bounds */
+            capped: boolean;
+        };
+        SearchPage: {
+            /**
+             * @description `digest` when the query is a sha256 digest (or a prefix of one)
+             * @enum {string}
+             */
+            mode: "name" | "digest";
+            items: components["schemas"]["SearchHit"][];
+            next_cursor: string | null;
+            /** @description First page only, unless `facets=false` */
+            facets: components["schemas"]["SearchFacets"] | null;
+        };
         /** @description Sparkline values per KPI over the range, oldest first, equally spaced (`step_s`) */
         Sparks: {
             requests_per_s: number[];
@@ -1834,6 +2115,249 @@ export interface components {
             ts: components["schemas"]["Timestamp"];
             event: components["schemas"]["ActivityEvent"];
         };
+        /**
+         * @description The format a policy applies to, or `*` for every format
+         * @enum {string}
+         */
+        CleanupFormat: "*" | "docker" | "npm" | "apt" | "raw" | "yum" | "pypi" | "maven" | "go" | "helm" | "terraform" | "galaxy" | "swift" | "nuget" | "cargo" | "rubygems" | "composer" | "conda" | "apk" | "huggingface";
+        /**
+         * @description Every criterion that is set must match (AND); at least one selecting criterion is required. Docker policies
+         *     select tags (name = image, version = tag); `untagged_older_than_days` also removes manifests no tag reaches.
+         *     Only content is removed (never indexes or packuments); blob GC reclaims the space later.
+         */
+        CleanupCriteria: {
+            /** @description Not downloaded for this many days (never downloaded = counted from when it was cached) */
+            last_downloaded_older_than_days?: number | null;
+            /** @description Cached or published more than this many days ago (docker - tag last updated) */
+            published_older_than_days?: number | null;
+            /** @description Always keep the newest N versions of each component (format version order; docker - tags by recency) */
+            keep_latest_n_versions?: number | null;
+            /** @description Regular expression the component name must contain a match of */
+            name_include?: string | null;
+            /** @description Regular expression that protects matching names */
+            name_exclude?: string | null;
+            /** @description Regular expression the version or tag must contain a match of */
+            version_include?: string | null;
+            /** @description Regular expression that protects matching versions or tags */
+            version_exclude?: string | null;
+            /**
+             * @description Only pre-release versions (semver `-rc.1`, Debian `~beta`, tags such as `nightly`)
+             * @default false
+             */
+            prerelease_only: boolean;
+            /** @description Docker only - manifests no tag reaches, updated more than this many days ago */
+            untagged_older_than_days?: number | null;
+        };
+        CleanupPolicyWrite: {
+            name: components["schemas"]["RepositoryName"];
+            description?: string;
+            format: components["schemas"]["CleanupFormat"];
+            criteria: components["schemas"]["CleanupCriteria"];
+            /** @description When it runs: 5-field UTC cron (`0 3 * * *`) or a macro such as `@daily`; null = manual only */
+            schedule?: string | null;
+            /**
+             * @description Scheduled runs happen only while enabled
+             * @default true
+             */
+            enabled: boolean;
+        };
+        JobProgress: {
+            done: number;
+            total: number | null;
+            message: string | null;
+        };
+        CleanupRunSummary: {
+            /** @description Run id (one per attempt) */
+            id: string;
+            /** @enum {string} */
+            status: "running" | "succeeded" | "failed" | "dead" | "interrupted";
+            /** @enum {string} */
+            trigger: "schedule" | "manual";
+            started_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            finished_at: string | null;
+            progress: components["schemas"]["JobProgress"];
+            /** @description Items removed (assets */
+            removed: number;
+            /** @description Bytes of the removed assets (blob GC reclaims them unless another asset shares the blob) */
+            bytes: number;
+            error: string | null;
+        };
+        CleanupRunList: {
+            items: components["schemas"]["CleanupRunSummary"][];
+        };
+        CleanupPolicy: {
+            id: string;
+            name: string;
+            description: string;
+            format: components["schemas"]["CleanupFormat"];
+            criteria: components["schemas"]["CleanupCriteria"];
+            schedule: string | null;
+            enabled: boolean;
+            /** @description Attached repositories the caller can see */
+            repositories: string[];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            /**
+             * Format: date-time
+             * @description Next scheduled run (null = manual only or disabled)
+             */
+            next_run_at: string | null;
+            last_run: components["schemas"]["CleanupRunSummary"] | null;
+        };
+        CleanupPolicyList: {
+            items: components["schemas"]["CleanupPolicy"][];
+        };
+        CleanupPreviewRequest: {
+            format: components["schemas"]["CleanupFormat"];
+            criteria: components["schemas"]["CleanupCriteria"];
+            /** @description A saved policy - preview on its attached repositories */
+            policy_id?: string | null;
+            repositories?: string[] | null;
+            cursor?: string | null;
+            /** @default 50 */
+            limit: number;
+        };
+        CleanupCandidate: {
+            repository: string;
+            /**
+             * @description `asset` = a cached file; docker - `tag`, `manifest` (no tag reaches it any more), `layer` (no remaining manifest uses it)
+             * @enum {string}
+             */
+            kind: "asset" | "tag" | "manifest" | "layer";
+            /** @description Component name (docker - the image) */
+            name: string;
+            /** @description Version (docker - tag or digest) */
+            version: string | null;
+            path: string;
+            /** @description Bytes of the asset removed (0 when only an index record goes) */
+            size: number;
+            /** Format: date-time */
+            created_at: string | null;
+            /** Format: date-time */
+            last_downloaded_at: string | null;
+            /** @description Why it matches, e.g. `not downloaded for 120 days` */
+            reason: string;
+        };
+        CleanupRepositoryTotal: {
+            name: string;
+            format: components["schemas"]["Format"];
+            count: number;
+            bytes: number;
+            /** @description Too large to evaluate completely in a preview (a run evaluates everything) */
+            truncated: boolean;
+        };
+        CleanupPreview: {
+            count: number;
+            bytes: number;
+            truncated: boolean;
+            repositories: components["schemas"]["CleanupRepositoryTotal"][];
+            items: components["schemas"]["CleanupCandidate"][];
+            next_cursor: string | null;
+        };
+        RepositoryCleanup: {
+            repository: string;
+            policies: components["schemas"]["CleanupPolicy"][];
+        };
+        RepositoryCleanupUpdate: {
+            policy_ids: string[];
+        };
+        JobAccepted: {
+            job_id: string;
+            /**
+             * @description `merged` - joined a pending run; `rerun` - runs once more after the current run
+             * @enum {string}
+             */
+            status: "enqueued" | "merged" | "rerun" | "running";
+        };
+        GcRun: {
+            id: string;
+            /** @enum {string} */
+            status: "running" | "succeeded" | "failed" | "dead" | "interrupted";
+            /** @enum {string} */
+            trigger: "schedule" | "manual";
+            started_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            finished_at: string | null;
+            progress: components["schemas"]["JobProgress"];
+            freed_blobs: number;
+            freed_bytes: number;
+            /** @description Blobs newly found unreferenced (deleted once unreferenced for the grace period) */
+            marked: number;
+            /** @description Orphan upload files removed */
+            uploads_removed: number;
+            error: string | null;
+        };
+        GcStatus: {
+            enabled: boolean;
+            schedule: string;
+            /** @description A blob is deleted only after being unreferenced this long */
+            grace_hours: number;
+            /** Format: date-time */
+            next_run_at: string | null;
+            /** @description Blobs marked unreferenced */
+            pending_blobs: number;
+            pending_bytes: number;
+            /** @description Recent runs, newest first (up to 20) */
+            runs: components["schemas"]["GcRun"][];
+        };
+        /** @enum {string} */
+        AuditOutcome: "success" | "failure";
+        /** @description Who acted. `system` = the server or a worker job acting on its own. */
+        AuditActor: {
+            /** @enum {string} */
+            kind: "user" | "service_account" | "anonymous" | "system";
+            id: string | null;
+            /** @description Username, service account name, `anonymous` or `system` */
+            name: string;
+            /**
+             * @description How the request was authenticated
+             * @enum {string}
+             */
+            auth: "session" | "api_token" | "basic" | "registry_token" | "none" | "system";
+            /** @description Sign-in source of the user (`local`, `ldap:<id>`, `oidc:<id>`) */
+            provider: string | null;
+            /** @description The API token used */
+            token_id: string | null;
+        };
+        AuditTarget: {
+            /** @description `user`, `service_account`, `api_token`, `auth_provider`, `repository`, `session`, `settings`... */
+            kind: string;
+            id: string | null;
+            name: string | null;
+        };
+        /** @description One changed field. Secret values are never recorded; `redacted` marks a secret that changed. */
+        AuditChange: {
+            /** @description Dotted path, e.g. `proxy.upstream_url` */
+            field: string;
+            /** @description Previous value (JSON); null when absent */
+            before: unknown;
+            /** @description New value (JSON); null when removed */
+            after: unknown;
+            redacted: boolean;
+        };
+        AuditRecord: {
+            id: string;
+            ts: components["schemas"]["Timestamp"];
+            /** @description `<category>.<verb>`, e.g. `auth.login`, `repository.update` */
+            action: string;
+            outcome: components["schemas"]["AuditOutcome"];
+            actor: components["schemas"]["AuditActor"];
+            target: components["schemas"]["AuditTarget"] | null;
+            client_ip: string | null;
+            request_id: string | null;
+            /** @description Why it failed (`bad_credentials`, `locked`...); null on success */
+            reason: string | null;
+            /** @description Action-specific facts (plain values; never secrets) */
+            details: {
+                [key: string]: unknown;
+            };
+            changes: components["schemas"]["AuditChange"][];
+        };
+        AuditPage: {
+            items: components["schemas"]["AuditRecord"][];
+            next_cursor: string | null;
+        };
     };
     responses: {
         /** @description Not signed in */
@@ -1902,10 +2426,22 @@ export interface components {
         /** @description Only events at or before this time (RFC 3339) */
         Until: string;
         TrafficMetric: "bytes" | "requests";
+        PolicyId: string;
         TokenId: string;
         AccountId: string;
         /** @description Image name within the repository, e.g. `library/nginx` */
         DockerImage: string;
+        /** @description Records at or after this time (RFC 3339) */
+        AuditFrom: string;
+        /** @description Records before this time (RFC 3339) */
+        AuditTo: string;
+        /** @description Who acted, by name (`admin`, `ci-bot`, `anonymous`) or id */
+        AuditActor: string;
+        /** @description An action (`token.create`) or a category wildcard (`token.*`); repeat for several */
+        AuditAction: string[];
+        /** @description The object acted on, by name (`dockerhub-proxy`) or id */
+        AuditTarget: string;
+        AuditOutcome: components["schemas"]["AuditOutcome"];
     };
     requestBodies: never;
     headers: never;
@@ -2537,6 +3073,81 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    listAudit: {
+        parameters: {
+            query?: {
+                /** @description Records at or after this time (RFC 3339) */
+                from?: components["parameters"]["AuditFrom"];
+                /** @description Records before this time (RFC 3339) */
+                to?: components["parameters"]["AuditTo"];
+                /** @description Who acted, by name (`admin`, `ci-bot`, `anonymous`) or id */
+                actor?: components["parameters"]["AuditActor"];
+                /** @description An action (`token.create`) or a category wildcard (`token.*`); repeat for several */
+                action?: components["parameters"]["AuditAction"];
+                /** @description The object acted on, by name (`dockerhub-proxy`) or id */
+                target?: components["parameters"]["AuditTarget"];
+                outcome?: components["parameters"]["AuditOutcome"];
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    exportAudit: {
+        parameters: {
+            query?: {
+                /** @description Records at or after this time (RFC 3339) */
+                from?: components["parameters"]["AuditFrom"];
+                /** @description Records before this time (RFC 3339) */
+                to?: components["parameters"]["AuditTo"];
+                /** @description Who acted, by name (`admin`, `ci-bot`, `anonymous`) or id */
+                actor?: components["parameters"]["AuditActor"];
+                /** @description An action (`token.create`) or a category wildcard (`token.*`); repeat for several */
+                action?: components["parameters"]["AuditAction"];
+                /** @description The object acted on, by name (`dockerhub-proxy`) or id */
+                target?: components["parameters"]["AuditTarget"];
+                outcome?: components["parameters"]["AuditOutcome"];
+                format?: "csv" | "ndjson";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The export file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                    "application/x-ndjson": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
     listRepositories: {
         parameters: {
             query?: {
@@ -2972,6 +3583,337 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    getRepositoryCleanup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attached policies, in run order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryCleanup"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setRepositoryCleanup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepositoryCleanupUpdate"];
+            };
+        };
+        responses: {
+            /** @description Attached policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryCleanup"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listCleanupPolicies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleanupPolicyList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createCleanupPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CleanupPolicyWrite"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleanupPolicy"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    previewCleanup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CleanupPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description What would be removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleanupPreview"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getCleanupPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: components["parameters"]["PolicyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleanupPolicy"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateCleanupPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: components["parameters"]["PolicyId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CleanupPolicyWrite"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleanupPolicy"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteCleanupPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: components["parameters"]["PolicyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    runCleanupPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: components["parameters"]["PolicyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued (or merged into a pending run of the same policy) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCleanupRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_id: components["parameters"]["PolicyId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Runs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleanupRunList"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getBlobGc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GcStatus"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    runBlobGc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued (or merged into a pending run) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    search: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Repeat to select several (OR) */
+                format?: components["schemas"]["Format"][];
+                /** @description Repository names; repeat to select several (OR) */
+                repository?: string[];
+                kind?: components["schemas"]["SearchKind"][];
+                /** @description Repository types */
+                type?: components["schemas"]["RepositoryType"][];
+                /** @description Only what is in the cache (leaves out apt/yum index listings; downloaded packages are still found as files) */
+                cached?: boolean;
+                /** @description Facet counts on the first page */
+                facets?: boolean;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of results (and facets on the first page) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPage"];
+                };
+            };
+            /** @description Invalid cursor */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getStatsSummary: {

@@ -117,6 +117,12 @@ async def runs_for_job(db: Database, job_id: str) -> list[Document]:
     return [doc async for doc in db[JOB_RUNS].find({'job_id': job_id}).sort('started_at', 1)]
 
 
+async def runs_by_dedupe(db: Database, dedupe_key: str, *, limit: int = 50) -> list[Document]:
+    """Newest first, without logs (index ``dedupe_started``)."""
+    cursor = db[JOB_RUNS].find({'dedupe_key': dedupe_key}, {'log': 0}).sort('started_at', -1).limit(limit)
+    return [doc async for doc in cursor]
+
+
 async def recent_runs(db: Database, *, kind: str | None = None, limit: int = 100) -> list[Document]:
     query = {'kind': kind} if kind else {}
     return [doc async for doc in db[JOB_RUNS].find(query, {'log': 0}).sort('started_at', -1).limit(limit)]
@@ -184,3 +190,11 @@ async def worker_remove(db: Database, worker_id: str) -> None:
 
 async def list_workers(db: Database) -> list[Document]:
     return [doc async for doc in db[WORKERS].find({}).sort('started_at', 1)]
+
+
+async def worker_presence(db: Database, *, alive_since: datetime) -> tuple[int, int]:
+    """``(live workers, live scheduler leaders)``: workers whose heartbeat is newer than ``alive_since``."""
+    query: dict[str, Any] = {'heartbeat_at': {'$gte': alive_since}}
+    live = await db[WORKERS].count_documents(query)
+    leaders = await db[WORKERS].count_documents({**query, 'leader': True}) if live else 0
+    return live, leaders

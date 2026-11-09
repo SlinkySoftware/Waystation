@@ -27,7 +27,7 @@ from cryptography.x509.oid import NameOID
 from pydantic import SecretStr
 from ws_testing import asgi_client
 
-from waystation_common.db.collections import AUTH_PROVIDERS, GROUPS, USERS
+from waystation_common.db.collections import AUDIT, AUTH_PROVIDERS, GROUPS, USERS
 from waystation_common.settings import Settings
 from waystation_server.bootstrap import ensure_bootstrap_admin
 from waystation_server.security import ldap as ldap_mod
@@ -190,6 +190,13 @@ def basic(username: str, password: str) -> dict[str, str]:
     return {'Authorization': 'Basic ' + base64.b64encode(f'{username}:{password}'.encode()).decode()}
 
 
+async def audited(services: Services, action: str, **match: Any) -> list[dict[str, Any]]:
+    """The audit records of ``action`` matching ``match`` (T-S10), newest first, after flushing the writer."""
+    await services.audit.flush()
+    cursor = services.db[AUDIT].find({'action': action, **match}, sort=[('ts', -1), ('_id', -1)])
+    return [doc async for doc in cursor]
+
+
 # ---------------------------------------------------------------------------- connection tests
 async def test_connection_starttls_and_ldaps(client: httpx.AsyncClient, admin: dict[str, str]) -> None:
     for body in (openldap(), openldap(ldap={'connection': {'servers': [f'ldaps://{OPENLDAP}'], 'security': 'ldaps'}})):
@@ -324,12 +331,29 @@ async def test_sign_in_with_ldap_password(services: Services, client: httpx.Asyn
         assert response.json()['detail'] == 'invalid username or password'
     assert await services.db[USERS].find_one({'username': 'carol'}) is None  # locked: never provisioned
 
+    source = f'ldap:{provider["id"]}'
+    (login,) = await audited(services, 'auth.login', outcome='success', **{'target.name': 'alice'})
+    assert login['principal']['provider'] == source and login['details']['via'] == 'ui'
+    assert len(await audited(services, 'user.create', **{'target.name': 'alice', 'details.provider': source})) == 1
+    assert len(await audited(services, 'user.link', **{'target.name': 'alice'})) == 1
+    (sync,) = await audited(services, 'user.groups_sync', **{'target.name': 'alice'})
+    assert sync['changes'][0]['after'] == ['developers', 'waystation-users']
+    failed = await audited(services, 'auth.login', outcome='failure')
+    assert {d['details']['username']: d['reason'] for d in failed} == {
+        'alice': 'bad_credentials',
+        'carol': 'bad_credentials',
+        'nobody': 'unknown_user',
+    }
+    assert all(d['details']['provider'] in (source, None) for d in failed)
+
 
 async def test_require_group_gate(services: Services, client: httpx.AsyncClient, admin: dict[str, str]) -> None:
     await create(client, admin, openldap(ldap={'groups': {'require_group': f'CN=waystation-users, {IPA_GROUPS}'}}))
     assert (await sign_in(services, 'alice')).status_code == 200
     assert (await sign_in(services, 'dave')).status_code == 401
     assert await services.db[USERS].find_one({'username': 'dave'}) is None
+    (refused,) = await audited(services, 'auth.login', outcome='failure', **{'details.username': 'dave'})
+    assert refused['reason'] == 'not_in_group'
 
 
 async def test_group_sync_maps_roles(services: Services, client: httpx.AsyncClient, admin: dict[str, str]) -> None:
@@ -400,6 +424,8 @@ async def test_unavailable_directory_fails_closed(
 ) -> None:
     await create(client, admin, openldap(ldap={'connection': {'servers': ['waystation-mongodb:389']}}))
     assert (await sign_in(services, 'alice')).status_code == 401
+    (failed,) = await audited(services, 'auth.login', outcome='failure', **{'details.username': 'alice'})
+    assert failed['reason'] == 'directory_unavailable'
 
 
 async def test_samba_sign_in_disabled_and_nested(

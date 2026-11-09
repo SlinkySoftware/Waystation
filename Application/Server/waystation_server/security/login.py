@@ -9,7 +9,8 @@
   provider first, then the others; the first directory that knows the username decides. A success links and syncs
   the Waystation user (``security.external``). Directories enforce their own lockout.
 - Failures are indistinguishable: unknown user, wrong password, disabled, locked, not in the required group or
-  directory unavailable all raise the same ``Unauthorized`` (the reason is logged).
+  directory unavailable all raise the same ``Unauthorized`` (the reason is logged and goes to the audit record
+  ``auth.login`` / failure; the attempt that locks an account also records ``auth.lockout``).
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from waystation_common.errors import Unauthorized
+from waystation_server import audit
+from waystation_server.audit import AuditAction, Outcome
 from waystation_server.db import users as users_db
 from waystation_server.security import passwords, ratelimit
 from waystation_server.security.external import LinkRefused, link_identity
@@ -36,6 +39,19 @@ GENERIC = 'invalid username or password'
 LOCAL = 'local'
 
 
+_LDAP_REASONS = {'bad_password': 'bad_credentials'}
+
+
+class LoginFailed(Unauthorized):
+    """The generic sign-in failure, carrying the real reason for the audit record (never for the client)."""
+
+    def __init__(self, reason: str, user: UserRecord | None = None, provider: str | None = None) -> None:
+        super().__init__(GENERIC)
+        self.reason = reason
+        self.user = user
+        self.provider = provider
+
+
 async def verify_login(
     svc: Services,
     *,
@@ -50,6 +66,21 @@ async def verify_login(
     settings = svc.settings
     await ratelimit.check(svc.valkey, 'login', client_ip, limit=settings.login_rate_limit, window_s=WINDOW_S)
     name = username.strip()
+    try:
+        return await _verify(svc, name, password, provider=provider, interactive=interactive)
+    except LoginFailed as exc:
+        user = exc.user
+        audit.record(
+            AuditAction.AUTH_LOGIN,
+            outcome=Outcome.FAILURE,
+            reason=exc.reason,
+            target=audit.target('user', user.id if user else None, user.username if user else name[:256]),
+            details={'username': name[:256], 'via': 'ui' if interactive else 'docker', 'provider': exc.provider},
+        )
+        raise
+
+
+async def _verify(svc: Services, name: str, password: str, *, provider: str | None, interactive: bool) -> UserRecord:
     user = await users_db.get_by_username(svc.db, name)
     if user is not None and user.source == LOCAL and user.password_hash:
         return await _verify_local(svc, user, password)
@@ -57,10 +88,10 @@ async def verify_login(
     if not candidates:
         await passwords.verify_password(None, password)  # same work as a wrong password
         log.info('sign-in failed', extra={'reason': 'unknown_user'})
-        raise Unauthorized(GENERIC)
+        raise LoginFailed('unknown_user', user)
     if user is not None and user.disabled:
         log.info('sign-in refused', extra={'user_id': user.id, 'reason': 'disabled'})
-        raise Unauthorized(GENERIC)
+        raise LoginFailed('disabled', user)
     return await _verify_ldap(svc, candidates, name, password, interactive=interactive)
 
 
@@ -69,17 +100,24 @@ async def _verify_local(svc: Services, user: UserRecord, password: str) -> UserR
     ok = await passwords.verify_password(user.password_hash, password)
     now = datetime.now(UTC)
     if user.disabled or (user.locked_until is not None and user.locked_until > now):
-        log.info('sign-in refused', extra={'user_id': user.id, 'reason': 'disabled' if user.disabled else 'locked'})
-        raise Unauthorized(GENERIC)
+        reason = 'disabled' if user.disabled else 'locked'
+        log.info('sign-in refused', extra={'user_id': user.id, 'reason': reason})
+        raise LoginFailed(reason, user, LOCAL)
     if not ok:
+        locked_until = now + timedelta(minutes=settings.login_lockout_minutes)
         failures = await users_db.record_failure(
-            svc.db,
-            user.id,
-            threshold=settings.login_lockout_failures,
-            locked_until=now + timedelta(minutes=settings.login_lockout_minutes),
+            svc.db, user.id, threshold=settings.login_lockout_failures, locked_until=locked_until
         )
         log.info('sign-in failed', extra={'user_id': user.id, 'reason': 'password', 'failures': failures})
-        raise Unauthorized(GENERIC)
+        if failures >= settings.login_lockout_failures:
+            audit.record(
+                AuditAction.AUTH_LOCKOUT,
+                outcome=Outcome.FAILURE,
+                reason='too_many_failures',
+                target=audit.target('user', user.id, user.username),
+                details={'failures': failures, 'locked_until': locked_until},
+            )
+        raise LoginFailed('bad_credentials', user, LOCAL)
     rehash = None
     if user.password_hash and passwords.needs_rehash(user.password_hash):
         rehash = await passwords.hash_password(password)
@@ -101,6 +139,7 @@ async def _ldap_candidates(svc: Services, user: UserRecord | None, provider: str
 async def _verify_ldap(
     svc: Services, candidates: list[ProviderRecord], username: str, password: str, *, interactive: bool
 ) -> UserRecord:
+    unavailable = False
     for record in candidates:
         try:
             assert record.ldap is not None  # _ldap_candidates
@@ -126,10 +165,11 @@ async def _verify_ldap(
                     'error': result.detail,
                 },
             )
+            unavailable = unavailable or result.outcome != 'not_found'
             continue
         if result.outcome != 'ok' or result.identity is None:
             log.info('sign-in failed', extra={'provider': record.id, 'reason': result.outcome, 'server': result.server})
-            raise Unauthorized(GENERIC)
+            raise LoginFailed(_LDAP_REASONS.get(result.outcome, result.outcome), provider=record.source)
         if result.detail == 'cached':
             cached = await users_db.get_by_username(svc.db, result.identity.username)
             if cached is not None and not cached.disabled and not cached.password_hash:
@@ -138,8 +178,8 @@ async def _verify_ldap(
             user = await link_identity(svc.db, result.identity, provision=True)
         except LinkRefused as exc:
             log.info('sign-in refused', extra={'provider': record.id, 'reason': exc.reason})
-            raise Unauthorized(GENERIC) from None
+            raise LoginFailed('link_refused', provider=record.source) from None
         log.info('signed in', extra={'user_id': user.id, 'provider': record.id, 'server': result.server})
         return user
     log.info('sign-in failed', extra={'reason': 'unknown_user'})
-    raise Unauthorized(GENERIC)
+    raise LoginFailed('directory_unavailable' if unavailable else 'unknown_user')

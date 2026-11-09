@@ -166,6 +166,9 @@ class Settings(BaseSettings):
     token_failure_limit: int = Field(
         60, ge=1, description='Rejected API tokens allowed per client address per 5 minutes (then 429).'
     )
+    audit_retention_days: int = Field(
+        400, ge=1, le=36500, description='Days an audit record is kept (applies to records written from then on).'
+    )
 
     # --- network and proxies
     trust_forwarded: bool = Field(default=False, description='Trust X-Forwarded-* from TRUSTED_PROXIES.')

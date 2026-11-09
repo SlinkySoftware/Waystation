@@ -387,7 +387,7 @@ class ProxyEngine:
         proxy = self._proxy(req.repo)
         asset = await self._cached(req.repo, spec)
         if asset is not None and (proxy.offline or self._fresh(asset, spec, proxy)):
-            return self._hit(req, asset, CacheState.HIT, started)
+            return self._hit(req, asset, CacheState.HIT, started, spec.artifact)
         if asset is None:
             if proxy.offline or await self._negative(req.repo, spec):
                 self._account(req, CacheState.HIT, 404, 0, started)
@@ -403,7 +403,7 @@ class ProxyEngine:
                 return response
             asset = await self._cached(req.repo, spec)  # the owner went away: maybe it got that far
             if asset is not None and self._fresh(asset, spec, proxy):
-                return self._hit(req, asset, CacheState.COALESCED, started)
+                return self._hit(req, asset, CacheState.COALESCED, started, spec.artifact)
         self._account_error(req, started)
         raise UpstreamError('the upstream fetch was abandoned repeatedly')
 
@@ -785,7 +785,7 @@ class ProxyEngine:
                 asset = await self._cached(req.repo, spec)
                 if asset is not None and self._fresh(asset, spec, proxy):
                     await lease.finish(outcome=CacheState.HIT.value)
-                    return self._hit(req, asset, CacheState.HIT, started)
+                    return self._hit(req, asset, CacheState.HIT, started, spec.artifact)
             response = await self._fetch(req, spec, proxy, asset, lease, started)
         except BaseException as exc:
             with anyio.CancelScope(shield=True):
@@ -807,7 +807,7 @@ class ProxyEngine:
         if asset is not None:
             if await self._unchanged_by_head(req, spec, proxy, asset):
                 await lease.finish(outcome=CacheState.REVALIDATED.value)
-                return self._hit(req, asset, CacheState.REVALIDATED, started)
+                return self._hit(req, asset, CacheState.REVALIDATED, started, spec.artifact)
             try:
                 spec = await self._expect(spec)
                 response, info = await self._open(req, spec, proxy, conditional=asset)
@@ -815,20 +815,20 @@ class ProxyEngine:
                 if proxy.stale_on_error:
                     log.info('serving stale copy', extra={'path': spec.path, 'error': exc.detail})
                     await lease.fail(exc)
-                    return self._hit(req, asset, CacheState.STALE, started)
+                    return self._hit(req, asset, CacheState.STALE, started, spec.artifact)
                 self._account_error(req, started)
                 raise
             if info.status == 304:
                 await response.aclose()
                 await self._revalidated(asset, info)
                 await lease.finish(outcome=CacheState.REVALIDATED.value)
-                return self._hit(req, asset, CacheState.REVALIDATED, started)
+                return self._hit(req, asset, CacheState.REVALIDATED, started, spec.artifact)
             if info.status != 200:
                 await response.aclose()
                 error = UpstreamError(f'upstream answered {info.status}')
                 if proxy.stale_on_error:
                     await lease.fail(error)
-                    return self._hit(req, asset, CacheState.STALE, started)
+                    return self._hit(req, asset, CacheState.STALE, started, spec.artifact)
                 self._account_error(req, started)
                 raise error
             return await self._fill(req, spec, proxy, response, info, started, lease)
@@ -905,7 +905,7 @@ class ProxyEngine:
             if state.status is Status.FAILED:
                 cached = await self._cached(req.repo, spec)
                 if cached is not None and proxy.stale_on_error and state.error_code in STALE_CODES:
-                    return self._hit(req, cached, CacheState.STALE, started)
+                    return self._hit(req, cached, CacheState.STALE, started, spec.artifact)
                 error = _failure(state)
                 if isinstance(error, NotFound):
                     self._account(req, CacheState.COALESCED, 404, 0, started)
@@ -917,8 +917,8 @@ class ProxyEngine:
                 return None
             self.metrics.coalesce(repo=req.repo.name, event='wait')
             if state.outcome in (CacheState.REVALIDATED.value, CacheState.HIT.value):
-                return self._hit(req, asset, CacheState(state.outcome), started)
-            return self._hit(req, asset, CacheState.COALESCED, started)
+                return self._hit(req, asset, CacheState(state.outcome), started, spec.artifact)
+            return self._hit(req, asset, CacheState.COALESCED, started, spec.artifact)
         finally:
             if not handed_off:
                 with anyio.CancelScope(shield=True):
@@ -1201,9 +1201,8 @@ class ProxyEngine:
             created_at=now,
             updated_at=now,
         )
-        saved = await assets_db.save(self.db, asset)
-        await assets_db.record_blob(self.db, ref.sha256, ref.size, now)
-        return saved
+        # The blobs document was written by the commit's GC claim (``BlobStore.guard``), before the rename.
+        return await assets_db.save(self.db, asset)
 
     def _stored_headers(self, spec: AssetSpec, info: UpstreamInfo) -> dict[str, str]:
         return {name: info.headers[name.lower()] for name in spec.store_headers if name.lower() in info.headers}
@@ -1385,6 +1384,7 @@ class ProxyEngine:
             committed = True
             checksums = {'sha256': ref.sha256, **{alg: h.hexdigest() for alg, h in fill.extra.items()}}
             asset = await self._record(req, spec, ref, fill.content_type, fill.stored, info, checksums)
+            self.emitter.asset_downloaded(asset.id)
             await lease.finish(sha256=ref.sha256, size=ref.size)
             if spec.on_stored is not None:
                 await spec.on_stored(asset, None)
@@ -1426,10 +1426,14 @@ class ProxyEngine:
         )
         return serve_blob(req.request, blob, cache=cache.value)
 
-    def _hit(self, req: FormatRequest, asset: StoredAsset, cache: CacheState, started: float) -> Response:
+    def _hit(
+        self, req: FormatRequest, asset: StoredAsset, cache: CacheState, started: float, artifact: str | None = None
+    ) -> Response:
         response = self._serve(req, asset, cache)
         sent = asset.size if response.status_code == 200 and req.method == 'GET' else 0
         self._account(req, cache, response.status_code, sent, started)
+        if sent:
+            self.emitter.asset_downloaded(asset.id)  # batched; flushed by the stats rollup (cleanup criteria)
         if sent and asset.kind is AssetKind.CONTENT:
             self.emitter.activity(
                 ActivityEvent(
@@ -1439,6 +1443,7 @@ class ProxyEngine:
                     repo=req.repo.name,
                     format=req.repo.format,
                     path=asset.path,
+                    artifact=artifact,
                     principal=req.principal.display,
                     client_ip=req.client_ip or None,
                     cache=cache,
