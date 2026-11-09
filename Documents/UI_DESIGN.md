@@ -118,6 +118,12 @@ Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. 
   (summary, latest, `pip install` snippet; versions newest first with pre-release and yanked badges, expandable to
   their wheels and sdist with kind, size, cache state, PEP 658 metadata badge, uploader, short sha256). Hosted
   repositories add Yank / Un-yank per version (dialog with an optional reason); groups show their members to browse.
+- **Go** (T-P5-GO): modules table (module path, latest, tagged versions, cached versions, size) → module page
+  (latest, `go get <module>@<latest>` snippet; versions newest first in semver order with pseudo-version,
+  pre-release, `+incompatible` and "not in version list" badges, commit time, cache state, expandable to the
+  `.info`/`.mod`/`.zip` files held with size, cached time, copyable sha256 and a per-version `go get` snippet).
+  Groups show their members to browse. The repository form's Go options: checksum database proxy and verification
+  toggles, database name and URL, private module patterns (GONOSUMDB syntax, chips).
 - **apt / yum**: suites/components/arches tree → package list with versions and arch.
 - **Raw**: folder listing.
 

@@ -1630,6 +1630,48 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/go/modules:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listGoModules
+      summary: Modules a Go proxy has cached (version lists or module files); groups are browsed through their members
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Modules
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GoModulePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/go/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listGoVersions
+      summary: One module and its versions (cached version list and cached files, newest first)
+      parameters:
+        - name: module
+          in: query
+          required: true
+          description: 'Module path (decoded, e.g. `github.com/Azure/go-autorest`)'
+          schema: { type: string, maxLength: 500 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GoVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/apt/suites:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -3645,6 +3687,18 @@ components:
       type: object
       properties:
         json_api: { type: boolean, default: true, description: 'Proxy the legacy JSON API (`/pypi/<project>/json`) to the upstream (proxy repositories)' }
+    GoOptions:
+      type: object
+      properties:
+        sumdb_proxy: { type: boolean, default: true, description: 'Proxy the checksum database at `sumdb/<name>/` so clients verify modules without direct access to it (proxy repositories; groups use their first proxy member that does)' }
+        sumdb_name: { type: string, maxLength: 200, default: sum.golang.org, description: Name of the checksum database (GOSUMDB) }
+        sumdb_url: { type: string, maxLength: 500, default: 'https://sum.golang.org', description: URL of the checksum database (the SSRF guard applies as for the upstream) }
+        verify_checksums: { type: boolean, default: true, description: 'Verify `.mod` and `.zip` files against the checksum database before caching them (modules matching `nosumdb` are not looked up)' }
+        nosumdb:
+          type: array
+          maxItems: 100
+          items: { type: string, minLength: 1, maxLength: 200 }
+          description: 'Module path patterns never looked up in the checksum database (GONOSUMDB syntax: a glob per path prefix, e.g. `example.com/private/*`): private modules'
     FormatOptions:
       description: Format-specific options; the shape follows the repository's `format`
       oneOf:
@@ -3655,6 +3709,7 @@ components:
         - $ref: '#/components/schemas/YumOptions'
         - $ref: '#/components/schemas/MavenOptions'
         - $ref: '#/components/schemas/PypiOptions'
+        - $ref: '#/components/schemas/GoOptions'
     QuotaMode:
       type: string
       enum: [soft, hard]
@@ -4194,6 +4249,59 @@ components:
         version: { type: string }
         yanked: { type: boolean }
         files: { type: integer, description: Files changed }
+    GoModule:
+      type: object
+      required: [module, version_count, cached_versions, size_bytes]
+      properties:
+        module: { type: string, description: 'Module path (decoded: upper-case letters as they are)' }
+        latest: { type: [string, 'null'], description: 'Newest release in the cached version list, else the newest version' }
+        version_count: { type: integer, description: 'Versions in the cached version list (`@v/list`)' }
+        cached_versions: { type: integer, description: Versions whose module zip is cached }
+        size_bytes: { type: integer, description: Bytes of the cached module zips }
+    GoModulePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/GoModule' }
+        next_cursor: { type: [string, 'null'] }
+    GoFile:
+      type: object
+      required: [kind, size, sha256]
+      properties:
+        kind: { type: string, enum: [info, mod, zip] }
+        size: { type: integer }
+        sha256: { type: string }
+        cached_at: { type: [string, 'null'], format: date-time }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer }
+    GoVersion:
+      type: object
+      required: [version, prerelease, pseudo, incompatible, listed, cached, files, size_bytes]
+      properties:
+        version: { type: string }
+        time: { type: [string, 'null'], format: date-time, description: 'Commit time from the cached `.info`' }
+        prerelease: { type: boolean }
+        pseudo: { type: boolean, description: A pseudo-version (an untagged commit) }
+        incompatible: { type: boolean, description: '`+incompatible`: a v2+ version of a module without a go.mod' }
+        listed: { type: boolean, description: In the cached version list (tagged) }
+        cached: { type: boolean, description: The module zip is cached }
+        files:
+          type: array
+          description: Files of the version held by this repository
+          items: { $ref: '#/components/schemas/GoFile' }
+        size_bytes: { type: integer }
+    GoVersionPage:
+      type: object
+      required: [module, items, next_cursor]
+      properties:
+        module: { $ref: '#/components/schemas/GoModule' }
+        items:
+          type: array
+          description: Newest first (semantic version order)
+          items: { $ref: '#/components/schemas/GoVersion' }
+        next_cursor: { type: [string, 'null'] }
     AptSuite:
       type: object
       required: [suite, components, architectures]
