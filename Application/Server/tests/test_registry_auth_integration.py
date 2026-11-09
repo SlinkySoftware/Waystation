@@ -150,7 +150,14 @@ async def test_tokens_are_checked(docker: httpx.AsyncClient) -> None:
 
 
 async def test_catalog_scope(docker: httpx.AsyncClient) -> None:
+    # Everyone may ask for the catalog: it lists only what RBAC lets the caller see (T-P2-DOCKERH).
     anon = claims((await get_token(docker, 'registry:catalog:*')).json()['token'])
-    assert anon['access'] == [{'type': 'registry', 'name': 'catalog', 'actions': []}]
+    assert anon['access'] == [{'type': 'registry', 'name': 'catalog', 'actions': ['*']}]
     admin = claims((await get_token(docker, 'registry:catalog:*', auth=('admin', PASSWORD))).json()['token'])
     assert admin['access'][0]['actions'] == ['*']
+    other = claims((await get_token(docker, 'registry:other:*')).json()['token'])
+    assert other['access'][0]['actions'] == []
+    without = (await get_token(docker, 'repository:docker-hub/x:pull')).json()['token']
+    refused = await docker.get('/v2/_catalog', headers={'Authorization': f'Bearer {without}'})
+    assert refused.status_code == 401
+    assert 'scope="registry:catalog:*"' in refused.headers['www-authenticate']

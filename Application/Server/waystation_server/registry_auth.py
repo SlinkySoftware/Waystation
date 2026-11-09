@@ -8,6 +8,8 @@
   ``401`` with ``WWW-Authenticate: Bearer realm="<base>/auth/token",service="<host>",scope="repository:<name>:pull"``
   (``error="insufficient_scope"`` when a token was sent), which makes clients fetch a token and retry; ``GET /v2/``
   without a token is the version check that starts this dance.
+- ``registry:catalog:*`` is granted to every caller: ``/v2/_catalog`` lists only the images of repositories RBAC lets
+  the principal see.
 - The bearer authenticator turns a valid token into the principal it was issued to (re-resolved every request;
   for an API token: the token itself, so revocation is immediate) limited to the token's grants, mapped from Docker
   actions to repository actions (pull → read, push → write, delete → delete).
@@ -54,6 +56,8 @@ ACTION_MAP: dict[str, tuple[Action, ...]] = {
 }
 _OPERATION = re.compile(r'/(manifests|blobs|tags|referrers)(/|$)')
 USER_CACHE_S = 30.0
+# The ``token_access`` entry of a token that may list the catalog (repository names never contain ``:``).
+CATALOG = 'registry:catalog'
 
 
 def registry_host(services: Services) -> str:
@@ -99,7 +103,8 @@ async def _grant(services: Services, principal: Principal, scope: Scope) -> Scop
     from waystation_server.routing import resolve_docker
 
     if scope.type == 'registry':
-        allowed = scope.name == 'catalog' and access.check(principal, Action.ADMIN)
+        # ``/v2/_catalog`` lists only what RBAC lets the principal see, so anyone may ask for it.
+        allowed = scope.name == 'catalog' and '*' in scope.actions
         return dataclasses.replace(scope, actions=('*',) if allowed else ())
     route = await resolve_docker(services, scope.name)
     if route is None or not access.can_see(principal, route.repo):
@@ -217,6 +222,9 @@ async def authenticate_bearer(request: Request, token: str) -> Principal | None:
 
     grants: dict[str, set[str]] = {}
     for scope in claims.access:
+        if scope.type == 'registry' and scope.name == 'catalog' and '*' in scope.actions:
+            grants[CATALOG] = {Action.BROWSE.value}
+            continue
         if scope.type != 'repository' or not scope.actions:
             continue
         route = await resolve_docker(services, scope.name)
