@@ -81,6 +81,11 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
   open by themselves when they hold a setting or a field error: **Caching and resilience** (max ages, stale on error,
   offline, private upstream, auto-block threshold and periods) and **Network and TLS** (outbound HTTP proxy, extra
   CA certificates as PEM). The overview's upstream card shows "Auto-blocked: next probe in m:ss" while blocked.
+- "Import from Nexus" (header action, administrators): a page with the connection form (URL, admin credentials
+  never kept, private-address and CA options, docker alias/default choices), then the plan as a table (Nexus kind →
+  Waystation kind, upstream or members, Create / Exists / Not supported / Invalid with the reason, expandable
+  field-level differences), checkboxes on the rows it can create (all by default) and "Import N repositories" with a
+  confirmation; afterwards each row shows its outcome. Cards on phones.
 - Repository detail page: header (icon, name, type, status, URL copy, **Set me up** button), KPI strip, tabs:
   **Overview** (charts for this repo, upstream health, top artifacts), **Browse**, **Packages**, **Activity**,
   **Settings**, **Cleanup** (attached policies + last runs + preview), **Members** (groups).
