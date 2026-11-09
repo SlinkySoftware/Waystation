@@ -23,3 +23,9 @@ async def delete(db: Database, session_id: str) -> None:
 async def delete_for_user(db: Database, user_id: str) -> int:
     result = await db[SESSIONS].delete_many({'user_id': user_id})
     return result.deleted_count
+
+
+async def list_for_user(db: Database, user_id: str, *, limit: int = 200) -> list[SessionRecord]:
+    """A user's sessions, newest first (index ``user_id``)."""
+    cursor = db[SESSIONS].find({'user_id': user_id}).sort('created_at', -1).limit(limit)
+    return [SessionRecord.model_validate(doc) async for doc in cursor]

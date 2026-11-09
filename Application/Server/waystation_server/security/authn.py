@@ -27,6 +27,7 @@ from starlette.requests import Request
 from waystation_common.errors import Unauthorized
 from waystation_common.logs import bind_context
 from waystation_server.db import users as users_db
+from waystation_server.security.actions import Grants
 from waystation_server.security.identity import SessionRecord, UserRecord
 from waystation_server.security.principal import ANONYMOUS, AuthMethod, Principal, PrincipalKind
 from waystation_server.security.sessions import SESSION_COOKIE
@@ -37,21 +38,36 @@ TOKEN_ONLY = 'use an API token as the password'  # noqa: S105 - a message
 
 
 def user_principal(
-    user: UserRecord, method: AuthMethod, *, session_id: str | None = None, roles: tuple[str, ...] | None = None
+    user: UserRecord,
+    method: AuthMethod,
+    *,
+    session_id: str | None = None,
+    roles: tuple[str, ...] | None = None,
+    grants: Grants | None = None,
 ) -> Principal:
     """``roles`` = the effective roles (``principal_for``); default: the user's own roles only."""
     granted = tuple(user.roles) if roles is None else roles
     return Principal(
-        PrincipalKind.USER, user.id, user.username, granted, method, session_id=session_id, provider=user.source
+        PrincipalKind.USER,
+        user.id,
+        user.username,
+        granted,
+        method,
+        session_id=session_id,
+        provider=user.source,
+        grants=grants,
+        must_change_password=user.must_change_password,
     )
 
 
 async def principal_for(
     services: Services, user: UserRecord, method: AuthMethod, *, session_id: str | None = None
 ) -> Principal:
-    """The user's principal with its effective roles: its own plus those of its groups (``security.groups``)."""
-    roles = await services.groups.roles_for(user)
-    return user_principal(user, method, session_id=session_id, roles=roles)
+    """The user's principal with its effective roles (its own plus its groups') and their materialised grants
+    (``security.rbac``)."""
+    roles = await services.rbac.roles_for(user)
+    grants = await services.rbac.grants(user.id, roles)
+    return user_principal(user, method, session_id=session_id, roles=roles, grants=grants)
 
 
 def basic_credentials(header: str) -> tuple[str, str] | None:

@@ -27,7 +27,6 @@ from waystation_common.settings import Settings
 from waystation_common.storage import BlobStore
 from waystation_common.valkey import create_valkey
 from waystation_server.db import auth_providers as auth_providers_db
-from waystation_server.db import groups as groups_db
 from waystation_server.db import repositories as repos_db
 from waystation_server.formats.registry import FormatRegistry
 from waystation_server.metrics import Metrics
@@ -40,6 +39,7 @@ from waystation_server.security.ldap import LdapAuthenticator
 from waystation_server.security.oidc import OidcClient, UpstreamHttp
 from waystation_server.security.principal import Principal
 from waystation_server.security.providers import ProviderCatalog
+from waystation_server.security.rbac import RbacState
 from waystation_server.security.registry_token import SignerHolder
 from waystation_server.security.sessions import SessionManager
 from waystation_server.security.tokens import TokenService
@@ -69,7 +69,8 @@ class Services:
     hub: Hub
     registry_signer: SignerHolder
     auth_providers: ProviderCatalog  # external sign-in providers (security.providers)
-    groups: GroupDirectory  # group → roles (security.groups)
+    rbac: RbacState  # custom roles, groups, grant_version, materialised grants (security.rbac)
+    groups: GroupDirectory  # group → roles (security.groups; ``rbac.groups``)
     ldap: LdapAuthenticator  # LDAP thread pool front end + bind cache (security.ldap)
     oidc: OidcClient  # OIDC discovery/JWKS caches and protocol steps (security.oidc)
     jobs: JobClient  # enqueue worker jobs (durable via the outbox inside a transaction, or best effort; ARCH §10)
@@ -110,7 +111,7 @@ class Services:
         blobs.guard = MongoBlobGuard(db)  # commits claim their blob against GC (waystation_common.db.blobs)
         storage = StorageStats(db, settings.data_dir)
         catalog = RepoCatalog(load)
-        groups = GroupDirectory(lambda: groups_db.list_all(db))
+        rbac = RbacState(db, redis)
 
         async def visible(principal: Principal) -> set[str]:
             from waystation_server.security import access
@@ -134,13 +135,14 @@ class Services:
             formats=formats,
             metrics=metrics,
             sessions=SessionManager(db, redis, settings),
-            tokens=TokenService(db, redis, settings, roles_for=groups.roles_for),
+            tokens=TokenService(db, redis, settings, rbac=rbac),
             upstream=upstream,
             storage=storage,
             hub=hub,
             registry_signer=SignerHolder(settings.data_dir, keyring),
             auth_providers=ProviderCatalog(lambda: auth_providers_db.list_all(db)),
-            groups=groups,
+            rbac=rbac,
+            groups=rbac.groups,
             ldap=LdapAuthenticator(),
             oidc=OidcClient(UpstreamHttp(upstream)),
             jobs=JobClient(redis, db),
@@ -175,6 +177,8 @@ class Services:
         self.audit.start()
         await self.proxy.coalescer.start()
         self.tokens.start()
+        self.rbac.on_change.append(self.tokens.clear)  # resolved token principals carry materialised grants
+        self.rbac.start()
         self.metrics.start()
         self._started = True
 
@@ -186,6 +190,7 @@ class Services:
         await self.hub.stop()
         await self.proxy.coalescer.aclose()
         await self.tokens.stop()
+        await self.rbac.stop()
         await self.audit.aclose()
         await self.emitter.aclose()
         await self.upstream.aclose()

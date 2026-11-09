@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from waystation_server.security.actions import Grants
+
 
 class PrincipalKind(StrEnum):
     USER = 'user'
@@ -47,6 +49,11 @@ class Principal:
     extra: dict[str, str] = field(default_factory=dict, compare=False)
     # Where a user signs in from (``local``, ``ldap:<id>``, ``oidc:<id>``): audit records only, never authorisation.
     provider: str | None = field(default=None, compare=False)
+    # The permissions of ``roles``, materialised by ``security.rbac`` (custom roles, ``grant_version`` cache). None:
+    # ``security.access`` derives them from the built-in roles only (the anonymous principal, unit tests).
+    grants: Grants | None = field(default=None, compare=False)
+    # A local user still holding a one-time password: its sessions may only change it or sign out (SPEC §4.9).
+    must_change_password: bool = field(default=False, compare=False)
 
     @property
     def is_anonymous(self) -> bool:
