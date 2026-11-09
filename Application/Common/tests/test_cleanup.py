@@ -253,3 +253,55 @@ def test_docker_everything_goes_when_every_tag_goes() -> None:
     assert len([c for c in plan_ if c.kind == 'layer']) == 4
     assert len([c for c in plan_ if c.kind == 'manifest']) == 5
     assert sum(c.size for c in plan_ if c.kind == 'layer') == 4000
+
+
+# ---------------------------------------------------------------- pypi (T-P5-PYPI)
+PEP440_ORDER = [
+    'not-a-version',
+    '1.0.dev0',
+    '1.0a1.dev1',
+    '1.0a1',
+    '1.0a2',
+    '1.0b1',
+    '1.0rc1',
+    '1.0',
+    '1.0+abc',
+    '1.0+abc.5',
+    '1.0+5',
+    '1.0.post1.dev1',
+    '1.0.post1',
+    '1.0.1',
+    '1.1.dev1',
+    '1.10',
+    '2!0.1',
+]
+
+
+def test_pep440_order_matches_tuple_and_string_keys() -> None:
+    from waystation_common.cleanup.versions import pep440_key, pep440_sort_string
+
+    shuffled = PEP440_ORDER[5:] + PEP440_ORDER[:5]
+    assert sorted(shuffled, key=pep440_key) == PEP440_ORDER
+    assert sorted(shuffled, key=pep440_sort_string) == PEP440_ORDER
+    assert pep440_key('1.0') == pep440_key('1.0.0') and pep440_sort_string('1.0') == pep440_sort_string('1.0.0')
+    assert pep440_key('1.0-1') == pep440_key('1.0.post1') and pep440_key('1.0RC1') == pep440_key('1.0rc1')
+    assert is_prerelease('pypi', '2.0rc1') and is_prerelease('pypi', '2.0.dev3') and not is_prerelease('pypi', '2.0')
+    assert not is_prerelease('pypi', '2.0.post1')
+
+
+def test_pypi_coordinates_and_versions_keep_all_files_of_a_release() -> None:
+    whl = coordinates('pypi', 'packages/six/six-1.17.0-py2.py3-none-any.whl')
+    assert (whl.name, whl.version, whl.group, whl.ordered_by_version) == ('six', '1.17.0', 'six', True)
+    assert coordinates('pypi', 'packages/six/six-1.17.0-py2.py3-none-any.whl.metadata').version == '1.17.0'
+    assert coordinates('pypi', 'packages/ws-demo/ws_demo-0.1.0.tar.gz').version == '0.1.0'
+    files = [
+        asset('packages/six/six-1.16.0.tar.gz'),
+        asset('packages/six/six-1.16.0-py2.py3-none-any.whl'),
+        asset('packages/six/six-1.17.0.tar.gz'),
+        asset('packages/six/six-1.17.0-py2.py3-none-any.whl'),
+        asset('packages/six/six-1.17.0-py2.py3-none-any.whl.metadata'),
+    ]
+    assert plan('pypi', Criteria(keep_latest_n_versions=1), files) == [
+        'packages/six/six-1.16.0-py2.py3-none-any.whl',
+        'packages/six/six-1.16.0.tar.gz',
+    ]

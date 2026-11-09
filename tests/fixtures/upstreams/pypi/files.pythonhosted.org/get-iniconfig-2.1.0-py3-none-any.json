@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://files.pythonhosted.org/packages/2c/e1/e6716421ea10d38022b952c159d5161ca1193197fb744506875fbb87ea7b/iniconfig-2.1.0-py3-none-any.whl"
+  },
+  "response": {
+    "body_sha256": "9deba5723312380e77435581c6bf4935c94cbfab9b1ed33ef8d238ea168eb760",
+    "body_size": 6050,
+    "headers": [
+      [
+        "content-length",
+        "6050"
+      ],
+      [
+        "last-modified",
+        "Wed, 19 Mar 2025 20:10:02 GMT"
+      ],
+      [
+        "etag",
+        "\"a3addcf2db108b0a2fd70a26e2504f22\""
+      ],
+      [
+        "content-type",
+        "binary/octet-stream"
+      ],
+      [
+        "cache-control",
+        "max-age=365000000, immutable, public"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -108,6 +108,13 @@ Windows containers support for the server.
   `write`, deletes `delete`; pushed manifests and deletes are audited. The OCI distribution-spec conformance suite
   passes (pull, push, content discovery, content management). A hard quota (§4.8) refuses blob uploads, mounts and
   manifest pushes with `403 DENIED` and a message naming the quota; the low-disk guard answers `507`.
+- PyPI (T-P5-PYPI): hosted repositories accept twine and `uv publish` (the legacy upload API, `POST` to the repository
+  URL, multipart streamed into the blob store): wheels and sdists whose core metadata (read from the archive in a
+  thread, bounded, zip/tar-slip checked) agrees with the file name and form, `sha256_digest` verified; a wheel's
+  `METADATA` is also served as its PEP 658 `.metadata` file. Write policy as for docker (`disable_redeploy` accepts
+  the same bytes again and refuses other content with "File already exists"). Project pages (PEP 503 HTML and PEP 691
+  JSON) are rendered from the stored files per request; releases can be yanked (PEP 592) from Browse or
+  `POST /api/v1/repositories/{name}/pypi/yank` (`write`). Uploads need `write`; uploads and yanks are audited.
 - Raw: `curl --upload-file` (`PUT`) and `DELETE` on any path; `X-Checksum-Sha256`/`-Sha1`/`-Md5` headers verified
   before anything is stored; write policy as above (`disable_redeploy`: a path is written once, 409; deletes stay
   allowed); directory listings (HTML, or JSON for scripts) at the root and any path ending in `/`.
@@ -127,11 +134,14 @@ Windows containers support for the server.
   (a blob `HEAD` never goes upstream), merged `tags/list` and referrers; pushes, upload sessions and deletes go to the
   writable member (a hosted repository), which the client must be allowed to write too; without one the group is
   read-only. Reading through a group needs `read` on the group only (its members' content is served through it,
-  as in Nexus). A repository that is a group member cannot be deleted until it is removed from the group. Other
-  formats' groups (npm, PyPI, Maven... with their metadata merges) are not built yet.
+  as in Nexus). A repository that is a group member cannot be deleted until it is removed from the group.
   Now (T-P2-RAW): raw groups (raw proxy/hosted members) answer each file from the first member that has it, list
   folders as the members' listings merged, and send uploads and deletes to the writable member (a hosted raw
   repository the client may also write to); without one the group is read-only.
+  Now (T-P5-PYPI): PyPI groups merge their members' project pages per request (union by file name, the first member
+  wins; a proxy member's cached page, refreshed as needed), serve files from the first member holding them (else the
+  proxy members in order) and send uploads to a hosted writable member. Other formats' groups (npm, Maven... with
+  their metadata merges) are not built yet.
 
 ### 4.4 Routing and URLs
 - One base URL (`WAYSTATION_BASE_URL`, e.g. `https://registry.example.com`). TLS is terminated by the web tier or
@@ -194,7 +204,10 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   apt `suites`/`packages` (per suite, architecture, component; cached-only filter; `verified` = the cached file
   matches its listing) and docker `images`/`tags`/`manifest` (platforms, layers with cached flag and history,
   labels, pull commands) show what is cached. Browsing needs `browse` on the repository (anonymous: proxy
-  repositories); download counts are not recorded yet (0/null).
+  repositories); download counts are not recorded yet (0/null). PyPI (T-P5-PYPI): `pypi/projects` (summaries in
+  `pypi_packages`: latest final release by PEP 440, version count, files held) and `pypi/versions?project=` (versions
+  newest first, each with its wheels and sdist: size, sha256, requires-python, yanked, PEP 658 metadata, held or not,
+  uploader for hosted files) for proxy and hosted repositories; groups are browsed through their members.
 - Global search across repositories the principal can read: name (prefix and substring), version, format,
   repository, digest/checksum lookup ("where is this sha256 used?"), with facets (format, repo, type).
   Target: results in < 150 ms p95 for 1M assets.
@@ -203,7 +216,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   hit, a facet value or a count, and naming it as a filter yields an empty result). `q` is
   `<name prefix>[ <version prefix>]`, case-insensitive, matched on the full name or its last `/` segment (`nginx`
   finds `library/nginx`, `node` finds `@types/node`); empty lists everything. Sources: docker tags (kind `image`),
-  npm packages and apt/yum index listings (kind `package`; `cached` says whether the listed file is in the cache),
+  npm packages, PyPI projects and apt/yum index listings (kind `package`; `cached` says whether the listed file is in the cache),
   and cached files of every format but docker (kind `file`). `cached=true` leaves out the apt/yum listings. A digest
   (`sha256:<8-64 hex>` or 64 hex digits) finds every cached file with that blob and the docker tags pointing at it,
   in any visible repository. Results come straight from per-collection `(name_lc, repo_id, _id)` indexes, merged
@@ -230,8 +243,9 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 ### 4.8 Cleanup, retention, garbage collection, quotas
 - **Cleanup policies** (named, reusable, attached to repos in run order; a policy is for one format or `*`):
   criteria `last_downloaded_older_than_days` (never downloaded = since cached), `published_older_than_days`,
-  `keep_latest_n_versions` (per component, in the format's version order: semver for npm, dpkg for apt, rpm for yum;
-  raw: newest cached files per folder), name/version regex include/exclude, `prerelease_only`, docker
+  `keep_latest_n_versions` (per component, in the format's version order: semver for npm, dpkg for apt, rpm for yum,
+  PEP 440 for PyPI (per project; every file of a release, wheels, sdist and `.metadata`, shares its rank); raw: newest
+  cached files per folder), name/version regex include/exclude, `prerelease_only`, docker
   `untagged_older_than_days`. Every criterion that is set must match. Docker policies select tags (image = name, tag =
   version, newest by recency); removing a tag also removes the manifests only it reached and the layers no remaining
   manifest uses. Only content is removed, never metadata (indexes, packuments). Every policy has a **dry-run
@@ -438,8 +452,10 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   `role.create|update|delete` (anonymous access changes as `role.update` on target `anonymous_access`),
   `auth_provider.create|update|delete|test`, `repository.create|update|delete|test_upstream`, `task.update|run|retry|discard`
   (schedule edits, run now, dead-letter retry and discard on the Tasks page), `content.upload` (a manifest pushed to
-  a docker hosted repository, with image, tag, digest, media type and size) and `content.delete` (a docker tag,
-  manifest or blob deleted), `settings.update` (the instance settings, with field changes); an administrator
+  a docker hosted repository, with image, tag, digest, media type and size; a file uploaded to a PyPI hosted
+  repository, with project, version, file name, sha256, size and whether it replaced one) and `content.delete` (a
+  docker tag, manifest or blob deleted), `content.update` (a PyPI release yanked or un-yanked, with the reason and the
+  files changed), `settings.update` (the instance settings, with field changes); an administrator
   signing a user out everywhere is `session.revoke` on the user with `details.by_admin`. Not yet (the feature does
   not exist): cleanup runs (T-O01); `PENDING`
   in the catalog names them and the acceptance test fails when one is emitted without a test.
@@ -823,6 +839,7 @@ Waystation/
 | Raw format (T-P2-RAW) | M0 slice 2026-11-08: raw proxy repositories serve `GET`/`HEAD /repository/<repo>/<path>` through the proxy engine (cache by path, metadata regex → revalidated metadata, extension-based Content-Type, `Content-Disposition` + `nosniff`, native 404 with negative cache). 2026-11-10: raw hosted (streaming `PUT` with size limit and `X-Checksum-Sha256/Sha1/Md5` verification, write policy, `DELETE`, audit + activity + live upload transfers) and group repositories (members in order, uploads to the writable member), directory listings (HTML/JSON) for every type, "Set me up" for curl/wget upload and download, the repository form's Hosted/Group tiles for raw; curl and wget pass the real-client harness in replay (proxy, hosted upload/download/delete, group reads and upload). Nexus import creates raw hosted and group repositories; the harness also passes in live mode |
 | apt format (T-P2-APT) | M0 slice 2026-11-08: apt proxy repositories pass `InRelease`/`Release` through untouched, serve index files only by the SHA256 the cached `Release` lists (by-hash fetch, one `Release` revalidation on mismatch, then 502), accept self-validating `by-hash` paths, index cached `Packages` files into `apt_pool_index` and validate pool files against it (or record them `unverified`); several suites per repository. apt on Debian 13 and Ubuntu 26.04 passes the real-client harness in replay (`*-updates` and `*-security` suites). Hosted, Raspberry Pi OS / arm64 clients and worker-side re-verification pending |
 | npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
+| PyPI (T-P5-PYPI) | Done 2026-11-10: proxy (PEP 503 HTML and PEP 691 JSON pages negotiated by `Accept` and cached per representation, normalised-name and trailing-slash redirects, file URLs rewritten into the repository with hashes, requires-python, yanked and core-metadata kept; files and PEP 658 `.metadata` files verified against the page's hashes before they are cached; legacy JSON API pass-through), hosted (twine / `uv publish` upload API streamed into the blob store, metadata read from wheels and sdists in a thread with zip/tar-slip checks, write policy, `.metadata` for wheels, yank API), group (merged pages, files from members, uploads to the writable member); browse (`pypi/projects`, `pypi/versions`) and search on `pypi_packages`; PEP 440 version order for cleanup; UI create flow, options, browse with yank, "Set me up" (pip, uv, Poetry, PDM, twine, uv publish). Harness: pip 26, uv 0.13, twine 7 against recorded pypi.org fixtures. Poetry/PDM harness runs pending |
 | Docker hosted (T-P2-DOCKERH) | Done 2026-11-09: docker hosted repositories (REST/UI type `hosted` with write policy and immutable tag patterns): chunked/monolithic/resumable uploads into the blob store (sha256-verified, `upload_sessions`), cross-repository mounts with RBAC on the source, manifest validation, tags with immutability, deletes, referrers API, `tags/list`, `/v2/_catalog` for proxies and hosted (RBAC-filtered), audit `content.upload`/`content.delete`, live upload transfers, browse of pushed images, "Set me up" for push/buildx/crane/oras/cosign. docker push and buildx multi-platform, skopeo, crane, oras and cosign 3 (offline, signatures via referrers) pass the client harness, and so does the OCI distribution-spec conformance suite v1.1.1. Quotas (T-O03): hard quotas refuse pushes with `403 DENIED` |
 | Docker group (T-P2-DOCKERG) | Done 2026-11-09: docker group repositories (REST/UI type `group`: ordered members, optional hosted writable member): reads in member order, blobs from any member's copy first, merged tags and referrers, pushes/uploads/deletes to the writable member with RBAC on it, read-only groups `405`; client harness push through a group, member order and merged tags; the OCI conformance suite passes through a group as well |
 | Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted and `_catalog` since T-P2-DOCKERH, groups since T-P2-DOCKERG; referrers for proxies and podman/containerd harness runs pending |
