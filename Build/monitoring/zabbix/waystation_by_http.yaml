@@ -774,6 +774,103 @@ zabbix_export:
               tags:
                 - tag: scope
                   value: capacity
+        - uuid: 5b97305d24eb4e01b6634fbc3ffe36c1
+          name: 'Waystation: Low-disk guard active'
+          type: DEPENDENT
+          key: waystation.storage.low
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: '1 while free space is below the low-disk guard (the larger of its minimum free bytes and percent): new cache fills pass through uncached and uploads are refused (507). The "blob store full" trigger fires on the same condition.'
+          valuemap:
+            name: 'Waystation low-disk guard'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - waystation_storage_low
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: feeeace91fd54b72b9280ce447730678
+          name: 'Waystation: Downloads not cached for a quota per second'
+          type: DEPENDENT
+          key: waystation.fills.not_stored.quota.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: '/s'
+          description: 'Proxy downloads served to the client without being cached because the repository reached its hard quota. Each one went to the upstream.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_fills_not_stored_total{reason="quota"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: a2cc78b5ab5e403f955e2ec509895f17
+          name: 'Waystation: Downloads not cached for lack of disk space per second'
+          type: DEPENDENT
+          key: waystation.fills.not_stored.low_disk.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: '/s'
+          description: 'Proxy downloads served to the client without being cached because free space is below the low-disk guard. Each one went to the upstream.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_fills_not_stored_total{reason="low_disk"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+        - uuid: dae576fbf6c043eb9ae46482ad55ea37
+          name: 'Waystation: Uploads refused by a hard quota per second'
+          type: DEPENDENT
+          key: waystation.quota.refusals.upload.rate
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: '/s'
+          description: 'Uploads refused because the repository reached its hard quota.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_quota_refusals_total{kind="upload"}'
+                - function
+                - sum
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
         - uuid: df8be31ce8b442a6b3398dabb75ac686
           name: 'Waystation: Event-stream clients'
           type: DEPENDENT
@@ -1484,6 +1581,224 @@ zabbix_export:
                   value: jobs
                 - tag: queue
                   value: '{#QUEUE}'
+        - uuid: 3900a50ebf9f4035b7571ae44f6efc2e
+          name: 'Repository quotas discovery'
+          type: DEPENDENT
+          key: waystation.quota.discovery
+          delay: '0'
+          description: 'Repositories with a storage quota (labels of waystation_repository_quota_bytes).'
+          lifetime: 1d
+          preprocessing:
+            - type: PROMETHEUS_TO_JSON
+              parameters:
+                - waystation_repository_quota_bytes
+              error_handler: DISCARD_VALUE
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var seen = {}, out = [];
+                  JSON.parse(value).forEach(function (m) {
+                      var repo = m.labels && m.labels.repo;
+                      if (repo && !seen[repo]) {
+                          seen[repo] = true;
+                          out.push({'{#REPO}': repo, '{#MODE}': m.labels.mode || ''});
+                      }
+                  });
+                  return JSON.stringify(out);
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+          master_item:
+            key: waystation.metrics.get
+          item_prototypes:
+            - uuid: 0d9d0cd65c7742e2bb706093c6b22ef8
+              name: 'Waystation: {#REPO}: Quota'
+              type: DEPENDENT
+              key: 'waystation.quota.bytes["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: B
+              description: 'Storage quota of {#REPO}.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_repository_quota_bytes{repo="{#REPO}"}'
+                    - function
+                    - max
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: storage
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 961358a5168a4cf692759b3802f5c311
+              name: 'Waystation: {#REPO}: Quota mode'
+              type: DEPENDENT
+              key: 'waystation.quota.hard["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: UNSIGNED
+              description: '1 for a hard quota (refuses new writes once reached), 0 for a soft quota (warns only).'
+              valuemap:
+                name: 'Waystation quota mode'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_repository_quota_bytes{repo="{#REPO}",mode="hard"}'
+                    - function
+                    - count
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1h
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: storage
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 555986317b84407896e875d87c596725
+              name: 'Waystation: {#REPO}: Stored'
+              type: DEPENDENT
+              key: 'waystation.quota.stored["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: B
+              description: 'Bytes {#REPO} stores, counted against its quota (a blob shared with other repositories counts in each).'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_repository_stored_bytes{repo="{#REPO}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: storage
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 50ba0165f72945aa853bf791d4d661c4
+              name: 'Waystation: {#REPO}: Quota used'
+              type: DEPENDENT
+              key: 'waystation.quota.used.pct["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: '%'
+              description: 'Stored bytes / quota. 100 % is the quota; soft quotas can go above it.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_repository_quota_used_ratio{repo="{#REPO}"}'
+                    - value
+                    - ''
+                  error_handler: DISCARD_VALUE
+                - type: MULTIPLIER
+                  parameters:
+                    - '100'
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: storage
+                - tag: repository
+                  value: '{#REPO}'
+              trigger_prototypes:
+                - uuid: 9b2a5acf7cf546a7a5bd567e147ac2b6
+                  expression: 'last(/Waystation by HTTP/waystation.quota.used.pct["{#REPO}"])>=100 and nodata(/Waystation by HTTP/waystation.quota.used.pct["{#REPO}"],10m)=0 and last(/Waystation by HTTP/waystation.quota.hard["{#REPO}"])=1'
+                  name: 'Waystation: {#REPO} reached its hard quota'
+                  event_name: 'Waystation: {#REPO} reached its hard quota ({ITEM.LASTVALUE1} used)'
+                  priority: HIGH
+                  description: '{#REPO} stores at least its hard quota: uploads are refused and proxy downloads are served without being cached (each one goes to the upstream). Raise the quota, delete content or run its cleanup policy.'
+                  tags:
+                    - tag: scope
+                      value: capacity
+                    - tag: repository
+                      value: '{#REPO}'
+                - uuid: b5baf697a32945d49b1a5b635cbc785f
+                  expression: 'last(/Waystation by HTTP/waystation.quota.used.pct["{#REPO}"])>=100 and nodata(/Waystation by HTTP/waystation.quota.used.pct["{#REPO}"],10m)=0 and last(/Waystation by HTTP/waystation.quota.hard["{#REPO}"])=0'
+                  name: 'Waystation: {#REPO} is over its soft quota'
+                  event_name: 'Waystation: {#REPO} is over its soft quota ({ITEM.LASTVALUE1} used)'
+                  priority: WARNING
+                  description: '{#REPO} stores at least its soft quota. Nothing is refused (soft quotas only warn).'
+                  tags:
+                    - tag: scope
+                      value: capacity
+                    - tag: repository
+                      value: '{#REPO}'
+                - uuid: efa09a70a01f4e7f82e185d9807e6617
+                  expression: 'last(/Waystation by HTTP/waystation.quota.used.pct["{#REPO}"])>={$WAYSTATION.QUOTA.WARN} and last(/Waystation by HTTP/waystation.quota.used.pct["{#REPO}"])<100 and nodata(/Waystation by HTTP/waystation.quota.used.pct["{#REPO}"],10m)=0'
+                  name: 'Waystation: {#REPO} is near its quota (over {$WAYSTATION.QUOTA.WARN}%)'
+                  event_name: 'Waystation: {#REPO} is near its quota ({ITEM.LASTVALUE1} used)'
+                  priority: INFO
+                  description: '{#REPO} uses {$WAYSTATION.QUOTA.WARN}% or more of its quota.'
+                  tags:
+                    - tag: scope
+                      value: capacity
+                    - tag: repository
+                      value: '{#REPO}'
+            - uuid: cb82a3d84f9942fe9f5f11bef2b38864
+              name: 'Waystation: {#REPO}: Downloads not cached for the quota per second'
+              type: DEPENDENT
+              key: 'waystation.quota.not_stored.rate["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: '/s'
+              description: 'Proxy downloads of {#REPO} served without being cached because it reached its hard quota.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_fills_not_stored_total{repo="{#REPO}",reason="quota"}'
+                    - function
+                    - sum
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: storage
+                - tag: repository
+                  value: '{#REPO}'
+            - uuid: 190f96a95ffe484293f76bbddb5db5a2
+              name: 'Waystation: {#REPO}: Uploads refused by the quota per second'
+              type: DEPENDENT
+              key: 'waystation.quota.refusals.rate["{#REPO}"]'
+              delay: '0'
+              history: 7d
+              value_type: FLOAT
+              units: '/s'
+              description: 'Uploads to {#REPO} refused because it reached its hard quota.'
+              preprocessing:
+                - type: PROMETHEUS_PATTERN
+                  parameters:
+                    - 'waystation_quota_refusals_total{repo="{#REPO}",kind="upload"}'
+                    - function
+                    - sum
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              master_item:
+                key: waystation.metrics.get
+              tags:
+                - tag: component
+                  value: storage
+                - tag: repository
+                  value: '{#REPO}'
       tags:
         - tag: class
           value: application
@@ -1526,6 +1841,9 @@ zabbix_export:
         - macro: '{$WAYSTATION.API.LATENCY.WARN}'
           value: '1'
           description: 'Average REST API latency (seconds) that raises a trigger after 10 minutes.'
+        - macro: '{$WAYSTATION.QUOTA.WARN}'
+          value: '80'
+          description: 'Share of a repository quota (%) from which "near its quota" fires.'
       valuemaps:
         - uuid: 7da7e917e11a46649a3a5f45d22a001b
           name: 'Waystation upstream state'
@@ -1538,3 +1856,17 @@ zabbix_export:
               newvalue: Blocked
             - value: '3'
               newvalue: Offline
+        - uuid: 4401c4bee2b14cc0a587467e5cc2d5ba
+          name: 'Waystation low-disk guard'
+          mappings:
+            - value: '0'
+              newvalue: OK
+            - value: '1'
+              newvalue: Active
+        - uuid: 5d276ea71b8c4437bd4425af8e25a816
+          name: 'Waystation quota mode'
+          mappings:
+            - value: '0'
+              newvalue: Soft
+            - value: '1'
+              newvalue: Hard
