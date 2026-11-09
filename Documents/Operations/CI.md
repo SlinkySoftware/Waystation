@@ -11,6 +11,7 @@ Every CI step is a `make` target, so anything CI runs can be reproduced locally 
 | `.github/workflows/clients-live.yml` | manual | the real-client harness against the live upstreams (`MODE=live`) |
 | `.gitea/workflows/check.yml` | push to `main` and pull requests (Gitea), manual | `make check` without `test-integration`, step by step (`forbidden-strings`, `workflow-lint`, `fmt-check`, `lint`, `typecheck`, `test`, `clients-check`, `frontend-check`), the generated API client diff and the budget report; then, only on push to `main` and manual runs, `make test-integration` in a second job |
 | `.gitea/workflows/images.yml` | push to `main` (Gitea), manual | server, worker and web images pushed to the Gitea container registry |
+| `.gitea/workflows/perf.yml` | push to `main` (Gitea), nightly, manual | `make perf`: the k6 suite, CI profile on push (manual: either profile), full profile nightly; results uploaded as the `perf-results` artifact |
 
 GitHub Actions cost money, so GitHub runs only for major releases (`vX.0.0` tags) or when started by hand. Gitea
 runs on local runners at no cost: it checks every pull request and every push to `main`, and builds images on every
@@ -121,4 +122,20 @@ budget, its limit, the value measured by the check named in `source` and a statu
 appends to the job summary. A budget with `"enforce": "warn"` is reported (a CI warning annotation when over) and
 never fails the build; `"fail"` fails `make budgets`. All budgets are `warn` until milestone M2, except the SPA
 initial-route bundle, which `make frontend-build` already enforces (its limit is read from `budgets.json`).
-Latency and throughput budgets show "not measured" until the k6 suite lands (`make perf`, T-P2-PERF).
+The latency, throughput and concurrency budgets are measured by the k6 suite (`make perf`, `tests/perf/README.md`),
+which leaves its values in `tests/perf/.results/measured.json` (their `source`); until a run has left that file they
+show "not measured". `make budgets STRICT=1` (and `make perf STRICT=1`) treats every budget as `fail`, to see what
+M2 will enforce. The dashboard paint budget needs a browser and is not measured yet.
+
+### Gitea perf runs
+
+`.gitea/workflows/perf.yml` runs `make perf` on the runner host: the CI profile (a few minutes) after every push to
+`main` and on manual runs (where the profile can be chosen), the full profile (1M seeded assets, 500 concurrent
+downloads, about half an hour) nightly. A run holds the machine-wide `TEST_LOCK`, so it queues behind integration
+runs on the same host; the report and raw results are uploaded as the `perf-results` artifact and the report is
+printed in the log. The runner needs about 6 GB of free memory for the CI profile, and about 14 GB of memory and 8 GB
+of disk for the full one. A runner without them can skip the workflow:
+
+| Kind | Name | Required | Meaning |
+|---|---|---|---|
+| variable | `WAYSTATION_CI_PERF` | no | `false` skips the perf workflow; anything else (or unset) runs it |

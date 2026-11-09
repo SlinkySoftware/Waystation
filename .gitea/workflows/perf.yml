@@ -1,0 +1,66 @@
+# Gitea: the k6 performance suite (T-P2-PERF, tests/perf/README.md, Documents/Operations/CI.md). Gitea runs on
+# local runners at no cost. The CI profile runs after every push to main and on manual runs (choose the profile);
+# the full profile (1M assets, 500 concurrent downloads) runs nightly. Budgets warn until M2 (STRICT=1 fails them).
+# Each run uploads tests/perf/.results (report.md, measured.json, raw results) as an artifact.
+#
+# The runner must run jobs on the host (an `ubuntu-latest:host` runner label) or in a container whose checkout path
+# is the same on the Docker host. A run holds the machine-wide TEST_LOCK, so it queues behind integration runs.
+#
+# Optional organisation-level setting, referenced here by name only:
+#   vars.WAYSTATION_CI_PERF   'false' skips the perf suite (the CI profile needs about 6 GB of free memory, full 14 GB)
+# Actions are pinned by commit SHA (version in the comment).
+name: perf
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Profile (tests/perf/profiles)'
+        type: choice
+        options: [ci, full]
+        default: ci
+      strict:
+        description: 'Fail on every budget over its limit'
+        type: boolean
+        default: false
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEV_IMAGE: waystation-dev:local
+  SKIP_DEV_IMAGE_BUILD: '1'
+
+jobs:
+  perf:
+    name: make perf
+    if: ${{ vars.WAYSTATION_CI_PERF != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Dev image
+        run: docker build -q -t "$DEV_IMAGE" -f Build/Containers/dev/Dockerfile Build/Containers/dev
+      - name: Performance suite
+        env:
+          PROFILE: ${{ github.event_name == 'schedule' && 'full' || inputs.profile || 'ci' }}
+          STRICT: ${{ inputs.strict && '1' || '' }}
+        run: make perf PROFILE="$PROFILE" STRICT="$STRICT"
+      - name: Report
+        if: ${{ !cancelled() }}
+        run: cat tests/perf/.results/report.md || true
+      - name: Upload results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: perf-results
+          path: tests/perf/.results/
+          if-no-files-found: ignore
+          include-hidden-files: true
