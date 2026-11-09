@@ -21,12 +21,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+import dataclasses
 
 from starlette.requests import Request
 
 from waystation_common.errors import Unauthorized
 from waystation_common.logs import bind_context
 from waystation_server.db import users as users_db
+from waystation_server.security import second_factor
 from waystation_server.security.actions import Grants
 from waystation_server.security.identity import SessionRecord, UserRecord
 from waystation_server.security.principal import AuthMethod, Principal, PrincipalKind
@@ -102,7 +104,10 @@ async def _from_session(services: Services, request: Request) -> Principal | Non
         return None
     request.state.session = record
     request.state.user = user
-    return await principal_for(services, user, AuthMethod.SESSION, session_id=record.id)
+    principal = await principal_for(services, user, AuthMethod.SESSION, session_id=record.id)
+    if await second_factor.setup_required(services, user, principal.grants):
+        principal = dataclasses.replace(principal, totp_setup_required=True)
+    return principal
 
 
 async def _from_header(services: Services, request: Request) -> Principal | None:

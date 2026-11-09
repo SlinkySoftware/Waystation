@@ -27,6 +27,7 @@ import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
 import { serviceAccounts, tokenHandlers } from './tokens'
+import { TotpState } from './totp'
 import { upstreamHealth, world } from './world'
 
 const API = '/api/v1'
@@ -38,6 +39,7 @@ let preferences: Preferences = { theme: 'system', density: 'comfortable' }
 const providers = seedProviders()
 ROLES.push(...CUSTOM_ROLES.map((r) => ({ ...r, permissions: [...r.permissions] })))
 const admin = new AdminWorld({ roles: ROLES, providers: () => providers, repos: () => world.repos, serviceAccounts })
+const totp = new TotpState(admin)
 
 function signedInUser(): string | null {
   try {
@@ -60,6 +62,7 @@ function session(username: string): Session {
     preferences,
     expires_at: new Date(Date.now() + 12 * 3_600_000).toISOString(),
     must_change_password: false,
+    totp_setup_required: totp.setupRequired(username, known?.id ?? ADMIN_USER_ID),
   }
 }
 
@@ -254,6 +257,9 @@ export const handlers = [
       recordAudit({ action: 'auth.login', outcome: 'failure', reason: 'bad_credentials', actor: { kind: 'anonymous', id: null, name: 'anonymous', auth: 'none', provider: null, token_id: null }, target: { kind: 'user', id: null, name: body.username ?? null }, details: { username: body.username ?? '', via: 'ui' } })
       return problem(401, 'Unauthorized', 'Invalid username or password.')
     }
+    if (totp.startSignIn(body.username, session(body.username).user.id)) {
+      return HttpResponse.json({ second_factor: 'totp', expires_at: new Date(Date.now() + 5 * 60_000).toISOString() }, { status: 202 })
+    }
     localStorage.setItem(SESSION_KEY, body.username)
     recordAudit({ action: 'auth.login', outcome: 'success', actor: { kind: 'user', id: session(body.username).user.id, name: body.username, auth: 'session', provider: 'local', token_id: null }, target: { kind: 'user', id: session(body.username).user.id, name: body.username }, details: { username: body.username, via: 'ui' } })
     world.addActivity({ kind: 'auth', summary: `${body.username} signed in`, outcome: 'info', repository: null, format: null, artifact: null, principal: body.username, cache: null, bytes: null, duration_ms: null })
@@ -286,6 +292,9 @@ export const handlers = [
     preferences = (await request.json()) as Preferences
     return HttpResponse.json(preferences)
   }),
+
+  // ---------------------------------------------------------------- two-factor sign-in (T-O08)
+  ...totp.handlers({ guard, problem, notFound, latency, currentUser: signedInUser, session, signIn: (name) => localStorage.setItem(SESSION_KEY, name) }),
 
   // ---------------------------------------------------------------- API tokens and service accounts
   ...tokenHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),

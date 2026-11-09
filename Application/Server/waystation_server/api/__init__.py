@@ -23,6 +23,7 @@ from waystation_server.api import (
     storage_guard,
     tasks,
     tokens,
+    two_factor,
     users,
 )
 
@@ -34,6 +35,7 @@ def build_router() -> APIRouter:
     router.include_router(auth.config_router)
     router.include_router(auth.router)
     router.include_router(account.router)
+    router.include_router(two_factor.router)
     router.include_router(auth_providers.router)
     router.include_router(tokens.router)
     router.include_router(users.router)

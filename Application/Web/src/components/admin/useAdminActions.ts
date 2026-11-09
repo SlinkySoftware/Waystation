@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Confirmed administrative actions on users (disable/enable, unlock, sign out everywhere, delete) and the way a refusal
+// Confirmed administrative actions on users (disable/enable, unlock, sign out everywhere, reset two-factor sign-in,
+// delete) and the way a refusal
 // is shown: a delegation (403) or rule (409) refusal opens a dialog naming the reason, anything else is a toast.
 import { useQuasar } from 'quasar'
 
@@ -65,6 +66,13 @@ export function useUserActions(onChanged: (user: UserDetail | null) => void) {
       confirm({ title: t('admin.users.signOutTitle', { name: user.username }), message: t('admin.users.signOutText'), ok: t('admin.users.signOut') }, async () => {
         const result = await call(api.DELETE('/users/{user_id}/sessions', { params: { path: { user_id: user.id } } }))
         notify.success(t('admin.users.signedOut', { count: result.revoked }))
+        onChanged(null)
+      })
+    },
+    resetTotp(user: AnyUser): void {
+      confirm({ title: t('admin.users.resetTotpTitle', { name: user.username }), message: t('admin.users.resetTotpText'), ok: t('admin.users.resetTotpOk'), danger: true }, async () => {
+        await call(api.DELETE('/users/{user_id}/totp', { params: { path: { user_id: user.id } } }))
+        notify.success(t('admin.users.totpReset', { name: user.username }))
         onChanged(null)
       })
     },
