@@ -128,7 +128,9 @@ async def test_hard_quota_passes_new_content_through_and_still_serves_hits(
     # Metadata is still cached under a hard quota (small; the repository needs it).
     upstream.routes['/index.json'] = Respond(200, {'Content-Type': 'application/json'}, b'{"a": 1}')
     plugin.make_spec = lambda path: AssetSpec(path=path, kind=AssetKind.METADATA)
-    assert (await client.get('/repository/files/index.json')).json() == {'a': 1}
+    meta = await client.get('/repository/files/index.json')
+    assert meta.status_code == 200 and 'x-ws-not-stored' not in meta.headers
+    assert meta.headers['x-accel-redirect'].endswith(hashlib.sha256(b'{"a": 1}').hexdigest())  # stored, served by nginx
     assert await services.db[ASSETS].find_one({'repo_id': repo, 'path': 'index.json'}) is not None
 
     # Raising the quota lets new content in again.

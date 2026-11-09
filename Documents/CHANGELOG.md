@@ -2,6 +2,27 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-10
+- T-O03: repository quotas and the low-disk guard. `repositories.storage{quota_bytes, quota_mode}` (soft / hard;
+  not on groups) in the model, REST, contract and repository form; repository views carry `quota{quota_bytes, mode,
+  used_bytes, used_ratio, state}`. Usage per repository in the new `repo_usage` collection, counted with one `$inc`
+  per asset write or delete (proxy fills, hosted uploads and deletes, cleanup) and recounted hourly by the worker job
+  `quota.reconcile` (repairs drift); a blob shared by several repositories counts in each. Thresholds 80 % and 100 %
+  are announced once (`quota.warning` / `quota.exceeded`, activity kind `storage`) and re-armed when usage falls
+  back. Hard quotas refuse hosted docker pushes with `403 DENIED` (message names the quota) and serve proxy content
+  fills to the client verified but uncached (`X-Ws-Not-Stored: quota`; coalesced followers fetch on their own);
+  metadata, cache hits and deletes are unaffected. Low-disk guard settings (`settings` document `storage`:
+  `min_free_bytes`, `min_free_percent`; `GET/PUT /api/v1/storage/guard`, `settings-admin`, audited) applied by every
+  replica within 5 s; below the floor fills pass through uncached (`low_disk`) and uploads get `507`; the worker job
+  `storage.check` (every minute) announces `storage.low` / `storage.ok` (Valkey `storage:low`). Metrics:
+  `waystation_quota_refusals_total`, `waystation_fills_not_stored_total`, `waystation_quota_alerts_total`,
+  `waystation_storage_low`, `waystation_repository_{quota_bytes,stored_bytes,quota_used_ratio}`; the
+  `waystation_blobstore_min_free_bytes` gauge is now the effective floor. UI: quota section in the repository form,
+  usage meters in the repository list and detail, low-disk banner in the shell, Low-disk guard card with an edit
+  dialog on the Storage page, `storage` activity kind, MSW mocks. Tests: unit, integration (hard quota blocks writes
+  and still serves hits, soft only warns, reconcile fixes drift, low-disk pass-through, guard API), Vitest, and a
+  client-harness step pushing to a hard-quota docker hosted repository.
+
 ## 2026-11-09
 - T-P2-DOCKERG: docker group repositories (`formats/docker/group.py`). Model/REST/contract `group{members,
   writable_member}` (validated: existing docker members, no nesting, no duplicates, writable member hosted; the
