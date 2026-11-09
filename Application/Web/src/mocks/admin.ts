@@ -106,6 +106,8 @@ export class AdminWorld {
   readonly sessions: Map<string, SessionInfo[]>
   anonymousRoles: string[] = ['anonymous']
   instanceName = 'Waystation'
+  /** Settings → Two-factor sign-in: local administrators must set it up first (T-O08). */
+  requireTotpForAdmins = false
   settingsUpdatedAt: string | null = null
   settingsUpdatedBy: string | null = null
   readonly startedAt: string
@@ -254,9 +256,9 @@ export class AdminWorld {
 
   // ---------------------------------------------------------------- users
   private summary(u: UserDetail): UserSummary {
-    const { id, username, display_name, email, source, disabled, roles, groups, last_login, created_at } = u
+    const { id, username, display_name, email, source, disabled, roles, groups, last_login, created_at, totp_enabled } = u
     const locked = Boolean(u.locked_until && Date.parse(u.locked_until) > Date.now())
-    return { id, username, display_name, email, source, disabled, locked, roles: [...roles], groups: [...groups], last_login, created_at }
+    return { id, username, display_name, email, source, disabled, locked, totp_enabled, roles: [...roles], groups: [...groups], last_login, created_at }
   }
 
   detail(u: UserDetail): UserDetail {
@@ -345,6 +347,7 @@ export class AdminWorld {
       source: 'local',
       disabled: false,
       locked: false,
+      totp_enabled: false,
       roles: [...new Set(body.roles ?? [])],
       groups: [...new Set(body.groups ?? [])],
       last_login: null,
@@ -417,6 +420,15 @@ export class AdminWorld {
     user.locked = false
     user.locked_until = null
     return this.detail(user)
+  }
+
+  /** An administrator's reset of a user's two-factor sign-in (lost phone); never one's own. */
+  resetTotp(callerName: string | null, id: string): void {
+    const user = this.user(id)
+    this.manageable(this.callerGrants(callerName), user)
+    if (user.username === callerName) throw new MockProblem(409, 'Conflict', 'turn off your own two-factor sign-in on your profile page')
+    if (!user.totp_enabled) throw new MockProblem(409, 'Conflict', 'two-factor sign-in is not on for this user')
+    user.totp_enabled = false
   }
 
   userSessions(id: string, callerName: string | null): SessionInfo[] {
@@ -648,6 +660,7 @@ export class AdminWorld {
   settings(): InstanceSettings {
     return {
       general: { instance_name: this.instanceName },
+      security: { require_totp_for_admins: this.requireTotpForAdmins },
       limits: {
         session_idle_minutes: 480,
         session_max_hours: 168,
@@ -669,6 +682,7 @@ export class AdminWorld {
     const name = body.general?.instance_name?.trim() ?? ''
     if (!name || name.length > 64) throw invalid([{ field: 'general.instance_name', message: 'between 1 and 64 characters', code: 'length' }])
     this.instanceName = name
+    if (body.security) this.requireTotpForAdmins = body.security.require_totp_for_admins
     this.settingsUpdatedAt = new Date().toISOString()
     this.settingsUpdatedBy = callerName
     return this.settings()
@@ -734,6 +748,7 @@ export function adminHandlers(h: AdminMockHelpers, world: AdminWorld) {
     http.delete(`${API}/users/:id`, route(({ params, caller }) => (world.deleteUser(caller, id(params, 'id')), noContent()))),
     http.post(`${API}/users/:id/password`, route(async ({ request, params, caller }) => (world.resetPassword(caller, id(params, 'id'), await json<PasswordReset>(request)), noContent()))),
     http.post(`${API}/users/:id/unlock`, route(({ params, caller }) => HttpResponse.json(world.unlock(caller, id(params, 'id'))))),
+    http.delete(`${API}/users/:id/totp`, route(({ params, caller }) => (world.resetTotp(caller, id(params, 'id')), noContent()))),
     http.get(`${API}/users/:id/permissions`, route(({ params }) => HttpResponse.json(world.userPermissions(id(params, 'id'))))),
     http.get(`${API}/users/:id/sessions`, route(({ params, caller }) => HttpResponse.json(world.userSessions(id(params, 'id'), caller)))),
     http.delete(`${API}/users/:id/sessions`, route(({ params, caller }) => HttpResponse.json({ revoked: world.revokeSessions(caller, id(params, 'id')) }))),

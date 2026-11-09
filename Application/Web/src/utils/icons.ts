@@ -90,6 +90,7 @@ export {
 export {
   symOutlinedLockOpen as iconUnlock,
   symOutlinedPassword as iconPassword,
+  symOutlinedEncrypted as iconTwoFactor,
   symOutlinedPersonAdd as iconPersonAdd,
   symOutlinedPersonOff as iconPersonOff,
   symOutlinedHowToReg as iconPersonOn,
