@@ -41,6 +41,16 @@ ensure_repo docker-hosted '{
 }'
 ensure_repo docker-hosted-copy '{"name": "docker-hosted-copy", "format": "docker", "type": "hosted", "online": true}'
 
+step 'create docker group docker-group (docker-hosted-copy, then docker-hosted; pushes go to docker-hosted)'
+ensure_repo docker-group '{
+  "name": "docker-group",
+  "format": "docker",
+  "type": "group",
+  "online": true,
+  "description": "Hosted images, the copy first (client harness)",
+  "group": {"members": ["docker-hosted-copy", "docker-hosted"], "writable_member": "docker-hosted"}
+}'
+
 # The conformance client only needs the repositories; the rest prepares the docker client container.
 [ "${HARNESS_CLIENT:-docker}" = docker ] || exit 0
 

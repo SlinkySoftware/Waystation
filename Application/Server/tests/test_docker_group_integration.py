@@ -218,6 +218,20 @@ async def test_pull_in_order_push_to_writable_member(
     assert hosted_only.json()['tags'] == ['1.0']
     assert (await reg.request('GET', 'all/nothing', 'tags/list', actions='pull')).status_code == 404
 
+    # a mount from the group links a member's copy (here the proxy cache) into another repository
+    params = [
+        ('service', SERVICE),
+        ('scope', 'repository:hosted/copied:pull,push'),
+        ('scope', 'repository:all/hello:pull'),
+    ]
+    issued = await reg.client.get('/auth/token', params=params, auth=reg.auth)
+    mounted = await reg.client.post(
+        '/v2/hosted/copied/blobs/uploads/',
+        params={'mount': digest(LAYER), 'from': 'all/hello'},
+        headers={'Authorization': f'Bearer {issued.json()["token"]}'},
+    )
+    assert mounted.status_code == 201, mounted.text
+
     # deletes go to the writable member too
     deleted = await reg.request('DELETE', 'all/hello', 'manifests/mine')
     assert deleted.status_code == 202

@@ -113,7 +113,8 @@ if printf '%s' "$token" | docker login "$registry" --username ci-bot --password-
 fi
 docker logout "$registry" >/dev/null 2>&1 || true
 
-# Hosted repositories: push, multi-platform, immutability, mounts, crane/skopeo/oras/cosign, referrers, deletes.
+# Hosted and group repositories: push, multi-platform, immutability, mounts, crane/skopeo/oras/cosign, referrers,
+# deletes, a group with a writable member.
 . /harness/docker/hosted.sh
 
 pass

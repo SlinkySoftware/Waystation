@@ -99,4 +99,25 @@ ws_api GET '/audit?action=content.upload&limit=200' | grep -q 'docker-hosted/app
   || fail 'no content.upload audit record'
 ws_api GET '/audit?action=content.delete&limit=200' | grep -q 'docker-hosted/hello' || fail 'no content.delete audit record'
 
+step 'group: a push through docker-group lands in docker-hosted (the writable member)'
+group=$registry/docker-group
+printf 'pushed through the group\n' > "$work/ctx/hello.txt"
+docker buildx build -q --platform linux/amd64 -t "$group/grouped:1.0" --load "$work/ctx" > /dev/null \
+  || fail 'docker buildx build --load'
+docker push -q "$group/grouped:1.0" > /dev/null || fail 'docker push through the group'
+grouped_digest=$(crane digest --insecure "$hosted/grouped:1.0") || fail 'the pushed image is not in docker-hosted'
+[ "$(crane digest --insecure "$group/grouped:1.0")" = "$grouped_digest" ] || fail 'group and member digests differ'
+docker rmi -f "$group/grouped:1.0" > /dev/null
+docker pull -q "$group/grouped:1.0" > /dev/null || fail 'docker pull through the group'
+
+step 'group: members answer in order (docker-hosted-copy first) and tag lists are merged'
+crane copy --insecure "$hosted/app:latest" "$registry/docker-hosted-copy/app:order" || fail 'crane copy (copy member)'
+crane copy --insecure "$hosted/app:v1.0" "$hosted/app:order" || fail 'crane copy (hosted member)'
+[ "$(crane digest --insecure "$group/app:order")" = "$(crane digest --insecure "$hosted/app:latest")" ] \
+  || fail 'the group did not answer from its first member'
+crane ls --insecure "$group/app" > "$work/group-tags.out" || fail 'crane ls through the group'
+for tag in latest order v1.0; do
+  grep -qx "$tag" "$work/group-tags.out" || fail "merged tags: $(cat "$work/group-tags.out")"
+done
+
 docker logout "$registry" > /dev/null 2>&1 || true
