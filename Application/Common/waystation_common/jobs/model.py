@@ -77,6 +77,9 @@ class JobEnvelope(BaseModel):
     enqueued_at: datetime
     run_after: datetime | None = None
     definition_id: str | None = None
+    # Why it runs: a schedule fired, someone asked (run now), or a dead letter was retried. None (older envelopes):
+    # derived from definition_id.
+    trigger: Literal['schedule', 'manual', 'retry'] | None = None
 
     @classmethod
     def for_payload(
@@ -87,6 +90,7 @@ class JobEnvelope(BaseModel):
         dedupe_key: str | None = None,
         queue: Queue | None = None,
         definition_id: str | None = None,
+        trigger: Literal['schedule', 'manual', 'retry'] | None = None,
         now: datetime | None = None,
     ) -> JobEnvelope:
         if not payload.kind or JOB_TYPES.get(payload.kind) is not type(payload):
@@ -101,6 +105,7 @@ class JobEnvelope(BaseModel):
             enqueued_at=now or datetime.now(UTC),
             run_after=run_after,
             definition_id=definition_id,
+            trigger=trigger,
         )
 
     def decode(self) -> JobPayload:

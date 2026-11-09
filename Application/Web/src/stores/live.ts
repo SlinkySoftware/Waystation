@@ -5,7 +5,7 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 
-import type { ActivityEvent, LiveEvent, StatsTickEvent, Transfer, UpstreamHealth } from '@/api/types'
+import type { ActivityEvent, LiveEvent, StatsTickEvent, TaskEvent, Transfer, UpstreamHealth } from '@/api/types'
 
 import { type ConnectionStatus, createLiveSource, type LiveSource } from './liveSource'
 
@@ -34,6 +34,7 @@ export const useLiveStore = defineStore('live', () => {
   const map = new Map<string, LiveTransfer>()
   const topicRefs = new Map<string, number>()
   const activityListeners = new Set<(event: ActivityEvent) => void>()
+  const taskListeners = new Set<(event: TaskEvent) => void>()
   let dirty = false
   let lastEventId: string | null = null
   let source: LiveSource | null = null
@@ -101,6 +102,12 @@ export const useLiveStore = defineStore('live', () => {
         if (activity.value.some((a) => a.id === event.event.id)) break
         activity.value = [event.event, ...activity.value].slice(0, ACTIVITY_HISTORY)
         break
+      case 'job.update':
+      case 'job.progress':
+      case 'job.log':
+      case 'worker.update':
+        for (const listener of taskListeners) listener(event)
+        break
     }
   }
 
@@ -145,7 +152,7 @@ export const useLiveStore = defineStore('live', () => {
     }, 0)
   }
 
-  /** Subscribe to a topic (`transfers`, `stats`, `activity`, `repo:<name>`); returns the unsubscribe function. */
+  /** Subscribe to a topic (`transfers`, `stats`, `activity`, `tasks`, `repo:<name>`); returns the unsubscribe function. */
   function subscribe(topic: string): () => void {
     const count = topicRefs.get(topic) ?? 0
     topicRefs.set(topic, count + 1)
@@ -169,6 +176,12 @@ export const useLiveStore = defineStore('live', () => {
     return () => activityListeners.delete(listener)
   }
 
+  /** Job and worker events of the `tasks` topic (the Tasks page keeps its own state; nothing is stored here). */
+  function onTasks(listener: (event: TaskEvent) => void): () => void {
+    taskListeners.add(listener)
+    return () => taskListeners.delete(listener)
+  }
+
   function stop(): void {
     source?.close()
     source = null
@@ -190,7 +203,7 @@ export const useLiveStore = defineStore('live', () => {
     lastEventId = null
   }
 
-  return { status, transfers, activeCount, lastTick, ticks, activity, upstreams, subscribe, onActivity, apply, flush, reset }
+  return { status, transfers, activeCount, lastTick, ticks, activity, upstreams, subscribe, onActivity, onTasks, apply, flush, reset }
 })
 
 if (import.meta.hot) import.meta.hot.accept(acceptHMRUpdate(useLiveStore, import.meta.hot))

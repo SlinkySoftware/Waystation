@@ -23,6 +23,7 @@ What lands in Valkey (consumers: SSE and stats APIs, T-S11; rollups, worker):
 - ``transfers`` hash: transfer id -> ``Transfer`` JSON (current state; removed on finish; stale entries swept by
   the worker rollup). Reconnecting clients read this, never a replay.
 - ``live`` pub/sub: ``LiveMessage`` JSON ``{"type": "transfer.started|progress|finished|failed", "transfer": {...}}``.
+- ``live:jobs`` pub/sub: ``JobLiveMessage`` JSON (``job.progress`` / ``job.log`` of running jobs, from the worker).
 - ``activity`` stream (``MAXLEN ~ 200000``): fields ``type`` and ``data`` (``ActivityEvent`` JSON); stream ids are
   the SSE ``Last-Event-ID``.
 - ``cnt:<minute>:<repo_id>`` hash: counters ``keys.COUNTERS`` + ``format``; ``lat:<minute>:<repo_id>`` hash:
@@ -44,6 +45,8 @@ from waystation_common.events.schema import (
     CacheState,
     Direction,
     EventType,
+    JobLiveMessage,
+    JobProgress,
     LiveMessage,
     Transfer,
 )
@@ -55,6 +58,8 @@ __all__ = [
     'Direction',
     'EventEmitter',
     'EventType',
+    'JobLiveMessage',
+    'JobProgress',
     'LiveMessage',
     'Transfer',
 ]

@@ -277,6 +277,8 @@ SPECS: tuple[CollectionSpec, ...] = (
             # A cleanup policy's runs (manual and scheduled share the dedupe key ``cleanup:<policy id>``).
             _ix('dedupe_started', [('dedupe_key', ASCENDING), ('started_at', DESCENDING)]),
             _ix('kind_started', [('kind', ASCENDING), ('started_at', DESCENDING)]),
+            # The Tasks page's status filter (running, failed, dead).
+            _ix('status_started', [('status', ASCENDING), ('started_at', DESCENDING)]),
         ),
     ),
     CollectionSpec(

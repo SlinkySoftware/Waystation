@@ -367,7 +367,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 
 ### 4.11 Audit
 Append-only audit log of security-relevant actions: sign-in/out/failure, token create/revoke/use-refused,
-user/group/role/provider changes, repo create/update/delete, uploads and deletes on hosted repos, cleanup runs,
+user/group/role/provider changes, repo create/update/delete, uploads and deletes on hosted repos, cleanup runs, task changes,
 settings changes. Searchable in the UI, exported via API; retention configurable (default 400 days).
 - **Record**: time, action (`<category>.<verb>`, catalog `waystation_common.audit.AuditAction`), outcome
   (`success`/`failure`) and for failures a reason code (`bad_credentials`, `unknown_user`, `locked`, `disabled`,
@@ -389,7 +389,8 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   current password; an administrator's reset with `details.by_admin`), `session.revoke`,
   `group.create|update|delete` (membership changes as `group.update` with `details.members_added|members_removed`),
   `role.create|update|delete` (anonymous access changes as `role.update` on target `anonymous_access`),
-  `auth_provider.create|update|delete|test`, `repository.create|update|delete|test_upstream`. Not yet (the feature
+  `auth_provider.create|update|delete|test`, `repository.create|update|delete|test_upstream`, `task.update|run|retry|discard`
+  (schedule edits, run now, dead-letter retry and discard on the Tasks page). Not yet (the feature
   does not exist): hosted uploads/deletes (Phase 5), cleanup runs (T-O01), settings (T-U08); `PENDING` in the
   catalog names them and the acceptance test fails when one is emitted without a test.
 - **Writing never fails or slows a request**: records go to a bounded in-process queue (10 000) drained by one task
@@ -416,9 +417,23 @@ settings changes. Searchable in the UI, exported via API; retention configurable
 - **Set me up** per repo per client: generated config snippets (docker daemon.json, `docker login`, `.npmrc`,
   `pip.conf`, `settings.xml`, `sources.list`/`.sources`, `.repo`, Go env, Helm repo add, Terraform CLI config,
   `ansible.cfg`, Swift registry commands) with the current user's token placeholder.
-- Tasks page: scheduled jobs (cleanup, GC, index rebuild, stats rollup, upstream metadata prefetch), run now,
-  history with logs.
-- Workers page: live worker list, queues, throughput, failures.
+- **Tasks and workers** (`admin`; REST `/api/v1/tasks/*`, live on the event stream topic `tasks`):
+  - Scheduled tasks = the `job_definitions` (built-ins `stats.rollup` every 10 s and `blob.gc`, and one per scheduled
+    cleanup policy) with schedule, enabled, last run and next run. An admin can change a schedule (5-field UTC cron,
+    macro, or `@every <n>s|m|h` of at least 10 s; validated, 422 with a field error otherwise) or pause/resume it;
+    a changed schedule restarts its timer (missed fires do not catch up). A cleanup policy's schedule belongs to the
+    policy (409; edited on the Cleanup page). "Run now" queues the task (a pending run absorbs it: `merged`).
+  - Job runs: one row per attempt (status `running`, `succeeded`, `failed` (will retry), `dead`, `interrupted`;
+    trigger `schedule`, `manual` or `retry`), newest first, filters (status, kind, queue, task, job), keyset cursor;
+    routine jobs (the stats rollup) are hidden unless asked for. A run's detail adds its result and its log (the last
+    500 lines). While a job runs, its progress (≤ 1/s) and new log lines are pushed live (`job.progress`, `job.log`),
+    and starts/ends as `job.update`; worker start/stop as `worker.update`.
+  - Workers: host, version, queues, concurrency, leader (scheduler lease), running jobs, heartbeat age (`late` after
+    30 s, `lost` after 90 s); queue figures (waiting, running, delayed, oldest waiting) and the dead-letter count.
+  - Dead letters (`jobs:dead`): retry queues the same work as a new job with fresh attempts (trigger `retry`; the
+    usual dedupe applies) and removes the dead letter in one step; a repeated retry answers with the job the first
+    one queued. Discard deletes it; discarding a missing one is a no-op. Malformed entries can only be discarded.
+  - Schedule edits, run now, retry and discard are audited (§4.11).
 - System: storage path usage/free, MongoDB/Valkey health, version, licence, support bundle download (redacted).
 - **Import from Nexus**: read a Nexus instance's repository list via its REST API and create equivalent repos
   (names, formats, types, upstreams, docker routing); cached content is re-fetched on demand, hosted content
@@ -469,7 +484,7 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
   The UI uses only this API. Pagination by opaque cursor; filtering and sorting params documented.
 - **Event stream**: `GET /api/v1/events/stream` (Server-Sent Events) with topic filters (`transfers`, `stats`,
   `repo:<name>`, `tasks`, `workers`); RBAC-filtered per subscriber; heartbeat 15 s; resumable with `Last-Event-ID`.
-  Now: topics `transfers`, `stats`, `activity`, `repo:<name>` (comma-separated `topics`; needs `stats-read`); on
+  Now: topics `transfers`, `stats`, `activity`, `tasks` (jobs and workers; also needs `admin`), `repo:<name>` (comma-separated `topics`; needs `stats-read`); on
   connect `retry: 3000` and a `transfers.snapshot`; `activity` events carry the stream id as `id:` and are replayed
   after `Last-Event-ID` (header or `last_event_id` query parameter, up to 1000); `stats.tick` at 1 Hz (rates over the
   last 10 s from the live counters). Stats endpoints (`/stats/*`, `/transfers`, `/activity`) need `stats-read` and
@@ -680,7 +695,7 @@ Waystation/
 | MongoDB layer (T-F06) | M0 slice 2026-11-08: async client factory, collection registry and indexes for the M0 collections, declarative schema + forward-only migrations run by `init` (idempotent), `make test-integration` against real MongoDB/Valkey |
 | Blob store (T-F07) | M0 slice 2026-11-08: local-filesystem `BlobStore` (streaming sha256, size limits, verified atomic commit, X-Accel paths, orphan sweeper, free-space guard); NFS CI scenario pending |
 | Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once (the scheduled job `stats.rollup`, every 10 s, since T-F08). Hour/day rollups pending; nothing calls the emitter until the proxy engine lands (T-S07) |
-| Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. No job API/UI yet (Tasks page) |
+| Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. Job API and Tasks page: T-O04 (2026-11-09) |
 | Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
 | Local authentication (T-S02) | Done 2026-11-09: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`; one-time passwords enforced (only `/auth/me`, the password change and sign-out until changed; `docker login` refused), own password change, profile update, own sessions list/revoke (one, or every other), effective permissions; UI password card on the profile page and a router guard for one-time passwords |
 | Audit (T-S10) | Done 2026-11-09: audit catalog and records (actor, target, outcome/reason, client address, request id, details, redacted before/after changes), non-blocking batched writer, TTL retention (`WAYSTATION_AUDIT_RETENTION_DAYS`), `GET /api/v1/audit` (filters, cursor paging) and streamed CSV/NDJSON export, Audit log page. Actions whose features are pending (hosted content, cleanup, settings) are emitted by those tasks; password change, session revoke and user/group/role admin since 2026-11-09 (T-S02/T-S03) |
@@ -714,6 +729,7 @@ Waystation/
 | yum format (T-P2-YUM) | Proxy slice 2026-11-09: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files into `yum_packages` and validate packages against them (or record them `unverified`); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; browse is the generic folder tree. dnf on Rocky Linux 10 and AlmaLinux 10 passes the real-client harness in replay (`extras`). Hosted, group, Oracle Linux 9 / EPEL clients and a yum package view pending |
 | Cleanup policies (T-O01) | Done 2026-11-09: named policies (criteria per SPEC §4.8, per-format version order, docker tag cascade), dry-run preview API (same planning code as runs), `cleanup.run` worker job with progress, per-policy cron schedules, attachment per repository, REST + UI (`/cleanup` page with live impact count, candidate preview and run history; repository Cleanup tab); downloads recorded off the hot path into `assets.last_downloaded_at`/`download_count`. Audit records pending (T-S10) |
 | Blob GC (T-O02) | Done 2026-11-09: `blob.gc` worker job (every 6 h, 24 h grace): orphan uploads, adoption of untracked files, mark-and-sweep with a claim protocol that makes a racing cache fill safe (property test + real fill-vs-sweep race test), missing referenced blobs reported; GC status/run API and UI card; freed bytes as activity events and Prometheus counters (`waystation_gc_*`, `waystation_cleanup_*`) |
+| Tasks and workers (T-O04) | Done 2026-11-09: REST `/api/v1/tasks/*` (admin): scheduled tasks with last/next run, schedule edit (validated cron/macro/`@every` ≥ 10 s; restarts the timer; cleanup-policy schedules stay with the policy) and pause/resume, run now; job runs with filters, keyset cursor and detail with the capped log (`trigger` schedule/manual/retry on runs); workers (heartbeat health, running jobs with run ids, leader) and queue figures; dead letters with atomic, idempotent retry (`jobs:dead:retried`) and discard; all changes audited (`task.*`). Live: the worker publishes `job.progress`/`job.log` on `live:jobs`; SSE topic `tasks` (admin only) carries those plus `job.update`/`worker.update`. UI `/tasks`: summary strip, tabs Scheduled / Runs / Workers / Dead letters, schedule dialog, run drawer with live log viewer, mobile cards; contract + MSW mock job system with live events; Vitest + API integration tests. Later: GC grace/parameter editor, retry-all, per-kind retry metrics (T-O06) |
 | Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Left: substring matching, the 1M-asset p95 benchmark |
 | Everything else | Not started |
 | M0 feedback build (T-V02) | Done 2026-11-09, tagged `v0.1.0-m0`: `make e2e-m0` runs real docker, npm, apt (Debian 13) and raw clients through a running stack and checks the live stream, stats, activity and browse; `Documents/Operations/TRY_IT.md` (fresh host from images and an env file); real-server screenshot tour `Documents/Notes/UI_TOUR_M0.md`; feedback log `Documents/Notes/UI_FEEDBACK.md` |

@@ -198,13 +198,25 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+def run_trigger(doc: Document) -> Literal['schedule', 'manual', 'retry']:
+    """Why a ``job_runs`` document ran (runs recorded before the trigger existed: from ``definition_id``)."""
+    match doc.get('trigger'):
+        case 'schedule':
+            return 'schedule'
+        case 'manual':
+            return 'manual'
+        case 'retry':
+            return 'retry'
+    return 'schedule' if doc.get('definition_id') else 'manual'
+
+
 def run_view(doc: Document) -> CleanupRunSummary:
     result = doc.get('result') or {}
     progress = doc.get('progress') or {}
     return CleanupRunSummary(
         id=str(doc['_id']),
         status=doc.get('status', 'running'),
-        trigger='schedule' if doc.get('definition_id') else 'manual',
+        trigger='schedule' if run_trigger(doc) == 'schedule' else 'manual',
         started_at=doc['started_at'],
         finished_at=doc.get('finished_at'),
         progress=JobProgress(
