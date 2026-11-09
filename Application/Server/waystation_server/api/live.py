@@ -30,7 +30,7 @@ EXPORT_MAX_ROWS = 100_000
 
 CacheStateName = Literal['HIT', 'FETCHING', 'COALESCED', 'STALE', 'REVALIDATED', 'ERROR']
 ActivityKind = Literal[
-    'download', 'upload', 'delete', 'cache_miss', 'upstream_state', 'repository', 'cleanup', 'auth', 'error'
+    'download', 'upload', 'delete', 'cache_miss', 'upstream_state', 'repository', 'cleanup', 'auth', 'error', 'storage'
 ]
 
 

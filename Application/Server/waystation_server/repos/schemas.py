@@ -18,6 +18,7 @@ from waystation_server.repos.model import (
     DEFAULT_METADATA_MAX_AGE_S,
     DEFAULT_NEGATIVE_TTL_S,
     AuthKind,
+    QuotaMode,
     RepoType,
     WritePolicy,
 )
@@ -143,6 +144,22 @@ class GroupConfig(BaseModel):
     )
 
 
+class StorageConfig(BaseModel):
+    """Stored-bytes quota (SPECIFICATION §4.8). Usage counts every asset the repository holds (a blob shared with other
+    repositories counts in each of them)."""
+
+    model_config = ConfigDict(extra='forbid', json_schema_serialization_defaults_required=True)
+
+    quota_bytes: int | None = Field(
+        default=None, ge=1, le=2**53, description='Quota in bytes; null = no quota (group repositories: always null)'
+    )
+    quota_mode: QuotaMode = Field(
+        default=QuotaMode.SOFT,
+        description='`soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached '
+        '(cached content is still served; proxy downloads pass through uncached)',
+    )
+
+
 class RepositoryWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -154,6 +171,7 @@ class RepositoryWrite(BaseModel):
     proxy: ProxyConfig | None = None
     hosted: HostedConfig | None = Field(default=None, description='Hosted repositories only (defaults when omitted)')
     group: GroupConfig | None = Field(default=None, description='Group repositories only (required for them)')
+    storage: StorageConfig | None = Field(default=None, description='Quota (proxy and hosted repositories)')
     format_options: dict[str, Any] | None = Field(
         default=None, description="Format-specific options; the shape follows the repository's `format`"
     )

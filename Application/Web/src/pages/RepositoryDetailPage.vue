@@ -31,6 +31,8 @@
         </div>
       </div>
 
+      <QuotaMeter v-if="repo.quota" :quota="repo.quota" class="detail__quota" />
+
       <q-tabs :model-value="tab" dense no-caps align="left" active-color="primary" indicator-color="primary" class="detail__tabs" narrow-indicator>
         <q-tab v-for="tb in tabs" :key="tb" :name="tb" :label="t(`detail.tab.${tb}`)" @click="router.push({ name: 'repository', params: { name: repo.name, tab: tb } })" />
       </q-tabs>
@@ -73,6 +75,7 @@ import FormatIcon from '@/components/FormatIcon.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import CleanupTab from '@/components/repositories/CleanupTab.vue'
 import OverviewTab from '@/components/repositories/OverviewTab.vue'
+import QuotaMeter from '@/components/repositories/QuotaMeter.vue'
 import SettingsTab from '@/components/repositories/SettingsTab.vue'
 import SetupPanel from '@/components/repositories/SetupPanel.vue'
 import SizeCell from '@/components/SizeCell.vue'
@@ -153,6 +156,15 @@ function onSaved(next: Repository): void {
 .detail__kpis {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.detail__quota {
+  margin-top: 12px;
+  padding: 12px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);

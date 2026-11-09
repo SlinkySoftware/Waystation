@@ -120,4 +120,21 @@ for tag in latest order v1.0; do
   grep -qx "$tag" "$work/group-tags.out" || fail "merged tags: $(cat "$work/group-tags.out")"
 done
 
+step 'hard quota: docker-quota (64 KiB) takes a small image, refuses the push that goes over it, still serves pulls'
+quota=$registry/docker-quota
+mkdir -p "$work/quota"
+printf 'small\n' > "$work/quota/small.txt"
+printf 'FROM scratch\nCOPY small.txt /small.txt\n' > "$work/quota/Dockerfile"
+docker buildx build -q --platform linux/amd64 -t "$quota/small:1" --push "$work/quota" > /dev/null \
+  || fail 'pushing a small image under the quota'
+head -c 131072 /dev/urandom > "$work/quota/big.bin"  # incompressible: the layer alone is over the quota
+printf 'FROM scratch\nCOPY big.bin /big.bin\n' > "$work/quota/Dockerfile"
+if docker buildx build -q --platform linux/amd64 -t "$quota/big:1" --push "$work/quota" > "$work/quota.out" 2>&1
+then
+  fail 'a push over a hard quota was accepted'
+fi
+grep -qi 'quota' "$work/quota.out" || fail "over-quota push: $(cat "$work/quota.out")"
+crane manifest --insecure "$quota/small:1" > /dev/null || fail 'pulling from a repository over its quota'
+ws_api GET '/repositories/docker-quota' | grep -q '"state":"exceeded"' || fail 'docker-quota is not reported over quota'
+
 docker logout "$registry" > /dev/null 2>&1 || true

@@ -45,6 +45,8 @@ export class MockWorld {
   storageUsed = this.repos.reduce((a, r) => a + r.stats.size_bytes, 0)
   artifacts = this.repos.reduce((a, r) => a + r.stats.artifact_count, 0)
   readonly storageTotal = 2 * 1024 * GiB
+  /** Low-disk guard settings (GET/PUT /storage/guard). */
+  guard: { min_free_bytes: number; min_free_percent: number; updated_at: string | null } = { min_free_bytes: 50 * GiB, min_free_percent: 5, updated_at: null }
   rateLimit = { limit: 200, remaining: 142, resetAt: Date.now() + 3.2 * 3_600_000 }
   private epelRetryAt = Date.now() + 4 * 60_000 + 12_000
   readonly activity: ActivityEvent[] = []

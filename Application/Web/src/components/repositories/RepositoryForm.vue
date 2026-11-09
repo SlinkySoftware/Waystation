@@ -222,6 +222,52 @@
       </div>
     </q-expansion-item>
 
+    <q-expansion-item
+      v-if="model.type !== 'group'"
+      v-model="quotaOpen"
+      dense
+      dense-toggle
+      switch-toggle-side
+      :label="t('repoForm.quota')"
+      class="repo-form__advanced"
+      header-class="section-label"
+    >
+      <div class="repo-form__section repo-form__section--inner">
+        <q-toggle v-model="model.quotaEnabled" :label="t('repoForm.quotaEnabled')" />
+        <template v-if="model.quotaEnabled">
+          <div class="repo-form__row">
+            <q-input
+              v-model.number="model.quotaSize"
+              outlined
+              dense
+              type="number"
+              min="0"
+              step="any"
+              :label="t('repoForm.quotaSize')"
+              class="col"
+              :rules="[(v: number) => (Number.isFinite(v) && v > 0) || t('repoForm.quotaSizeInvalid')]"
+              :error="!!errors['storage.quota_bytes']"
+              :error-message="errors['storage.quota_bytes']"
+            />
+            <q-select v-model="model.quotaUnit" outlined dense :options="[...QUOTA_UNITS]" :label="t('repoForm.quotaUnit')" class="repo-form__unit" />
+          </div>
+          <q-select
+            v-model="model.quotaMode"
+            outlined
+            dense
+            emit-value
+            map-options
+            :options="quotaModeOptions"
+            :label="t('repoForm.quotaMode')"
+            :hint="model.quotaMode === 'hard' ? t('repoForm.quotaHintHard') : t('repoForm.quotaHintSoft')"
+            :error="!!errors['storage.quota_mode']"
+            :error-message="errors['storage.quota_mode']"
+          />
+          <div class="text-caption text-muted">{{ t('repoForm.quotaShared') }}</div>
+        </template>
+      </div>
+    </q-expansion-item>
+
     <q-expansion-item v-model="networkOpen" dense dense-toggle switch-toggle-side :label="t('repoForm.network')" class="repo-form__advanced" header-class="section-label">
       <div class="repo-form__section repo-form__section--inner">
         <q-input
@@ -261,6 +307,7 @@ import { t } from '@/i18n'
 import { useConfigStore } from '@/stores/config'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { typeMeta } from '@/utils/domain'
+import { QUOTA_UNITS } from '@/utils/quota'
 
 import { NAME_PATTERN, type Preset, PRESETS, type RepoFormModel } from './form'
 import UpstreamTest from './UpstreamTest.vue'
@@ -306,11 +353,17 @@ const dispositionOptions = computed(() => [
 // Advanced sections open by themselves when they hold a setting or a field error.
 const cachingOpen = ref(false)
 const networkOpen = ref(Boolean(model.value.caPem || model.value.httpProxy))
+const quotaOpen = ref(model.value.quotaEnabled)
+const quotaModeOptions = computed(() => [
+  { label: t('repoForm.quotaModeSoft'), value: 'soft' },
+  { label: t('repoForm.quotaModeHard'), value: 'hard' },
+])
 watch(
   () => props.errors,
   (errors) => {
     const fields = Object.keys(errors)
     if (fields.some((f) => f === 'proxy.ca_pem' || f === 'proxy.http_proxy')) networkOpen.value = true
+    if (fields.some((f) => f.startsWith('storage.'))) quotaOpen.value = true
     if (fields.some((f) => f.startsWith('proxy.auto_block.') || f.endsWith('_age_s') || f === 'proxy.negative_ttl_s')) cachingOpen.value = true
   },
   { immediate: true },
@@ -362,6 +415,10 @@ function applyPreset(p: Preset): void {
 
 .repo-form__row > .col {
   min-width: 180px;
+}
+
+.repo-form__unit {
+  width: 110px;
 }
 
 .repo-form__advanced :deep(.q-item) {

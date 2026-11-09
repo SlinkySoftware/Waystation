@@ -62,6 +62,7 @@ describe('repository form model', () => {
       online: true,
       description: '',
       hosted: { write_policy: 'disable_redeploy', immutable_tag_patterns: ['v[0-9]+'] },
+      storage: { quota_bytes: null, quota_mode: 'soft' },
       format_options: { aliases: [], docker_hub: false, default_repo: false },
     })
     expect(w.proxy).toBeUndefined()
@@ -80,6 +81,7 @@ describe('repository form model', () => {
       online: true,
       description: '',
       group: { members: ['docker-hosted', 'docker-hub'], writable_member: 'docker-hosted' },
+      storage: { quota_bytes: null, quota_mode: 'soft' },
       format_options: { aliases: [], docker_hub: false, default_repo: false },
     })
     expect(toWrite({ ...m, writableMember: 'gone' }).group?.writable_member).toBeNull()
@@ -95,6 +97,18 @@ describe('repository form model', () => {
     expect(w.proxy).toMatchObject({ ca_pem: '-----BEGIN CERTIFICATE-----\n...', http_proxy: 'http://proxy.example.com:3128', auto_block: { enabled: false, max_s: 3600 } })
     const back = modelFromRepository({ name: 'files', format: 'raw', type: 'proxy', online: true, proxy: w.proxy } as unknown as Repository)
     expect(back).toMatchObject({ caPem: set.caPem.trim(), httpProxy: 'http://proxy.example.com:3128', autoBlock: false, autoBlockMaxMin: 60 })
+  })
+
+  it('maps the storage quota (bytes from size and unit; none for groups or when off)', () => {
+    const m = { ...emptyModel('docker', 'hosted'), name: 'docker-hosted' }
+    expect(toWrite(m).storage).toEqual({ quota_bytes: null, quota_mode: 'soft' })
+    const on = { ...m, quotaEnabled: true, quotaSize: 1.5, quotaUnit: 'GiB' as const, quotaMode: 'hard' as const }
+    expect(toWrite(on).storage).toEqual({ quota_bytes: 1.5 * 1024 ** 3, quota_mode: 'hard' })
+    expect(toWrite({ ...on, quotaSize: 0 }).storage?.quota_bytes).toBeNull()
+    expect(toWrite({ ...on, type: 'group' }).storage?.quota_bytes).toBeNull()
+    const back = modelFromRepository({ ...toWrite({ ...on, quotaSize: 512, quotaUnit: 'MiB' }), status: 'ok' } as unknown as Repository)
+    expect(back).toMatchObject({ quotaEnabled: true, quotaSize: 512, quotaUnit: 'MiB', quotaMode: 'hard' })
+    expect(modelFromRepository({ ...toWrite(m), storage: { quota_bytes: 2 * 1024 ** 4 } } as unknown as Repository)).toMatchObject({ quotaSize: 2, quotaUnit: 'TiB', quotaMode: 'soft' })
   })
 
   it('validates names like the server', () => {
