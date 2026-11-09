@@ -124,6 +124,7 @@ class Services:
         blobs.guard = MongoBlobGuard(db)  # commits claim their blob against GC (waystation_common.db.blobs)
         storage = StorageStats(db, settings.data_dir)
         quotas = Quotas(db, emitter, metrics)
+        jobs = JobClient(redis, db)
         catalog = RepoCatalog(load)
         rbac = RbacState(db, redis)
 
@@ -137,7 +138,6 @@ class Services:
             return current.used_bytes, current.artifacts
 
         upstream = UpstreamClients(settings)
-        jobs = JobClient(redis, db)
         hub = Hub(redis, visible, figures)
         metrics.track(metrics.sse_clients, lambda: float(len(hub.subscribers)))
         return cls(
@@ -177,7 +177,7 @@ class Services:
                 keyring=keyring,
                 quotas=quotas,
             ),
-            hosted=HostedStore(db=db, blobs=blobs, emitter=emitter, metrics=metrics, quotas=quotas),
+            hosted=HostedStore(db=db, blobs=blobs, emitter=emitter, metrics=metrics, quotas=quotas, jobs=jobs),
             keyring=keyring,
             mongo_client=client,
             check_schema_on_start=check_schema_on_start,

@@ -406,6 +406,39 @@ Spec: GOPROXY protocol (`go help goproxy`), checksum database (`sum.golang.org`)
   (`helm repo add --username/--password`).
 - Clients: helm 3/4 (`helm repo add`, `helm pull`, `helm cm-push` optional).
 
+As implemented (T-P5-HELM, `waystation_server.formats.helm`; client guide `Documents/Operations/clients/helm.md`):
+- **Index loading** (`index.py`): JSON when the bytes are JSON, else YAML through a loader that resolves only `null`
+  implicitly (every other plain scalar stays a string, so `version: 1.10` is never the float `1.1` and `yes` is never
+  a boolean), refuses Python tags and aliases (billion laughs), bounded in nodes and depth; runs in a thread. Field
+  types follow Helm's `ChartVersion`: strings, except `deprecated`/`removed` and a dependency's `enabled`.
+- **Served indexes are JSON** (valid YAML; Helm 3.11+ detects JSON indexes, `jsonOrYamlUnmarshal`), content type
+  `application/x-yaml`, with **relative chart URLs** so an index works behind any host name and in groups unchanged.
+- **Proxy**: `index.yaml` (64 MiB limit) is METADATA, revalidated, validated and rewritten in a thread. A chart URL
+  under the upstream URL keeps its relative path; any other URL becomes `_ext/<scheme>/<host>/<path>` (query strings
+  dropped, `:` escaped). Each stored index is listed in `helm_charts` in the background (`gen` = the index blob's
+  sha256). A `.tgz` is CONTENT fetched only when the cached index lists its path (looked up on a miss only; the index
+  is refreshed once, then 404; `HEAD` on a miss is checked the same way, never relayed), so `_ext/` is never an open
+  proxy, and verified while streaming against the entry's `digest` (sha256) when present. `<chart>.tgz.prov` passes
+  through for listed charts.
+- **Hosted**: `PUT <any>.tgz` and ChartMuseum `POST api/charts` (multipart `chart` + optional `prov`, or the raw
+  package; also `api/<anything>/charts`); `PUT <chart>.tgz.prov`; `DELETE <name>-<version>.tgz` and
+  `DELETE api/charts/<name>/<version>` (answers `{"deleted": true}`). Packages (≤ 64 MiB) are streamed into the blob
+  store, then read without extraction (`chart.py`: single top-level directory, regular files and directories only, no
+  absolute/`..`/control-character names, ≤ 20 000 members and 1 GiB unpacked, `Chart.yaml` ≤ 1 MiB through the safe
+  loader, `apiVersion` v1/v2, name `[A-Za-z0-9][A-Za-z0-9._-]*`, SemVer version) and stored as
+  `<name>-<version>.tgz`. Write policy per SPEC §4.2. The chart's `helm_charts` record and an `index.helm` job are
+  written in one MongoDB transaction (outbox, ARCH §10); the worker (`waystation_worker.helm`) rebuilds the whole
+  index from the records (dropping records whose file a cleanup policy removed), commits it to the blob store and
+  switches the `index.yaml` asset in one write. Before the first index, `index.yaml` answers an empty index.
+- **Group**: `index.yaml` = the members' indexes (proxy members ensured/revalidated, hosted members' published ones)
+  merged, first member wins per chart version; the merge is committed to the blob store and served by X-Accel until a
+  member's index changes (in-process pointer per replica, keyed by the members' index digests). Chart files: first
+  member that has them; writes go to the writable member (RBAC on the member).
+- **Browse**: `GET /api/v1/repositories/{name}/helm/charts` and `/helm/versions?chart=` from `helm_charts`
+  (`version_sort` = SemVer precedence as a sortable string); groups show their members' records.
+- Not done: `helm cm-push` itself in the harness (its multipart request is tested with curl),
+  global search over `helm_charts` (chart files are found as cached files), signing/verifying provenance.
+
 ## Terraform / OpenTofu — Phase 5
 Specs: Provider Network Mirror Protocol, Provider Registry Protocol, Module Registry Protocol, Remote Service
 Discovery (`/.well-known/terraform.json`).

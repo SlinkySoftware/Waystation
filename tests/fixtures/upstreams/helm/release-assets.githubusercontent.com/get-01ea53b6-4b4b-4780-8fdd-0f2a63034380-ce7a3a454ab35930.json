@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://release-assets.githubusercontent.com/github-production-release-asset/92132038/01ea53b6-4b4b-4780-8fdd-0f2a63034380?sp=harness-redacted&sv=harness-redacted&sr=b&spr=https&se=harness-redacted&rscd=attachment%3B+filename%3Dmetrics-server-3.12.2.tgz&rsct=application/octet-stream&skoid=harness-redacted&sktid=harness-redacted&skt=harness-redacted&ske=harness-redacted&sks=harness-redacted&skv=harness-redacted&sig=harness-redacted&jwt=harness-redacted&response-content-disposition=attachment%3B+filename%3Dmetrics-server-3.12.2.tgz&response-content-type=application/octet-stream"
+  },
+  "response": {
+    "body_sha256": "e904ffa2fe33c429e12cac8aa013ba38f42d944e315d060e94230a53b98985cf",
+    "body_size": 10395,
+    "headers": [
+      [
+        "content-length",
+        "10395"
+      ],
+      [
+        "last-modified",
+        "Mon, 07 Oct 2024 21:28:39 GMT"
+      ],
+      [
+        "etag",
+        "\"0x8DCE71702CB0E36\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-disposition",
+        "attachment; filename=metrics-server-3.12.2.tgz"
+      ],
+      [
+        "content-type",
+        "application/octet-stream"
+      ]
+    ],
+    "status": 200
+  }
+}
