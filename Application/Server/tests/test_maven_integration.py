@@ -138,7 +138,7 @@ async def anon(services: Services) -> AsyncIterator[httpx.AsyncClient]:
 @pytest.fixture
 async def mvn(admin: httpx.AsyncClient, services: Services) -> AsyncIterator[httpx.AsyncClient]:
     """A Maven client: basic auth with the admin's username and an API token (settings.xml <server>)."""
-    made = await admin.post('/api/v1/auth/me/tokens', json={'name': 'mvn', 'scopes': ['delete']})
+    made = await admin.post('/api/v1/auth/me/tokens', json={'name': 'mvn', 'scopes': ['write', 'delete']})
     assert made.status_code == 201, made.text
     async with asgi_client(services) as client:
         client.auth = httpx.BasicAuth('admin', made.json()['secret'])
@@ -184,7 +184,7 @@ async def test_proxy_metadata_artifacts_and_checksums(
     assert md.parse(services.blobs.blob_path(_sha(meta)).read_bytes()).versions == ['1.0']
 
     jar = await anon.get(f'/repository/central/{GA}/1.0/lib-1.0.jar')
-    assert jar.status_code == 200 and jar.content == JAR
+    assert jar.status_code == 200 and jar.content == JAR  # a fill streams through (tee)
     assert jar.headers['content-type'] == 'application/java-archive'
     asset = await services.db[ASSETS].find_one({'path': f'{GA}/1.0/lib-1.0.jar'})
     assert asset is not None and asset['checksums']['sha1'] == sha1(JAR)
@@ -205,7 +205,8 @@ async def test_proxy_metadata_artifacts_and_checksums(
 
     # A checksum of a file that is not cached is fetched from the upstream; signatures pass through.
     pom_sum = await anon.get(f'/repository/central/{GA}/1.0/lib-1.0.pom.sha1')
-    assert pom_sum.status_code == 200 and pom_sum.text.strip() == sha1(POM)
+    assert pom_sum.status_code == 200 and 'x-accel-redirect' in pom_sum.headers
+    assert services.blobs.blob_path(_sha(pom_sum)).read_bytes().strip() == sha1(POM).encode()
     asc = await anon.get(f'/repository/central/{GA}/1.0/lib-1.0.jar.asc')
     assert asc.status_code == 200 and asc.content.startswith(b'-----BEGIN PGP')
 

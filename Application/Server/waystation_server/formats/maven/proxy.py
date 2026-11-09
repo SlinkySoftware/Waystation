@@ -24,7 +24,7 @@ from collections.abc import Callable
 
 from starlette.responses import Response
 
-from waystation_common.errors import NotFound, ValidationFailed
+from waystation_common.errors import NotFound, UpstreamError, ValidationFailed
 from waystation_common.events import CacheState
 from waystation_server.formats.base import FormatRequest
 from waystation_server.formats.maven import coords
@@ -42,13 +42,16 @@ ArtifactStored = Callable[[FormatRequest, coords.Artifact], OnStored]
 
 
 def _validate_metadata(data: bytes, info: UpstreamInfo) -> None:
-    md.validate(data)
+    try:
+        md.validate(data)
+    except ValidationFailed as exc:
+        raise UpstreamError(f'upstream maven-metadata.xml is invalid: {exc.detail}') from None
 
 
 def checksum_validator(alg: str) -> Callable[[bytes, UpstreamInfo], None]:
     def validate(data: bytes, info: UpstreamInfo) -> None:
         if coords.parse_checksum(data, alg) is None:
-            raise ValidationFailed(f'not a {alg} checksum file')
+            raise UpstreamError(f'upstream {alg} file is not a checksum')
 
     return validate
 

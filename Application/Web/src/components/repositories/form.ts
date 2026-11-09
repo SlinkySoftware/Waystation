@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, DockerOptions, Format, M0Format, NpmOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
+import type { AptOptions, DockerOptions, Format, M0Format, MavenOptions, NpmOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
 /** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (options carried through). */
@@ -10,9 +10,9 @@ export type FormFormat = M0Format | 'yum'
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'maven']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'maven']
 
 export interface RepoFormModel {
   name: string
@@ -64,6 +64,9 @@ export interface RepoFormModel {
   // raw
   metadataRegex: string
   contentDisposition: 'inline' | 'attachment'
+  // maven
+  versionPolicy: NonNullable<MavenOptions['version_policy']>
+  layoutPolicy: NonNullable<MavenOptions['layout_policy']>
   // yum: not edited in this form yet; carried through so saving keeps them
   repoPath: string
   gpgKey: string | null
@@ -90,6 +93,11 @@ export const PRESETS: Record<M0Format, Preset[]> = {
     { id: 'rpi', label: 'Raspberry Pi OS', apply: { name: 'raspberrypi', upstreamUrl: 'https://archive.raspberrypi.com/debian', distribution: 'trixie' } },
   ],
   raw: [{ id: 'github', label: 'GitHub releases', apply: { name: 'raw-github', upstreamUrl: 'https://github.com' } }],
+  maven: [
+    { id: 'central', label: 'Maven Central', apply: { name: 'maven-central', upstreamUrl: 'https://repo.maven.apache.org/maven2/' } },
+    { id: 'google', label: 'Google Maven', apply: { name: 'maven-google', upstreamUrl: 'https://maven.google.com/' } },
+    { id: 'gradle', label: 'Gradle plugins', apply: { name: 'gradle-plugins', upstreamUrl: 'https://plugins.gradle.org/m2/' } },
+  ],
 }
 
 export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFormModel {
@@ -132,6 +140,8 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     flat: false,
     metadataRegex: '',
     contentDisposition: 'attachment',
+    versionPolicy: 'release',
+    layoutPolicy: 'strict',
     repoPath: '',
     gpgKey: null,
   }
@@ -143,7 +153,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
   const h = repo.hosted
   const quotaBytes = repo.storage?.quota_bytes ?? null
   const quotaSize = quotaBytes ? fromBytes(quotaBytes) : { size: m.quotaSize, unit: m.quotaUnit }
-  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions
+  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions
   return {
     ...m,
     name: repo.name,
@@ -181,6 +191,8 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     flat: o.flat ?? false,
     metadataRegex: o.metadata_path_regex ?? '',
     contentDisposition: o.content_disposition ?? 'attachment',
+    versionPolicy: o.version_policy ?? 'release',
+    layoutPolicy: o.layout_policy ?? 'strict',
     repoPath: o.repo_path ?? '',
     gpgKey: o.gpg_key ?? null,
   }
@@ -196,6 +208,8 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       return { distribution: m.distribution.trim(), flat: m.flat }
     case 'yum':
       return { repo_path: m.repoPath, gpg_key: m.gpgKey }
+    case 'maven':
+      return { version_policy: m.versionPolicy, layout_policy: m.layoutPolicy }
     case 'raw':
     default:
       return { metadata_path_regex: m.metadataRegex.trim() || null, content_disposition: m.contentDisposition }

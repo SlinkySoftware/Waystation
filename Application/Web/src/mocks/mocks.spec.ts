@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest'
 
+import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { quotaView, seedRepositories } from './fixtures/repositories'
 import { dnfRun } from './scenarios'
 import { setupGuide } from './setup'
@@ -74,6 +75,32 @@ describe('mock Set me up', () => {
     expect(snippet('ubuntu', 'deb822')).toContain('Suites: resolute resolute-updates resolute-backports')
     expect(snippet('debian-security', 'deb822')).toContain('Suites: trixie-security')
     expect(snippet('raspberrypi', 'deb822')).toContain('Suites: trixie\n')
+  })
+})
+
+describe('mock Maven repositories', () => {
+  const maven = (type: 'proxy' | 'hosted', policy = 'release') =>
+    ({ ...byName('npm'), name: `maven-${type}`, format: 'maven', type, format_options: { version_policy: policy } }) as unknown as ReturnType<typeof byName>
+
+  it('lists artifacts, versions newest first and a version folder', () => {
+    const repo = maven('hosted')
+    const artifacts = mavenArtifactsFor(repo)
+    expect(artifacts[0]).toMatchObject({ group_id: 'com.example.platform', artifact_id: 'billing-service', latest: '1.5.0-SNAPSHOT', version_count: 3 })
+    const versions = mavenVersionsFor(repo, 'com.example.platform', 'billing-service')!
+    expect(versions.map((v) => v.version)).toEqual(['1.5.0-SNAPSHOT', '1.4.1', '1.4.0'])
+    expect(versions[0]!.snapshot).toBe(true)
+    const files = mavenListing(repo, versions[1]!.path)!
+    expect(files.map((f) => f.name)).toContain('billing-service-1.4.1.jar')
+    expect(mavenVersionsFor(repo, 'org.none', 'none')).toBeNull()
+    expect(mavenListing(repo, 'org/none')).toBeNull()
+  })
+
+  it('gives hosted repositories deploy snippets matching their version policy', () => {
+    const ids = (repo: ReturnType<typeof byName>) => setupGuide(repo).clients.flatMap((c) => c.snippets).map((s) => s.id)
+    expect(ids(maven('proxy'))).toContain('settings-mirror')
+    expect(ids(maven('proxy'))).not.toContain('pom-distribution')
+    const pom = setupGuide(maven('hosted', 'snapshot')).clients[0]!.snippets.find((s) => s.id === 'pom-distribution')!
+    expect(pom.content).toContain('<snapshotRepository>')
   })
 })
 
