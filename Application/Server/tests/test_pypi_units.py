@@ -174,7 +174,7 @@ def test_index_parse_and_render() -> None:
     html = b'<html><body><a href="/simple/six/">six</a><a href="/simple/Foo-Bar/">Foo_Bar</a></body></html>'
     names = simple.parse_index(html, 'text/html')
     assert names == ['six', 'Foo_Bar']
-    rendered = simple.render_index(names + ['foo-bar'], as_json=True)
+    rendered = simple.render_index([*names, 'foo-bar'], as_json=True)
     assert json.loads(rendered)['projects'] == [{'name': 'Foo_Bar'}, {'name': 'six'}]
     assert b'<a href="foo-bar/">Foo_Bar</a>' in simple.render_index(names, as_json=False)
     as_json = json.dumps({'meta': {'api-version': '1.0'}, 'projects': [{'name': 'six'}]}).encode()
@@ -237,12 +237,15 @@ async def test_multipart_errors() -> None:
         boundary_of('application/json')
     truncated = form('b', [('content', 'f', b'data')])[:-12]
     with pytest.raises(MultipartError):
-        async for _ in MultipartReader(chunked(truncated, 5), 'b').parts():
-            pass
+        await read_all(MultipartReader(chunked(truncated, 5), 'b'))
     big = form('b', [('long_description', None, b'x' * (4 * 1024 * 1024 + 1))])
-    reader = MultipartReader(chunked(big, 65536), 'b')
     with pytest.raises(PayloadTooLarge):
-        async for _ in reader.parts():
+        await read_all(MultipartReader(chunked(big, 65536), 'b'))
+
+
+async def read_all(reader: MultipartReader) -> None:
+    async for part in reader.parts():
+        if part.filename is None:
             await reader.text()
 
 
