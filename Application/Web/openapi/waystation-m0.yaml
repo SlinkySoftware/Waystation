@@ -43,6 +43,7 @@ tags:
   - name: tasks
   - name: admin
   - name: import
+  - name: webhooks
 security:
   - session: []
   - bearer: []
@@ -2130,6 +2131,152 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /webhooks:
+    get:
+      tags: [webhooks]
+      operationId: listWebhooks
+      summary: Webhooks by name with their latest delivery, and the events they can subscribe to (needs `admin`)
+      responses:
+        '200':
+          description: Webhooks
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [webhooks]
+      operationId: createWebhook
+      summary: Create a webhook (needs `admin`; audited as `webhook.create`)
+      description: |
+        `secret` is required and write-only (AES-GCM at rest under `WAYSTATION_SECRET_KEYS`); custom header values
+        are write-only too. A URL with a literal private or reserved address needs `allow_private`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookWrite' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Webhook' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /webhooks/{webhook_id}:
+    parameters:
+      - $ref: '#/components/parameters/WebhookId'
+    get:
+      tags: [webhooks]
+      operationId: getWebhook
+      summary: One webhook
+      responses:
+        '200':
+          description: The webhook
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Webhook' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [webhooks]
+      operationId: updateWebhook
+      summary: Replace a webhook (null `secret` / `headers` keep the stored ones; audited as `webhook.update`)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WebhookWrite' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Webhook' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [webhooks]
+      operationId: deleteWebhook
+      summary: Delete a webhook and its delivery log (pending deliveries are dropped; audited as `webhook.delete`)
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhooks/{webhook_id}/test:
+    parameters:
+      - $ref: '#/components/parameters/WebhookId'
+    post:
+      tags: [webhooks]
+      operationId: testWebhook
+      summary: Send a `webhook.ping` event now (one attempt, whether the webhook is on or off; audited as `webhook.test`)
+      responses:
+        '202':
+          description: The delivery was recorded and a worker attempts it within seconds
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDeliveryAccepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhooks/{webhook_id}/deliveries:
+    parameters:
+      - $ref: '#/components/parameters/WebhookId'
+    get:
+      tags: [webhooks]
+      operationId: listWebhookDeliveries
+      summary: The delivery log, newest first (kept 30 days)
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/WebhookDeliveryStatus' }
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 512 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Deliveries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDeliveryList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhooks/{webhook_id}/deliveries/{delivery_id}:
+    parameters:
+      - $ref: '#/components/parameters/WebhookId'
+      - $ref: '#/components/parameters/DeliveryId'
+    get:
+      tags: [webhooks]
+      operationId: getWebhookDelivery
+      summary: One delivery with the request it sends and every attempt (status, latency, the first KiB of the answer)
+      responses:
+        '200':
+          description: The delivery
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDelivery' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver:
+    parameters:
+      - $ref: '#/components/parameters/WebhookId'
+      - $ref: '#/components/parameters/DeliveryId'
+    post:
+      tags: [webhooks]
+      operationId: redeliverWebhookDelivery
+      summary: Send a delivery's document again as a new delivery (same event id; audited as `webhook.redeliver`)
+      responses:
+        '202':
+          description: The new delivery was recorded and a worker attempts it within seconds
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDeliveryAccepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /search:
     get:
       tags: [search]
@@ -2484,6 +2631,16 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 64 }
+    WebhookId:
+      name: webhook_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
+    DeliveryId:
+      name: delivery_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }
     TaskId:
       name: task_id
       in: path
@@ -5194,3 +5351,140 @@ components:
           type: array
           items: { $ref: '#/components/schemas/AuditRecord' }
         next_cursor: { type: [string, 'null'] }
+    WebhookEventName:
+      type: string
+      description: An event (`content.upload`), a category (`content.*`) or every event (`*`)
+      enum: ['*', 'content.*', 'repository.*', content.upload, content.delete, content.update, repository.create, repository.update, repository.delete]
+    WebhookWrite:
+      type: object
+      required: [name, url, events]
+      additionalProperties: false
+      properties:
+        name: { $ref: '#/components/schemas/RepositoryName' }
+        description: { type: string, maxLength: 500 }
+        url: { type: string, minLength: 8, maxLength: 2048, description: 'Where events are POSTed (http or https; no credentials in the URL)' }
+        events:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/WebhookEventName' }
+        repositories:
+          type: array
+          maxItems: 50
+          description: Repository name globs (`*`, `?`, case-insensitive); empty = every repository
+          items: { type: string, minLength: 1, maxLength: 200 }
+        enabled: { type: boolean, default: true }
+        secret:
+          type: [string, 'null']
+          minLength: 16
+          maxLength: 256
+          writeOnly: true
+          description: HMAC-SHA256 signing key. Required when creating; null keeps the stored one
+        headers:
+          type: [object, 'null']
+          writeOnly: true
+          additionalProperties: { type: string, maxLength: 1024 }
+          description: Extra request headers (values may be credentials). Null keeps the stored ones; `{}` removes them
+        allow_private: { type: boolean, default: false, description: Allow targets on private or reserved addresses }
+        timeout_s: { type: integer, minimum: 1, maximum: 30, default: 10 }
+        max_attempts: { type: integer, minimum: 1, maximum: 20, default: 8 }
+    WebhookDeliveryStatus:
+      type: string
+      enum: [pending, succeeded, dead]
+    WebhookDeliverySummary:
+      type: object
+      required: [id, event, event_id, trigger, repository, status, attempts, created_at, finished_at, next_attempt_at, status_code, latency_ms, error]
+      properties:
+        id: { type: string, description: 'Delivery id (the `Waystation-Delivery` and `Idempotency-Key` headers)' }
+        event: { type: string, description: 'Event type (`content.upload`, `webhook.ping`...)' }
+        event_id: { type: string, description: 'The `Waystation-Event-Id` header (the same on a redelivery)' }
+        trigger: { type: string, enum: [event, test, redeliver] }
+        repository: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/WebhookDeliveryStatus' }
+        attempts: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        finished_at: { type: [string, 'null'], format: date-time }
+        next_attempt_at: { type: [string, 'null'], format: date-time, description: When a pending delivery is attempted next }
+        status_code: { type: [integer, 'null'], description: The last attempt's HTTP status }
+        latency_ms: { type: [number, 'null'] }
+        error: { type: [string, 'null'], description: 'The last attempt''s failure (connection, timeout, refused target)' }
+    Webhook:
+      type: object
+      required: [id, name, description, url, events, repositories, enabled, secret_set, header_names, allow_private, timeout_s, max_attempts, created_at, updated_at, last_delivery]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        url: { type: string }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/WebhookEventName' }
+        repositories:
+          type: array
+          items: { type: string }
+        enabled: { type: boolean }
+        secret_set: { type: boolean, description: A signing secret is stored (never returned) }
+        header_names:
+          type: array
+          description: Custom headers sent (values are never returned)
+          items: { type: string }
+        allow_private: { type: boolean }
+        timeout_s: { type: integer }
+        max_attempts: { type: integer }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        last_delivery:
+          oneOf:
+            - $ref: '#/components/schemas/WebhookDeliverySummary'
+            - type: 'null'
+    WebhookList:
+      type: object
+      required: [items, events]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Webhook' }
+        events:
+          type: array
+          description: Events a webhook can subscribe to
+          items: { type: string }
+    WebhookAttempt:
+      type: object
+      required: [n, at, outcome, status_code, latency_ms, error, response]
+      properties:
+        n: { type: integer }
+        at: { $ref: '#/components/schemas/Timestamp' }
+        outcome: { type: string, enum: [succeeded, failed] }
+        status_code: { type: [integer, 'null'] }
+        latency_ms: { type: [number, 'null'] }
+        error: { type: [string, 'null'] }
+        response: { type: [string, 'null'], description: The first KiB of the answer }
+    WebhookDelivery:
+      allOf:
+        - $ref: '#/components/schemas/WebhookDeliverySummary'
+        - type: object
+          required: [redelivery_of, request_body, request_headers, log]
+          properties:
+            redelivery_of: { type: [string, 'null'] }
+            request_body: { type: string, description: The JSON document sent }
+            request_headers:
+              type: object
+              description: Headers sent (custom header values masked; timestamp and signature differ per attempt)
+              additionalProperties: { type: string }
+            log:
+              type: array
+              description: Attempts, newest first (the last 20)
+              items: { $ref: '#/components/schemas/WebhookAttempt' }
+    WebhookDeliveryList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WebhookDeliverySummary' }
+        next_cursor: { type: [string, 'null'] }
+    WebhookDeliveryAccepted:
+      type: object
+      required: [delivery_id]
+      properties:
+        delivery_id: { type: string }
