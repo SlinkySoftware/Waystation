@@ -2,8 +2,8 @@
 context a browse view gets, the view protocols format plugins implement, and opaque cursors.
 
 A format plugin that supports format-aware browsing exposes a ``browser`` attribute implementing one of the protocols
-below (``NpmBrowser``, ``AptBrowser``, ``DockerBrowser``, ``MavenBrowser``). The REST API finds it through the
-format registry and never imports the format package (ARCHITECTURE §3).
+below (``NpmBrowser``, ``AptBrowser``, ``DockerBrowser``, ``MavenBrowser``, ``PypiBrowser``, ``GoBrowser``). The REST
+API finds it through the format registry and never imports the format package (ARCHITECTURE §3).
 
 Download counters (``downloads``, ``pulls``, ``last_downloaded_at``, ``last_pulled_at``) are not recorded yet (T-S09
 full): they answer ``0`` / ``null``.
@@ -286,6 +286,49 @@ class PypiYankResult(BaseModel):
     files: int = Field(description='Files changed')
 
 
+# ---------------------------------------------------------------------------- go
+class GoModule(BaseModel):
+    module: str = Field(description='Module path (decoded: upper-case letters as they are)')
+    latest: str | None = Field(
+        default=None, description='Newest release in the cached version list, else the newest version'
+    )
+    version_count: int = Field(description='Versions in the cached version list (`@v/list`)')
+    cached_versions: int = Field(description='Versions whose module zip is cached')
+    size_bytes: int = Field(description='Bytes of the cached module zips')
+
+
+class GoModulePage(BaseModel):
+    items: list[GoModule]
+    next_cursor: str | None
+
+
+class GoFile(BaseModel):
+    kind: Literal['info', 'mod', 'zip']
+    size: int
+    sha256: str
+    cached_at: datetime | None = None
+    last_downloaded_at: datetime | None = None
+    downloads: int = 0
+
+
+class GoVersion(BaseModel):
+    version: str
+    time: datetime | None = Field(default=None, description='Commit time from the cached `.info`')
+    prerelease: bool
+    pseudo: bool = Field(description='A pseudo-version (an untagged commit)')
+    incompatible: bool = Field(description='`+incompatible`: a v2+ version of a module without a go.mod')
+    listed: bool = Field(description='In the cached version list (tagged)')
+    cached: bool = Field(description='The module zip is cached')
+    files: list[GoFile] = Field(description='Files of the version held by this repository')
+    size_bytes: int
+
+
+class GoVersionPage(BaseModel):
+    module: GoModule
+    items: list[GoVersion] = Field(description='Newest first (semantic version order)')
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- views
 @dataclass(frozen=True)
 class BrowseContext:
@@ -338,6 +381,16 @@ class PypiBrowser(Protocol):
 
     async def yank(self, ctx: BrowseContext, body: PypiYank) -> PypiYankResult:
         """Hosted: yank or un-yank every file of a version; raises ``NotFound`` when there is none."""
+
+
+@runtime_checkable
+class GoBrowser(Protocol):
+    async def modules(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> GoModulePage:
+        """Modules the repository has cached something of, by path."""
+
+    async def versions(self, ctx: BrowseContext, *, module: str, cursor: str | None, limit: int) -> GoVersionPage:
+        """One module's versions (cached list and cached files, newest first); raises ``NotFound`` for an unknown
+        module."""
 
 
 @runtime_checkable

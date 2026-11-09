@@ -152,4 +152,20 @@ describe('repository form model', () => {
     expect(NAME_PATTERN.test('-bad')).toBe(false)
     expect(NAME_PATTERN.test('a')).toBe(false)
   })
+
+  it('maps Go proxy options and offers proxy and group only', () => {
+    const proxy = toWrite({ ...emptyModel('go'), ...PRESETS.go[0]!.apply, nosumdb: [' example.com/private/* ', ''] })
+    expect(proxy).toMatchObject({
+      name: 'go-proxy',
+      format: 'go',
+      type: 'proxy',
+      proxy: { upstream_url: 'https://proxy.golang.org' },
+      format_options: { sumdb_proxy: true, sumdb_name: 'sum.golang.org', sumdb_url: 'https://sum.golang.org', verify_checksums: true, nosumdb: ['example.com/private/*'] },
+    })
+    const repo = { name: 'go-proxy', format: 'go', type: 'proxy', online: true, format_options: { sumdb_proxy: false, verify_checksums: false, nosumdb: ['corp.example.com'] } } as unknown as Repository
+    expect(modelFromRepository(repo)).toMatchObject({ sumdbProxy: false, verifyChecksums: false, nosumdb: ['corp.example.com'], sumdbName: 'sum.golang.org' })
+    expect(GROUP_FORMATS).toContain('go')
+    expect(HOSTED_FORMATS).not.toContain('go')
+    expect(WRITABLE_GROUP_FORMATS).not.toContain('go')
+  })
 })

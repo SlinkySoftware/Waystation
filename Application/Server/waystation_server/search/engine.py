@@ -42,6 +42,7 @@ from waystation_common.db.collections import (
     APT_PACKAGES,
     ASSETS,
     DOCKER_TAGS,
+    GO_MODULES,
     NPM_PACKAGES,
     PYPI_PACKAGES,
     YUM_PACKAGES,
@@ -132,6 +133,15 @@ SOURCES: tuple[Source, ...] = (
         'pypi',
         ('name_lc',),
         {'name': 1, 'display_name': 1, 'latest': 1, 'updated_at': 1},
+        version_field='latest',
+    ),
+    Source(
+        'go',
+        GO_MODULES,
+        'package',
+        'go',
+        ('name_lc', 'base_lc'),
+        {'name': 1, 'latest': 1, 'updated_at': 1},
         version_field='latest',
     ),
     Source(
@@ -379,6 +389,7 @@ def _parent(path: str) -> str:
     return posixpath.dirname(path)
 
 
+_GO_BANG = re.compile(r'!([a-z])')  # GOPROXY case-encoding: '!' + lower-case = upper-case
 _MANIFEST = re.compile(r'^(.+)/manifests/(sha256:[0-9a-f]{64})$')
 
 
@@ -393,6 +404,8 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {}
     if repo.format == 'pypi' and path.startswith('packages/') and path.count('/') == 2:
         return {'project': path.split('/')[1]}
+    if repo.format == 'go' and '/@v/' in path:
+        return {'module': _GO_BANG.sub(lambda m: m.group(1).upper(), path.split('/@v/', 1)[0])}
     parent = _parent(path)
     return {'path': parent} if parent else {}
 
@@ -452,6 +465,18 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 sha256=None,
                 cached=True,
                 browse=SearchBrowseLink(repository=repo.name, query={'project': str(doc['name'])}),
+            )
+        case 'go':
+            return SearchHit(
+                **common,
+                name=str(doc['name']),
+                version=doc.get('latest'),
+                qualifier=None,
+                path=None,
+                size=None,
+                sha256=None,
+                cached=True,
+                browse=SearchBrowseLink(repository=repo.name, query={'module': str(doc['name'])}),
             )
         case 'apt':
             suite, component, arch = str(doc.get('suite', '')), str(doc.get('component', '')), str(doc.get('arch', ''))

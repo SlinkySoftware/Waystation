@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://sum.golang.org/tile/8/0/x277/589.p/195"
+  },
+  "response": {
+    "body_sha256": "4f0e7f7b990bd41123ada56e886ea5ca8f5d584303dcfa25c3f48c121d041455",
+    "body_size": 6240,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "6240"
+      ],
+      [
+        "expires",
+        "Mon, 09 Nov 2026 22:59:22 GMT"
+      ],
+      [
+        "cache-control",
+        "public, max-age=10800"
+      ],
+      [
+        "etag",
+        "\"4f0e7f7b990bd41123ada56e886ea5ca8f5d584303dcfa25c3f48c121d041455\""
+      ],
+      [
+        "content-type",
+        "text/plain; charset=UTF-8"
+      ]
+    ],
+    "status": 200
+  }
+}
