@@ -149,6 +149,27 @@ What happens on a push:
   immutable tag points at it) and a blob no manifest of the repository uses. Disk space comes back with blob GC.
 - `GET /v2/_catalog` lists `<repository>/<image>` for every tagged image of the docker repositories you can see.
 
+## Group repositories
+
+A group puts several docker repositories behind one name: `registry.example.com/docker-all/team/app:1.0` is looked
+up in each member in order. Create one in the UI (Repositories → Create → Docker / OCI → Group) or the API:
+
+```json
+{"name": "docker-all", "format": "docker", "type": "group", "online": true,
+ "group": {"members": ["docker-hosted", "docker-hub", "ghcr"], "writable_member": "docker-hosted"}}
+```
+
+- Put hosted repositories first: a name missing there is then asked of the proxies' upstreams in order.
+- Blobs are found in any member's stored or cached copy before an upstream is asked; checking whether a layer exists
+  (`HEAD`, as `docker push` does) never goes upstream.
+- `tags/list` is the union of the members' tags (a proxy contributes its upstream's first page).
+- `docker push` to the group stores the image in the writable member; you need `write` on the group and on that
+  member. Without a writable member the group is read-only (`unsupported`). Deletes through the group act on the
+  writable member only.
+- Reading through the group needs `read` on the group; members' content is served through it.
+- A repository that is a group member cannot be deleted until it is removed from the group.
+- Answers name the member that served them in the `X-Ws-Group-Member` header.
+
 ## Authentication
 
 Proxy repositories are readable anonymously by default. Clients get an anonymous pull token from Waystation's token
@@ -196,6 +217,8 @@ only to the upstream registry and its token service, never to blob CDNs the upst
 | `unsupported` / `405` on push | Proxy repositories are read-only; push to a hosted docker repository. |
 | `denied: tag ... is immutable in this repository` | The tag matches an immutable pattern (or the repository disables redeploy): push a new tag. |
 | `denied: this repository is read-only` | The hosted repository's write policy is `read_only`. |
+| `unsupported: this group has no writable member` | Push to a hosted repository, or give the group a writable member. |
+| `denied: write permission required on <member>` when pushing to a group | You may write to the group but not to its writable member: ask for `write` on the member. |
 | `unauthorized` / `insufficient_scope` on push | Your token or account has no `write` on the repository: use an API token with the `write` scope and a role that may write there. |
 | `manifest blob unknown` on push | The manifest names a blob the repository does not hold (an interrupted push): push again; the client re-uploads what is missing. |
 | `docker search`, referrers on proxies | Not available; proxies answer the referrers API with 404 and clients fall back to the tag schema. |

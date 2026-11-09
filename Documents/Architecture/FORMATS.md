@@ -123,6 +123,20 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     sign/verify offline via the referrers API, crane delete, browse and audit) and the OCI distribution-spec
     conformance suite v1.1.1 (pull, push, content discovery, content management: all specs pass).
 - Group: read through members; tag lists merged; push goes to `writable_member`.
+  Built (T-P2-DOCKERG, `formats/docker/group.py`): members are docker proxy or hosted repositories by name, in order
+  (offline or missing ones skipped). Manifests (tag or digest): the first member that answers; a 404 moves on, an
+  upstream failure (5xx, 401/403/429) moves on and is returned only when no member answers. Blobs: every member's
+  stored/cached `blobs/<digest>` first (served by X-Accel, no upstream), then a `GET` asks members in order; a `HEAD`
+  never goes upstream (it is how pushes check for existing layers, and pushed names must not reach public
+  registries). `tags/list`: union of hosted members' tags and proxy members' upstream first page (cached as their
+  `tags/list`), sorted, `n`/`last`/`Link`; `404 NAME_UNKNOWN` when no member knows the name. Referrers: union over hosted
+  members. Writes (manifest `PUT`/`DELETE`, uploads incl. status and cancel, blob `DELETE`) go to the writable member
+  with the request otherwise unchanged (so `Location` keeps the group's name and a push continues through the group);
+  the principal needs the action on the group (router) and on the member (`req.allows_member`, RBAC without the
+  registry token's per-repository grants); none configured → `405 UNSUPPORTED`. Answers from a member carry
+  `X-Ws-Group-Member`. A mount `from` a group looks at its members' copies. Statistics count on the member that
+  served. Note: a manifest `HEAD`/`GET` for a name only a hosted member has still asks the proxy members' upstreams
+  when it misses there (as Nexus groups do); put hosted members first.
 - Clients to test: docker (BuildKit), podman, containerd/nerdctl (`hosts.toml` mirror with and without
   `override_path`), skopeo, crane, oras (artifacts), helm (OCI charts), cosign (signatures via referrers).
 - Browse (T-S09 min): every cached manifest is parsed in the background (thread, bounded) into `docker_manifests`

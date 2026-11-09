@@ -3,6 +3,15 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-P2-DOCKERG: docker group repositories (`formats/docker/group.py`). Model/REST/contract `group{members,
+  writable_member}` (validated: existing docker members, no nesting, no duplicates, writable member hosted; the
+  descriptor's `writable_group_member`); a repository in a group cannot be deleted (409). Reads try members in order,
+  blobs come from any member's copy first and blob `HEAD`s never go upstream, `tags/list` and referrers are merged;
+  pushes, upload sessions and deletes go to the writable member (RBAC on the member via `req.allows_member`), a group
+  without one answers `405`. Cancelling an upload (`DELETE /blobs/uploads/<id>`) now needs push, not delete
+  (`registry_auth.request_action`). A mount `from` a group uses its members' copies. UI: "Group" tile with ordered
+  members and writable member; mocks; "Set me up". Tests: integration and client harness (push through
+  `docker-group`, member order, merged tags), and the OCI conformance suite also runs through the group.
 - T-P2-DOCKERH: docker hosted repositories. Push side of the registry API (`formats/docker/hosted.py`): monolithic,
   chunked and resumable blob uploads (`upload_sessions`, append lease, `Range`/`416`, upload status and cancel) into
   resumable uploads of the blob store (`BlobStore.start_upload`/`resume_writer`, sha256 continued across requests or

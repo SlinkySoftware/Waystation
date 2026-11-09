@@ -284,7 +284,10 @@ Hosted repositories use `req.hosted` (`waystation_server.hosted.store.HostedStor
 body into a `BlobWriter` as a live upload transfer, record committed blobs as assets, link a blob already in the store
 (claimed against GC first), serve stored assets by X-Accel (the same data plane as cache hits) and remove assets.
 `req.allows(action, other_repo)` asks the decision point about another repository (cross-repository mounts) and
-`req.resolve_name(name)` resolves a `/v2/` name to its repository.
+`req.resolve_name(name)` resolves a `/v2/` name to its repository. Group repositories (T-P2-DOCKERG) answer by
+handing the request to a member (`dataclasses.replace(req, repo=member)`); `req.repository(name)` finds members and
+`req.allows_member(action, member)` asks the decision point about a member (RBAC with API-token limits, not the
+registry token's grants, which named the group).
 
 ## 12. Errors and logging
 Format endpoints return the format's native error shape (OCI JSON errors, npm JSON errors, plain 404 for file
