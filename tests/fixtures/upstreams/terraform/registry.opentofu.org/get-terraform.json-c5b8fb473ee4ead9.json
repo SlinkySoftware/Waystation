@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.opentofu.org/.well-known/terraform.json"
+  },
+  "response": {
+    "body_sha256": "86df1e3f80d333b36e955100b84545f98c194b8353a4d354146848c199328f8d",
+    "body_size": 72,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "72"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "etag",
+        "\"2e5c270111f3c834e360a7ed5188bef4\""
+      ],
+      [
+        "last-modified",
+        "Thu, 06 Feb 2025 09:12:35 GMT"
+      ],
+      [
+        "cache-control",
+        "max-age=14400"
+      ]
+    ],
+    "status": 200
+  }
+}

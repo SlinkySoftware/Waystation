@@ -137,7 +137,7 @@ services:
       context: ${HARNESS_CLIENTS_DIR}/go
       dockerfile_inline: |
         FROM hashicorp/terraform:1.17.1 AS terraform
-        FROM ghcr.io/opentofu/opentofu:1.13.9 AS tofu
+        FROM ghcr.io/opentofu/opentofu:1.13.9-minimal AS tofu
         FROM golang:1.25-alpine AS front
         COPY tlsfront.go /src/tlsfront.go
         RUN cd /src && CGO_ENABLED=0 GOTOOLCHAIN=local go build -o /tlsfront tlsfront.go
