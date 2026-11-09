@@ -108,15 +108,16 @@ def test_apt_yum_npm_raw() -> None:
     assert npm.notes == ['no detail']
 
 
-def test_pypi_content_is_kept_forever() -> None:
+@pytest.mark.parametrize('fmt', ['pypi', 'go'])
+def test_verified_content_is_kept_forever(fmt: str) -> None:
     raw = nexus_repos()['github-releases']  # a proxy whose content ages after 10080 minutes in Nexus
-    entry = {**raw.entry, 'name': 'pypi-proxy', 'format': 'pypi'}
-    nexus = {**(detail('github-releases') or {}), 'name': 'pypi-proxy', 'format': 'pypi'}
-    supported = {**PROXY_ONLY, 'pypi': frozenset({'proxy'})}
-    pypi = map_repository(NexusRepository(entry=entry, detail=nexus), supported=supported)
-    assert pypi.body is not None
-    assert pypi.body['proxy']['content_max_age_s'] is None  # files are verified against the page's hashes
-    assert any(d.field == 'proxy.content_max_age_s' and d.nexus == '10080 min' for d in pypi.differences)
+    entry = {**raw.entry, 'name': f'{fmt}-proxy', 'format': fmt}
+    nexus = {**(detail('github-releases') or {}), 'name': f'{fmt}-proxy', 'format': fmt}
+    supported = {**PROXY_ONLY, fmt: frozenset({'proxy'})}
+    mapped = map_repository(NexusRepository(entry=entry, detail=nexus), supported=supported)
+    assert mapped.body is not None
+    assert mapped.body['proxy']['content_max_age_s'] is None  # files are verified (page hashes, checksum database)
+    assert any(d.field == 'proxy.content_max_age_s' and d.nexus == '10080 min' for d in mapped.differences)
 
 
 def test_unsupported_and_invalid() -> None:

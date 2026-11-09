@@ -335,6 +335,40 @@ Spec: GOPROXY protocol (`go help goproxy`), checksum database (`sum.golang.org`)
   direct access to sum.golang.org (the go command asks the proxy's `/sumdb/<name>/supported` first). Private modules:
   `GOPRIVATE` / `GONOSUMDB` for those paths (documented).
 - Clients: go 1.24+.
+- Built (T-P5-GO, `formats/go/`; proxy and group, no hosted):
+  - Paths (`modpath`): module paths and versions are case-decoded (`!` + lower-case; an upper-case letter in a request
+    is accepted), validated as `golang.org/x/mod/module` does (path elements, host-name first element, version
+    characters, ≤ 500/128 characters) and re-encoded, so asset keys and upstream URLs use the one canonical
+    encoding. Asset paths: `<escaped module>/@v/list`, `<escaped module>/@latest`,
+    `<escaped module>/@v/<escaped version>.{info,mod,zip}`, `sumdb/<name>/...`.
+  - `@v/list` (metadata, validated: every line a canonical version, ≤ 4 MiB, ≤ 100 000 versions), `@latest`
+    (metadata, JSON with a canonical `Version`, ≤ 1 MiB). `.info` for a canonical version: content, must name that
+    version; for a query (`master.info`): metadata. `.mod` (≤ 16 MiB) and `.zip` (≤ 500 MiB): content, canonical
+    versions only (else `404`). Upstream `404` and `410` both answer `404`; errors are plain text (`server
+    response:`). Only `GET`/`HEAD` (`405` otherwise).
+  - Verification (`verify_checksums`, default on): before a `.mod`/`.zip` is committed (and before the client gets
+    its last bytes) the version's `lookup` record is fetched and cached through the repository's checksum database
+    settings (`sumdb_url`), and the file's `h1:` hash (`dirhash.Hash1`: sha256 over the sorted
+    `"<sha256>  <name>\n"` lines of every zip entry, the `.mod` as `go.mod`; computed in a thread, ≤ 100 000 entries,
+    ≤ 512 MiB uncompressed) must equal the record's `go.sum` line (else `502`, nothing cached). A module the database
+    does not know (`404`/`410`) is cached unverified; modules matching `nosumdb` (GONOSUMDB syntax,
+    `module.MatchPrefixPatterns`) are not looked up; an unreachable database fails the download. Waystation does
+    not check the note signature or tree inclusion: the go command does, through the same proxy.
+  - Checksum database proxy (`sumdb_proxy`, default on; `sumdb_name` default `sum.golang.org`): `supported` answered
+    locally (`200`, other names `404`), `latest` metadata revalidated after 60 s, `lookup/<module>@<version>`
+    metadata kept forever (validated as a record for that module and version), `tile/<H>/<L>/<K>[.p/<W>]`: full
+    tiles immutable content, partial tiles metadata; hash tiles must be exactly `W·32` bytes (`2^H·32` when full),
+    data tiles ≤ 4 MiB. SSRF guard as for the upstream.
+  - Group: `@v/list` merged per request (union, newest first by Go semver, `ETag`/`304`/`HEAD`); immutable files
+    from any member's cached copy first, then the members in order (`X-Ws-Group-Member`); `@latest` and queries
+    from the first member that answers; `sumdb/` from the first member proxying that database.
+  - Browse/search: `go_modules` summaries written in the background when a list or a module file is cached;
+    `go/modules`, `go/versions?module=`; search kind `package` (by module path). Cleanup: Go semver order per module
+    (pseudo-versions are pre-releases ordered by timestamp; `+incompatible` ignored), every file of a version shares
+    its rank.
+  - Clients verified (harness, recorded proxy.golang.org and sum.golang.org fixtures): go 1.25 (`go mod download`,
+    `go list -m -versions`, `go run`) through a proxy with sum.golang.org verified through it, and through a group
+    with `.netrc` credentials (over HTTPS: the go command sends credentials over HTTPS only).
 
 ## Helm (classic repositories) — Phase 5
 - `index.yaml` (metadata) + chart `.tgz` (content) + optional `.prov`. Proxy rewrites chart URLs in `index.yaml`

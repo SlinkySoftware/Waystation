@@ -116,7 +116,7 @@ and the browse renderer for that format. Order = priority (PyPI and Maven first,
 | T-P5-MAVEN | Maven proxy + hosted (release/snapshot, metadata regeneration) + group | S08, P2-HARNESS, U05 | TODO |
 | T-P5-NPMH | npm hosted (publish, unpublish, deprecate, dist-tags) | P2-NPM, S04 | TODO |
 | T-P5-HELM | Helm classic proxy + hosted + group (index rewrite/regeneration) | S08, F08, P2-HARNESS, U05 | TODO |
-| T-P5-GO | Go module proxy + sumdb proxy + group | S08, P2-HARNESS, U05 | TODO |
+| T-P5-GO | Go module proxy + sumdb proxy + group | S08, P2-HARNESS, U05 | DONE 2026-11-10 (`formats/go/`: proxy (GOPROXY protocol, case-encoding decoded/validated/re-encoded, list/@latest/query `.info` as metadata, canonical `.info`/`.mod`/`.zip` as content, size limits, 404/410 → 404), `.mod`/`.zip` verified against the checksum database's `go.sum` lines (`h1:` dirhash; `verify_checksums`, `nosumdb`), checksum database proxy (`supported`, `latest`, `lookup`, tiles), group (merged `@v/list`, first member wins for files); `go_modules` browse/search; Go semver for cleanup; UI create/options/browse, "Set me up"; harness with go 1.25 through a proxy (sum.golang.org through the proxy) and a group (`.netrc` over TLS) recorded and replayed; `Operations/clients/go.md`. Left: k6 perf budgets (T-P2-PERF)) |
 | T-P5-APTH | apt hosted with signing (ADR for OpenPGP implementation), atomic index publish | P2-APT, F08 | TODO |
 | T-P5-YUMH | yum hosted with repomd signing, atomic publish | P2-YUM, F08 | TODO |
 | T-P5-TFP | Terraform/OpenTofu provider network mirror (proxy) with SHA256SUMS + signature verification | S08, P2-HARNESS, U05 | TODO |
