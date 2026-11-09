@@ -254,7 +254,5 @@ def test_setup_snippets() -> None:
     hosted = contents(repo(id='r2', name='mine', type=RepoType.HOSTED))
     assert '--upload-file mychart-0.1.0.tgz https://ws.example.com/repository/mine/' in hosted
     assert '--context-path=/repository/mine' in hosted
-    group = repo(
-        id='r3', name='all', type=RepoType.GROUP, group=StoredGroup(members=('mine',), writable_member='mine')
-    )
+    group = repo(id='r3', name='all', type=RepoType.GROUP, group=StoredGroup(members=('mine',), writable_member='mine'))
     assert 'cm-push' in contents(group)
