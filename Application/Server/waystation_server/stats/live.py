@@ -183,8 +183,11 @@ def activity_view(stream_id: str, event: ActivityEvent) -> dict[str, Any] | None
             kind, outcome = 'cache_miss', 'info'
             summary = f'{artifact} was not cached in {repo}'
         case EventType.UPSTREAM_STATE:
-            kind, outcome = 'upstream_state', 'info'
-            summary = f'Upstream of {repo} is {event.detail.get("state", "changed")}'
+            kind = 'upstream_state'
+            outcome = 'failure' if event.detail.get('state') == 'blocked' else 'info'
+            summary = str(
+                event.detail.get('summary') or f'Upstream of {repo} is {event.detail.get("state", "changed")}'
+            )
         case EventType.ASSET_CREATED:
             kind = 'upload'
             summary = f'{who} uploaded {artifact} to {repo}'

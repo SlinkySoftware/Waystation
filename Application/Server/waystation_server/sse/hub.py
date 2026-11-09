@@ -5,6 +5,8 @@ One hub per server process runs (from the first subscriber until shutdown):
 - a ``live`` pub/sub listener (transfer started/progress/finished/failed; progress is already coalesced to ≤ 4 Hz
   per transfer by the emitter),
 - one blocking ``XREAD`` on the ``activity`` stream (durable events; their stream ids are the SSE ``id:``),
+- ``upstream.state`` (the repository's ``UpstreamHealth``) after every upstream state change in the activity stream
+  (auto-block blocked / reblocked / resumed), for every subscriber that follows anything global or that repository,
 - a 1 Hz ``stats.tick`` computed from the live per-minute counters (rates over the last 10 s, hit ratio over the last
   minute), only while someone subscribes to ``stats``,
 
@@ -28,7 +30,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 
-from waystation_common.events import LiveMessage, keys
+from waystation_common.events import EventType, LiveMessage, keys
 from waystation_server.security.principal import Principal
 from waystation_server.stats import live, series
 
@@ -39,10 +41,12 @@ VISIBILITY_REFRESH_S = 30.0
 TICK_S = 1.0
 RATE_WINDOW_S = 10.0
 RATIO_WINDOW_S = 60.0
+GLOBAL_TOPICS = frozenset({'transfers', 'stats', 'activity'})
 
 Frame = tuple[str | None, str, str]  # (id, event, data)
 VisibleRepos = Callable[[Principal], Awaitable[set[str]]]
 StorageFigures = Callable[[], Awaitable[tuple[int, int]]]  # (used bytes, artifacts)
+UpstreamHealthSource = Callable[[str], Awaitable[dict[str, Any] | None]]  # repository name -> UpstreamHealth
 
 
 @dataclass(eq=False)
@@ -60,6 +64,8 @@ class Subscriber:
     def wants(self, topic: str, repo: str | None) -> bool:
         if repo is not None and repo not in self.visible:
             return False
+        if topic == 'upstream':
+            return bool(self.topics & GLOBAL_TOPICS) or (repo is not None and repo in self.repo_topics)
         if topic in self.topics:
             return True
         return repo is not None and repo in self.repo_topics and topic in ('transfers', 'activity')
@@ -80,6 +86,7 @@ class Hub:
         self.valkey = valkey
         self._visible_repos = visible_repos
         self._storage = storage
+        self.upstream_health: UpstreamHealthSource | None = None  # set by the event stream route
         self.subscribers: set[Subscriber] = set()
         self._tasks: list[asyncio.Task[None]] = []
         self._closed = False
@@ -160,6 +167,20 @@ class Hub:
                 if view is not None:
                     event = {'type': 'activity', 'ts': view['ts'], 'event': view}
                     self.publish('activity', parsed.repo, _frame(event, stream_id))
+                if parsed.type is EventType.UPSTREAM_STATE and parsed.repo:
+                    await self._upstream_state(parsed.repo, parsed.ts)
+
+    async def _upstream_state(self, repo: str, ts: datetime) -> None:
+        if self.upstream_health is None:
+            return
+        try:
+            health = await self.upstream_health(repo)
+        except Exception as exc:
+            log.warning('upstream health lookup failed', extra={'error': type(exc).__name__})
+            return
+        if health is not None:
+            stamp = ts.astimezone(UTC).isoformat().replace('+00:00', 'Z')
+            self.publish('upstream', repo, _frame({'type': 'upstream.state', 'ts': stamp, 'health': health}))
 
     async def _tick_loop(self) -> None:
         ticker = StatsTicker(self.valkey, self._storage)

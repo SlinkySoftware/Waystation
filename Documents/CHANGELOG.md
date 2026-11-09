@@ -3,6 +3,19 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-S07: upstream auto-block, per-repository CA bundle and outbound HTTP proxy. Auto-block (`proxy.breaker`): after
+  `auto_block.failures` (default 5) consecutive connection/DNS failures, timeouts, mid-body resets, 5xx or 429
+  answers the upstream is blocked for `initial_s` (30 s), doubling after each failed probe up to `max_s` (30 min);
+  blocked requests get 503 + `Retry-After` or the stale copy, one probe per ended period across the cluster (a client
+  request or the per-process prober), a success resumes; state shared in `upstream:<id>:health` via Lua; saving the
+  repository clears it. Visible in `/stats/upstreams` (`blocked`, `blocked_until`), repository status, the
+  `upstream.state` SSE event, activity, `waystation_upstream_state`, `waystation_upstream_blocked_until_timestamp_seconds`
+  and `waystation_upstream_autoblock_total`. Repositories gain `proxy.ca_pem` (validated PEM, trusted for that
+  repository only) and `proxy.http_proxy` (else the server-wide `WAYSTATION_HTTP_PROXY`/`NO_PROXY`), applied to
+  fetches, Docker token negotiation and "test upstream"; the SSRF guard checks every hop's target through a proxy.
+  Contract `ProxyConfig` + `AutoBlockConfig`; repository form sections "Caching and resilience" (auto-block) and
+  "Network and TLS"; the blocked countdown on the dashboard and repository overview uses real data. Fault-injection
+  tests with a private CA and a local forward proxy.
 - T-V02: M0 feedback build tagged `v0.1.0-m0` (images build on Gitea; GitHub Actions run only for major releases).
 - CI: GitHub Actions run only for major releases (`vX.0.0` tags) or by hand (ci, release); the live-client run is
   manual only (no nightly schedule). Gitea keeps building images on every push to `main`.

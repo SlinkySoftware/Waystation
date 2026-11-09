@@ -10,6 +10,8 @@ Validation, reported as 422 field errors (``errors[].field`` a dotted path into 
   needs ``allow_private_upstream``;
 - ``auth``: ``basic`` needs a username; ``basic``/``bearer`` need a secret (kept from the stored config on update
   when omitted); secrets are encrypted with ``WAYSTATION_SECRET_KEYS`` (associated data ``repo:<id>``);
+- ``ca_pem``: PEM certificates (at most 100) usable as a CA bundle; ``http_proxy``: an ``http(s)://host[:port]`` URL
+  without credentials, path or query; ``auto_block.max_s`` not below ``auto_block.initial_s``;
 - ``format_options`` against the format's ``options_model``; docker aliases must not collide with repository names
   or other repositories' aliases; one default docker repository (setting it clears the others);
 - on update, ``name``, ``format`` and ``type`` cannot change.
@@ -17,6 +19,7 @@ Validation, reported as 422 field errors (``errors[].field`` a dotted path into 
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 from datetime import UTC, datetime
@@ -30,10 +33,12 @@ from waystation_common.events import keys as event_keys
 from waystation_common.ids import new_id
 from waystation_server.db import repositories as repos_db
 from waystation_server.problems import FieldError, FieldErrors, validation_errors
+from waystation_server.proxy.http import check_ca_pem, check_proxy_url
 from waystation_server.repos.model import (
     AuthKind,
     RepoConfig,
     RepoType,
+    StoredAutoBlock,
     StoredProxy,
     StoredUpstreamAuth,
     secret_aad,
@@ -76,6 +81,26 @@ def _check_url(proxy: ProxyConfig, errors: list[FieldError]) -> None:
                 code='ssrf',
             )
         )
+
+
+def _clean(value: str | None) -> str | None:
+    return (value or '').strip() or None
+
+
+async def check_network(proxy: ProxyConfig) -> list[FieldError]:
+    """Field errors of the network options (CA bundle, outbound proxy, auto-block periods)."""
+    errors: list[FieldError] = []
+    if (pem := _clean(proxy.ca_pem)) is not None:
+        problem = await asyncio.to_thread(check_ca_pem, pem)
+        if problem:
+            errors.append(FieldError(field='proxy.ca_pem', message=problem, code='format'))
+    if (url := _clean(proxy.http_proxy)) is not None and (problem := check_proxy_url(url)):
+        errors.append(FieldError(field='proxy.http_proxy', message=problem, code='format'))
+    if proxy.auto_block.max_s < proxy.auto_block.initial_s:
+        errors.append(
+            FieldError(field='proxy.auto_block.max_s', message='must not be shorter than initial_s', code='range')
+        )
+    return errors
 
 
 def _options(services: Services, body: RepositoryWrite, errors: list[FieldError]) -> dict[str, Any]:
@@ -168,6 +193,9 @@ def _stored_proxy(
         stale_on_error=proxy.stale_on_error,
         offline=proxy.offline,
         allow_private_upstream=proxy.allow_private_upstream,
+        ca_pem=_clean(proxy.ca_pem),
+        http_proxy=_clean(proxy.http_proxy),
+        auto_block=StoredAutoBlock(**proxy.auto_block.model_dump()),
     )
 
 
@@ -191,6 +219,7 @@ async def _build(
             errors.append(FieldError(field='proxy', message='required for proxy repositories', code='required'))
         else:
             proxy = _stored_proxy(services, body.proxy, repo_id, existing.proxy if existing else None, errors)
+            errors.extend(await check_network(body.proxy))
     elif body.proxy is not None:
         errors.append(FieldError(field='proxy', message='only proxy repositories have an upstream', code='invalid'))
     if errors:
@@ -236,6 +265,8 @@ async def update(services: Services, existing: RepoConfig, body: RepositoryWrite
         services.catalog.invalidate()
         raise Conflict('the repository was changed by someone else; reload and try again')
     await _after_write(services, repo)
+    if repo.proxy is not None:
+        await services.proxy.breaker.reset(repo.id)  # a saved configuration starts with a clean slate
     log.info('repository updated', extra={'repo': repo.name})
     return repo
 

@@ -1475,6 +1475,31 @@ export interface components {
             offline: boolean;
             /** @default false */
             allow_private_upstream: boolean;
+            /** @description Extra CA certificates (PEM) trusted for this upstream, in addition to the system ones */
+            ca_pem?: string | null;
+            /** @description Outbound HTTP proxy for this upstream (`http://host:port`, no credentials); null = the server-wide proxy */
+            http_proxy?: string | null;
+            auto_block?: components["schemas"]["AutoBlockConfig"];
+        };
+        /** @description Stop calling a failing upstream for a while (SPEC §4.1): after `failures` consecutive failures (connection, timeout, 5xx, 429) block it for `initial_s`, doubling after every failed probe up to `max_s` */
+        AutoBlockConfig: {
+            /** @default true */
+            enabled: boolean;
+            /**
+             * @description Consecutive upstream failures that block it
+             * @default 5
+             */
+            failures: number;
+            /**
+             * @description First block period (seconds)
+             * @default 30
+             */
+            initial_s: number;
+            /**
+             * @description Longest block period (seconds); the period doubles after every failed probe
+             * @default 1800
+             */
+            max_s: number;
         };
         DockerOptions: {
             /** @description Upstream aliases routed to this repo, e.g. `docker.io`, `ghcr.io` (SPEC §4.4) */
