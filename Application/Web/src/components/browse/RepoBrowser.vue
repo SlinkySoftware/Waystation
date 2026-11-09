@@ -6,6 +6,7 @@
   <NpmBrowser v-else-if="repo.format === 'npm'" :repo="repo" />
   <AptBrowser v-else-if="repo.format === 'apt'" :repo="repo" />
   <PypiBrowser v-else-if="repo.format === 'pypi'" :repo="repo" />
+  <GoBrowser v-else-if="repo.format === 'go'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
@@ -15,6 +16,7 @@ import type { Repository } from '@/api/types'
 import AptBrowser from './AptBrowser.vue'
 import DockerBrowser from './DockerBrowser.vue'
 import FolderBrowser from './FolderBrowser.vue'
+import GoBrowser from './GoBrowser.vue'
 import NpmBrowser from './NpmBrowser.vue'
 import PypiBrowser from './PypiBrowser.vue'
 
