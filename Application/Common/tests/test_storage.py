@@ -13,7 +13,7 @@ import pytest
 
 from waystation_common import storage
 from waystation_common.datadir import prepare_data_dir
-from waystation_common.errors import DigestMismatch, InsufficientStorage, PayloadTooLarge, ValidationFailed
+from waystation_common.errors import DigestMismatch, InsufficientStorage, NotFound, PayloadTooLarge, ValidationFailed
 from waystation_common.settings import Settings
 from waystation_common.storage import BlobStore, check_sha256
 
@@ -236,3 +236,90 @@ def test_kill_mid_write_leaves_no_blob(store: BlobStore) -> None:
     assert orphans[0].stat().st_size == 32 * 65536
     assert asyncio.run(store.sweep_uploads(older_than_s=0)) == 1
     assert files_under(store.uploads_dir) == []
+
+
+# ---------------------------------------------------------------------------- resumable uploads
+async def test_resumable_upload_across_writers(store: BlobStore) -> None:
+    upload_id = await store.start_upload()
+    assert await store.upload_size(upload_id) == 0
+    first = await store.resume_writer(upload_id, offset=0)
+    await first.write(DATA[:1000])
+    assert await first.suspend() == 1000
+    with pytest.raises(storage.UploadOffsetMismatch) as wrong:
+        await store.resume_writer(upload_id, offset=10)
+    assert wrong.value.size == 1000
+    second = await store.resume_writer(upload_id, offset=1000)
+    assert not second._rehash  # this process kept the hash state
+    await second.write(DATA[1000:])
+    ref = await store.commit(second)
+    assert ref.sha256 == DIGEST and ref.size == len(DATA)
+    assert store.blob_path(DIGEST).read_bytes() == DATA
+    assert await store.upload_size(upload_id) is None
+
+
+async def test_resumable_upload_without_hash_state_rehashes(store: BlobStore) -> None:
+    upload_id = await store.start_upload()
+    writer = await store.resume_writer(upload_id, offset=0)
+    await writer.write(DATA[:5000])
+    await writer.suspend()
+    store._partials.clear()  # as if another replica wrote the first part
+    resumed = await store.resume_writer(upload_id, offset=5000)
+    assert resumed._rehash
+    await resumed.write(DATA[5000:])
+    assert (await store.commit(resumed)).sha256 == DIGEST
+
+
+async def test_resumable_rollback_and_discard(store: BlobStore) -> None:
+    upload_id = await store.start_upload()
+    writer = await store.resume_writer(upload_id, offset=0)
+    await writer.write(b'a' * 100)
+    await writer.suspend()
+    failed = await store.resume_writer(upload_id, offset=100)
+    await failed.write(b'b' * 70_000)
+    await failed.flush()
+    await failed.rollback()
+    await failed.rollback()  # idempotent
+    assert await store.upload_size(upload_id) == 100
+    again = await store.resume_writer(upload_id, offset=100)
+    await again.write(b'c')
+    assert (await store.commit(again)).sha256 == hashlib.sha256(b'a' * 100 + b'c').hexdigest()
+    other = await store.start_upload()
+    await store.discard_upload(other)
+    assert await store.upload_size(other) is None
+    with pytest.raises(NotFound):
+        await store.resume_writer(other, offset=0)
+    with pytest.raises(ValidationFailed):
+        await store.upload_size('../../etc/passwd')
+    with pytest.raises(ValueError, match='closed'):
+        await again.suspend()
+
+
+async def test_resumable_size_limit_discards(store: BlobStore) -> None:
+    upload_id = await store.start_upload()
+    writer = await store.resume_writer(upload_id, offset=0, max_size=10)
+    with pytest.raises(PayloadTooLarge):
+        await writer.write(b'x' * 11)
+    assert await store.upload_size(upload_id) is None
+
+
+async def test_partial_hash_cache_is_bounded(store: BlobStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(storage, 'PARTIAL_HASHES', 2)
+    ids = [await store.start_upload() for _ in range(3)]
+    for upload_id in ids:
+        writer = await store.resume_writer(upload_id, offset=0)
+        await writer.write(b'z')
+        await writer.suspend()
+    assert list(store._partials) == ids[1:]
+
+
+async def test_resume_repairs_unacknowledged_bytes(store: BlobStore) -> None:
+    upload_id = await store.start_upload()
+    writer = await store.resume_writer(upload_id, offset=0)
+    await writer.write(b'abcdef')
+    await writer.suspend()
+    with pytest.raises(storage.UploadOffsetMismatch):
+        await store.resume_writer(upload_id, offset=3)
+    repaired = await store.resume_writer(upload_id, offset=3, repair=True)
+    assert repaired._rehash  # the cached state was for 6 bytes
+    await repaired.write(b'xyz')
+    assert (await store.commit(repaired)).sha256 == hashlib.sha256(b'abcxyz').hexdigest()

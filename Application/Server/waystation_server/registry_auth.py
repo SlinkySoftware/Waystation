@@ -8,6 +8,8 @@
   ``401`` with ``WWW-Authenticate: Bearer realm="<base>/auth/token",service="<host>",scope="repository:<name>:pull"``
   (``error="insufficient_scope"`` when a token was sent), which makes clients fetch a token and retry; ``GET /v2/``
   without a token is the version check that starts this dance.
+- ``registry:catalog:*`` is granted to every caller: ``/v2/_catalog`` lists only the images of repositories RBAC lets
+  the principal see.
 - The bearer authenticator turns a valid token into the principal it was issued to (re-resolved every request;
   for an API token: the token itself, so revocation is immediate) limited to the token's grants, mapped from Docker
   actions to repository actions (pull → read, push → write, delete → delete).
@@ -47,13 +49,18 @@ log = logging.getLogger('waystation.registry_auth')
 router = APIRouter(include_in_schema=False)
 
 DOCKER_API_VERSION = {'Docker-Distribution-API-Version': 'registry/2.0'}
+# Docker action → repository actions a registry token carries (the first is the one RBAC must allow). ``push`` and
+# ``delete`` also carry ``browse`` (RBAC: write/delete imply it), so a delete-only token sees the repository instead of
+# getting the hidden-repository 404.
 ACTION_MAP: dict[str, tuple[Action, ...]] = {
     'pull': (Action.READ, Action.BROWSE),
-    'push': (Action.WRITE,),
-    'delete': (Action.DELETE,),
+    'push': (Action.WRITE, Action.BROWSE),
+    'delete': (Action.DELETE, Action.BROWSE),
 }
 _OPERATION = re.compile(r'/(manifests|blobs|tags|referrers)(/|$)')
 USER_CACHE_S = 30.0
+# The ``token_access`` entry of a token that may list the catalog (repository names never contain ``:``).
+CATALOG = 'registry:catalog'
 
 
 def registry_host(services: Services) -> str:
@@ -66,10 +73,27 @@ def image_name(name_path: str) -> str:
     return name_path[: matches[-1].start()] if matches else name_path
 
 
+_UPLOAD = re.compile(r'.+/blobs/uploads(/[^/]+)?')
+
+
+def is_upload(name_path: str) -> bool:
+    """``<name>/blobs/uploads[/<id>]``: an upload session (cancelling one with DELETE is part of a push)."""
+    return _UPLOAD.fullmatch(name_path) is not None
+
+
+def request_action(name_path: str, method: str) -> Action:
+    """The repository action a ``/v2/`` request needs: pull = read, push = write, delete = delete (an upload's
+    ``DELETE`` cancels a push: write)."""
+    if method == 'DELETE' and is_upload(name_path):
+        return Action.WRITE
+    return access.method_action(method)
+
+
 def request_scope(name_path: str, method: str) -> str | None:
     if name_path in ('', '_catalog'):
         return 'registry:catalog:*' if name_path == '_catalog' else None
-    actions = 'delete' if method == 'DELETE' else ('pull,push' if method in ('PUT', 'POST', 'PATCH') else 'pull')
+    action = request_action(name_path, method)
+    actions = {Action.DELETE: 'delete', Action.WRITE: 'pull,push'}.get(action, 'pull')
     return f'repository:{image_name(name_path)}:{actions}'
 
 
@@ -99,7 +123,8 @@ async def _grant(services: Services, principal: Principal, scope: Scope) -> Scop
     from waystation_server.routing import resolve_docker
 
     if scope.type == 'registry':
-        allowed = scope.name == 'catalog' and access.check(principal, Action.ADMIN)
+        # ``/v2/_catalog`` lists only what RBAC lets the principal see, so anyone may ask for it.
+        allowed = scope.name == 'catalog' and '*' in scope.actions
         return dataclasses.replace(scope, actions=('*',) if allowed else ())
     route = await resolve_docker(services, scope.name)
     if route is None or not access.can_see(principal, route.repo):
@@ -217,6 +242,9 @@ async def authenticate_bearer(request: Request, token: str) -> Principal | None:
 
     grants: dict[str, set[str]] = {}
     for scope in claims.access:
+        if scope.type == 'registry' and scope.name == 'catalog' and '*' in scope.actions:
+            grants[CATALOG] = {Action.BROWSE.value}
+            continue
         if scope.type != 'repository' or not scope.actions:
             continue
         route = await resolve_docker(services, scope.name)

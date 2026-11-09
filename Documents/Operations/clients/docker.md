@@ -1,8 +1,10 @@
 # Docker / OCI: client guide
 
 A docker proxy repository pulls images from an upstream registry (Docker Hub, GHCR, Quay, any OCI registry) and
-caches them. Tested clients: the Docker Engine daemon (`registry-mirrors`, prefix and alias pulls) and skopeo
-(`tests/clients/docker/`). Protocol notes: FORMATS.md "Docker / OCI".
+caches them. A docker hosted repository stores the images and OCI artifacts you push (see "Hosted repositories").
+Tested clients (`tests/clients/docker/`): the Docker Engine daemon (`registry-mirrors`, prefix and alias pulls,
+`docker push`, `docker buildx --push` multi-platform), skopeo, crane, oras and cosign, plus the OCI
+distribution-spec conformance suite against a hosted repository. Protocol notes: FORMATS.md "Docker / OCI".
 
 Examples use `registry.example.com` as the Waystation host (base URL `https://registry.example.com`), a Docker Hub
 repository named `docker-hub` and a GHCR repository named `ghcr`.
@@ -94,7 +96,79 @@ crane digest registry.example.com/docker-hub/library/nginx:1.27
 
 podman can also use a mirror for `docker.io` in `/etc/containers/registries.conf`
 (`[[registry]] location = "docker.io"` with `[[registry.mirror]] location = "registry.example.com/docker-hub"`).
-skopeo is tested; podman and crane are not yet covered by the client harness.
+skopeo and crane are tested; podman is not yet covered by the client harness.
+
+## Hosted repositories
+
+Create one in the UI (Repositories → Create → Docker / OCI → Hosted) or the API:
+
+```json
+{"name": "docker-hosted", "format": "docker", "type": "hosted", "online": true,
+ "hosted": {"write_policy": "allow_redeploy", "immutable_tag_patterns": ["v[0-9]+(\\.[0-9]+)*"]}}
+```
+
+| Setting | Meaning |
+|---|---|
+| Write policy (`write_policy`) | `allow_redeploy` (default): tags may move and be deleted; `disable_redeploy`: no tag ever moves or is deleted by a client; `read_only`: no pushes or deletes at all |
+| Immutable tags (`immutable_tag_patterns`) | Regular expressions matched against the whole tag: a matching tag never moves or goes away once pushed (`v1.2.3` stays, `latest` moves) |
+| Default repository (`default_repo`) | Names without a repository prefix are pushed and pulled here (only one docker repository can be the default) |
+
+Images are addressed by repository prefix, like proxies: `registry.example.com/docker-hosted/team/app:1.0`. Pushing
+needs `write` on the repository (the `deployer` role, or a custom grant); deleting needs `delete`. Sign in with an
+API token that has the `write` (and `delete`) scope:
+
+```sh
+echo "$WAYSTATION_TOKEN" | docker login registry.example.com --username ci --password-stdin
+docker tag app:1.0 registry.example.com/docker-hosted/team/app:1.0
+docker push registry.example.com/docker-hosted/team/app:1.0
+docker buildx build --platform linux/amd64,linux/arm64 -t registry.example.com/docker-hosted/team/app:1.1 --push .
+skopeo copy --all docker://registry.example.com/team/app:1.0 docker://registry.example.com/docker-hosted/team/app:1.0
+crane copy docker.io/library/alpine:3.22 registry.example.com/docker-hosted/base/alpine:3.22
+oras push registry.example.com/docker-hosted/docs:1.0 README.md:text/markdown
+oras attach --artifact-type application/spdx+json registry.example.com/docker-hosted/team/app@sha256:<digest> sbom.json
+cosign sign --key cosign.key registry.example.com/docker-hosted/team/app@sha256:<digest>
+cosign verify --key cosign.pub registry.example.com/docker-hosted/team/app:1.0
+```
+
+What happens on a push:
+
+- Blobs are streamed to disk and verified against their sha256 before they are stored; uploads may be monolithic,
+  chunked or resumed after an interruption (the client asks for the upload status and continues). Identical content
+  is stored once across every repository. A layer the client may already read in another docker repository (a proxy
+  cache included) is mounted instead of uploaded again (`crane copy` and `docker push` do this).
+- A manifest is accepted only when every blob it names is in the repository with the size it states, and every
+  manifest an index names was pushed first (clients always push in that order). Media types are checked, the
+  manifest is limited to 4 MiB and is stored byte for byte (its digest never changes).
+- A manifest with a `subject` (cosign 3 signatures, `oras attach`, SBOMs, attestations) is listed by the referrers
+  API (`GET /v2/<name>/referrers/<digest>`, with the `artifactType` filter), so clients find it without the
+  `sha256-<digest>` tag workaround.
+- Every pushed manifest and every delete is in the audit log (`content.upload` / `content.delete`) and the activity
+  feed; layer uploads show as live upload transfers on the dashboard. The Browse tab shows pushed images, tags and
+  platforms like a proxy's.
+- Deletes: a tag (`DELETE /v2/<name>/manifests/<tag>`), a manifest by digest (with its tags; refused while an
+  immutable tag points at it) and a blob no manifest of the repository uses. Disk space comes back with blob GC.
+- `GET /v2/_catalog` lists `<repository>/<image>` for every tagged image of the docker repositories you can see.
+
+## Group repositories
+
+A group puts several docker repositories behind one name: `registry.example.com/docker-all/team/app:1.0` is looked
+up in each member in order. Create one in the UI (Repositories → Create → Docker / OCI → Group) or the API:
+
+```json
+{"name": "docker-all", "format": "docker", "type": "group", "online": true,
+ "group": {"members": ["docker-hosted", "docker-hub", "ghcr"], "writable_member": "docker-hosted"}}
+```
+
+- Put hosted repositories first: a name missing there is then asked of the proxies' upstreams in order.
+- Blobs are found in any member's stored or cached copy before an upstream is asked; checking whether a layer exists
+  (`HEAD`, as `docker push` does) never goes upstream.
+- `tags/list` is the union of the members' tags (a proxy contributes its upstream's first page).
+- `docker push` to the group stores the image in the writable member; you need `write` on the group and on that
+  member. Without a writable member the group is read-only (`unsupported`). Deletes through the group act on the
+  writable member only.
+- Reading through the group needs `read` on the group; members' content is served through it.
+- A repository that is a group member cannot be deleted until it is removed from the group.
+- Answers name the member that served them in the `X-Ws-Group-Member` header.
 
 ## Authentication
 
@@ -140,5 +214,11 @@ only to the upstream registry and its token service, never to blob CDNs the upst
 | Mirror-mode pulls never show up in Waystation | The daemon fell back to Docker Hub: check `daemon.json` (valid JSON, restart done), that `https://registry.example.com/v2/` answers, and that a default docker repository exists. |
 | `http: server gave HTTP response to HTTPS client` | Waystation is reached over plain HTTP: add it to `insecure-registries`, or put it behind TLS. |
 | `x509: certificate signed by unknown authority` | Waystation's TLS certificate is from a private CA: install the CA on the client (`/etc/docker/certs.d/registry.example.com/ca.crt` for Docker). |
-| `unsupported` / `405` on push | Proxy repositories are read-only; push to a hosted docker repository (not available yet). |
-| `docker search`, `_catalog`, referrers | Not available for proxy repositories yet; clients fall back to the tag schema for signatures/SBOMs. |
+| `unsupported` / `405` on push | Proxy repositories are read-only; push to a hosted docker repository. |
+| `denied: tag ... is immutable in this repository` | The tag matches an immutable pattern (or the repository disables redeploy): push a new tag. |
+| `denied: this repository is read-only` | The hosted repository's write policy is `read_only`. |
+| `unsupported: this group has no writable member` | Push to a hosted repository, or give the group a writable member. |
+| `denied: write permission required on <member>` when pushing to a group | You may write to the group but not to its writable member: ask for `write` on the member. |
+| `unauthorized` / `insufficient_scope` on push | Your token or account has no `write` on the repository: use an API token with the `write` scope and a role that may write there. |
+| `manifest blob unknown` on push | The manifest names a blob the repository does not hold (an interrupted push): push again; the client re-uploads what is missing. |
+| `docker search`, referrers on proxies | Not available; proxies answer the referrers API with 404 and clients fall back to the tag schema. |
