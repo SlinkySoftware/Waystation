@@ -3,6 +3,14 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-O03: quota and low-disk monitoring. Grafana dashboard row "Quotas and disk" (low-disk guard state; repositories
+  near their quota, over a soft quota and at a hard quota; downloads not cached and uploads refused by a quota;
+  quota used per repository; a per-repository quota table). Zabbix template: items for the low-disk guard, downloads
+  not cached (quota, low disk) and uploads refused; "Repository quotas" discovery with quota, mode, stored bytes,
+  quota used and per-repository refusals; triggers "reached its hard quota" (High), "over its soft quota" (Warning)
+  and "near its quota" (Information, macro `{$WAYSTATION.QUOTA.WARN}`, default 80). New unit test
+  `test_monitoring_assets.py` checks the dashboard and template against the metrics the server exports. The PromQL
+  was checked with promtool; neither file has been re-imported into Grafana or Zabbix yet.
 - T-F03: Gitea check workflow `.gitea/workflows/check.yml`. Every push to `main` and every pull request runs the
   parts of `make check` except the integration tests as separate steps (forbidden strings, workflow lint, format
   check, lint, typecheck, unit tests, client-harness fixtures, frontend checks), the generated API client diff and
