@@ -269,6 +269,12 @@ async def test_user_admin_cannot_escalate(services: Services, admin: httpx.Async
         assert minted.status_code == 403
         assert (await uma.patch(f'{API}/service-accounts/{bot["id"]}', json={'disabled': True})).status_code == 403
         assert (await uma.post(f'{API}/service-accounts', json={'name': 'b2', 'roles': ['admin']})).status_code == 422
+        # nor a role holding powers it lacks
+        ops = {'id': 'ops', 'name': 'Ops', 'permissions': [{'action': 'settings-admin', 'scope': '*'}]}
+        assert (await admin.post(f'{API}/roles', json=ops)).status_code == 201
+        edit = {'name': 'Ops', 'description': 'x', 'permissions': ops['permissions']}
+        assert (await uma.put(f'{API}/roles/ops', json=edit)).status_code == 403
+        assert (await uma.delete(f'{API}/roles/ops')).status_code == 403
         # roles it holds itself are fine
         assert (
             await uma.post(f'{API}/users', json={'username': 'helper', 'roles': ['user-managers']})
