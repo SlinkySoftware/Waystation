@@ -150,7 +150,7 @@ export function seedUsers(now = Date.now()): UserDetail[] {
       const source = sourceIdx === 0 ? OIDC : sourceIdx < 3 ? LDAP : 'local'
       const id = `01JC00000000000000000F${String(i).padStart(4, '0')}`
       const created = now - (20 + ((i * 37) % 300)) * DAY
-      const lastLogin = i % 7 === 0 ? null : iso(now - ((i * 7919) % (40 * DAY)))
+      const lastLogin = i % 7 === 0 ? null : iso(now - ((i * 7919 * 60_000) % (40 * DAY)))
       const display = `${first[0]!.toUpperCase()}${first.slice(1)} ${last[0]!.toUpperCase()}${last.slice(1)}`
       users.push(
         base(id, username, display, source, created, {
