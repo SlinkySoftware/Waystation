@@ -3,6 +3,25 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-P5-HELM: Helm classic chart repositories (`formats/helm/`). Proxy: `index.yaml` cached as metadata (revalidated),
+  parsed with a safe, bounded YAML loader in a thread (only `null` resolved implicitly, no tags or aliases), chart
+  URLs rewritten to the repository (relative paths kept, charts hosted elsewhere served at
+  `_ext/<scheme>/<host>/<path>`), served as JSON (valid YAML); a chart package is fetched only when the cached index
+  lists it and verified against its sha256 `digest` while streaming; `.prov` pass-through. Hosted: `PUT` uploads and
+  the ChartMuseum API (`api/charts`, multipart `chart`/`prov`, deletes by `api/charts/<name>/<version>`), chart
+  packages read without extraction (one top-level directory, no links or unsafe names, member and size limits,
+  `Chart.yaml` validated: apiVersion, name, SemVer version), stored as `<name>-<version>.tgz`, write policy, deletes,
+  quotas, audit. The chart record and an `index.helm` job are written in one transaction (outbox, dedupe per
+  repository); the worker rebuilds `index.yaml` from the records and publishes it in one asset write; cleanup runs
+  that remove hosted charts trigger it too. Group: one merged `index.yaml` (first member wins per chart version)
+  committed to the blob store and served by X-Accel, charts from the first member that has them, uploads to the
+  writable member. New `helm_charts` collection (SemVer `version_sort`), browse API `helm/charts` and
+  `helm/versions`. UI: Helm tile in the create flow (proxy presets, hosted, group), browse renderer (charts →
+  versions), "Set me up" (repo add/update/search/install/pull, upload with curl or `helm cm-push`), mocks.
+  Real-client harness `tests/clients/helm/` (helm 3 and helm 4: repo add, search, pull, template through a proxy of
+  the metrics-server chart repository and a group; curl and ChartMuseum uploads to a hosted repository, index rebuild,
+  delete), recorded and replayed. Client guide `Documents/Operations/clients/helm.md`. OCI charts stay in docker
+  repositories.
 - T-P5-PYPI: PyPI proxy, hosted and group repositories (`formats/pypi/`). Proxy: `simple/` and `simple/<project>/`
   in PEP 503 HTML and PEP 691 JSON (negotiated by `Accept`, cached per representation, `301` to the normalised name and
   trailing slash), rendered from the upstream's JSON or HTML page with relative file URLs into the repository and
