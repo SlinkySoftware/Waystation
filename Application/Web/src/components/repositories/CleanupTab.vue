@@ -21,7 +21,7 @@
                 <router-link v-if="isAdmin" :to="{ name: 'cleanup', query: { edit: policy.id } }" class="text-link">{{ policy.name }}</router-link>
                 <span v-else>{{ policy.name }}</span>
                 <PolicyFormat :format="policy.format" />
-                <span v-if="!policy.enabled" class="ws-badge tone-offline">{{ t('cleanup.disabled') }}</span>
+                <span v-if="!policy.enabled" class="ws-badge tone-offline">{{ t('cleanup.paused') }}</span>
               </div>
               <CriteriaChips :criteria="policy.criteria" />
               <div class="repo-cleanup__schedule">{{ describeSchedule(policy.schedule) }}</div>

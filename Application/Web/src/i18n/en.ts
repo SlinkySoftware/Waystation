@@ -689,9 +689,9 @@ export const en = {
     moreRepos: '+{count}',
     manual: 'Manual',
     paused: 'Paused',
-    disabled: 'Disabled',
     neverRun: 'Never run',
-    reclaimed: '{size} removed',
+    nothingRemoved: 'Nothing removed',
+    removedSummary: '{n} item · {size} removed|{n} items · {size} removed',
     col: {
       name: 'Policy',
       format: 'Format',
