@@ -3,6 +3,18 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-M01: Import from Nexus. `waystation_server.migration` reads a Nexus Repository 3 configuration over its REST API
+  (`/service/rest/v1/repositories` + per-format detail endpoints, list-entry fallback; basic auth per request, never
+  stored or logged; SSRF guard with `allow_private`, optional CA bundle, no redirects, bounded sizes, count and time),
+  maps each repository (name, format, type, upstream, metadata/content ages, negative cache, auto-block, blocked →
+  offline, docker Hub + upstream-host aliases, default docker repository from the request, a connector or the only
+  Hub proxy, apt distribution, raw disposition, hosted write policy and group members where supported) and reports
+  create / exists / unsupported / invalid with field-level differences. REST `POST /api/v1/import/nexus/preview`
+  (dry run) and `/apply` (selection, members before groups, idempotent, `repository.create` audit records with
+  `details.source=nexus_import`), contract + regenerated client, `repos.service.check` (dry-run validation). UI:
+  Repositories → "Import from Nexus" page (connect, plan table with selection and differences, apply), MSW mocks,
+  screenshot-tour entries. Tests on hand-written Nexus 3 REST fixtures served by the fake upstream (unit + API
+  integration); no live Nexus.
 - T-O04: Tasks and workers. REST `/api/v1/tasks/*` (all `admin`): `GET /tasks/scheduled` (job definitions with
   schedule, enabled, last run, next run, owning cleanup policy), `PATCH /tasks/scheduled/{id}` (schedule validated by
   `jobs.schedule.validate_schedule`: cron, macro or `@every` ≥ 10 s; a changed schedule restarts the timer; a cleanup
