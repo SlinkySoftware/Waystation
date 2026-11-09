@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://sum.golang.org/lookup/github.com/!masterminds/semver/v3@v3.3.1"
+  },
+  "response": {
+    "body_sha256": "920ead9565de309aee177687a2828548dc6d545cde954ca09c992f52843aacf9",
+    "body_size": 381,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "381"
+      ],
+      [
+        "expires",
+        "Mon, 09 Nov 2026 20:53:17 GMT"
+      ],
+      [
+        "cache-control",
+        "public, max-age=10800"
+      ],
+      [
+        "etag",
+        "\"920ead9565de309aee177687a2828548dc6d545cde954ca09c992f52843aacf9\""
+      ],
+      [
+        "content-type",
+        "text/plain; charset=UTF-8"
+      ]
+    ],
+    "status": 200
+  }
+}

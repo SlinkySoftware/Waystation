@@ -120,7 +120,7 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
       echo "    extra_hosts:"
       printf '%s' "$hosts_yaml"
     done
-    for svc in curl node debian ubuntu skopeo docker conformance python; do
+    for svc in curl node debian ubuntu skopeo docker conformance python go; do
       echo "  client-$svc:"
       echo "    extra_hosts:"
       printf '%s' "$hosts_yaml"

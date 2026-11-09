@@ -184,12 +184,20 @@ class FixtureStore:
 
     def _paths(self, key: RequestKey) -> tuple[Path, Path]:
         base = self.root / key.host / key.stem
+        return base.parent / f'{base.name}.json', base.parent / f'{base.name}.body'
+
+    def _legacy_paths(self, key: RequestKey) -> tuple[Path, Path]:
+        """Names written before 2026-11-10, when a dot in the last path segment (``x-1.0.0.tgz``) made
+        ``with_suffix`` drop the key from the name (``get-x-1.0.0.json``): still read, never written."""
+        base = self.root / key.host / key.stem
         return base.with_suffix('.json'), base.with_suffix('.body')
 
     def load(self, key: RequestKey) -> Exchange | None:
         meta_path, body_path = self._paths(key)
         if not meta_path.is_file():
-            return None
+            meta_path, body_path = self._legacy_paths(key)
+            if not meta_path.is_file():
+                return None
         meta = json.loads(meta_path.read_text())
         body = body_path.read_bytes() if body_path.is_file() else b''
         expected = meta['response'].get('body_sha256')

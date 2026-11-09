@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://proxy.golang.org/github.com/google/uuid/@v/v1.6.0.zip"
+  },
+  "response": {
+    "body_sha256": "d0f02f377217f42702e259684e06441edbf5140dddcc34ba9bea56038b38a6ed",
+    "body_size": 31981,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "31981"
+      ],
+      [
+        "expires",
+        "Mon, 09 Nov 2026 22:52:14 GMT"
+      ],
+      [
+        "cache-control",
+        "public, max-age=10800"
+      ],
+      [
+        "last-modified",
+        "Tue, 23 Jan 2024 18:54:51 GMT"
+      ],
+      [
+        "etag",
+        "\"d0f02f377217f42702e259684e06441edbf5140dddcc34ba9bea56038b38a6ed\""
+      ],
+      [
+        "content-type",
+        "application/zip"
+      ]
+    ],
+    "status": 200
+  }
+}
