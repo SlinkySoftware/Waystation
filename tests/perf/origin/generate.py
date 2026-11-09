@@ -202,6 +202,51 @@ def apt_suite(docroot: Path, p: Profile) -> dict[str, Any]:
     return {'release': 'dists/perf/Release', 'packages': 'dists/perf/main/binary-amd64/Packages.gz'}
 
 
+def yum_repository(docroot: Path, p: Profile) -> dict[str, Any]:
+    """One yum repository directory: ``repodata/repomd.xml`` listing a by-checksum ``primary.xml.gz``."""
+    packages = []
+    for i in range(p.apt_stanzas):
+        name = f'perf-rpm-{i:05d}'
+        digest = hashlib.sha256(name.encode()).hexdigest()
+        packages.append(
+            f'<package type="rpm"><name>{name}</name><arch>x86_64</arch>'
+            f'<version epoch="0" ver="1.0.{i % 100}" rel="1"/><checksum type="sha256" pkgid="YES">{digest}</checksum>'
+            f'<summary>synthetic package {i}</summary><size package="4096" installed="8192" archive="8192"/>'
+            f'<location href="Packages/p/{name}-1.0.{i % 100}-1.x86_64.rpm"/></package>'
+        )
+    primary = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n<metadata xmlns="http://linux.duke.edu/metadata/common" '
+        f'xmlns:rpm="http://linux.duke.edu/metadata/rpm" packages="{len(packages)}">\n'
+        + '\n'.join(packages)
+        + '\n</metadata>\n'
+    ).encode()
+    primary_gz = gzip.compress(primary, mtime=0)
+    href = f'repodata/{_sha256(primary_gz)}-primary.xml.gz'
+    repomd = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n<repomd xmlns="http://linux.duke.edu/metadata/repo" '
+        'xmlns:rpm="http://linux.duke.edu/metadata/rpm">\n  <revision>1762732800</revision>\n'
+        f'  <data type="primary">\n    <checksum type="sha256">{_sha256(primary_gz)}</checksum>\n'
+        f'    <open-checksum type="sha256">{_sha256(primary)}</open-checksum>\n    <location href="{href}"/>\n'
+        f'    <timestamp>1762732800</timestamp>\n    <size>{len(primary_gz)}</size>\n'
+        f'    <open-size>{len(primary)}</open-size>\n  </data>\n</repomd>\n'
+    ).encode()
+    base = docroot / 'yum' / 'perf' / 'x86_64'
+    _write(base / href, primary_gz)
+    _write(base / 'repodata' / 'repomd.xml', repomd)
+    return {'repomd': 'perf/x86_64/repodata/repomd.xml', 'primary': f'perf/x86_64/{href}'}
+
+
+def go_modules(docroot: Path, p: Profile) -> dict[str, Any]:
+    """Version lists and ``@latest`` of ``example.com/perf/mod-<i>`` (GOPROXY protocol)."""
+    modules = [f'example.com/perf/mod-{i:04d}' for i in range(p.packages)]
+    for module in modules:
+        versions = [f'v{_version(v)}' for v in range(p.versions)]
+        _write(docroot / 'go' / module / '@v' / 'list', ('\n'.join(versions) + '\n').encode())
+        latest = {'Version': versions[-1], 'Time': '2026-11-01T00:00:00Z'}
+        _write(docroot / 'go' / module / '@latest', json.dumps(latest).encode())
+    return {'modules': modules}
+
+
 MANIFEST_TYPE = 'application/vnd.oci.image.manifest.v1+json'
 
 
@@ -304,6 +349,18 @@ server {{
         types {{ }}
         default_type application/octet-stream;
     }}
+    location /yum/ {{
+        types {{ xml text/xml; }}
+        default_type application/octet-stream;
+    }}
+    location /go/ {{
+        types {{ }}
+        default_type "text/plain; charset=utf-8";
+    }}
+    location ~ /@latest$ {{
+        types {{ }}
+        default_type application/json;
+    }}
     location = /v2/ {{
         types {{ }}
         default_type application/json;
@@ -340,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
         'pypi': pypi_projects(docroot, profile, rng),
         'maven': maven_artifacts(docroot, profile),
         'apt': apt_suite(docroot, profile),
+        'yum': yum_repository(docroot, profile),
+        'go': go_modules(docroot, profile),
     }
     catalog['docker'], locations = docker_images(docroot, profile, rng)
     rate = profile.origin_rate

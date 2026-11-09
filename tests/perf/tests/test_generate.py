@@ -67,6 +67,21 @@ def test_content_matches_its_metadata(tmp_path: Path) -> None:
     )
     assert packages.count(b'Package: ') == 10
 
+    # yum: repomd.xml names the primary by its checksum and lists its sizes and both checksums
+    yum = catalog['yum']
+    assert isinstance(yum, dict)
+    repomd = (docroot / 'yum' / yum['repomd']).read_text()
+    primary_gz = (docroot / 'yum' / yum['primary']).read_bytes()
+    primary = gzip.decompress(primary_gz)
+    assert f'<checksum type="sha256">{hashlib.sha256(primary_gz).hexdigest()}</checksum>' in repomd
+    assert f'<open-checksum type="sha256">{hashlib.sha256(primary).hexdigest()}</open-checksum>' in repomd
+    assert f'<size>{len(primary_gz)}</size>' in repomd
+    assert primary.count(b'<package type="rpm">') == 10
+
+    # Go: version lists end with the version @latest names
+    lines = (docroot / 'go' / 'example.com/perf/mod-0000' / '@v' / 'list').read_text().split()
+    assert json.loads((docroot / 'go' / 'example.com/perf/mod-0000' / '@latest').read_text())['Version'] == lines[-1]
+
 
 def test_docker_manifests_and_origin_conf(tmp_path: Path) -> None:
     docroot, catalog = run(tmp_path)

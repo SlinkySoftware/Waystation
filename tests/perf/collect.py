@@ -24,7 +24,7 @@ Metrics = dict[str, dict[str, float]]
 BUDGET_RULES = {
     'cache_hit_content_ttfb_p95_ms': 'highest p95 TTFB of the small-file, range and large-file hit scenarios',
     'cache_hit_metadata_p95_ms': 'p95 duration over npm packuments (both forms), PyPI pages (both), '
-    'maven-metadata.xml, apt Release and Packages',
+    'maven-metadata.xml, apt Release and Packages, yum repomd.xml and primary, Go @v/list and @latest',
     'docker_manifest_cached_p95_ms': 'p95 duration of cached manifest HEAD and GET (by tag and by digest)',
     'cache_miss_added_ttfb_ms': 'median TTFB of small never-cached files through Waystation minus straight from the '
     'origin',

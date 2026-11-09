@@ -140,6 +140,8 @@ REPOS = [
     proxy('pypi-perf', 'pypi', f'{ORIGIN}/pypi'),
     proxy('maven-perf', 'maven', f'{ORIGIN}/maven/'),
     proxy('apt-perf', 'apt', f'{ORIGIN}/apt/', format_options={'distribution': 'perf'}),
+    proxy('yum-perf', 'yum', f'{ORIGIN}/yum/'),
+    proxy('go-perf', 'go', f'{ORIGIN}/go/', format_options={'sumdb_proxy': False}),
     proxy('docker-perf', 'docker', ORIGIN),
     proxy('perf-bulk', 'raw', f'{ORIGIN}/bulk/'),  # API list/search: seeded by seed_assets.py, never fetched
 ]
@@ -164,7 +166,11 @@ def targets(catalog: dict[str, Any]) -> dict[str, Any]:
         + [[f'/repository/pypi-perf/simple/{n}/', 'text/html'] for n in catalog['pypi']['projects']]
         + [[f'/repository/maven-perf/{p}', '*/*'] for p in catalog['maven']['metadata']]
         + [[f'/repository/apt-perf/{catalog["apt"]["release"]}', '*/*']]
-        + [[f'/repository/apt-perf/{catalog["apt"]["packages"]}', '*/*']],
+        + [[f'/repository/apt-perf/{catalog["apt"]["packages"]}', '*/*']]
+        + [[f'/repository/yum-perf/{catalog["yum"]["repomd"]}', '*/*']]
+        + [[f'/repository/yum-perf/{catalog["yum"]["primary"]}', '*/*']]
+        + [[f'/repository/go-perf/{m}/@v/list', '*/*'] for m in catalog['go']['modules']]
+        + [[f'/repository/go-perf/{m}/@latest', '*/*'] for m in catalog['go']['modules']],
         'docker': docker,
         'miss_small': [f'/repository/raw-perf/{p}' for p in raw['miss_small']],
         'miss_small_direct': [f'{ORIGIN}/raw/{p}' for p in raw['miss_small']],
