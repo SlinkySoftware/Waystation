@@ -109,6 +109,10 @@ services:
     <<: *client
     image: alpine/helm:3.19.0
     entrypoint: []
+  client-helm4:  # helm 4 + curl (helm format)
+    <<: *client
+    image: alpine/helm:4.0.0
+    entrypoint: []
   client-skopeo:  # registry API pulls without a daemon (docker format)
     <<: *client
     image: quay.io/skopeo/stable:v1.20

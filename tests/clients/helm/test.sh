@@ -1,5 +1,5 @@
 #!/bin/sh
-# Helm classic repositories with the real helm 3 client (client-helm container: alpine/helm + curl), the commands
+# Helm classic repositories with the real helm 3 and helm 4 clients (client-helm, client-helm4: alpine/helm + curl), the commands
 # of the "Set me up" snippets: proxy (repo add, search, pull, template; chart cached and verified against the index
 # digest), hosted (curl upload, ChartMuseum multipart API, index rebuilt by the worker, template, delete)
 # and group (merged index, pulls from both members, upload through the group).
