@@ -22,7 +22,9 @@ from waystation_common.jobs.model import (
     JobEnvelope,
     JobPayload,
     Queue,
+    QuotaReconcile,
     StatsRollup,
+    StorageCheck,
 )
 from waystation_common.jobs.queue import Delivery, EnqueueResult, JobQueue
 from waystation_common.jobs.schedule import parse_schedule
@@ -39,6 +41,8 @@ __all__ = [
     'JobPayload',
     'JobQueue',
     'Queue',
+    'QuotaReconcile',
     'StatsRollup',
+    'StorageCheck',
     'parse_schedule',
 ]

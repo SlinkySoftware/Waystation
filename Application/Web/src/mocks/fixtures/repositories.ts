@@ -2,7 +2,7 @@
 // Seeded repositories: a home lab's proxies (two docker registries, Debian / Ubuntu / Raspberry Pi apt archives and
 // their security pockets, the RHEL family via yum, npm, one raw example). Upstreams are the public canonical hosts;
 // the instance itself is registry.example.com (no environment details, CLAUDE.md).
-import type { Repository } from '@/api/types'
+import type { QuotaMode, Repository, RepositoryQuota, StorageConfig } from '@/api/types'
 
 import { GiB, hash, rng } from '../rng'
 
@@ -31,6 +31,22 @@ interface Seed {
   negativeTtl: number
   /** Hours since the last request (default: within the last 90 s). */
   idleHours?: number
+  /** Stored-bytes quota (GiB) and its mode; absent = no quota. */
+  quota?: { gib: number; mode: QuotaMode }
+}
+
+/** Usage against a quota, as the server reports it (`warning` from 80 %, `exceeded` at the quota). */
+export function quotaView(storage: StorageConfig | undefined, usedBytes: number): RepositoryQuota | null {
+  const quota = storage?.quota_bytes
+  if (!quota) return null
+  const ratio = usedBytes / quota
+  return {
+    quota_bytes: quota,
+    mode: storage.quota_mode ?? 'soft',
+    used_bytes: usedBytes,
+    used_ratio: Math.round(ratio * 10_000) / 10_000,
+    state: ratio >= 1 ? 'exceeded' : ratio >= 0.8 ? 'warning' : 'ok',
+  }
 }
 
 const DOCKER = { metadataMaxAge: 360, contentMaxAge: null, negativeTtl: 60 }
@@ -192,6 +208,7 @@ const SEEDS: Seed[] = [
     requests24h: 214_655,
     createdDaysAgo: 41,
     options: { audit_passthrough: true },
+    quota: { gib: 50, mode: 'soft' },
     ...OTHER,
   },
   {
@@ -205,6 +222,7 @@ const SEEDS: Seed[] = [
     requests24h: 1_604,
     createdDaysAgo: 29,
     options: { metadata_path_regex: null, content_disposition: 'attachment' },
+    quota: { gib: 20, mode: 'hard' },
     ...OTHER,
   },
 ]
@@ -229,6 +247,7 @@ function spark(name: string, total: number): number[] {
 export function seedRepositories(): Repository[] {
   return SEEDS.map((s) => {
     const next = rng(hash(`repo:${s.name}`))
+    const storage: StorageConfig = { quota_bytes: s.quota ? s.quota.gib * GiB : null, quota_mode: s.quota?.mode ?? 'soft' }
     const bytesServed = Math.round(s.requests24h * (BYTES_PER_REQUEST[s.format] ?? 1_400_000) * (0.7 + next() * 0.6))
     return {
       name: s.name,
@@ -252,6 +271,8 @@ export function seedRepositories(): Repository[] {
         auto_block: { enabled: true, failures: 5, initial_s: 30, max_s: 1800 },
       },
       ...(s.options ? { format_options: s.options } : {}),
+      storage,
+      quota: quotaView(storage, Math.round(s.sizeGiB * GiB)),
       created_at: ago(s.createdDaysAgo * DAY),
       updated_at: ago(Math.round(next() * 9 * DAY)),
       stats: {

@@ -1,0 +1,38 @@
+{
+  "name": "github-releases",
+  "format": "raw",
+  "type": "proxy",
+  "url": "https://nexus.example.com/repository/github-releases",
+  "online": true,
+  "storage": {
+    "blobStoreName": "default",
+    "strictContentTypeValidation": true
+  },
+  "cleanup": null,
+  "proxy": {
+    "remoteUrl": "https://github.com/",
+    "contentMaxAge": 10080,
+    "metadataMaxAge": 60
+  },
+  "negativeCache": {
+    "enabled": true,
+    "timeToLive": 1440
+  },
+  "httpClient": {
+    "blocked": false,
+    "autoBlock": true,
+    "connection": {
+      "retries": null,
+      "userAgentSuffix": null,
+      "timeout": null,
+      "enableCircularRedirects": false,
+      "enableCookies": false,
+      "useTrustStore": false
+    },
+    "authentication": null
+  },
+  "routingRuleName": null,
+  "raw": {
+    "contentDisposition": "ATTACHMENT"
+  }
+}

@@ -47,6 +47,10 @@ and patterns carry over.
 - **Command palette**: jump to any repo, component, page or action ("create docker proxy", "copy npm config").
 - **Breadcrumbs** on detail pages. **Toasts** for results (`useNotify`). **Empty states** with an illustration
   (§8), one sentence and the primary action.
+- **Low-disk banner** (T-O03) under the top bar while the low-disk guard is tripped (`GET /storage/guard`, checked
+  every minute and at once on a `storage` activity event): free space, the guard, "new cache fills and uploads are
+  refused; cached content is still served", a link to Storage. Dismissible for the session; it comes back when the
+  disk runs low again.
 
 ## 4. Pages
 
@@ -81,6 +85,17 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
   open by themselves when they hold a setting or a field error: **Caching and resilience** (max ages, stale on error,
   offline, private upstream, auto-block threshold and periods) and **Network and TLS** (outbound HTTP proxy, extra
   CA certificates as PEM). The overview's upstream card shows "Auto-blocked: next probe in m:ss" while blocked.
+  **Storage quota** (proxy and hosted; T-O03): on/off, size with a MiB/GiB/TiB unit, mode soft (warn) / hard (refuse
+  new writes), field errors from the server.
+- Quotas (T-O03): a repository with a quota shows a usage meter (bar with an 80 % mark, "used of quota", a state
+  badge: ok / warning from 80 % / over quota; icon and label, not colour alone) in the list's Size cell (compact,
+  tooltip) and as a strip under the detail page's KPI row (with the mode explained and the note that shared blobs
+  count in each repository).
+- "Import from Nexus" (header action, administrators): a page with the connection form (URL, admin credentials
+  never kept, private-address and CA options, docker alias/default choices), then the plan as a table (Nexus kind →
+  Waystation kind, upstream or members, Create / Exists / Not supported / Invalid with the reason, expandable
+  field-level differences), checkboxes on the rows it can create (all by default) and "Import N repositories" with a
+  confirmation; afterwards each row shows its outcome. Cards on phones.
 - Repository detail page: header (icon, name, type, status, URL copy, **Set me up** button), KPI strip, tabs:
   **Overview** (charts for this repo, upstream health, top artifacts), **Browse**, **Packages**, **Activity**,
   **Settings**, **Cleanup** (attached policies + last runs + preview), **Members** (groups).
@@ -123,7 +138,9 @@ As built (T-U07): KPIs (stored, free, saved by de-duplication, blobs), data volu
 files / free, warning under 15 % free), by-format donut, largest repositories bar list, repository table (size,
 share bar, artifacts, average artifact size; sort and filter in the URL; link to the repository's activity). Growth
 chart, largest artifacts and per-repository de-dup savings wait for storage snapshots. The Blob GC card (T-O02, shared with
-the Cleanup page) shows GC status to admins.
+the Cleanup page) shows GC status to admins. The **Low-disk guard** card (T-O03) shows the state (with "since"
+when tripped), free space, the effective floor and how it is worked out; `settings-admin` users edit the minimum free
+GiB and percent in a dialog.
 
 ### 4.8 Cleanup
 Policies list → editor with criteria builder; **Preview** shows matches (count, bytes, sample table) before

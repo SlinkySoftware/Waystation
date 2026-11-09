@@ -643,6 +643,11 @@ class Coalescer:
         local = self._leases.get(key)
         return Follower(self, key, state, local if local is not None and local.token == state.owner else None)
 
+    def solo(self, repo_id: str, asset_key: str) -> Lease:
+        """A lease that coordinates nothing: for a request that must fetch on its own (the fill it followed was served
+        without being stored: quota or low disk)."""
+        return Lease(self, self.key(repo_id, asset_key), uuid.uuid4().hex, solo=True)
+
     def tail_ok(self, state: FillState) -> bool:
         """May a follower stream the owner's upload file as it grows (else it waits for the commit)?"""
         if self.mode is CoalesceTail.WAIT:

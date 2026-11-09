@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest'
 
-import { seedRepositories } from './fixtures/repositories'
+import { quotaView, seedRepositories } from './fixtures/repositories'
 import { dnfRun } from './scenarios'
 import { setupGuide } from './setup'
 
@@ -31,6 +31,23 @@ describe('mock repository set', () => {
     expect(byName('ubuntu-security').proxy?.metadata_max_age_s).toBe(1800)
     expect(byName('npm').proxy?.metadata_max_age_s).toBe(1800)
     expect(byName('rocky').proxy?.negative_ttl_s).toBe(600)
+  })
+})
+
+describe('mock quotas', () => {
+  it('gives npm a soft quota past the warning level and raw-releases a hard one, the rest none', () => {
+    expect(byName('npm').quota).toMatchObject({ mode: 'soft', state: 'warning' })
+    expect(byName('npm').quota!.used_ratio).toBeGreaterThanOrEqual(0.8)
+    expect(byName('raw-releases').quota).toMatchObject({ mode: 'hard', state: 'ok' })
+    expect(repos.filter((r) => r.quota).map((r) => r.name).sort()).toEqual(['npm', 'raw-releases'])
+    expect(byName('debian').storage).toEqual({ quota_bytes: null, quota_mode: 'soft' })
+  })
+
+  it('computes the quota state like the server', () => {
+    expect(quotaView(undefined, 10)).toBeNull()
+    expect(quotaView({ quota_bytes: 100 }, 79)?.state).toBe('ok')
+    expect(quotaView({ quota_bytes: 100 }, 80)?.state).toBe('warning')
+    expect(quotaView({ quota_bytes: 100, quota_mode: 'hard' }, 120)).toMatchObject({ state: 'exceeded', mode: 'hard', used_ratio: 1.2 })
   })
 })
 

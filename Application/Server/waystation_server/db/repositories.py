@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pymongo.errors import DuplicateKeyError
 
+from waystation_common.db import usage as usage_db
 from waystation_common.db.client import Database
 from waystation_common.db.collections import (
     APT_PACKAGES,
@@ -70,4 +71,5 @@ async def delete(db: Database, repo_id: str) -> bool:
         # Blobs are reclaimed later by GC (mark-and-sweep); the content records go now.
         for name in CONTENT_COLLECTIONS:
             await db[name].delete_many({'repo_id': repo_id})
+        await usage_db.drop(db, repo_id)
     return bool(result.deleted_count)

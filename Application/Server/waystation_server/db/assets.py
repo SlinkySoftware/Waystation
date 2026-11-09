@@ -1,5 +1,8 @@
 """``assets`` and ``blobs`` collection access for the proxy engine. Every query uses ``repo_path_unique`` or
-``_id``. Writes happen on cache fills and revalidations only, never per cache hit (ARCHITECTURE §8)."""
+``_id``. Writes happen on cache fills and revalidations only, never per cache hit (ARCHITECTURE §8).
+
+Every write and delete here also counts the bytes in the repository's usage (``waystation_common.db.usage``, one
+``$inc``; quotas): a new asset adds its size, a replaced one the difference, a deleted one subtracts it."""
 
 from __future__ import annotations
 
@@ -7,6 +10,7 @@ from datetime import datetime
 
 from pymongo import ReturnDocument
 
+from waystation_common.db import usage as usage_db
 from waystation_common.db.client import Database
 from waystation_common.db.collections import ASSETS
 from waystation_common.ids import new_id
@@ -24,13 +28,19 @@ async def save(db: Database, asset: StoredAsset) -> StoredAsset:
     fields = asset.model_dump(by_alias=True, exclude={'id', 'created_at'})
     if asset.kind == 'content':
         fields |= file_keys(asset.path)  # global search (waystation_common.searchkeys)
-    doc = await db[ASSETS].find_one_and_update(
+    asset_id = new_id()
+    before = await db[ASSETS].find_one_and_update(
         {'repo_id': asset.repo_id, 'path': asset.path},
-        {'$set': fields, '$setOnInsert': {'_id': new_id(), 'created_at': asset.created_at}},
+        {'$set': fields, '$setOnInsert': {'_id': asset_id, 'created_at': asset.created_at}},
         upsert=True,
-        return_document=ReturnDocument.AFTER,
+        return_document=ReturnDocument.BEFORE,
+        projection={'_id': 1, 'created_at': 1, 'size': 1},
     )
-    return StoredAsset.model_validate(doc)
+    if before is None:
+        await usage_db.add(db, asset.repo_id, asset.size, 1)
+        return asset.model_copy(update={'id': asset_id})
+    await usage_db.add(db, asset.repo_id, asset.size - int(before.get('size') or 0))
+    return asset.model_copy(update={'id': str(before['_id']), 'created_at': before['created_at']})
 
 
 async def mark_revalidated(db: Database, asset_id: str, upstream: UpstreamMeta, updated_at: datetime) -> None:
@@ -40,13 +50,19 @@ async def mark_revalidated(db: Database, asset_id: str, upstream: UpstreamMeta, 
 
 
 async def delete(db: Database, asset_id: str) -> None:
-    await db[ASSETS].delete_one({'_id': asset_id})
+    doc = await db[ASSETS].find_one_and_delete({'_id': asset_id}, projection={'repo_id': 1, 'size': 1})
+    if doc is not None:
+        await usage_db.add(db, str(doc['repo_id']), -int(doc.get('size') or 0), -1)
 
 
 async def delete_path(db: Database, repo_id: str, path: str) -> StoredAsset | None:
     """Remove the asset at ``(repo_id, path)`` (hosted deletes); returns what was removed."""
     doc = await db[ASSETS].find_one_and_delete({'repo_id': repo_id, 'path': path})
-    return StoredAsset.model_validate(doc) if doc else None
+    if doc is None:
+        return None
+    asset = StoredAsset.model_validate(doc)
+    await usage_db.add(db, repo_id, -asset.size, -1)
+    return asset
 
 
 async def sizes(db: Database, repo_id: str, paths: list[str]) -> dict[str, int]:

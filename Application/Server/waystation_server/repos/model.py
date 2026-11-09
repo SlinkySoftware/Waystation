@@ -85,6 +85,18 @@ class StoredHosted(_Stored):
     immutable_tag_patterns: tuple[str, ...] = ()
 
 
+class QuotaMode(StrEnum):
+    """Quotas (SPECIFICATION §4.8): ``soft`` warns at 80 % and 100 %; ``hard`` also refuses new writes once reached."""
+
+    SOFT = 'soft'
+    HARD = 'hard'
+
+
+class StoredStorage(_Stored):
+    quota_bytes: int | None = None  # None: no quota
+    quota_mode: QuotaMode = QuotaMode.SOFT
+
+
 class StoredGroup(_Stored):
     # Member repository names, in resolution order (same format; proxy and hosted, no groups).
     members: tuple[str, ...] = ()
@@ -102,6 +114,7 @@ class RepoConfig(_Stored):
     proxy: StoredProxy | None = None
     hosted: StoredHosted | None = None  # hosted repositories (read as defaults when absent)
     group: StoredGroup | None = None  # group repositories
+    storage: StoredStorage = Field(default_factory=StoredStorage)  # quota (proxy and hosted repositories)
     format_options: dict[str, Any] = Field(default_factory=dict)
     cleanup_policy_ids: tuple[str, ...] = ()  # attached cleanup policies, in run order
     created_at: datetime

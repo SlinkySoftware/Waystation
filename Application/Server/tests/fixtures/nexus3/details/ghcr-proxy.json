@@ -1,0 +1,55 @@
+{
+  "name": "ghcr-proxy",
+  "format": "docker",
+  "type": "proxy",
+  "url": "https://nexus.example.com/repository/ghcr-proxy",
+  "online": true,
+  "storage": {
+    "blobStoreName": "docker",
+    "strictContentTypeValidation": true
+  },
+  "cleanup": null,
+  "proxy": {
+    "remoteUrl": "https://ghcr.io",
+    "contentMaxAge": 1440,
+    "metadataMaxAge": 1440
+  },
+  "negativeCache": {
+    "enabled": true,
+    "timeToLive": 1440
+  },
+  "httpClient": {
+    "blocked": false,
+    "autoBlock": true,
+    "connection": {
+      "retries": null,
+      "userAgentSuffix": null,
+      "timeout": null,
+      "enableCircularRedirects": false,
+      "enableCookies": false,
+      "useTrustStore": false
+    },
+    "authentication": {
+      "type": "username",
+      "username": "nexus-reader",
+      "password": null,
+      "ntlmHost": null,
+      "ntlmDomain": null,
+      "preemptive": false
+    }
+  },
+  "routingRuleName": null,
+  "docker": {
+    "v1Enabled": false,
+    "forceBasicAuth": false,
+    "httpPort": null,
+    "httpsPort": null,
+    "subdomain": null
+  },
+  "dockerProxy": {
+    "indexType": "REGISTRY",
+    "indexUrl": null,
+    "cacheForeignLayers": false,
+    "foreignLayerUrlWhitelist": []
+  }
+}

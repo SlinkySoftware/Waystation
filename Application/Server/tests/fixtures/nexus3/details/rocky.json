@@ -1,0 +1,36 @@
+{
+  "name": "rocky",
+  "format": "yum",
+  "type": "proxy",
+  "url": "https://nexus.example.com/repository/rocky",
+  "online": true,
+  "storage": {
+    "blobStoreName": "default",
+    "strictContentTypeValidation": true
+  },
+  "cleanup": null,
+  "proxy": {
+    "remoteUrl": "https://dl.rockylinux.org/pub/rocky/",
+    "contentMaxAge": 1440,
+    "metadataMaxAge": 1440
+  },
+  "negativeCache": {
+    "enabled": true,
+    "timeToLive": 1440
+  },
+  "httpClient": {
+    "blocked": false,
+    "autoBlock": true,
+    "connection": {
+      "retries": null,
+      "userAgentSuffix": null,
+      "timeout": null,
+      "enableCircularRedirects": false,
+      "enableCookies": false,
+      "useTrustStore": false
+    },
+    "authentication": null
+  },
+  "routingRuleName": null,
+  "yumSigning": null
+}

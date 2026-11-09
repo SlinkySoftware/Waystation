@@ -11,6 +11,10 @@
 - **Serving**: ``serve`` answers with the X-Accel redirect (``dataplane.xaccel``), the server handling conditional
   requests and ``HEAD``; cached bytes never pass through Python. Downloads are counted as cache hits.
 - **Deleting**: ``remove`` drops the asset; blob GC frees the file once nothing references it.
+- **Quotas**: ``admit`` refuses a write a hard repository quota does not allow (``QuotaExceeded``; the format answers
+  with its native error), before any byte is accepted; ``record`` / ``remove`` keep the repository's usage counted and
+  announce quota thresholds (``repos.quota``). The low-disk guard refuses new writers in the blob store itself
+  (``InsufficientStorage``).
 
 Audit records (``content.upload`` / ``content.delete``) are written by the format, once per client-visible action
 (a pushed image manifest, a deleted tag), not per blob.
@@ -37,6 +41,7 @@ from waystation_server.db import assets as assets_db
 from waystation_server.metrics import Metrics
 from waystation_server.proxy.records import AssetKind, StoredAsset, UpstreamMeta
 from waystation_server.repos.model import RepoConfig
+from waystation_server.repos.quota import Quotas
 
 if TYPE_CHECKING:
     from waystation_server.formats.base import FormatRequest
@@ -50,11 +55,26 @@ class UploadInterrupted(WaystationError):  # noqa: N818 - reads as an outcome
 
 
 class HostedStore:
-    def __init__(self, *, db: Database, blobs: BlobStore, emitter: EventEmitter, metrics: Metrics) -> None:
+    def __init__(
+        self,
+        *,
+        db: Database,
+        blobs: BlobStore,
+        emitter: EventEmitter,
+        metrics: Metrics,
+        quotas: Quotas | None = None,
+    ) -> None:
         self.db = db
         self.blobs = blobs
         self.emitter = emitter
         self.metrics = metrics
+        self.quotas = quotas
+
+    async def admit(self, repo: RepoConfig, incoming: int | None = None) -> None:
+        """Raise ``QuotaExceeded`` when the repository's hard quota refuses a write of ``incoming`` bytes (unknown:
+        refused once the quota is reached)."""
+        if self.quotas is not None:
+            await self.quotas.check(repo, incoming)
 
     # ------------------------------------------------------------------ receiving
     async def receive(
@@ -144,7 +164,10 @@ class HostedStore:
             created_at=now,
             updated_at=now,
         )
-        return await assets_db.save(self.db, asset)
+        saved = await assets_db.save(self.db, asset)
+        if self.quotas is not None:
+            await self.quotas.written(repo)
+        return saved
 
     async def link(
         self,
@@ -188,7 +211,10 @@ class HostedStore:
         return data
 
     async def remove(self, repo: RepoConfig, path: str) -> StoredAsset | None:
-        return await assets_db.delete_path(self.db, repo.id, path)
+        removed = await assets_db.delete_path(self.db, repo.id, path)
+        if removed is not None and self.quotas is not None:
+            await self.quotas.written(repo)
+        return removed
 
     # ------------------------------------------------------------------ serving and accounting
     def serve(self, req: FormatRequest, asset: StoredAsset, *, headers: Mapping[str, str] | None = None) -> Response:

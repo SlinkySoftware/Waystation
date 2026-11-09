@@ -1,0 +1,36 @@
+{
+  "name": "epel",
+  "format": "yum",
+  "type": "proxy",
+  "url": "https://nexus.example.com/repository/epel",
+  "online": true,
+  "storage": {
+    "blobStoreName": "default",
+    "strictContentTypeValidation": true
+  },
+  "cleanup": null,
+  "proxy": {
+    "remoteUrl": "https://dl.fedoraproject.org/pub/epel/",
+    "contentMaxAge": 1440,
+    "metadataMaxAge": -1
+  },
+  "negativeCache": {
+    "enabled": false,
+    "timeToLive": 1440
+  },
+  "httpClient": {
+    "blocked": false,
+    "autoBlock": true,
+    "connection": {
+      "retries": null,
+      "userAgentSuffix": null,
+      "timeout": null,
+      "enableCircularRedirects": false,
+      "enableCookies": false,
+      "useTrustStore": false
+    },
+    "authentication": null
+  },
+  "routingRuleName": null,
+  "yumSigning": null
+}

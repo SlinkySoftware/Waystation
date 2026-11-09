@@ -20,6 +20,8 @@ Validation, reported as 422 field errors (``errors[].field`` a dotted path into 
 - ``format_options`` against the format's ``options_model`` and its per-type rules (``check_options``); docker
   aliases must not collide with repository names or other repositories' aliases; one default docker repository
   (setting it clears the others);
+- ``storage``: a quota (bytes, ``soft``/``hard``) for proxy and hosted repositories; groups store nothing, so a quota
+  there is refused (set it on the members);
 - on update, ``name``, ``format`` and ``type`` cannot change.
 """
 
@@ -49,6 +51,7 @@ from waystation_server.repos.model import (
     StoredGroup,
     StoredHosted,
     StoredProxy,
+    StoredStorage,
     StoredUpstreamAuth,
     secret_aad,
 )
@@ -304,6 +307,18 @@ async def _build(
             group = await _stored_group(services, body, body.group, errors)
     elif body.group is not None:
         errors.append(FieldError(field='group', message='only group repositories have members', code='invalid'))
+    storage = StoredStorage()
+    if body.storage is not None:
+        if body.type is RepoType.GROUP and body.storage.quota_bytes is not None:
+            errors.append(
+                FieldError(
+                    field='storage.quota_bytes',
+                    message='groups store nothing: set quotas on their members',
+                    code='invalid',
+                )
+            )
+        else:
+            storage = StoredStorage(quota_bytes=body.storage.quota_bytes, quota_mode=body.storage.quota_mode)
     if errors:
         raise FieldErrors(errors)
     now = datetime.now(UTC)
@@ -317,6 +332,7 @@ async def _build(
         proxy=proxy,
         hosted=hosted,
         group=group,
+        storage=storage,
         format_options=options,
         cleanup_policy_ids=existing.cleanup_policy_ids if existing else (),
         created_at=existing.created_at if existing else now,
@@ -331,6 +347,15 @@ async def _after_write(services: Services, repo: RepoConfig) -> None:
     if repo.format == 'docker' and repo.format_options.get('default_repo'):
         await repos_db.unset_default_docker(services.db, except_id=repo.id)
     services.catalog.invalidate()
+
+
+async def check(services: Services, body: RepositoryWrite, principal: Principal) -> list[FieldError]:
+    """The field errors creating ``body`` would raise now (a dry run: nothing is written or encrypted for keeps)."""
+    try:
+        await _build(services, body, principal, None)
+    except FieldErrors as exc:
+        return list(exc.errors)
+    return []
 
 
 async def create(services: Services, body: RepositoryWrite, principal: Principal) -> RepoConfig:
