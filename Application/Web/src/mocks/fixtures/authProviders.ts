@@ -16,10 +16,44 @@ import type {
 import { mappedRoles, serverHost, SIGNING_ALGS } from '@/components/auth/providerForm'
 
 export const ROLES: Role[] = [
-  { id: 'admin', name: 'Administrator', description: 'Everything, including users, settings and every repository.', builtin: true },
-  { id: 'reader', name: 'Reader', description: 'Browse and download from every repository.', builtin: true },
-  { id: 'deployer', name: 'Deployer', description: 'Browse, download and upload to every repository.', builtin: true },
-  { id: 'viewer', name: 'Viewer', description: 'Browse every repository and read statistics.', builtin: true },
+  {
+    id: 'admin',
+    name: 'Administrator',
+    description: 'Everything, including users, settings and every repository.',
+    builtin: true,
+    permissions: [{ action: 'admin', scope: '*' }],
+  },
+  {
+    id: 'reader',
+    name: 'Reader',
+    description: 'Browse and download from every repository.',
+    builtin: true,
+    permissions: [
+      { action: 'browse', scope: '*' },
+      { action: 'read', scope: '*' },
+    ],
+  },
+  {
+    id: 'deployer',
+    name: 'Deployer',
+    description: 'Browse, download and upload to every repository.',
+    builtin: true,
+    permissions: [
+      { action: 'browse', scope: '*' },
+      { action: 'read', scope: '*' },
+      { action: 'write', scope: '*' },
+    ],
+  },
+  {
+    id: 'viewer',
+    name: 'Viewer',
+    description: 'Browse every repository and read statistics.',
+    builtin: true,
+    permissions: [
+      { action: 'browse', scope: '*' },
+      { action: 'stats-read', scope: '*' },
+    ],
+  },
 ]
 
 const SUFFIX = 'dc=example,dc=com'

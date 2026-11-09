@@ -88,6 +88,86 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * Change the display name or e-mail of a local account
+         * @description Accounts from an LDAP/OIDC provider get their profile from it at every sign-in (409).
+         */
+        patch: operations["updateMyProfile"];
+        trace?: never;
+    };
+    "/auth/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change the caller's local password (needs a signed-in session and the current password)
+         * @description At least 12 characters, not the username, different from the current one. Clears `must_change_password`
+         *     and ends the user's other sessions. Rate limited like sign-in. While a one-time password is pending, a
+         *     session may only call this, `GET /auth/me` and sign-out (403 otherwise).
+         */
+        post: operations["changeMyPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the caller may do (roles and where they come from, permissions, per-repository actions) */
+        get: operations["getMyPermissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's sessions, newest first */
+        get: operations["listMySessions"];
+        put?: never;
+        post?: never;
+        /** Sign out everywhere else (end every session except the current one) */
+        delete: operations["revokeMyOtherSessions"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** End one of the caller's sessions (the current one too, which also clears its cookies) */
+        delete: operations["revokeMySession"];
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -212,14 +292,19 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** One service account */
+        get: operations["getServiceAccount"];
         put?: never;
         post?: never;
         /** Delete a service account and revoke its tokens */
         delete: operations["deleteServiceAccount"];
         options?: never;
         head?: never;
-        /** Change a service account's description, roles or disabled flag (effective at once) */
+        /**
+         * Change a service account's description, roles or disabled flag (effective at once)
+         * @description Added roles must be ones the caller may grant; an account holding more than the caller (e.g. `admin`, for a
+         *     `user-admin`) cannot be changed, deleted or given tokens by it (403).
+         */
         patch: operations["updateServiceAccount"];
         trace?: never;
     };
@@ -243,6 +328,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/service-accounts/{account_id}/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        /** What a service account may do */
+        get: operations["getServiceAccountPermissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/service-accounts/{account_id}/tokens/{token_id}": {
         parameters: {
             query?: never;
@@ -258,6 +362,194 @@ export interface paths {
         post?: never;
         /** Revoke a service account's token */
         delete: operations["revokeServiceAccountToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Users by username (keyset paging); needs `user-admin` */
+        get: operations["listUsers"];
+        put?: never;
+        /**
+         * Create a local user
+         * @description Without a password the account signs in only through an LDAP/OIDC provider with the same username (it is
+         *     linked at the first sign-in), which lets an administrator give roles before then. With a password the user
+         *     must change it at the next sign-in unless `must_change_password` is false.
+         */
+        post: operations["createUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /** A user with its source, linked identities, groups and effective roles */
+        get: operations["getUser"];
+        put?: never;
+        post?: never;
+        /** Delete a user (its sessions end and its API tokens are revoked) */
+        delete: operations["deleteUser"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a user's profile, disabled flag, roles or local groups
+         * @description Added roles and groups must be ones the caller may grant; a user holding more than the caller cannot be
+         *     changed by it (403). Nobody can disable their own account, and the last enabled administrator cannot be
+         *     disabled or demoted (409). Disabling ends the user's sessions; API tokens stop working at once.
+         */
+        patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/users/{user_id}/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a local user's password (every session of the user ends) */
+        post: operations["resetUserPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{user_id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clear a sign-in lockout */
+        post: operations["unlockUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{user_id}/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        /** What a user may do (roles and where they come from, permissions, per-repository actions) */
+        get: operations["getUserPermissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Local groups, then groups mapped from sign-in providers; needs `user-admin` */
+        get: operations["listGroups"];
+        put?: never;
+        /** Create a local group */
+        post: operations["createGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups/{group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        /** One group */
+        get: operations["getGroup"];
+        put?: never;
+        post?: never;
+        /** Delete a local group (mapped groups go with their provider's mapping) */
+        delete: operations["deleteGroup"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename or describe a local group, or change any group's roles
+         * @description Mapped groups only take role changes (409 for a name or description).
+         */
+        patch: operations["updateGroup"];
+        trace?: never;
+    };
+    "/groups/{group_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        /** Members of a local group by username (mapped groups have no stored members) */
+        get: operations["listGroupMembers"];
+        put?: never;
+        /** Add users to a local group */
+        post: operations["addGroupMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups/{group_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: components["parameters"]["GroupId"];
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a user from a local group */
+        delete: operations["removeGroupMember"];
         options?: never;
         head?: never;
         patch?: never;
@@ -354,11 +646,37 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Roles that can be granted (built-in roles; custom roles come later) */
+        /** Roles that can be granted with their permissions (built-in first, then custom by id) */
         get: operations["listRoles"];
         put?: never;
-        post?: never;
+        /**
+         * Create a custom role; needs `user-admin`
+         * @description Permissions are `(action, scope)`; global actions only on `*`. Global permissions can only be added by a
+         *     caller holding them (`admin`: administrators only).
+         */
+        post: operations["createRole"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{role_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_id: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        /** A role with who holds it */
+        get: operations["getRole"];
+        /** Change a custom role (built-in roles are read-only, 409) */
+        put: operations["updateRole"];
+        post?: never;
+        /** Delete a custom role that nobody holds (409 while a user, group or service account does) */
+        delete: operations["deleteRole"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1101,12 +1419,14 @@ export interface components {
             csrf_token: string;
             /**
              * @description Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
-             *     replace server-side checks. M0 values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
-             *     `admin`.
+             *     replace server-side checks. Values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
+             *     `users.admin`, `settings.admin`, `admin`.
              */
             capabilities: string[];
             preferences: components["schemas"]["Preferences"];
             expires_at: components["schemas"]["Timestamp"];
+            /** @description The account holds a one-time password; change it (`POST /auth/me/password`) before anything else */
+            must_change_password: boolean;
         };
         /**
          * @description What a token may be used for; it never exceeds the owner's own grants. `read`: browse, pull, download,
@@ -1190,12 +1510,249 @@ export interface components {
             roles?: string[] | null;
             disabled?: boolean | null;
         };
+        ProfileUpdate: {
+            display_name?: string | null;
+            /** @description null clears it */
+            email?: string | null;
+        };
+        PasswordChange: {
+            current_password: string;
+            /** @description At least 12 characters */
+            new_password: string;
+        };
+        SessionInfo: {
+            /** @description Opaque; derived from the stored session id */
+            id: string;
+            /** @description The session this request was made with */
+            current: boolean;
+            created_at: components["schemas"]["Timestamp"];
+            last_seen_at: components["schemas"]["Timestamp"];
+            expires_at: components["schemas"]["Timestamp"];
+            ip: string | null;
+            user_agent: string | null;
+            /** @description The OIDC provider the session was signed in through */
+            provider_id: string | null;
+        };
+        SessionsRevoked: {
+            revoked: number;
+        };
+        /**
+         * @description Repository actions: browse, read, write, delete, manage. Global actions (scope `*` only): admin, user-admin, audit-read, stats-read, settings-admin.
+         * @enum {string}
+         */
+        Action: "browse" | "read" | "write" | "delete" | "manage" | "admin" | "user-admin" | "audit-read" | "stats-read" | "settings-admin";
+        PrincipalRef: {
+            /** @enum {string} */
+            kind: "user" | "service_account" | "anonymous";
+            id: string;
+            name: string;
+        };
+        EffectiveRole: {
+            id: string;
+            name: string;
+            /** @description `direct`, or the names of the groups the role comes from */
+            via: string[];
+        };
+        GrantedPermission: {
+            action: components["schemas"]["Action"];
+            scope: string;
+        };
+        RepositoryAccess: {
+            name: string;
+            format: string;
+            type: string;
+            actions: components["schemas"]["Action"][];
+        };
+        EffectivePermissions: {
+            principal: components["schemas"]["PrincipalRef"];
+            roles: components["schemas"]["EffectiveRole"][];
+            /** @description Every (action, scope) held, implied ones included */
+            permissions: components["schemas"]["GrantedPermission"][];
+            global_actions: components["schemas"]["Action"][];
+            /** @description Repositories with at least one allowed action */
+            repositories: components["schemas"]["RepositoryAccess"][];
+            /** @description The request used an API token, which narrows the grants shown */
+            narrowed_by_token: boolean;
+        };
+        UserSummary: {
+            id: string;
+            username: string;
+            display_name: string;
+            email: string | null;
+            /** @description `local`, or the provider that created or linked the user (`ldap:<id>`) */
+            source: string;
+            disabled: boolean;
+            /** @description Locked out after failed sign-ins (local accounts) */
+            locked: boolean;
+            /** @description Roles held directly */
+            roles: string[];
+            /** @description Local group ids */
+            groups: string[];
+            /** Format: date-time */
+            last_login: string | null;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        UserPage: {
+            items: components["schemas"]["UserSummary"][];
+            next_cursor: string | null;
+        };
+        GroupRef: {
+            id: string;
+            name: string;
+            /** @description `local`, `ldap` or `oidc` (mapped from a provider) */
+            source: string;
+        };
+        ExternalGroupBody: {
+            /** @description Provider source, `ldap:<id>` or `oidc:<id>` */
+            provider: string;
+            id: string;
+            name: string;
+        };
+        LinkedIdentityBody: {
+            provider: string;
+            /** @description LDAP entry DN or OIDC `sub` */
+            subject: string;
+            linked_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            last_login: string | null;
+        };
+        UserDetail: {
+            id: string;
+            username: string;
+            display_name: string;
+            email: string | null;
+            source: string;
+            disabled: boolean;
+            locked: boolean;
+            roles: string[];
+            groups: string[];
+            /** Format: date-time */
+            last_login: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            locked_until: string | null;
+            must_change_password: boolean;
+            /** @description A local password is set (local accounts) */
+            has_password: boolean;
+            /** @description Local groups and mapped provider groups the user is in */
+            group_refs: components["schemas"]["GroupRef"][];
+            /** @description Groups providers reported at the last sign-in */
+            external_groups: components["schemas"]["ExternalGroupBody"][];
+            identities: components["schemas"]["LinkedIdentityBody"][];
+            /** @description Own roles plus those of its groups */
+            effective_roles: string[];
+        };
+        UserCreate: {
+            /** @description Lower case; letters, digits, `.`, `_`, `@`, `-` */
+            username: string;
+            /** @default  */
+            display_name: string;
+            email?: string | null;
+            /** @description At least 12 characters. Omit for an account that signs in through LDAP/OIDC (linked by username) */
+            password?: string | null;
+            /**
+             * @description The user must change the password at the next sign-in
+             * @default true
+             */
+            must_change_password: boolean;
+            roles?: string[];
+            /** @description Local group ids */
+            groups?: string[];
+        };
+        UserUpdate: {
+            display_name?: string | null;
+            /** @description null clears it */
+            email?: string | null;
+            disabled?: boolean | null;
+            roles?: string[] | null;
+            /** @description Local group ids */
+            groups?: string[] | null;
+        };
+        PasswordReset: {
+            /** @description At least 12 characters */
+            password: string;
+            /** @default true */
+            must_change_password: boolean;
+        };
+        ProviderRef: {
+            id: string;
+            /** @description null when the provider no longer exists */
+            name: string | null;
+        };
+        Group: {
+            id: string;
+            name: string;
+            description: string;
+            /** @enum {string} */
+            source: "local" | "ldap" | "oidc";
+            /** @description The provider of a mapped group */
+            provider: components["schemas"]["ProviderRef"] | null;
+            /** @description The provider group DN or name a mapped group matches */
+            external_group: string | null;
+            roles: string[];
+            /** @description Local groups; null for mapped groups (membership is per sign-in) */
+            member_count: number | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        GroupCreate: {
+            /** @description Letters, digits, spaces, `.`, `_`, `-` */
+            name: string;
+            /** @default  */
+            description: string;
+            roles?: string[];
+        };
+        GroupUpdate: {
+            /** @description Local groups only */
+            name?: string | null;
+            /** @description Local groups only */
+            description?: string | null;
+            roles?: string[] | null;
+        };
+        GroupMembersAdd: {
+            user_ids: string[];
+        };
+        RolePermission: {
+            action: components["schemas"]["Action"];
+            /** @description `*`, a repository name, a glob (`docker-*`), `format:<format>` or `type:<type>`; global actions only `*` */
+            scope: string;
+        };
         Role: {
             /** @description Role id used in grants and group mappings, e.g. `deployer` */
             id: string;
             name: string;
             description: string;
+            /** @description Built-in roles are read-only */
             builtin: boolean;
+            permissions: components["schemas"]["RolePermission"][];
+        };
+        RoleUsage: {
+            users: number;
+            groups: number;
+            service_accounts: number;
+        };
+        RoleDetail: {
+            id: string;
+            name: string;
+            description: string;
+            builtin: boolean;
+            permissions: components["schemas"]["RolePermission"][];
+            /** @description Who holds the role directly */
+            usage: components["schemas"]["RoleUsage"];
+        };
+        RoleWrite: {
+            name: string;
+            /** @default  */
+            description: string;
+            permissions: components["schemas"]["RolePermission"][];
+        };
+        RoleCreate: {
+            /** @description Lower-case letters, digits and `-`; what users and groups store */
+            id: string;
+            name: string;
+            /** @default  */
+            description: string;
+            permissions: components["schemas"]["RolePermission"][];
         };
         /** @description Servers are tried in order; one that cannot be reached is skipped for 30 s (failover). */
         LdapConnection: {
@@ -2429,6 +2986,10 @@ export interface components {
         PolicyId: string;
         TokenId: string;
         AccountId: string;
+        UserId: string;
+        GroupId: string;
+        RoleId: string;
+        SessionId: string;
         /** @description Image name within the repository, e.g. `library/nginx` */
         DockerImage: string;
         /** @description Records at or after this time (RFC 3339) */
@@ -2570,6 +3131,152 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    updateMyProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    changeMyPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChange"];
+            };
+        };
+        responses: {
+            /** @description Changed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+            /** @description Too many attempts; `Retry-After` header set */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getMyPermissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Effective permissions (narrowed by the API token used, if any) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EffectivePermissions"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listMySessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sessions (ids are opaque and never usable as cookies) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionInfo"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    revokeMyOtherSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many sessions ended */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionsRevoked"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    revokeMySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ended */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     updatePreferences: {
@@ -2756,6 +3463,29 @@ export interface operations {
             422: components["responses"]["ValidationFailed"];
         };
     };
+    getServiceAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The service account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAccount"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     deleteServiceAccount: {
         parameters: {
             query?: never;
@@ -2856,6 +3586,29 @@ export interface operations {
             422: components["responses"]["ValidationFailed"];
         };
     };
+    getServiceAccountPermissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: components["parameters"]["AccountId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Effective permissions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EffectivePermissions"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     revokeServiceAccountToken: {
         parameters: {
             query?: never;
@@ -2876,6 +3629,421 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: {
+                /** @description Username prefix */
+                q?: string;
+                /** @description `local`, `ldap`, `oidc` (every provider of the kind) or one provider (`ldap:<id>`) */
+                source?: string;
+                disabled?: boolean;
+                /** @description Local group id */
+                group?: string;
+                /** @description Role held directly */
+                role?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPage"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDetail"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDetail"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDetail"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    resetUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordReset"];
+            };
+        };
+        responses: {
+            /** @description Set */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    unlockUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlocked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDetail"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getUserPermissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Effective permissions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EffectivePermissions"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listGroups: {
+        parameters: {
+            query?: {
+                source?: "local" | "ldap" | "oidc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Groups */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"][];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The group */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Group"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listGroupMembers: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                group_id: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of members */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    addGroupMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: components["parameters"]["GroupId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupMembersAdd"];
+            };
+        };
+        responses: {
+            /** @description Added */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    removeGroupMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: components["parameters"]["GroupId"];
+                user_id: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listAuthProviderConfigs: {
@@ -3071,6 +4239,109 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    createRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_id: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The role */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleDetail"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_id: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleWrite"];
+            };
+        };
+        responses: {
+            /** @description Updated (applied by every replica within seconds) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                role_id: components["parameters"]["RoleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listAudit: {

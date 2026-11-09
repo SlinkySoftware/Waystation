@@ -22,6 +22,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   const user = computed(() => session.value?.user ?? null)
   const signedIn = computed(() => session.value !== null)
+  /** The account holds a one-time password: the server allows only changing it (and signing out). */
+  const mustChangePassword = computed(() => session.value?.must_change_password ?? false)
 
   function can(capability: string): boolean {
     const caps = session.value?.capabilities ?? []
@@ -69,12 +71,18 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /** Change the caller's local password, then reload the session (clears `must_change_password`). */
+  async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await call(api.POST('/auth/me/password', { body: { current_password: currentPassword, new_password: newPassword } }))
+    adopt(await call(api.GET('/auth/me')))
+  }
+
   /** The server said 401 mid-session. */
   function expire(): void {
     adopt(null)
   }
 
-  return { session, checked, user, signedIn, can, ensureChecked, login, logout, expire }
+  return { session, checked, user, signedIn, mustChangePassword, can, ensureChecked, login, logout, changePassword, expire }
 })
 
 if (import.meta.hot) import.meta.hot.accept(acceptHMRUpdate(useAuthStore, import.meta.hot))

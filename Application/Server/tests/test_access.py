@@ -80,6 +80,8 @@ def test_capabilities() -> None:
         'repositories.manage',
         'stats.read',
         'audit.read',
+        'users.admin',
+        'settings.admin',
     ]
     assert access.capabilities(VIEWER) == ['stats.read']
     assert access.capabilities(ANONYMOUS) == []
