@@ -8,7 +8,7 @@
     </div>
     <RunDetail v-if="run.status === 'running'" :run="run" />
     <div v-else-if="run.status === 'succeeded'" class="last-run__bytes">
-      {{ t('cleanup.reclaimed', { size: formatBytes(run.bytes) }) }} · {{ formatCount(run.removed) }}
+      {{ runOutcome(run) }}
     </div>
     <div v-else-if="run.error" class="last-run__error">{{ run.error }}<q-tooltip max-width="360px">{{ run.error }}</q-tooltip></div>
   </div>
@@ -19,8 +19,8 @@
 import type { CleanupRunSummary } from '@/api/types'
 import TimeCell from '@/components/TimeCell.vue'
 import { t } from '@/i18n'
-import { formatBytes, formatCount } from '@/utils/format'
 
+import { runOutcome } from './cleanup'
 import RunDetail from './RunDetail.vue'
 import RunStatusPill from './RunStatusPill.vue'
 

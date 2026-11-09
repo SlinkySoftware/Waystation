@@ -51,7 +51,10 @@
       </dl>
 
       <div class="gc__recent-title">{{ t('cleanup.gc.recent') }}</div>
-      <q-table class="ws-table gc__table" flat dense :rows="status.runs.slice(0, 8)" :columns="columns" row-key="id" :grid="$q.screen.lt.sm" :pagination="{ rowsPerPage: 0 }" hide-pagination :no-data-label="t('cleanup.gc.none')">
+      <q-table class="ws-table gc__table" flat dense :rows="status.runs.slice(0, 8)" :columns="columns" row-key="id" :grid="$q.screen.lt.sm" :pagination="{ rowsPerPage: 0 }" hide-pagination>
+        <template #no-data>
+          <div class="gc__none">{{ t('cleanup.gc.none') }}</div>
+        </template>
         <template #body-cell-status="{ row }">
           <q-td><RunStatusPill :status="row.status" /></q-td>
         </template>
@@ -186,6 +189,12 @@ async function runNow(): Promise<void> {
 
 .gc__sub {
   font-size: var(--fs-12);
+  color: var(--text-secondary);
+}
+
+.gc__none {
+  width: 100%;
+  padding: 4px 0;
   color: var(--text-secondary);
 }
 

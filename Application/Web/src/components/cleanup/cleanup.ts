@@ -4,6 +4,7 @@
 import type { CleanupCriteria, CleanupFormat, CleanupPolicy, CleanupPolicyWrite, CleanupRunSummary, Format, GcRun } from '@/api/types'
 import { t } from '@/i18n'
 import { formatLabel, type Meta } from '@/utils/domain'
+import { formatBytes, formatCount } from '@/utils/format'
 import { iconBlocked, iconError, iconOk, iconSync, iconWarning } from '@/utils/icons'
 
 export type DayCriterion = 'last_downloaded_older_than_days' | 'published_older_than_days' | 'untagged_older_than_days'
@@ -179,6 +180,12 @@ export function runStatusMeta(status: RunStatus): Meta {
 export function runSeconds(run: Pick<CleanupRunSummary | GcRun, 'started_at' | 'finished_at'>, now: number = Date.now()): number {
   const end = run.finished_at ? Date.parse(run.finished_at) : now
   return Math.max(0, (end - Date.parse(run.started_at)) / 1000)
+}
+
+/** What a finished run removed, in words: "Nothing removed" or "12 items · 3.4 MiB removed". */
+export function runOutcome(run: Pick<CleanupRunSummary, 'removed' | 'bytes'>): string {
+  if (!run.removed && !run.bytes) return t('cleanup.nothingRemoved')
+  return t('cleanup.removedSummary', { count: run.removed, n: formatCount(run.removed), size: formatBytes(run.bytes) })
 }
 
 /** 0..1 progress, or null when the total is unknown (indeterminate bar). */

@@ -73,8 +73,17 @@ const REAL_SHOTS = [
   { name: 'browse-apt-packages', path: 'repositories/debian/browse?suite=trixie', full: true },
   { name: 'browse-raw', path: 'repositories/raw-releases/browse?path=jqlang%2Fjq%2Freleases%2Fdownload%2Fjq-1.8.1', full: true },
   { name: 'browse-all', path: 'browse', full: true },
+  { name: 'search', path: 'search?q=nginx', settle: 2500, full: true },
+  { name: 'search-filtered', path: 'search?q=lib&format=apt&cached=1', settle: 2500, full: true },
+  { name: 'command-palette', path: '', settle: 2500, action: openPalette },
   { name: 'activity', path: 'activity', settle: 2500, full: true },
   { name: 'storage', path: 'storage', settle: 2500, full: true },
+  // The cleanup shots need saved policies (see UI_TOUR_M0.md); nothing here runs or saves one.
+  { name: 'cleanup-policies', path: 'cleanup', settle: 2500, full: true },
+  { name: 'cleanup-policy-editor', path: 'cleanup', settle: 2500, action: draftPolicy },
+  { name: 'cleanup-preview', path: 'cleanup', settle: 2500, action: reviewMatches },
+  { name: 'cleanup-run-history', path: 'cleanup', settle: 2500, action: runHistory },
+  { name: 'repo-cleanup', path: 'repositories/dockerhub-proxy/cleanup', settle: 2500, full: true },
   { name: 'repo-settings', path: 'repositories/dockerhub-proxy/settings', full: true },
   { name: 'auth-providers', path: 'admin/auth-providers' },
   { name: 'audit-log', path: 'admin/audit', settle: 2500, full: true },
@@ -93,6 +102,38 @@ async function signIn(page) {
 async function openSetup(page) {
   await page.getByRole('button', { name: /set me up/i }).first().click()
   await page.waitForTimeout(900)
+}
+
+async function openPalette(page) {
+  await page.keyboard.press('Control+k')
+  await page.waitForTimeout(900)
+  await page.keyboard.type('nginx')
+  await page.waitForTimeout(1500)
+}
+
+/** A draft (never saved) apt policy whose live preview matches cached library packages. */
+async function draftPolicy(page) {
+  await page.getByRole('button', { name: /new policy/i }).first().click()
+  await page.waitForTimeout(700)
+  await page.getByLabel('Name', { exact: true }).fill('apt-libraries')
+  await page.getByLabel('Description (optional)').fill('Shared libraries nobody has asked for lately')
+  await page.locator('.editor__format').click()
+  await page.locator('.q-menu .q-item').filter({ hasText: /^apt$/ }).first().click()
+  await page.getByRole('switch', { name: 'Not downloaded for' }).click() // on by default; nothing is 90 days old yet
+  await page.getByLabel('Name matches', { exact: true }).fill('^lib')
+  await page.getByLabel('Name does not match', { exact: true }).fill('^libc6$')
+  await page.waitForTimeout(2000)
+}
+
+async function reviewMatches(page) {
+  await draftPolicy(page)
+  await page.getByRole('button', { name: /review matches/i }).click()
+  await page.waitForTimeout(1500)
+}
+
+async function runHistory(page) {
+  await page.getByRole('button', { name: 'Run history of stale-cache' }).first().click()
+  await page.waitForTimeout(1500)
 }
 
 async function openAuditRecord(page) {
