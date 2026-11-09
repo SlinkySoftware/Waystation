@@ -14,7 +14,9 @@ KEEP=1 make perf                           # leave the stack running afterwards 
 
 Host needs bash, docker and flock. Results land in `tests/perf/.results/` (gitignored): `report.md` (the run
 report: budgets table, every scenario's figures, container CPU/memory), `measured.json` (the budget values read by
-`make budgets`), the raw `k6-<scenario>.json`, `sse.json` and `stats-<scenario>.csv`.
+`make budgets`), the raw `k6-<scenario>.json`, `sse.json` and `stats-<scenario>.csv`, and the warnings and errors
+the stack logged (`server.log`: server and worker, `mongodb.log`, `web.log`: the last nginx lines). k6 logs the
+first three failed requests of each client (URL, status, error).
 
 ## Machine safety
 

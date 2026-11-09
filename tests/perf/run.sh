@@ -70,6 +70,11 @@ SAMPLER=
 cleanup() {
   local rc=$?
   [ -z "$SAMPLER" ] || kill "$SAMPLER" 2>/dev/null || true
+  if [ -d "$PERF_RESULTS" ]; then  # warnings and errors of the run (LOG_LEVEL=WARNING); nginx: the last lines only
+    "${compose[@]}" logs --no-color --no-log-prefix --tail 2000 server worker > "$PERF_RESULTS/server.log" 2>&1 || true
+    "${compose[@]}" logs --no-color --no-log-prefix --tail 200 web > "$PERF_RESULTS/web.log" 2>&1 || true
+    "${compose[@]}" logs --no-color --no-log-prefix --tail 300 mongodb > "$PERF_RESULTS/mongodb.log" 2>&1 || true
+  fi
   if [ "${KEEP:-0}" = 1 ]; then
     echo "KEEP=1: left project $PERF_PROJECT running (docker compose -p $PERF_PROJECT down -v)"
   else
