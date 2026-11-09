@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://repo.maven.apache.org/maven2/org/reactivestreams/reactive-streams/1.0.3/reactive-streams-1.0.3.pom.sha1"
+  },
+  "response": {
+    "body_sha256": "eb945790d59c1e960090da8a02d988eacf3ba581d66b7ba9878cdd72ce670f25",
+    "body_size": 40,
+    "headers": [
+      [
+        "content-type",
+        "text/plain"
+      ],
+      [
+        "content-length",
+        "40"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "etag",
+        "\"daa346a1ee91e3b702891459f16f1cd8\""
+      ],
+      [
+        "last-modified",
+        "Fri, 23 Aug 2019 08:50:35 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

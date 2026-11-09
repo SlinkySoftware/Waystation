@@ -5,6 +5,7 @@
   <DockerBrowser v-if="repo.format === 'docker'" :repo="repo" />
   <NpmBrowser v-else-if="repo.format === 'npm'" :repo="repo" />
   <AptBrowser v-else-if="repo.format === 'apt'" :repo="repo" />
+  <MavenBrowser v-else-if="repo.format === 'maven'" :repo="repo" />
   <PypiBrowser v-else-if="repo.format === 'pypi'" :repo="repo" />
   <GoBrowser v-else-if="repo.format === 'go'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
@@ -17,6 +18,7 @@ import AptBrowser from './AptBrowser.vue'
 import DockerBrowser from './DockerBrowser.vue'
 import FolderBrowser from './FolderBrowser.vue'
 import GoBrowser from './GoBrowser.vue'
+import MavenBrowser from './MavenBrowser.vue'
 import NpmBrowser from './NpmBrowser.vue'
 import PypiBrowser from './PypiBrowser.vue'
 

@@ -2,9 +2,9 @@
 
 Every route needs ``browse`` on the repository (yanking: ``write``; hidden repositories answer 404, ARCHITECTURE §7).
 The generic folder listing works for every format; the format views (``/npm/*``, ``/apt/*``, ``/docker/*``,
-``/pypi/*``, ``/go/*``) answer 404 for a repository of another format, or whose plugin has no browser yet. The REST
-layer reaches a format's views only through its registered plugin's ``browser`` attribute and the protocols in
-``waystation_server.browse.models`` (ARCHITECTURE §3).
+``/maven/*``, ``/pypi/*``, ``/go/*``) answer 404 for a repository of another format, or whose plugin has no browser
+yet. The REST layer reaches a format's views only through its registered plugin's ``browser`` attribute and the
+protocols in ``waystation_server.browse.models`` (ARCHITECTURE §3).
 """
 
 from __future__ import annotations
@@ -30,6 +30,9 @@ from waystation_server.browse.models import (
     GoBrowser,
     GoModulePage,
     GoVersionPage,
+    MavenArtifactPage,
+    MavenBrowser,
+    MavenVersionPage,
     NpmBrowser,
     NpmPackagePage,
     NpmVersionPage,
@@ -99,6 +102,13 @@ def _docker(svc: Services, repo: RepoConfig) -> DockerBrowser:
     browser = _browser(svc, repo, 'docker')
     if not isinstance(browser, DockerBrowser):
         raise NotFound('not a docker repository')
+    return browser
+
+
+def _maven(svc: Services, repo: RepoConfig) -> MavenBrowser:
+    browser = _browser(svc, repo, 'maven')
+    if not isinstance(browser, MavenBrowser):
+        raise NotFound('not a maven repository')
     return browser
 
 
@@ -265,6 +275,50 @@ async def get_docker_manifest(
     repo: RepoConfig = request.state.repo
     browser = _docker(svc, repo)
     return await browser.manifest(_context(svc, repo), image=image, reference=reference, platform=platform)
+
+
+# ---------------------------------------------------------------------------- maven
+@router.get(
+    '/repositories/{name}/maven/artifacts',
+    response_model=MavenArtifactPage,
+    operation_id='listMavenArtifacts',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_maven_artifacts(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=200, description='Substring of the groupId or artifactId')] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> MavenArtifactPage:
+    repo: RepoConfig = request.state.repo
+    browser = _maven(svc, repo)
+    return await browser.artifacts(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/maven/versions',
+    response_model=MavenVersionPage,
+    operation_id='listMavenVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_maven_versions(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    group_id: Annotated[str, Query(min_length=1, max_length=255)],
+    artifact_id: Annotated[str, Query(min_length=1, max_length=255)],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> MavenVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _maven(svc, repo)
+    return await browser.versions(
+        _context(svc, repo), group_id=group_id, artifact_id=artifact_id, cursor=cursor, limit=limit
+    )
 
 
 # ---------------------------------------------------------------------------- pypi

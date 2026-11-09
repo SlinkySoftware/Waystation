@@ -17,6 +17,7 @@ import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 REDACTED = 'harness-redacted'
@@ -183,22 +184,41 @@ class FixtureStore:
         self.root = root
 
     def _paths(self, key: RequestKey) -> tuple[Path, Path]:
-        base = self.root / key.host / key.stem
-        return base.parent / f'{base.name}.json', base.parent / f'{base.name}.body'
+        folder = self.root / key.host
+        return folder / f'{key.stem}.json', folder / f'{key.stem}.body'
 
     def _legacy_paths(self, key: RequestKey) -> tuple[Path, Path]:
-        """Names written before 2026-11-10, when a dot in the last path segment (``x-1.0.0.tgz``) made
-        ``with_suffix`` drop the key from the name (``get-x-1.0.0.json``): still read, never written."""
+        """Names written before 2026-11-10 (``Path.with_suffix`` on the stem: for a slug with a dot, the text from its
+        last dot, key included, was replaced, so ``x.pom`` and ``x.jar`` could share a file). Read only, and only
+        when the recorded request is this one."""
         base = self.root / key.host / key.stem
         return base.with_suffix('.json'), base.with_suffix('.body')
 
-    def load(self, key: RequestKey) -> Exchange | None:
+    def _find(self, key: RequestKey) -> tuple[Path, Path, dict[str, Any]] | None:
         meta_path, body_path = self._paths(key)
+        if meta_path.is_file():
+            return meta_path, body_path, json.loads(meta_path.read_text())
+        meta_path, body_path = self._legacy_paths(key)
         if not meta_path.is_file():
-            meta_path, body_path = self._legacy_paths(key)
-            if not meta_path.is_file():
-                return None
+            return None
         meta = json.loads(meta_path.read_text())
+        request = meta.get('request', {})
+        recorded = (
+            request.get('method'),
+            request.get('url'),
+            request.get('auth'),
+            [tuple(h) for h in request.get('headers', [])],
+            request.get('body_sha256'),
+        )
+        if recorded != (key.method, key.url, key.auth, list(key.headers), key.body_sha256):
+            return None
+        return meta_path, body_path, meta
+
+    def load(self, key: RequestKey) -> Exchange | None:
+        found = self._find(key)
+        if found is None:
+            return None
+        _, body_path, meta = found
         body = body_path.read_bytes() if body_path.is_file() else b''
         expected = meta['response'].get('body_sha256')
         if expected and hashlib.sha256(body).hexdigest() != expected:

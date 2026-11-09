@@ -1,0 +1,5 @@
+# Public hosts that legitimately appear in recorded Maven Central POMs (project URLs and licence links).
+opensource.org
+reactive-streams.org
+creativecommons.org
+spdx.org

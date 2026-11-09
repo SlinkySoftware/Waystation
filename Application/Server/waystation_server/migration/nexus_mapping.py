@@ -14,7 +14,8 @@ What maps (SPECIFICATION §4.12):
 - docker: ``dockerProxy.indexType`` ``HUB`` (or a Docker Hub remote) → ``docker_hub``; the upstream host becomes an
   upstream alias (``docker.io`` for Docker Hub) unless disabled; connector ports/subdomains are reported (clients use
   ``/v2/<name>/`` or an alias instead; dedicated connectors are T-P6-DOCKERC);
-- apt: ``apt.distribution``/``apt.flat``; raw: ``raw.contentDisposition``; yum and npm need no options;
+- apt: ``apt.distribution``/``apt.flat``; raw: ``raw.contentDisposition``; maven: ``maven.versionPolicy``/
+  ``maven.layoutPolicy``; yum and npm need no options;
 - hosted: ``storage.writePolicy`` (``ALLOW``/``ALLOW_ONCE``/``DENY``) → ``hosted.write_policy``; group:
   ``group.memberNames``/``group.writableMember`` → ``group`` (only when the server's repository model has them).
 
@@ -297,6 +298,16 @@ def _format_options(m: Mapped, cfg: dict[str, Any], body: dict[str, Any], *, ali
         raw = _dict(cfg.get('raw'))
         disposition = str(raw.get('contentDisposition') or '').lower()
         return {'content_disposition': disposition} if disposition in ('inline', 'attachment') else {}
+    if fmt == 'maven':  # T-P5-MAVEN: maven.versionPolicy / maven.layoutPolicy (groups have neither)
+        maven = _dict(cfg.get('maven'))
+        out: dict[str, Any] = {}
+        version_policy = str(maven.get('versionPolicy') or '').lower()
+        if version_policy in ('release', 'snapshot', 'mixed') and m.type != 'group':
+            out['version_policy'] = version_policy
+        layout_policy = str(maven.get('layoutPolicy') or '').lower()
+        if layout_policy in ('strict', 'permissive'):
+            out['layout_policy'] = layout_policy
+        return out
     if fmt == 'yum' and _dict(cfg.get('yumSigning')):
         m.differ('yumSigning', 'set', None, 'the Nexus yum signing key is not imported')
     return {}

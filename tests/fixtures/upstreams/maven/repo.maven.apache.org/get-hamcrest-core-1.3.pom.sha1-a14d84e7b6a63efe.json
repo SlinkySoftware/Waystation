@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://repo.maven.apache.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.pom.sha1"
+  },
+  "response": {
+    "body_sha256": "9589f56536df3acbc530fd3cc2215a9dc600cb107894322405de09c2a4689374",
+    "body_size": 40,
+    "headers": [
+      [
+        "content-type",
+        "text/plain"
+      ],
+      [
+        "content-length",
+        "40"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "etag",
+        "\"56083e12423c24449f6c490ca1508fb0\""
+      ],
+      [
+        "last-modified",
+        "Mon, 09 Jul 2012 21:08:02 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}
