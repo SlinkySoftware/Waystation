@@ -10,9 +10,11 @@ export type FormFormat = M0Format | 'yum'
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'raw']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw']
+/** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
+export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw']
 
 export interface RepoFormModel {
   name: string
@@ -198,7 +200,8 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       return { repo_path: m.repoPath, gpg_key: m.gpgKey }
     case 'raw':
     default:
-      return { metadata_path_regex: m.metadataRegex.trim() || null, content_disposition: m.contentDisposition }
+      // Mutable-path revalidation is a proxy setting (the server refuses it on hosted and group repositories).
+      return { metadata_path_regex: m.type === 'proxy' ? m.metadataRegex.trim() || null : null, content_disposition: m.contentDisposition }
   }
 }
 

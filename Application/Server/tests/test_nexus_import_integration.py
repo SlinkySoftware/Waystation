@@ -85,6 +85,11 @@ async def test_preview_then_apply_is_idempotent(
     assert group['group']['members'] == ['docker-hosted', 'dockerhub-proxy', 'ghcr-proxy']
     assert group['group']['writable_member'] == 'docker-hosted'
     assert (await admin.get('/api/v1/repositories/docker-hosted')).json()['type'] == 'hosted'
+    assert {'files', 'raw-group'} <= creates  # raw hosted and group (T-P2-RAW)
+    files = (await admin.get('/api/v1/repositories/files')).json()
+    assert (files['type'], files['hosted']['write_policy']) == ('hosted', 'disable_redeploy')
+    raw_group = (await admin.get('/api/v1/repositories/raw-group')).json()
+    assert raw_group['group']['members'] == ['files', 'github-releases']
 
     # audited once per repository, with the source
     await services.audit.flush()

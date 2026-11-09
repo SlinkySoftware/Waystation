@@ -37,9 +37,37 @@ Common rules: all format routes live under `/repository/<repo>/` (Nexus-compatib
   option, `attachment` by default) and every answer `X-Content-Type-Options: nosniff`; with `inline`, HTML,
   XHTML, SVG and XML are served as `text/plain` so upstream content never runs on the Waystation origin.
 - Uses: installers, ISOs, release binaries, `get.docker.com`-style scripts.
-- Built (M0, T-P2-RAW min): proxy `GET`/`HEAD` with curl and wget. Browse (T-S09 min): the generic folder listing of
-  cached assets (`/api/v1/repositories/{name}/browse`). Not yet: directory listings on the protocol side (the
-  repository root and paths ending in `/` answer 404), hosted, group.
+- Hosted (`formats/raw/hosted.py` on `waystation_server.hosted.store`): `PUT /repository/<repo>/<path>` streams the
+  body into the blob store as a live upload transfer (bounded by `WAYSTATION_MAX_UPLOAD_GB` and `Content-Length`,
+  free-space guard) and records the asset `<path>`; `X-Checksum-Sha256` / `-Sha1` / `-Md5` (hex, the Nexus and
+  Artifactory convention) are verified before anything is committed (mismatch or malformed → 400, nothing stored);
+  the stored Content-Type is by extension only (never the client's), else `application/octet-stream`; `201` with
+  `ETag: "sha256:<hex>"` and `X-Checksum-Sha256`. A URL ending in `/` cannot be uploaded to (400). Write policy:
+  `allow_redeploy` replaces, `disable_redeploy` refuses an existing path (409, re-checked after the upload so a
+  concurrent upload cannot slip through; delete stays allowed), `read_only` refuses uploads and deletes (403).
+  A hard repository quota (T-O03, `HostedStore.admit`) refuses an upload before any byte is read (507).
+  `DELETE` → 204 (404 when missing); blob GC frees the bytes. `GET`/`HEAD` serve by X-Accel with the same headers as
+  the proxy. Uploads and deletes are audited (`content.upload` with path, size, sha256 and any verified sha1/md5,
+  `replaced`; `content.delete`) and appear in the activity feed (`asset.created` / `asset.deleted`).
+  `metadata_path_regex` is a proxy-only option (refused on hosted and group repositories).
+- Group (`formats/raw/group.py`): members in order (raw proxy and hosted, no nested groups, offline members skipped);
+  the first member that has the file answers as that member would (a proxy member fetches from its upstream); a
+  member answering 404 is skipped, one that fails is skipped while a later member can answer, else its failure is
+  returned. `X-Ws-Group-Member` names the member (passed through the X-Accel location). `PUT`/`DELETE` go to the
+  `writable_member` (hosted raw), which needs the action on the group (router) and on the member
+  (`req.allows_member`); without one → 405. Reading needs `read` on the group only.
+- Directory listings (`formats/raw/listing.py`), every type: `GET`/`HEAD` on the repository root or any path ending in
+  `/`, from the asset tree (hosted: uploads; proxy: what is cached, never an upstream listing; group: the members'
+  first pages merged, folders united, a file name from the first member). JSON with `Accept: application/json` in the
+  browse API's `FolderListing` shape (`path`, `entries`, `next_cursor`; `?cursor=`, 1000 per page), else an HTML index
+  (escaped names, `Content-Security-Policy: default-src 'none'`, `nosniff`). Needs `browse` besides `read`. A folder
+  with nothing under it → 404; the root answers an empty listing.
+- Built (T-P2-RAW): proxy `GET`/`HEAD` (M0) with curl and wget; hosted and group as above, with curl upload (with a
+  checksum), download, conditional request, wget download (bearer header), JSON listing, group reads in order,
+  upload through the group and delete in the real-client harness. Browse (T-S09 min): the generic folder listing of
+  assets (`/api/v1/repositories/{name}/browse`), which shows uploads too. Nexus import creates raw hosted and group
+  repositories (T-M01). Not yet: components/search indexing beyond the asset tree, a basic-auth-only client test
+  matrix beyond curl/wget, the nightly live smoke.
 
 ## Docker / OCI — Phase 2
 Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API v2, Docker token auth spec.
