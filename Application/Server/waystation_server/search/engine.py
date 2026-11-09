@@ -38,7 +38,14 @@ from datetime import datetime
 from typing import Any
 
 from waystation_common.db.client import Database
-from waystation_common.db.collections import APT_PACKAGES, ASSETS, DOCKER_TAGS, NPM_PACKAGES, YUM_PACKAGES
+from waystation_common.db.collections import (
+    APT_PACKAGES,
+    ASSETS,
+    DOCKER_TAGS,
+    NPM_PACKAGES,
+    PYPI_PACKAGES,
+    YUM_PACKAGES,
+)
 from waystation_common.errors import ValidationFailed
 from waystation_common.searchkeys import fold
 from waystation_server.browse.models import decode_cursor, encode_cursor
@@ -116,6 +123,15 @@ SOURCES: tuple[Source, ...] = (
         'npm',
         ('name_lc', 'base_lc'),
         {'name': 1, 'latest': 1, 'updated_at': 1},
+        version_field='latest',
+    ),
+    Source(
+        'pypi',
+        PYPI_PACKAGES,
+        'package',
+        'pypi',
+        ('name_lc',),
+        {'name': 1, 'display_name': 1, 'latest': 1, 'updated_at': 1},
         version_field='latest',
     ),
     Source(
@@ -375,6 +391,8 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {'image': manifest.group(1), 'ref': manifest.group(2)} if manifest else {}
     if repo.format == 'apt':
         return {}
+    if repo.format == 'pypi' and path.startswith('packages/') and path.count('/') == 2:
+        return {'project': path.split('/')[1]}
     parent = _parent(path)
     return {'path': parent} if parent else {}
 
@@ -422,6 +440,18 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 sha256=None,
                 cached=True,
                 browse=SearchBrowseLink(repository=repo.name, query={'package': str(doc['name'])}),
+            )
+        case 'pypi':
+            return SearchHit(
+                **common,
+                name=str(doc.get('display_name') or doc['name']),
+                version=doc.get('latest'),
+                qualifier=None,
+                path=None,
+                size=None,
+                sha256=None,
+                cached=True,
+                browse=SearchBrowseLink(repository=repo.name, query={'project': str(doc['name'])}),
             )
         case 'apt':
             suite, component, arch = str(doc.get('suite', '')), str(doc.get('component', '')), str(doc.get('arch', ''))
