@@ -50,7 +50,10 @@
         <q-td class="num">{{ formatDuration(runSeconds(row, now)) }}</q-td>
       </template>
       <template #body-cell-progress="{ row }">
-        <q-td class="runs__progress"><RunDetail :run="row" /></q-td>
+        <q-td class="runs__progress">
+          <span v-if="row.status === 'succeeded'" class="runs__sub">{{ runSummary(row) }}</span>
+          <RunDetail v-else :run="row" />
+        </q-td>
       </template>
       <template #body-cell-worker="{ row }">
         <q-td class="runs__sub mono">{{ row.worker_id ?? '–' }}</q-td>
@@ -100,7 +103,7 @@ import { useLiveStore } from '@/stores/live'
 import { formatDuration } from '@/utils/format'
 import { iconRefresh } from '@/utils/icons'
 
-import { applyRunEvent, kindLabel, triggerLabel } from './tasks'
+import { applyRunEvent, kindLabel, runSummary, triggerLabel } from './tasks'
 
 const emit = defineEmits<{ open: [runId: string] }>()
 const $q = useQuasar()
