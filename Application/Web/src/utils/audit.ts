@@ -15,9 +15,10 @@ import {
   iconSettings,
   iconSystem,
   iconToken,
+  iconWebhook,
 } from '@/utils/icons'
 
-export const AUDIT_CATEGORIES = ['auth', 'session', 'token', 'service_account', 'user', 'group', 'role', 'auth_provider', 'repository', 'content', 'cleanup', 'settings'] as const
+export const AUDIT_CATEGORIES = ['auth', 'session', 'token', 'service_account', 'user', 'group', 'role', 'auth_provider', 'repository', 'content', 'cleanup', 'settings', 'webhook'] as const
 export type AuditCategory = (typeof AUDIT_CATEGORIES)[number]
 
 /** Every action the server records (or will record: see the server's audit catalog). */
@@ -34,6 +35,7 @@ export const AUDIT_ACTIONS: Record<AuditCategory, readonly string[]> = {
   content: ['upload', 'delete'],
   cleanup: ['run'],
   settings: ['update'],
+  webhook: ['create', 'update', 'delete', 'test', 'redeliver'],
 }
 
 export const ALL_AUDIT_ACTIONS: string[] = AUDIT_CATEGORIES.flatMap((c) => AUDIT_ACTIONS[c].map((v) => `${c}.${v}`))
@@ -51,6 +53,7 @@ const CATEGORY_ICONS: Record<AuditCategory, string> = {
   content: iconPackage,
   cleanup: iconCleanup,
   settings: iconSettings,
+  webhook: iconWebhook,
 }
 
 function isCategory(value: string): value is AuditCategory {
