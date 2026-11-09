@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Mock-mode LiveSource: feeds the live store from the in-browser world instead of the SSE endpoint, with the same
-// semantics (snapshot on open, then events; topic `repo:<name>` filters to one repository).
+// semantics (snapshot on open, then events; topic `repo:<name>` filters to one repository; `tasks` adds the mock job
+// system's events, mocks/tasks.ts).
 import type { LiveEvent } from '@/api/types'
 import type { LiveHandlers, LiveSource } from '@/stores/liveSource'
 
+import { subscribeTasks } from './tasks'
 import { world } from './world'
 
 function repoOf(event: LiveEvent): string | null {
@@ -21,6 +23,7 @@ function repoOf(event: LiveEvent): string | null {
 
 export class WorldLiveSource implements LiveSource {
   private off: (() => void) | null = null
+  private offTasks: (() => void) | null = null
 
   open(topics: string[], _lastEventId: string | null, handlers: LiveHandlers): void {
     this.close()
@@ -46,11 +49,14 @@ export class WorldLiveSource implements LiveSource {
         else if (event.type === 'activity' && !wants.has('activity') && !(repo && repos.has(repo))) return
         handlers.onEvent(event, id)
       })
+      if (wants.has('tasks')) this.offTasks = subscribeTasks((event) => handlers.onEvent(event, null))
     }, 120)
   }
 
   close(): void {
     this.off?.()
     this.off = null
+    this.offTasks?.()
+    this.offTasks = null
   }
 }
