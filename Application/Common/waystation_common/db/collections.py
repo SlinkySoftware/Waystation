@@ -36,6 +36,7 @@ DOCKER_MANIFESTS = 'docker_manifests'
 APT_POOL_INDEX = 'apt_pool_index'
 APT_PACKAGES = 'apt_packages'
 NPM_PACKAGES = 'npm_packages'
+NPM_VERSIONS = 'npm_versions'
 PYPI_PACKAGES = 'pypi_packages'
 GO_MODULES = 'go_modules'
 YUM_PACKAGES = 'yum_packages'
@@ -266,6 +267,17 @@ SPECS: tuple[CollectionSpec, ...] = (
         (
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=True),
+        ),
+    ),
+    CollectionSpec(
+        NPM_VERSIONS,
+        (
+            # One published version per hosted npm repository (T-P5-NPMH): packuments are generated from these.
+            _ix(
+                'repo_name_version_unique',
+                [('repo_id', ASCENDING), ('name', ASCENDING), ('version', ASCENDING)],
+                unique=True,
+            ),
         ),
     ),
     CollectionSpec(
