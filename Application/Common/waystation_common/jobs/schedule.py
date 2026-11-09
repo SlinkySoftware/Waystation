@@ -156,6 +156,9 @@ def validate_schedule(text: str) -> str:
         raise ValueError('a schedule is required')
     if value.startswith('@'):
         value = value.lower()
+        if value not in _MACROS and not _EVERY_RE.match(value):
+            known = ', '.join(sorted({*_MACROS, '@every <n>s|m|h'}))
+            raise ValueError(f'unknown schedule {value!r} (use a 5-field cron or one of {known})')
     schedule = parse_schedule(value)
     if isinstance(schedule, Every) and schedule.seconds < MIN_EDIT_INTERVAL_S:
         raise ValueError(f'an @every interval must be at least {MIN_EDIT_INTERVAL_S}s')
