@@ -42,14 +42,28 @@ class TerraformOptions(BaseModel):
         return list(dict.fromkeys(value))
 
 
+def _upstream_host(upstream_url: str | None) -> tuple[str, str] | None:
+    """``(host[:port], scheme)`` of the upstream URL (port omitted when it is 443, as Terraform writes host names)."""
+    if not upstream_url:
+        return None
+    parts = urlsplit(upstream_url)
+    if not parts.hostname:
+        return None
+    port = parts.port
+    return parts.hostname.lower() + (f':{port}' if port and port != 443 else ''), parts.scheme.lower()
+
+
 def allowed_origins(options: TerraformOptions, upstream_url: str | None) -> frozenset[str]:
-    hosts = set(options.origins)
-    if upstream_url:
-        parts = urlsplit(upstream_url)
-        if parts.hostname:
-            port = parts.port
-            hosts.add(parts.hostname.lower() + (f':{port}' if port and port != 443 else ''))
-    return frozenset(hosts)
+    """The registry host names a mirror serves: the ``origins`` option and the upstream URL's host."""
+    upstream = _upstream_host(upstream_url)
+    return frozenset({*options.origins, *([upstream[0]] if upstream else [])})
+
+
+def origin_scheme(hostname: str, upstream_url: str | None) -> str:
+    """How an origin is reached: the upstream URL's scheme for its own host (a registry without TLS, in a lab),
+    else ``https`` (Terraform's service discovery is HTTPS only)."""
+    upstream = _upstream_host(upstream_url)
+    return upstream[1] if upstream and upstream[0] == hostname and upstream[1] in ('http', 'https') else 'https'
 
 
 def _probe(options: BaseModel) -> str:

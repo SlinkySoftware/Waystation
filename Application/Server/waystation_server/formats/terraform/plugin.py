@@ -43,7 +43,7 @@ from waystation_server.formats.base import FormatDescriptor, FormatRequest
 from waystation_server.formats.common.background import Background
 from waystation_server.formats.terraform import paths, registry, ziphash
 from waystation_server.formats.terraform.browse import TerraformBrowse
-from waystation_server.formats.terraform.descriptor import DESCRIPTOR, TerraformOptions, allowed_origins
+from waystation_server.formats.terraform.descriptor import DESCRIPTOR, TerraformOptions, allowed_origins, origin_scheme
 from waystation_server.formats.terraform.paths import Op, Provider, Route
 from waystation_server.problems import native_error
 from waystation_server.proxy.engine import (
@@ -172,14 +172,15 @@ class TerraformPlugin:
     # ------------------------------------------------------------------ origin documents
     async def registry_base(self, req: FormatRequest, hostname: str) -> str:
         """The origin's provider registry base URL (``providers.v1``, from its cached service discovery)."""
+        scheme = origin_scheme(hostname, req.repo.proxy.upstream_url if req.repo.proxy else None)
 
         def validate(data: bytes, info: UpstreamInfo) -> None:
-            registry.parse_discovery(data, hostname)
+            registry.parse_discovery(data, hostname, scheme)
 
         spec = AssetSpec(
             path=paths.discovery_key(hostname),
             kind=AssetKind.METADATA,
-            upstream_url=registry.discovery_url(hostname),
+            upstream_url=registry.discovery_url(hostname, scheme),
             content_type=JSON,
             max_size=registry.MAX_DISCOVERY,
             max_age_s=DISCOVERY_MAX_AGE_S,
@@ -189,7 +190,7 @@ class TerraformPlugin:
             component=hostname,
         )
         asset = await req.proxy.ensure(req, spec)
-        return registry.parse_discovery(await req.proxy.read(asset, max_bytes=registry.MAX_DISCOVERY), hostname)
+        return registry.parse_discovery(await req.proxy.read(asset, max_bytes=registry.MAX_DISCOVERY), hostname, scheme)
 
     async def versions(self, req: FormatRequest, provider: Provider) -> dict[str, registry.VersionInfo]:
         """The registry's version list for ``provider`` (cached metadata, parsed once per content)."""
