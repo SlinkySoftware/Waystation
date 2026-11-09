@@ -185,7 +185,7 @@ async def test_proxy_lists_info_and_verified_files(
 
 
 @pytest.mark.usefixtures('repos')
-async def test_checksum_database_proxy(client: httpx.AsyncClient, upstream: FakeUpstream) -> None:
+async def test_checksum_database_proxy(client: httpx.AsyncClient, services: Services, upstream: FakeUpstream) -> None:
     base = '/repository/go-a/sumdb/sum.golang.org'
     supported = await client.get(f'{base}/supported')
     assert supported.status_code == 200 and supported.content == b''
@@ -194,12 +194,14 @@ async def test_checksum_database_proxy(client: httpx.AsyncClient, upstream: Fake
     latest = await client.get(f'{base}/latest')
     assert latest.status_code == 200 and 'x-accel-redirect' in latest.headers
     found = await client.get(f'{base}/lookup/{MODULE}@v1.1.0')
-    assert found.status_code == 200 and found.content.startswith(b'42\n')
+    assert found.status_code == 200 and 'x-accel-redirect' in found.headers
     again = await client.get(f'{base}/lookup/{ESC}@v1.1.0')
     assert again.headers['x-ws-cache'] == 'HIT' and upstream.hits(f'/sum/lookup/{ESC}@v1.1.0') == 1
     assert (await client.get(f'{base}/lookup/example.com/unknown@v1.0.0')).status_code == 404
     tile = await client.get(f'{base}/tile/8/0/000.p/3')
-    assert tile.status_code == 200 and len(tile.content) == 96
+    assert tile.status_code == 200 and 'x-accel-redirect' in tile.headers  # a partial tile: metadata
+    partial = await stored(services, 'go-a', 'sumdb/sum.golang.org/tile/8/0/000.p/3')
+    assert partial is not None and partial['kind'] == 'metadata' and partial['size'] == 96
     assert (await client.get(f'{base}/tile/8/0/001')).status_code == 502  # wrong size
     assert (await client.get(f'{base}/tile/8/0/0001')).status_code == 404
     assert (await client.get(f'{base}/other')).status_code == 404
