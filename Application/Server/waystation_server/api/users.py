@@ -283,7 +283,7 @@ def decode_cursor(cursor: str | None) -> str | None:
     if not cursor:
         return None
     try:
-        return base64.urlsafe_b64decode(cursor + '=' * (-len(cursor) % 4)).decode()
+        return base64.b64decode(cursor + '=' * (-len(cursor) % 4), altchars=b'-_', validate=True).decode()
     except binascii.Error, UnicodeDecodeError:
         raise ValidationFailed('invalid cursor') from None
 
@@ -361,7 +361,7 @@ async def create_user(body: UserCreate, request: Request, response: Response, sv
     audit.record(
         AuditAction.USER_CREATE,
         target=_target(user),
-        details={'password_set': body.password is not None, 'must_change_password': user.must_change_password},
+        details={'password_set': body.password is not None, 'change_at_sign_in': user.must_change_password},
         changes=audit.diff(None, _audited(user)),
     )
     response.headers['Location'] = f'/api/v1/users/{user.id}'
@@ -469,7 +469,7 @@ async def reset_password(user_id: UserId, body: PasswordReset, request: Request,
     audit.record(
         AuditAction.AUTH_PASSWORD_CHANGE,
         target=_target(user),
-        details={'by_admin': True, 'must_change_password': body.must_change_password, 'sessions_ended': ended},
+        details={'by_admin': True, 'change_at_sign_in': body.must_change_password, 'sessions_ended': ended},
     )
     return Response(status_code=204)
 

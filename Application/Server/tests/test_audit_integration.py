@@ -299,7 +299,7 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     await rec.expect(A.GROUP_DELETE, **{'target.id': group_id})
     erin_created = await rec.expect(A.USER_CREATE, **{'target.id': erin_id})
     assert erin_created['principal']['name'] == 'admin'
-    assert erin_created['details'] == {'password_set': True, 'must_change_password': True}
+    assert erin_created['details'] == {'password_set': True, 'change_at_sign_in': True}
     erin_updated = await rec.expect(A.USER_UPDATE, **{'target.id': erin_id})
     assert erin_updated['changes'] == [
         {'field': 'display_name', 'before': 'Erin', 'after': 'Erin E.', 'redacted': False}
