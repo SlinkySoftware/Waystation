@@ -4,7 +4,8 @@ The server records each uploaded chart version in ``helm_charts`` and, in the sa
 ``index.helm`` job in the outbox (deletes likewise). This job rebuilds the repository's whole ``index.yaml`` from
 those records and publishes it atomically: the new index is committed to the blob store first, then the
 ``index.yaml`` asset is switched to it in one document write. Uploads that land while a rebuild runs set the job's
-dirty flag, so they are always picked up by one more run.
+dirty flag, so they are always picked up by one more run. Records whose chart file is gone (removed by a cleanup
+policy, which then asks for a rebuild) are dropped.
 
 The index is written as JSON (valid YAML; Helm 3.11+ detects and parses JSON indexes directly, older clients and
 other tools read it as YAML): entries by chart name, newest version first, each with the chart's ``Chart.yaml``
@@ -69,7 +70,7 @@ async def rebuild(db: Database, blobs: BlobStore, repo_id: str, *, now: datetime
     repo = await helm_db.repository(db, repo_id)
     if repo is None or repo.get('format') != 'helm' or repo.get('type') != 'hosted':
         return None
-    docs = await helm_db.hosted_entries(db, repo_id)
+    docs = await helm_db.drop_missing(db, repo_id, await helm_db.hosted_entries(db, repo_id))
     body, charts, versions = await asyncio.to_thread(build_index, docs, now)
     async with await blobs.open_writer(expected_size=len(body)) as writer:
         await writer.write(body)
