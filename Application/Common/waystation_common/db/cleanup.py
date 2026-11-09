@@ -20,6 +20,7 @@ from pymongo.errors import DuplicateKeyError
 
 from waystation_common.cleanup.model import Candidate
 from waystation_common.cleanup.plan import AssetRow, ManifestRow, RepoData, TagRow
+from waystation_common.db import usage as usage_db
 from waystation_common.db.client import Database, Document
 from waystation_common.db.collections import (
     ASSETS,
@@ -217,12 +218,18 @@ class Removed:
             self.by_kind[kind] = self.by_kind.get(kind, 0) + n
 
 
-async def _delete_asset(db: Database, c: Candidate) -> int:
-    """Delete the planned asset unless it changed since (re-fetched with other content): bytes removed."""
+async def _delete_asset(db: Database, repo_id: str, c: Candidate) -> int:
+    """Delete the planned asset unless it changed since (re-fetched with other content): bytes removed (also taken
+    off the repository's usage, ``waystation_common.db.usage``)."""
     if c.asset_id is None:
         return -1
-    result = await db[ASSETS].delete_one({'_id': c.asset_id, 'blob_sha256': c.blob_sha256})
-    return c.size if result.deleted_count else -1
+    doc = await db[ASSETS].find_one_and_delete(
+        {'_id': c.asset_id, 'blob_sha256': c.blob_sha256}, projection={'size': 1}
+    )
+    if doc is None:
+        return -1
+    await usage_db.add(db, repo_id, -int(doc.get('size') or 0), -1)
+    return c.size
 
 
 async def _remove_one(db: Database, repo_id: str, c: Candidate) -> tuple[bool, int]:
@@ -235,7 +242,7 @@ async def _remove_one(db: Database, repo_id: str, c: Candidate) -> tuple[bool, i
     elif c.kind == 'manifest':
         result = await db[DOCKER_MANIFESTS].delete_one({'repo_id': repo_id, 'image': c.image, 'digest': c.digest})
         removed = bool(result.deleted_count)
-    freed = await _delete_asset(db, c)
+    freed = await _delete_asset(db, repo_id, c)
     return removed or freed >= 0, max(freed, 0)
 
 

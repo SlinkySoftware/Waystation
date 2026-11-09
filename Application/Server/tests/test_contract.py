@@ -129,6 +129,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/stats/summary', 'get'),
     ('/stats/traffic', 'get'),
     ('/stats/storage', 'get'),
+    ('/storage/guard', 'get'),
+    ('/storage/guard', 'put'),
     ('/stats/upstreams', 'get'),
     ('/transfers', 'get'),
     ('/activity', 'get'),

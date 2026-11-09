@@ -45,6 +45,7 @@ Common rules: all format routes live under `/repository/<repo>/` (Nexus-compatib
   `ETag: "sha256:<hex>"` and `X-Checksum-Sha256`. A URL ending in `/` cannot be uploaded to (400). Write policy:
   `allow_redeploy` replaces, `disable_redeploy` refuses an existing path (409, re-checked after the upload so a
   concurrent upload cannot slip through; delete stays allowed), `read_only` refuses uploads and deletes (403).
+  A hard repository quota (T-O03, `HostedStore.admit`) refuses an upload before any byte is read (507).
   `DELETE` → 204 (404 when missing); blob GC frees the bytes. `GET`/`HEAD` serve by X-Accel with the same headers as
   the proxy. Uploads and deletes are audited (`content.upload` with path, size, sha256 and any verified sha1/md5,
   `replaced`; `content.delete`) and appear in the activity feed (`asset.created` / `asset.deleted`).
@@ -119,6 +120,9 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     default), must be a docker repository the principal may `read` (the registry token must carry its `pull`
     scope), and must hold the blob; the blob is then linked (claimed against GC), `201`. Otherwise an upload session
     starts (`202`). A blob already in the target repository mounts without `from`.
+  - Quotas (T-O03): with a hard quota reached, `POST` (also mounts; refused early when its `Content-Length` would go
+    over), `PATCH`, `PUT` and manifest pushes (refused when the manifest would go over) answer `403 DENIED` with
+    "repository <name> is over its quota: ..."; pulls and deletes still work. The low-disk guard answers `507`.
   - Manifest `PUT`: `Content-Type` (or the document's `mediaType` when the header is generic) must be a manifest or
     index type and agree with `mediaType`; `schemaVersion` 2; descriptors well-formed; ≤ 4 MiB (`413`); by digest the
     bytes must match it (sha256 or sha512). Blobs referenced by a manifest (config, layers; not
