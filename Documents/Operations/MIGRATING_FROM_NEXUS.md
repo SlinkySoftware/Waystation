@@ -166,13 +166,14 @@ Keep the final report with the cutover change record.
 
 Each client guide has the exact configuration, authentication and troubleshooting:
 [docker](clients/docker.md), [npm](clients/npm.md), [apt](clients/apt.md), [yum/dnf](clients/yum.md),
-[raw](clients/raw.md). In short:
+[raw](clients/raw.md), [Go](clients/go.md). In short:
 
 | Format | Nexus today | Waystation |
 |---|---|---|
 | Docker | `nexus.example.com:8082/library/alpine` (connector port), `registry-mirrors` | `registry.example.com/library/alpine` (default repository), `registry.example.com/<repo>/<image>`, `registry.example.com/docker.io/<image>` (alias); `registry-mirrors: ["https://registry.example.com"]` |
 | npm | `registry=https://nexus.example.com/repository/npm/` | the same path on `registry.example.com`; `//registry.example.com/repository/npm/:_authToken=<token>` |
 | apt | `deb https://nexus.example.com/repository/debian trixie main` | the same path; credentials in `/etc/apt/auth.conf.d/` |
+| Go | `GOPROXY=https://nexus.example.com/repository/go-proxy/` | the same path; credentials in `~/.netrc`; `GOSUMDB` can stay at its default (the checksum database is proxied) |
 | yum/dnf | `baseurl=https://nexus.example.com/repository/rocky/...` | the same path; `username`/`password` (token) in the `.repo` file |
 | Raw | `https://nexus.example.com/repository/files/<path>` | the same path; `curl -u <user>:<token>` |
 
