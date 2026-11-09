@@ -2,6 +2,23 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-10
+- T-P2-RAW: raw hosted and group repositories, directory listings. Hosted (`formats/raw/hosted.py`): streaming
+  `PUT /repository/<repo>/<path>` (live upload transfer, `WAYSTATION_MAX_UPLOAD_GB` and `Content-Length` bound,
+  free-space guard), `X-Checksum-Sha256`/`-Sha1`/`-Md5` verified before anything is committed (400 on a mismatch or a
+  malformed header), Content-Type by extension, `201` with the digest `ETag`; write policy (`allow_redeploy` replaces,
+  `disable_redeploy` → 409, `read_only` → 403); `DELETE` → 204; audited `content.upload` / `content.delete`,
+  `asset.created` / `asset.deleted` in the activity feed. Group (`formats/raw/group.py`): members in order, failing
+  members skipped while a later one answers, uploads and deletes to the writable member (RBAC on the member too),
+  `X-Ws-Group-Member` (now also passed through the web tier's X-Accel location). Directory listings
+  (`formats/raw/listing.py`) for every raw repository at the root and paths ending in `/`: HTML (escaped, `default-src
+  'none'`) or JSON (`Accept: application/json`, the browse API's `FolderListing` with `?cursor=` paging), `browse`
+  required. `metadata_path_regex` is proxy-only. "Set me up": curl upload (with a checksum), download, delete and
+  listing; wget with a bearer header. UI: the repository form offers Hosted and Group for raw (writable member,
+  no mutable-path regex outside proxies); mock snippets. Real-client harness: hosted upload/download/delete,
+  conditional request, JSON listing, group reads in member order and upload through the group (replay and live
+  pass). T-M01: Nexus raw hosted and group repositories are imported (new fixture `raw-group`).
+
 ## 2026-11-09
 - T-M01: Import from Nexus. `waystation_server.migration` reads a Nexus Repository 3 configuration over its REST API
   (`/service/rest/v1/repositories` + per-format detail endpoints, list-entry fallback; basic auth per request, never
