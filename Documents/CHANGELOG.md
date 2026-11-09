@@ -3,6 +3,21 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-S07, T-S12, T-S05, T-S09: fixes for the k6 suite's findings (full profile, before -> after). 500 concurrent
+  clients: 1-5 failed downloads per run -> 0. The cause was mongod refusing connections past its open-file limit
+  (Docker's default soft limit 1024 leaves about 400 connections; four server processes with 100-connection pools
+  exceeded it), which pymongo reported as `AutoReconnect: Connection is closed`; `compose.yaml` now sets
+  `ulimits: nofile: 64000` on `mongodb` (DEPLOYMENT.md "MongoDB connections"), and hot-path reads (`assets.get`,
+  `assets.sizes`, the repository catalog load) retry once after 20-100 ms on `AutoReconnect`
+  (`waystation_common.db.retry`; writes never). Docker tokens: a server process whose repository catalog predated a
+  new repository issued tokens granting nothing on it (and refused its `/v2/` requests) for up to 5 s; the catalog
+  now follows a change stream on `repositories` and reloads once when a lookup by name misses (at most once a second
+  and once per name and snapshot; Docker resolution and `/repository/<name>/`). Repository list at 1M assets: p95
+  179 ms / p99 1112 ms -> 8 ms / 10 ms: every process recounted `assets` (a 1M-document aggregation) every 30 s on
+  the request path; the storage figures now read `repo_usage` (new `artifacts` counter of content assets, kept by
+  every asset write, reconciled hourly, filled by migration `0003_usage_artifacts`) and an expired snapshot is
+  refreshed in the background. Folder browse: p95 40 ms -> 7 ms: the walk reads several small sub-folders per query
+  (batches grow while they hold several children) and the first page walks the folder once instead of twice.
 - T-P2-PERF: k6 performance suite, `make perf [PROFILE=ci|full] [STRICT=1]` (`tests/perf/README.md`). Each run
   starts a throwaway stack as its own compose project (production images built from the checkout, CPU and memory
   limits per profile) with a synthetic nginx upstream generated per profile (raw files, npm, PyPI, Maven, apt, yum,
