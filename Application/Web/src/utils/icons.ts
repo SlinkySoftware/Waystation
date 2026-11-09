@@ -85,3 +85,22 @@ export {
   symOutlinedInbox as iconDeadLetters,
   symOutlinedPending as iconWaiting,
 } from '@quasar/extras/material-symbols-outlined'
+
+// Administration (T-U08).
+export {
+  symOutlinedLockOpen as iconUnlock,
+  symOutlinedPassword as iconPassword,
+  symOutlinedPersonAdd as iconPersonAdd,
+  symOutlinedPersonOff as iconPersonOff,
+  symOutlinedHowToReg as iconPersonOn,
+  symOutlinedPersonRemove as iconPersonRemove,
+  symOutlinedGroupAdd as iconGroupAdd,
+  symOutlinedDevices as iconSessions,
+  symOutlinedPublic as iconAnonymous,
+  symOutlinedSmartToy as iconServiceAccount,
+  symOutlinedBadge as iconIdentity,
+  symOutlinedMemory as iconMemory,
+  symOutlinedShield as iconShield,
+  symOutlinedPending as iconPending,
+  symOutlinedLan as iconNetwork,
+} from '@quasar/extras/material-symbols-outlined'
