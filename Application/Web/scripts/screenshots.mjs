@@ -53,6 +53,9 @@ const MOCK_SHOTS = [
   { name: 'audit-log', path: 'admin/audit?range=30d' },
   { name: 'audit-failures', path: 'admin/audit?range=30d&action=auth.*&outcome=failure' },
   { name: 'audit-record', path: 'admin/audit?range=30d&action=auth_provider.update', action: openAuditRecord },
+  { name: 'admin-users', path: 'admin/users', full: true },
+  { name: 'admin-user-detail', path: 'admin/users/01JC0000000000000000000U01', settle: 2000, full: true },
+  { name: 'admin-user-create', path: 'admin/users', action: createUser },
 ]
 
 /** The real-server tour: the demo repositories and the content `make e2e-m0` caches. */
@@ -153,6 +156,15 @@ async function tokenCreated(page) {
   await createToken(page)
   await page.locator('.form-dialog button[type=submit]').click()
   await page.waitForTimeout(900)
+}
+
+async function createUser(page) {
+  await page.getByRole('button', { name: /create user/i }).first().click()
+  await page.waitForTimeout(500)
+  await page.getByLabel('Username', { exact: true }).fill('jordan')
+  await page.getByLabel('Display name', { exact: true }).fill('Jordan Ellis')
+  await page.getByRole('button', { name: /generate/i }).click()
+  await page.waitForTimeout(300)
 }
 
 async function createFlow(page) {
