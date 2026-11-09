@@ -24,6 +24,10 @@ export const LIVE_EVENT_TYPES: readonly LiveEvent['type'][] = [
   'stats.tick',
   'upstream.state',
   'activity',
+  'job.update',
+  'job.progress',
+  'job.log',
+  'worker.update',
 ]
 
 const RETRY_MIN_MS = 1000
