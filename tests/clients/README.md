@@ -49,7 +49,7 @@ Create `tests/clients/<format>/`:
 
 | File | Purpose |
 |---|---|
-| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `debian`, `ubuntu`, `rocky`, `alma`, `skopeo`, `docker`, `conformance` (the OCI distribution-spec conformance suite), `python` (pip, uv, twine, Poetry, PDM), or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `ORIGINS`, `RECORD_SERVICES`, `DROP_JSON_KEYS` (JSON keys removed from recorded JSON bodies at any depth, e.g. npm readmes and maintainer e-mails), `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
+| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `debian`, `ubuntu`, `rocky`, `alma`, `skopeo`, `docker`, `conformance` (the OCI distribution-spec conformance suite), `maven` (Maven 3.9; its build plugins are pre-seeded from Maven Central into `/opt/m2-seed` at image build, so fixtures hold only what the test resolves), `python` (pip, uv, twine, Poetry, PDM), or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `ORIGINS`, `RECORD_SERVICES`, `DROP_JSON_KEYS` (JSON keys removed from recorded JSON bodies at any depth, e.g. npm readmes and maintainer e-mails), `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
 | `setup.sh` | optional, runs first in the client container: create the repos the test needs through `$WAYSTATION_URL/api/v1/...` as the per-run bootstrap admin: `ws_login`, then `ws_api <METHOD> <path> [json]` from `lib.sh` (curl, or bash `/dev/tcp` in images without curl, e.g. debian/ubuntu; `_ws_http` is the bash request primitive and also leaves the response headers in `/tmp/ws-api.headers`). With several clients it runs once per client: keep it idempotent |
 | `test.sh` | POSIX sh in the client container: configure the client to use `$WAYSTATION_URL/repository/<repo>/` (or `/v2/`), run real installs/pulls, assert, `exit 1` on failure. Source `/harness/lib.sh` for `step`, `fail`, `pass`, `wait_for`, `trust_harness_ca` |
 | `allowed_hosts.txt` | optional: extra public hosts that legitimately appear in this format's upstream content |
@@ -69,8 +69,9 @@ it exercises every scrubbing and keying rule.
 ## Fixtures and scrubbing
 
 One exchange = `<host>/<method>-<last path segment>-<key16>.json` (request summary, status, kept headers, body
-sha256) + `.body` (raw bytes, verified on load). The key hashes the **scrubbed** request: method, URL,
-`Accept`, `Range`, `If-None-Match`, `If-Modified-Since`, `If-Range`, the *scheme* of `Authorization` (`none`,
+sha256) + `.body` (raw bytes, verified on load). Fixtures recorded before 2026-11-10 dropped the key from names
+with a dot in the last segment (`get-is-4.6.0.json`); they are still read, but only for the request they recorded.
+The key hashes the **scrubbed** request: method, URL, `Accept`, `Range`, `If-None-Match`, `If-Modified-Since`, `If-Range`, the *scheme* of `Authorization` (`none`,
 `bearer`, `basic`; never the credential) and the request body hash. The same scrubbing runs at record and replay
 time, so keys always line up. Upstream requests are made with `Accept-Encoding: identity`.
 
@@ -99,6 +100,8 @@ covers text files only; binary bodies are scanned for key/token shapes.
 against small real suites only (`trixie-updates`, `trixie-security`, `resolute-updates`, `resolute-security`; one
 component, amd64, compressed `Packages` only: no translations, contents or dep11) with a 32 MiB budget
 (`tests/clients/apt/format.env`); full suites are covered by the nightly live run, not fixtures.
+Maven: fixtures are hamcrest-library/hamcrest-core 1.3 and reactive-streams 1.0.3/1.0.4 from Maven Central (about
+130 KB); everything Maven needs to build (plugins) comes from the client image.
 yum: fixtures come from the small `extras` repositories of Rocky Linux 10 and AlmaLinux 10 (a tiny release package
 each, about 50 KB in total, within the default budget); BaseOS/AppStream and EPEL are left to the nightly live run.
 pypi: fixtures are the simple pages, wheels and PEP 658 `.metadata` files of `six` and `iniconfig` (about 60 KB);

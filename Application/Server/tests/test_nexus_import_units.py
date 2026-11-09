@@ -224,7 +224,9 @@ async def test_preview_plans_every_repository(unit_services: Services, nexus: Fa
     for name in proxies:
         assert items[name].action == 'create', (name, items[name].reason)
         assert items[name].repository is not None
-    assert items['maven-central'].action == 'unsupported'
+    assert items['maven-central'].action == 'create'  # T-P5-MAVEN
+    maven = items['maven-central'].repository
+    assert maven is not None and maven.format_options == {'version_policy': 'release', 'layout_policy': 'strict'}
     assert items['r-hosted'].action == 'unsupported'
     for name in ('files', 'raw-group'):  # raw hosted and group (T-P2-RAW)
         assert items[name].action == 'create', (name, items[name].reason)

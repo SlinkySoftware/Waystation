@@ -185,6 +185,53 @@ function raw(repo: Repository): SetupClient[] {
   ]
 }
 
+function maven(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const server = `<servers>\n  <server>\n    <id>${repo.name}</id>\n    <username>{{USERNAME}}</username>\n    <password>{{TOKEN}}</password>\n  </server>\n</servers>\n`
+  const policy = (repo.format_options as { version_policy?: string } | undefined)?.version_policy ?? 'release'
+  const snapshots = repo.type === 'group' || policy !== 'release'
+  const profile = snapshots
+    ? '  <!-- Maven Central (which the mirror replaces) has SNAPSHOTs turned off: turn them on -->\n  <profiles>\n    <profile>\n      <id>waystation</id>\n      <repositories>\n        <repository>\n          <id>central</id>\n          <url>http://central</url>\n          <snapshots><enabled>true</enabled></snapshots>\n        </repository>\n      </repositories>\n    </profile>\n  </profiles>\n  <activeProfiles><activeProfile>waystation</activeProfile></activeProfiles>\n'
+    : ''
+  const settings = `<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">\n  <mirrors>\n    <mirror>\n      <id>${repo.name}</id>\n      <mirrorOf>*</mirrorOf>\n      <url>${url}</url>\n    </mirror>\n  </mirrors>\n  <!-- only when anonymous reads are not allowed: your username and an API token -->\n${server.replace(/^/gm, '  ').trimEnd()}\n${profile}</settings>\n`
+  const tags = policy === 'snapshot' ? ['snapshotRepository'] : policy === 'mixed' ? ['repository', 'snapshotRepository'] : ['repository']
+  const distribution = `<distributionManagement>\n${tags.map((t) => `  <${t}>\n    <id>${repo.name}</id>\n    <url>${url}</url>\n  </${t}>\n`).join('')}</distributionManagement>\n`
+  const hosted = repo.type === 'hosted'
+  const mavenSnippets: SetupClient['snippets'] = [
+    { id: 'settings-mirror', title: 'Resolve everything through this repository (~/.m2/settings.xml)', language: 'xml', filename: 'settings.xml', os: null, content: settings },
+    {
+      id: 'maven-config',
+      title: 'Send the credentials up front (.mvn/maven.config, or on the command line)',
+      description: 'Needed when anonymous users cannot read this repository: Waystation answers 404, not a challenge, to anonymous requests for it, and Maven only sends credentials after a challenge.',
+      language: 'shell',
+      filename: '.mvn/maven.config',
+      os: null,
+      content: '-Daether.connector.http.preemptiveAuth=true\n',
+    },
+  ]
+  if (hosted) {
+    mavenSnippets.push(
+      { id: 'pom-distribution', title: 'Deploy with mvn deploy (pom.xml)', description: 'Add the matching <server> (your username and an API token) to settings.xml.', language: 'xml', filename: 'pom.xml', os: null, content: distribution },
+      { id: 'settings-server', title: 'Deploy credentials (~/.m2/settings.xml)', language: 'xml', filename: 'settings.xml', os: null, content: server },
+      { id: 'mvn-deploy-alt', title: 'Deploy to this repository without a distributionManagement section', language: 'shell', filename: null, os: null, content: `mvn deploy -DaltDeploymentRepository=${repo.name}::${url}` },
+    )
+  }
+  const gradle: SetupClient['snippets'] = [
+    { id: 'gradle-repositories', title: 'Resolve (build.gradle.kts)', language: 'kotlin', filename: 'build.gradle.kts', os: null, content: `repositories {\n    maven {\n        url = uri("${url}")\n    }\n}\n` },
+  ]
+  if (hosted) {
+    gradle.push(
+      { id: 'gradle-publishing', title: 'Publish (build.gradle.kts)', language: 'kotlin', filename: 'build.gradle.kts', os: null, content: `plugins {\n    \`maven-publish\`\n}\n\npublishing {\n    repositories {\n        maven {\n            url = uri("${url}")\n            credentials {\n                username = providers.gradleProperty("wsUser").get()\n                password = providers.gradleProperty("wsToken").get()\n            }\n            authentication { create<BasicAuthentication>("basic") }  // send them up front\n        }\n    }\n}\n` },
+      { id: 'gradle-properties', title: 'Credentials (~/.gradle/gradle.properties)', language: 'ini', filename: 'gradle.properties', os: null, content: 'wsUser={{USERNAME}}\nwsToken={{TOKEN}}\n' },
+    )
+  }
+  return [
+    { id: 'maven', label: 'Maven', snippets: mavenSnippets },
+    { id: 'gradle', label: 'Gradle', snippets: gradle },
+    { id: 'sbt', label: 'sbt', snippets: [{ id: 'sbt-resolver', title: 'Resolve (build.sbt)', language: 'scala', filename: 'build.sbt', os: null, content: `resolvers += "${repo.name}" at "${url}"\n` }] },
+  ]
+}
+
 /** PyPI: pip, uv, Poetry, PDM; hosted repositories and groups with a writable member also twine and uv publish. */
 function pypi(repo: Repository): SetupClient[] {
   const url = `${BASE_URL}/repository/${repo.name}/`
@@ -216,7 +263,8 @@ function pypi(repo: Repository): SetupClient[] {
 }
 
 export function setupGuide(repo: Repository): SetupGuide {
-  const clients = repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'pypi' ? pypi(repo) : raw(repo)
+  const clients =
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {
