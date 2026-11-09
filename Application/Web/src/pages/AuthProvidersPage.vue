@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Administration → Auth providers (UI_DESIGN §4.10): LDAP directories people sign in with, their group mapping. -->
+<!-- Administration → Auth providers (UI_DESIGN §4.10): LDAP directories and OIDC identity providers people sign in
+     with, and their group mapping. -->
 <template>
   <q-page class="ws-page">
     <PageHeader :title="t('nav.authProviders')" :caption="caption">
@@ -42,17 +43,17 @@
         </template>
         <template #body-cell-servers="{ row }">
           <q-td>
-            <span class="mono providers__server">{{ serverHost(row.ldap.connection.servers[0] ?? '') }}</span>
-            <span v-if="row.ldap.connection.servers.length > 1" class="text-muted providers__more">
-              {{ t('authProviders.moreServers', { count: row.ldap.connection.servers.length - 1 }) }}
-              <q-tooltip>{{ row.ldap.connection.servers.map(serverHost).join(', ') }}</q-tooltip>
+            <span class="mono providers__server">{{ endpoint(row) }}</span>
+            <span v-if="servers(row).length > 1" class="text-muted providers__more">
+              {{ t('authProviders.moreServers', { count: servers(row).length - 1 }) }}
+              <q-tooltip>{{ servers(row).map(serverHost).join(', ') }}</q-tooltip>
             </span>
           </q-td>
         </template>
         <template #body-cell-security="{ row }">
           <q-td>
-            <span class="providers__security" :class="{ 'providers__security--weak': row.ldap.connection.security === 'none' }">
-              <q-icon :name="row.ldap.connection.security === 'none' ? iconWarning : iconLock" size="15px" />
+            <span class="providers__security" :class="{ 'providers__security--weak': weak(row) }">
+              <q-icon :name="weak(row) ? iconWarning : iconLock" size="15px" />
               {{ securityLabel(row) }}
             </span>
           </q-td>
@@ -73,7 +74,7 @@
               <StateLabel :enabled="row.enabled" />
             </div>
             <div class="providers__card-meta">
-              <span class="mono">{{ serverHost(row.ldap.connection.servers[0] ?? '') }}</span>
+              <span class="mono">{{ endpoint(row) }}</span>
               <span>{{ securityLabel(row) }}</span>
               <span>{{ t('authProviders.mappingCount', { count: row.group_mapping.length }) }}</span>
             </div>
@@ -121,15 +122,27 @@ const columns = computed<QTableColumn<AuthProviderConfig>[]>(() => [
   { name: 'name', label: t('authProviders.col.name'), field: 'name', align: 'left', sortable: true },
   { name: 'kind', label: t('authProviders.col.kind'), field: 'kind', align: 'left' },
   { name: 'state', label: t('authProviders.col.state'), field: 'enabled', align: 'left', sortable: true },
-  { name: 'servers', label: t('authProviders.col.servers'), field: (r) => r.ldap.connection.servers.join(', '), align: 'left', classes: 'gt-xs', headerClasses: 'gt-xs' },
-  { name: 'security', label: t('authProviders.col.security'), field: (r) => r.ldap.connection.security, align: 'left', classes: 'gt-sm', headerClasses: 'gt-sm' },
+  { name: 'servers', label: t('authProviders.col.servers'), field: (r) => (r.oidc ? r.oidc.issuer : servers(r).join(', ')), align: 'left', classes: 'gt-xs', headerClasses: 'gt-xs' },
+  { name: 'security', label: t('authProviders.col.security'), field: (r) => securityLabel(r), align: 'left', classes: 'gt-sm', headerClasses: 'gt-sm' },
   { name: 'order', label: t('authProviders.col.order'), field: 'order', align: 'right', sortable: true, classes: 'gt-sm num', headerClasses: 'gt-sm' },
   { name: 'mapping', label: t('authProviders.col.mapping'), field: (r) => r.group_mapping.length, format: (v: number) => t('authProviders.mappingCount', { count: v }), align: 'left', classes: 'gt-sm', headerClasses: 'gt-sm' },
   { name: 'actions', label: '', field: 'id', align: 'right' },
 ])
 
+const servers = (row: AuthProviderConfig): string[] => row.ldap?.connection.servers ?? []
+
+/** First LDAP server, or the OIDC issuer without its scheme. */
+function endpoint(row: AuthProviderConfig): string {
+  return row.oidc ? row.oidc.issuer.replace(/^https?:\/\//i, '').replace(/\/$/, '') : serverHost(servers(row)[0] ?? '')
+}
+
+function weak(row: AuthProviderConfig): boolean {
+  return row.oidc ? /^http:/i.test(row.oidc.issuer) : row.ldap?.connection.security === 'none'
+}
+
 function securityLabel(row: AuthProviderConfig): string {
-  return t(`authProviders.security.${row.ldap.connection.security}`)
+  if (row.oidc) return t(`authProviders.oidcSecurity.${weak(row) ? 'http' : 'https'}`)
+  return row.ldap ? t(`authProviders.security.${row.ldap.connection.security}`) : ''
 }
 
 function edit(row: AuthProviderConfig | null): void {

@@ -2,17 +2,21 @@
 
 Needs ``settings-admin`` (``admin`` implies it). Validation errors are 422 field errors with dotted paths into the
 body (``ldap.connection.servers.1``, ``group_mapping.0.roles``); a name already used by another provider is 409.
-The LDAP bind password is write-only: encrypted with ``WAYSTATION_SECRET_KEYS`` (associated data
-``auth_provider:<id>``), kept when an update omits it, dropped when the bind DN is cleared; reads say
-``bind_password_set``. Saving a provider replaces its group mapping (``groups`` documents) and bumps its
-``config_version`` (cached password checks of the old configuration stop matching).
+A provider has the configuration of its kind (``ldap`` or ``oidc``) and not the other one.
+The LDAP bind password and the OIDC client secret are write-only: encrypted with ``WAYSTATION_SECRET_KEYS``
+(associated data ``auth_provider:<id>``), kept when an update omits them, dropped when no longer needed (bind DN
+cleared, public OIDC client); reads say ``bind_password_set`` / ``client_secret_set``. OIDC reads also give the
+redirect and post-logout URIs to register at the provider. Saving a provider replaces its group mapping (``groups``
+documents) and bumps its ``config_version`` (cached password checks of the old configuration stop matching).
+"Test connection" checks every LDAP server, or for OIDC: discovery, keys, algorithms, PKCE and the client
+credentials. "Test user" is LDAP only (an OIDC sign-in needs the browser).
 """
 
 from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, Field
@@ -25,9 +29,11 @@ from waystation_server.api.deps import ServicesDep
 from waystation_server.audit import AuditAction
 from waystation_server.db import auth_providers as providers_db
 from waystation_server.db import groups as groups_db
+from waystation_server.oidc_auth import callback_uri, post_logout_uri
 from waystation_server.problems import FieldError, FieldErrors
 from waystation_server.security import access
 from waystation_server.security import ldap as ldap_mod
+from waystation_server.security import oidc as oidc_mod
 from waystation_server.security.access import Action
 from waystation_server.security.authn import authenticate
 from waystation_server.security.groups import GroupRecord, mapped_roles
@@ -38,10 +44,17 @@ from waystation_server.security.providers import (
     LdapConfigView,
     LdapConfigWrite,
     LdapConnectionView,
+    OidcClientAuth,
+    OidcConfigView,
+    OidcConfigWrite,
     ProviderKind,
     ProviderRecord,
+    StoredLdapConfig,
+    StoredOidcConfig,
     decrypt_bind_password,
+    decrypt_client_secret,
     dump_stored,
+    dump_stored_oidc,
     group_key,
     secret_aad,
 )
@@ -60,7 +73,8 @@ class AuthProviderConfig(BaseModel):
     name: str
     enabled: bool
     order: int
-    ldap: LdapConfigView
+    ldap: LdapConfigView | None
+    oidc: OidcConfigView | None
     group_mapping: list[GroupMapping]
     created_at: datetime
     updated_at: datetime
@@ -94,9 +108,24 @@ class LdapServerTest(BaseModel):
     checks: list[ProviderCheck]
 
 
+class OidcDiscovery(BaseModel):
+    issuer: str
+    authorization_endpoint: str
+    token_endpoint: str
+    jwks_uri: str
+    userinfo_endpoint: str | None
+    end_session_endpoint: str | None
+    signing_algs: list[str] | None = Field(description='`id_token_signing_alg_values_supported`')
+    scopes_supported: list[str] | None
+    keys: int = Field(description='Signing keys usable with the accepted algorithms')
+    redirect_uri: str = Field(description='Register this redirect URI at the provider')
+    post_logout_redirect_uri: str
+
+
 class AuthProviderConnectionTest(BaseModel):
     ok: bool
     servers: list[LdapServerTest]
+    discovery: OidcDiscovery | None = Field(None, description='OIDC: what discovery found')
 
 
 class ExternalGroup(BaseModel):
@@ -197,9 +226,57 @@ def _check_mapping(mapping: list[GroupMapping]) -> list[FieldError]:
     return errors
 
 
+def _check_oidc(config: OidcConfigWrite, *, stored_secret: bool, keyring_set: bool) -> list[FieldError]:
+    errors: list[FieldError] = []
+
+    def add(field: str, message: str, code: str = 'invalid') -> None:
+        errors.append(FieldError(field=f'oidc.{field}', message=message, code=code))
+
+    problem = oidc_mod.check_issuer(config.issuer, allow_private=config.allow_private)
+    if problem:
+        add('issuer', f'must be {problem}', 'format')
+    if config.client_auth is not OidcClientAuth.NONE and not config.client_secret and not stored_secret:
+        add(
+            'client_secret', 'a confidential client needs its secret (or choose "none" for a public client)', 'required'
+        )
+    if config.client_secret and not keyring_set:
+        add('client_secret', 'WAYSTATION_SECRET_KEYS is not set: secrets cannot be stored', 'secret_keys')
+    if config.require_group and not config.groups_claim:
+        add('require_group', 'a required group needs a groups claim', 'required')
+    if len(set(config.signing_algs)) != len(config.signing_algs):
+        add('signing_algs', 'algorithms must be unique', 'duplicate')
+    return errors
+
+
+def _check_kind(body: AuthProviderWrite, prefix: str = '') -> list[FieldError]:
+    """The kind's configuration is present and the other kind's is not."""
+    errors: list[FieldError] = []
+    present = {'ldap': body.ldap is not None, 'oidc': body.oidc is not None}
+    for kind, given in present.items():
+        if given and body.kind.value != kind:
+            errors.append(FieldError(field=f'{prefix}{kind}', message=f'only for kind {kind}', code='unexpected'))
+        if not given and body.kind.value == kind:
+            errors.append(FieldError(field=f'{prefix}{kind}', message=f'kind {kind} needs it', code='required'))
+    return errors
+
+
+def _check_config(
+    body: AuthProviderWrite, existing: ProviderRecord | None, *, keyring_set: bool, prefix: str = ''
+) -> list[FieldError]:
+    errors = _check_kind(body, prefix)
+    if errors:
+        return errors
+    if body.ldap is not None:
+        stored = bool(existing and existing.ldap and existing.ldap.connection.bind_password_enc)
+        errors = _check_ldap(body.ldap, stored_secret=stored, keyring_set=keyring_set)
+    elif body.oidc is not None:
+        stored = bool(existing and existing.oidc and existing.oidc.client_secret_enc)
+        errors = _check_oidc(body.oidc, stored_secret=stored, keyring_set=keyring_set)
+    return [e.model_copy(update={'field': f'{prefix}{e.field}'}) for e in errors] if prefix else errors
+
+
 def _validate(svc: Services, body: AuthProviderWrite, existing: ProviderRecord | None) -> None:
-    stored = bool(existing and existing.ldap.connection.bind_password_enc)
-    errors = _check_ldap(body.ldap, stored_secret=stored, keyring_set=svc.keyring is not None)
+    errors = _check_config(body, existing, keyring_set=svc.keyring is not None)
     errors += _check_mapping(body.group_mapping)
     if errors:
         raise FieldErrors(errors)
@@ -211,26 +288,52 @@ async def _check_name(svc: Services, name: str, own_id: str | None) -> None:
             raise Conflict('a provider with this name already exists')
 
 
-def _bind_password_enc(
+def _encrypt(svc: Services, provider_id: str, secret: str) -> str:
+    assert svc.keyring is not None  # checked by _validate
+    return svc.keyring.encrypt_str(secret, aad=secret_aad(provider_id))
+
+
+def _stored_config(
     svc: Services, provider_id: str, body: AuthProviderWrite, existing: ProviderRecord | None
-) -> str | None:
-    conn = body.ldap.connection
-    if not conn.bind_dn:
-        return None
-    if conn.bind_password:
-        assert svc.keyring is not None  # checked by _validate
-        return svc.keyring.encrypt_str(conn.bind_password, aad=secret_aad(provider_id))
-    return existing.ldap.connection.bind_password_enc if existing else None
+) -> dict[str, Any]:
+    """The ``ldap`` / ``oidc`` fields to store: new secrets encrypted, omitted ones kept, unneeded ones dropped."""
+    ldap_doc: dict[str, Any] | None = None
+    oidc_doc: dict[str, Any] | None = None
+    if body.ldap is not None:
+        conn = body.ldap.connection
+        bind_enc = None
+        if conn.bind_dn:
+            stored = existing.ldap.connection.bind_password_enc if existing and existing.ldap else None
+            bind_enc = _encrypt(svc, provider_id, conn.bind_password) if conn.bind_password else stored
+        ldap_doc = dump_stored(body.ldap, bind_enc)
+    if body.oidc is not None:
+        secret_enc = None
+        if body.oidc.client_auth is not OidcClientAuth.NONE:
+            stored = existing.oidc.client_secret_enc if existing and existing.oidc else None
+            secret_enc = _encrypt(svc, provider_id, body.oidc.client_secret) if body.oidc.client_secret else stored
+        oidc_doc = dump_stored_oidc(body.oidc, secret_enc)
+    return {'ldap': ldap_doc, 'oidc': oidc_doc}
 
 
 # ---------------------------------------------------------------------------- views
-def _view(record: ProviderRecord, groups: list[GroupRecord]) -> AuthProviderConfig:
-    stored = record.ldap
+def _ldap_view(stored: StoredLdapConfig) -> LdapConfigView:
     data = stored.connection.model_dump(exclude={'bind_password_enc'})
     connection = LdapConnectionView(**data, bind_password_set=bool(stored.connection.bind_password_enc))
-    ldap = LdapConfigView(
+    return LdapConfigView(
         connection=connection, users=stored.users, groups=stored.groups, cache_ttl_s=stored.cache_ttl_s
     )
+
+
+def _oidc_view(svc: Services, record: ProviderRecord, stored: StoredOidcConfig) -> OidcConfigView:
+    return OidcConfigView(
+        **stored.model_dump(exclude={'client_secret_enc'}),
+        client_secret_set=bool(stored.client_secret_enc),
+        redirect_uri=callback_uri(svc.base_url, record.id),
+        post_logout_redirect_uri=post_logout_uri(svc.base_url),
+    )
+
+
+def _view(svc: Services, record: ProviderRecord, groups: list[GroupRecord]) -> AuthProviderConfig:
     mapping = [GroupMapping(external_group=g.external_group or g.external_id or '', roles=g.roles) for g in groups]
     return AuthProviderConfig(
         id=record.id,
@@ -238,7 +341,8 @@ def _view(record: ProviderRecord, groups: list[GroupRecord]) -> AuthProviderConf
         name=record.name,
         enabled=record.enabled,
         order=record.order,
-        ldap=ldap,
+        ldap=_ldap_view(record.ldap) if record.ldap else None,
+        oidc=_oidc_view(svc, record, record.oidc) if record.oidc else None,
         group_mapping=mapping,
         created_at=record.created_at,
         updated_at=record.updated_at,
@@ -255,15 +359,22 @@ async def _load(svc: Services, provider_id: str) -> ProviderRecord:
 def _audit_changes(
     before: AuthProviderConfig | None, after: AuthProviderConfig | None, body: AuthProviderWrite | None
 ) -> list[AuditChange]:
-    """Changes between two views (which never hold the bind password), plus a redacted entry when a new bind
-    password was supplied."""
+    """Changes between two views (which never hold secrets), plus a redacted entry when a new LDAP bind password
+    or OIDC client secret was supplied."""
     changes = audit.diff(before, after)
-    if body is not None and body.ldap.connection.bind_password:
-        had = before is not None and before.ldap.connection.bind_password_set
+    if body is None:
+        return changes
+    if body.ldap is not None and body.ldap.connection.bind_password:
+        had = before is not None and before.ldap is not None and before.ldap.connection.bind_password_set
         changes.append(
             AuditChange(
                 field='ldap.connection.bind_password', before=REDACTED if had else None, after=REDACTED, redacted=True
             )
+        )
+    if body.oidc is not None and body.oidc.client_secret:
+        had = before is not None and before.oidc is not None and before.oidc.client_secret_set
+        changes.append(
+            AuditChange(field='oidc.client_secret', before=REDACTED if had else None, after=REDACTED, redacted=True)
         )
     return changes
 
@@ -271,6 +382,7 @@ def _audit_changes(
 def _changed(svc: Services) -> None:
     svc.auth_providers.invalidate()
     svc.groups.invalidate()
+    svc.oidc.forget()
 
 
 # ---------------------------------------------------------------------------- routes
@@ -278,7 +390,7 @@ def _changed(svc: Services) -> None:
 @access.requires(Action.SETTINGS_ADMIN)
 async def list_auth_providers(svc: ServicesDep) -> list[AuthProviderConfig]:
     records = sorted(await providers_db.list_all(svc.db), key=lambda r: (r.order, r.name.lower()))
-    return [_view(r, await groups_db.for_provider(svc.db, r.id)) for r in records]
+    return [_view(svc, r, await groups_db.for_provider(svc.db, r.id)) for r in records]
 
 
 @router.post(
@@ -303,7 +415,7 @@ async def create_auth_provider(
         'name': body.name,
         'enabled': body.enabled,
         'order': body.order,
-        'ldap': dump_stored(body.ldap, _bind_password_enc(svc, provider_id, body, None)),
+        **_stored_config(svc, provider_id, body, None),
         'config_version': 1,
         'created_at': now,
         'updated_at': now,
@@ -321,7 +433,7 @@ async def create_auth_provider(
     )
     _changed(svc)
     response.headers['Location'] = f'/api/v1/auth-providers/{record.id}'
-    view = _view(record, await groups_db.for_provider(svc.db, record.id))
+    view = _view(svc, record, await groups_db.for_provider(svc.db, record.id))
     audit.record(
         AuditAction.AUTH_PROVIDER_CREATE,
         target=audit.target('auth_provider', record.id, record.name),
@@ -338,6 +450,8 @@ async def create_auth_provider(
 )
 @access.requires(Action.SETTINGS_ADMIN)
 async def test_connection(body: AuthProviderTestRequest, svc: ServicesDep) -> AuthProviderConnectionTest:
+    if body.provider.kind is ProviderKind.OIDC:
+        return await _test_discovery(svc, body)
     directory = await _test_directory(svc, body)
     _audit_test(body, 'connection')
     try:
@@ -402,20 +516,69 @@ def _audit_test(body: AuthProviderTestRequest, kind: str) -> None:
         target=audit.target('auth_provider', body.id, body.provider.name),
         details={
             'test': kind,
-            'servers': body.provider.ldap.connection.servers,
+            'servers': body.provider.ldap.connection.servers if body.provider.ldap else None,
             'username': (body.username or '').strip()[:256] or None,
             'with_password': bool(body.password),
         },
     )
 
 
-async def _test_directory(svc: Services, body: AuthProviderTestRequest) -> ldap_mod.LdapDirectory:
+async def _test_existing(svc: Services, body: AuthProviderTestRequest) -> ProviderRecord | None:
+    """The saved provider whose secret an unsaved test may reuse; validates the tested configuration."""
     existing = await providers_db.get(svc.db, body.id) if body.id else None
     if body.id and existing is None:
         raise NotFound('provider not found')
-    errors = _check_ldap(body.provider.ldap, stored_secret=existing is not None, keyring_set=True)
+    if existing is not None and existing.kind is not body.provider.kind:
+        raise FieldErrors([FieldError(field='provider.kind', message='the kind cannot change', code='immutable')])
+    errors = _check_config(body.provider, existing, keyring_set=True, prefix='provider.')
     if errors:
-        raise FieldErrors([e.model_copy(update={'field': f'provider.{e.field}'}) for e in errors])
+        raise FieldErrors(errors)
+    return existing
+
+
+async def _test_discovery(svc: Services, body: AuthProviderTestRequest) -> AuthProviderConnectionTest:
+    existing = await _test_existing(svc, body)
+    cfg = body.provider.oidc
+    assert cfg is not None  # checked by _test_existing
+    secret = cfg.client_secret or (decrypt_client_secret(svc.keyring, existing) if existing else None)
+    if cfg.client_auth is OidcClientAuth.NONE:
+        secret = None
+    redirect_uri = callback_uri(svc.base_url, existing.id if existing else 'new')
+    result = await svc.oidc.diagnose(cfg, secret, redirect_uri=redirect_uri)
+    server = LdapServerTest(
+        server=cfg.issuer,
+        ok=result.ok,
+        latency_ms=result.latency_ms,
+        tls=None,
+        checks=[ProviderCheck(name=c.name, ok=c.ok, message=c.message) for c in result.checks],
+    )
+    meta = result.metadata
+    discovery = (
+        OidcDiscovery(
+            issuer=meta.issuer,
+            authorization_endpoint=meta.authorization_endpoint,
+            token_endpoint=meta.token_endpoint,
+            jwks_uri=meta.jwks_uri,
+            userinfo_endpoint=meta.userinfo_endpoint,
+            end_session_endpoint=meta.end_session_endpoint,
+            signing_algs=list(meta.signing_algs) if meta.signing_algs is not None else None,
+            scopes_supported=list(meta.scopes_supported) if meta.scopes_supported is not None else None,
+            keys=result.keys,
+            redirect_uri=redirect_uri,
+            post_logout_redirect_uri=post_logout_uri(svc.base_url),
+        )
+        if meta
+        else None
+    )
+    return AuthProviderConnectionTest(ok=result.ok, servers=[server], discovery=discovery)
+
+
+async def _test_directory(svc: Services, body: AuthProviderTestRequest) -> ldap_mod.LdapDirectory:
+    existing = await _test_existing(svc, body)
+    if body.provider.ldap is None:
+        raise FieldErrors(
+            [FieldError(field='provider.kind', message='OIDC providers are tested with a real sign-in', code='kind')]
+        )
     conn = body.provider.ldap.connection
     password = conn.bind_password or (decrypt_bind_password(svc.keyring, existing) if existing else None)
     if not conn.bind_dn:
@@ -428,7 +591,7 @@ async def _test_directory(svc: Services, body: AuthProviderTestRequest) -> ldap_
 @access.requires(Action.SETTINGS_ADMIN)
 async def get_auth_provider(id: str, svc: ServicesDep) -> AuthProviderConfig:
     record = await _load(svc, id)
-    return _view(record, await groups_db.for_provider(svc.db, record.id))
+    return _view(svc, record, await groups_db.for_provider(svc.db, record.id))
 
 
 @router.put(
@@ -446,7 +609,7 @@ async def update_auth_provider(
 ) -> AuthProviderConfig:
     principal = await authenticate(request)
     existing = await _load(svc, id)
-    before = _view(existing, await groups_db.for_provider(svc.db, existing.id))
+    before = _view(svc, existing, await groups_db.for_provider(svc.db, existing.id))
     if body.kind != existing.kind:
         raise FieldErrors([FieldError(field='kind', message='the kind cannot change', code='immutable')])
     _validate(svc, body, existing)
@@ -459,7 +622,7 @@ async def update_auth_provider(
             'name': body.name,
             'enabled': body.enabled,
             'order': body.order,
-            'ldap': dump_stored(body.ldap, _bind_password_enc(svc, existing.id, body, existing)),
+            **_stored_config(svc, existing.id, body, existing),
             'updated_at': now,
             'updated_by': principal.display,
         },
@@ -475,7 +638,7 @@ async def update_auth_provider(
         now=now,
     )
     _changed(svc)
-    view = _view(record, await groups_db.for_provider(svc.db, record.id))
+    view = _view(svc, record, await groups_db.for_provider(svc.db, record.id))
     audit.record(
         AuditAction.AUTH_PROVIDER_UPDATE,
         target=audit.target('auth_provider', record.id, record.name),
@@ -488,7 +651,7 @@ async def update_auth_provider(
 @access.requires(Action.SETTINGS_ADMIN)
 async def delete_auth_provider(id: str, svc: ServicesDep) -> Response:
     existing = await _load(svc, id)
-    before = _view(existing, await groups_db.for_provider(svc.db, existing.id))
+    before = _view(svc, existing, await groups_db.for_provider(svc.db, existing.id))
     if not await providers_db.delete(svc.db, id):
         raise NotFound('provider not found')
     await groups_db.delete_for_provider(svc.db, id)

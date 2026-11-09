@@ -322,7 +322,9 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     rec.seen.add(A.USER_GROUPS_SYNC)
 
     # --- sign-out
-    assert (await admin.post(f'{api}/auth/logout')).status_code == 204
+    signed_out = await admin.post(f'{api}/auth/logout')
+    assert signed_out.status_code == 200
+    assert signed_out.json() == {'end_session_url': None}  # local account: no provider sign-out page
     logout = await rec.expect(A.AUTH_LOGOUT, **{'principal.name': 'admin'})
     assert logout['target']['id'] == login['target']['id']
 

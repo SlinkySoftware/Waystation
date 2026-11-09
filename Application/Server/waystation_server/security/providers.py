@@ -1,11 +1,11 @@
 """External sign-in providers (SPECIFICATION §4.9; DATA_MODEL ``auth_providers``, ``groups``).
 
-A provider record holds its kind (``ldap`` now; ``oidc`` arrives with T-A02), display name, sign-in ``order``,
-``enabled`` and the kind's configuration. Secrets (the LDAP service-bind password) are stored only encrypted with
-``WAYSTATION_SECRET_KEYS`` (associated data ``auth_provider:<id>``) and never leave the server: reads return
-``bind_password_set``. A provider's group mapping (external group → roles) is stored as ``groups`` documents
-(``source`` = the kind, ``provider_id``, ``external_id``), so the RBAC side reads one collection whatever the provider
-(``security.groups``).
+A provider record holds its kind (``ldap`` or ``oidc``), display name, sign-in ``order``, ``enabled`` and the kind's
+configuration (``ldap`` or ``oidc``; the other one is null). Secrets (the LDAP service-bind password, the OIDC client
+secret) are stored only encrypted with ``WAYSTATION_SECRET_KEYS`` (associated data ``auth_provider:<id>``) and never
+leave the server: reads return ``bind_password_set`` / ``client_secret_set``. A provider's group mapping (external
+group → roles) is stored as ``groups`` documents (``source`` = the kind, ``provider_id``, ``external_id``), so the
+RBAC side reads one collection whatever the provider (``security.groups``).
 
 ``ProviderCatalog`` keeps the records in memory for sign-in (refreshed every few seconds, invalidated on a local
 write), like the repository catalog.
@@ -19,7 +19,7 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -36,6 +36,7 @@ def secret_aad(provider_id: str) -> bytes:
 
 class ProviderKind(StrEnum):
     LDAP = 'ldap'
+    OIDC = 'oidc'
 
 
 class LdapSecurity(StrEnum):
@@ -133,6 +134,86 @@ class StoredLdapConfig(LdapConfigBase):
     connection: StoredLdapConnection
 
 
+# ---------------------------------------------------------------------------- OIDC (T-A02)
+# Asymmetric signature algorithms only: ``none`` and the HMAC family (keyed with the client secret, open to algorithm
+# confusion with public keys) are never accepted for ID tokens.
+OIDC_SIGNING_ALGS = (
+    'RS256',
+    'RS384',
+    'RS512',
+    'PS256',
+    'PS384',
+    'PS512',
+    'ES256',
+    'ES384',
+    'ES512',
+    'EdDSA',
+    'Ed25519',
+)
+OidcAlg = Literal['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512', 'EdDSA', 'Ed25519']
+
+
+class OidcClientAuth(StrEnum):
+    CLIENT_SECRET_BASIC = 'client_secret_basic'  # noqa: S105 - a method name
+    CLIENT_SECRET_POST = 'client_secret_post'  # noqa: S105 - a method name
+    NONE = 'none'  # public client: PKCE only
+
+
+Claim = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256, pattern=r'^\S+$')]
+ScopeName = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128, pattern=r'^[!#-\[\]-~]+$')
+]
+Url = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)]
+
+
+def _default_scopes() -> list[str]:
+    return ['openid', 'profile', 'email']
+
+
+def _default_algs() -> list[OidcAlg]:
+    return list(OIDC_SIGNING_ALGS)  # type: ignore[arg-type]
+
+
+class OidcConfigBase(_Model):
+    issuer: Url = Field(description='Issuer URL exactly as the provider states it (discovery: `/.well-known/...`)')
+    client_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
+    client_auth: OidcClientAuth = OidcClientAuth.CLIENT_SECRET_BASIC
+    scopes: list[ScopeName] = Field(
+        default_factory=_default_scopes, max_length=20, description='`openid` is always sent'
+    )
+    username_claim: Claim = 'preferred_username'
+    display_name_claim: Claim = 'name'
+    email_claim: Claim = 'email'
+    groups_claim: Claim | None = Field('groups', description="Claim listing the user's groups (dotted path allowed)")
+    require_group: str | None = Field(None, max_length=1024, description='Only members of this group may sign in')
+    auto_provision: bool = Field(True, description='Create a Waystation user at the first sign-in')
+    use_userinfo: bool = Field(False, description='Also read claims from the userinfo endpoint')
+    rp_logout: bool = Field(True, description='Also sign out at the provider when it supports RP-initiated logout')
+    allow_private: bool = Field(False, description='The provider may resolve to private addresses (SSRF guard)')
+    signing_algs: list[OidcAlg] = Field(
+        default_factory=_default_algs, min_length=1, max_length=12, description='Accepted ID token algorithms'
+    )
+    timeout_s: float = Field(10, ge=1, le=60)
+
+
+class OidcConfigWrite(OidcConfigBase):
+    client_secret: str | None = Field(
+        None, max_length=4096, json_schema_extra={'writeOnly': True}, description='Omit or null to keep the stored one'
+    )
+
+
+class OidcConfigView(OidcConfigBase):
+    client_secret_set: bool = Field(json_schema_extra={'readOnly': True})
+    redirect_uri: str = Field(json_schema_extra={'readOnly': True}, description='Register at the provider')
+    post_logout_redirect_uri: str = Field(json_schema_extra={'readOnly': True}, description='Register at the provider')
+
+
+class StoredOidcConfig(OidcConfigBase):
+    model_config = ConfigDict(extra='ignore')
+
+    client_secret_enc: str | None = None
+
+
 class GroupMapping(_Model):
     external_group: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1024)] = Field(
         description='Group DN or name (case-insensitive)'
@@ -145,7 +226,8 @@ class AuthProviderWrite(_Model):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
     enabled: bool = True
     order: int = Field(100, ge=0, le=1000)
-    ldap: LdapConfigWrite
+    ldap: LdapConfigWrite | None = Field(None, description='Kind `ldap` only')
+    oidc: OidcConfigWrite | None = Field(None, description='Kind `oidc` only')
     group_mapping: list[GroupMapping] = Field(default_factory=list, max_length=500)
 
 
@@ -159,7 +241,8 @@ class ProviderRecord(BaseModel):
     name: str
     enabled: bool = True
     order: int = 100
-    ldap: StoredLdapConfig
+    ldap: StoredLdapConfig | None = None
+    oidc: StoredOidcConfig | None = None
     config_version: int = 1
     created_at: datetime
     updated_at: datetime
@@ -173,7 +256,14 @@ class ProviderRecord(BaseModel):
 
 
 def decrypt_bind_password(keyring: Keyring | None, record: ProviderRecord) -> str | None:
-    enc = record.ldap.connection.bind_password_enc
+    enc = record.ldap.connection.bind_password_enc if record.ldap else None
+    if not enc or keyring is None:
+        return None
+    return keyring.decrypt_str(enc, aad=secret_aad(record.id))
+
+
+def decrypt_client_secret(keyring: Keyring | None, record: ProviderRecord) -> str | None:
+    enc = record.oidc.client_secret_enc if record.oidc else None
     if not enc or keyring is None:
         return None
     return keyring.decrypt_str(enc, aad=secret_aad(record.id))
@@ -221,4 +311,11 @@ def dump_stored(config: LdapConfigWrite, bind_password_enc: str | None) -> dict[
     data = config.model_dump(mode='json')
     data['connection'].pop('bind_password', None)
     data['connection']['bind_password_enc'] = bind_password_enc
+    return data
+
+
+def dump_stored_oidc(config: OidcConfigWrite, client_secret_enc: str | None) -> dict[str, Any]:
+    """The stored form of an OIDC configuration (the client secret replaced by its ciphertext)."""
+    data = config.model_dump(mode='json', exclude={'client_secret'})
+    data['client_secret_enc'] = client_secret_enc
     return data

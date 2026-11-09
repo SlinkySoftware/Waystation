@@ -116,3 +116,5 @@ class SessionRecord(BaseModel):
     expires_at: datetime
     ip: str | None = None
     user_agent: str | None = None
+    provider_id: str | None = None  # the OIDC provider the session came from (RP-initiated logout)
+    id_token_enc: str | None = None  # its ID token, encrypted (``id_token_hint`` at logout)

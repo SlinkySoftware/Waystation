@@ -18,11 +18,13 @@ from waystation_server import audit
 from waystation_server.api.deps import ServicesDep, client_ip
 from waystation_server.audit import AuditAction
 from waystation_server.db import users as users_db
+from waystation_server.oidc_auth import login_url, logout_url
 from waystation_server.security import access
 from waystation_server.security.authn import authenticate, current_session, principal_for, user_principal
 from waystation_server.security.identity import Preferences, SessionRecord, UserRecord
 from waystation_server.security.login import verify_login
 from waystation_server.security.principal import AuthMethod
+from waystation_server.security.providers import ProviderKind
 from waystation_server.security.sessions import CSRF_HEADER, csrf_matches
 from waystation_server.services import Services
 
@@ -115,8 +117,14 @@ async def get_config(svc: ServicesDep) -> UiConfig:
 @router.get('/auth/providers', response_model=list[AuthProvider], operation_id='listAuthProviders')
 @access.public
 async def list_providers(svc: ServicesDep) -> list[AuthProvider]:
-    """Local accounts, then the enabled external providers in sign-in order (LDAP shares the password form)."""
-    external = [AuthProvider(id=p.id, kind=p.kind.value, name=p.name) for p in await svc.auth_providers.enabled()]
+    """Local accounts, then the enabled external providers in sign-in order (LDAP shares the password form; OIDC
+    providers carry the URL the browser navigates to)."""
+    external = [
+        AuthProvider(
+            id=p.id, kind=p.kind.value, name=p.name, login_url=login_url(p.id) if p.kind is ProviderKind.OIDC else None
+        )
+        for p in await svc.auth_providers.enabled()
+    ]
     return [AuthProvider(id='local', kind='local', name='Local account'), *external]
 
 
@@ -160,18 +168,25 @@ def _require_csrf(request: Request, record: SessionRecord) -> None:
         raise Forbidden('CSRF token missing or invalid')
 
 
-@router.post('/auth/logout', status_code=204, operation_id='logout')
+class LogoutResult(BaseModel):
+    end_session_url: str | None = Field(
+        description="The OIDC provider's sign-out page (RP-initiated logout) to send the browser to, if any"
+    )
+
+
+@router.post('/auth/logout', response_model=LogoutResult, operation_id='logout')
 @access.public  # CSRF checked in the handler when a session exists
-async def logout(request: Request, svc: ServicesDep) -> Response:
+async def logout(request: Request, response: Response, svc: ServicesDep) -> LogoutResult:
     principal = await authenticate(request)
     record = current_session(request)
-    response = Response(status_code=204)
+    end_session: str | None = None
     if record is not None:
         _require_csrf(request, record)
         await svc.sessions.destroy(record.id)
         audit.record(AuditAction.AUTH_LOGOUT, target=audit.target('user', record.user_id, principal.name))
+        end_session = await logout_url(svc, record.provider_id, record.id_token_enc)
     svc.sessions.clear_cookies(response)
-    return response
+    return LogoutResult(end_session_url=end_session)
 
 
 async def _signed_in(request: Request, svc: Services) -> tuple[UserRecord, SessionRecord]:

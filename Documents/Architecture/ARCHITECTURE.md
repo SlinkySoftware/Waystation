@@ -38,7 +38,8 @@
 ## 2. Technology (see adr/0001)
 - Python 3.14, FastAPI + pydantic v2, uvicorn with uvloop/httptools, `httpx` (HTTP/2) for upstream calls,
   PyMongo async API (`pymongo.AsyncMongoClient`), `redis-py` asyncio client against Valkey, `argon2-cffi`,
-  `ldap3`, `authlib` (OIDC), `cryptography`. OpenPGP signing for apt/yum hosted repos sits behind
+  `ldap3`, `joserfc` (OIDC ID tokens; the OAuth code flow is in-house on the upstream client, adr/0004),
+  `cryptography`. OpenPGP signing for apt/yum hosted repos sits behind
   `waystation_common.signing`; the implementation (a Python OpenPGP library or `gpg` inside the worker image only)
   is chosen in task T-P5-APTH with an ADR.
 - Frontend: Quasar 2, Vue 3, TypeScript strict, Pinia, vue-router, `openapi-fetch` + `openapi-typescript`.
