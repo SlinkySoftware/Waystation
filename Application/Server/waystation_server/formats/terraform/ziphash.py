@@ -55,6 +55,8 @@ def zip_h1(file: BinaryIO) -> str:
                         if total > MAX_UNCOMPRESSED:
                             raise NotHashable('too large uncompressed')
                         digest.update(chunk)
+            except NotHashable:
+                raise
             except zipfile.BadZipFile, OSError, ValueError, NotImplementedError, EOFError:
                 raise NotHashable('corrupt zip archive') from None
             lines.append((name, digest.hexdigest()))

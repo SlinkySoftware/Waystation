@@ -8,7 +8,9 @@ Components and versions come from asset paths (``coordinates``) until components
 * npm ``<pkg>/-/<name>-<version>.tgz``; apt pool ``<name>_<version>_<arch>.deb`` (grouped per name and arch); yum
   ``<name>-<version>-<release>.<arch>.rpm`` (per name and arch); pypi ``packages/<project>/<wheel or sdist>`` (and
   its ``.metadata`` sidecar; per project, PEP 440, every file of a version shares its rank); go
-  ``<module>/@v/<version>.{zip,mod,info}`` (case-encoding decoded; per module, Go semver); every other format
+  ``<module>/@v/<version>.{zip,mod,info}`` (case-encoding decoded; per module, Go semver); terraform
+  ``<hostname>/<namespace>/<type>/<version>/<os>/<arch>/<archive>.zip`` (per provider, semver; every platform of a
+  version shares its rank); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -118,6 +120,10 @@ def coordinates(fmt: str, path: str) -> Coord:
         if escaped and stem.startswith('v'):
             module = _go_unescape(escaped)
             return Coord(module, _go_unescape(stem), module, True)
+    if fmt == 'terraform' and filename.endswith('.zip') and path.count('/') == 6:
+        hostname, namespace, kind, version, _ = path.split('/', 4)
+        provider = f'{hostname}/{namespace}/{kind}'
+        return Coord(provider, version, provider, True)
     return Coord(path, filename, _parent(path), False)
 
 
