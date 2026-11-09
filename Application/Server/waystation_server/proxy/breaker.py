@@ -20,8 +20,8 @@ blocked for longer) even when no client asks for it. Blocks are visible through 
 (``/stats/upstreams``: status ``blocked``, ``blocked_until``), ``upstream.state`` events and activity entries,
 ``waystation_upstream_state`` and ``waystation_upstream_autoblock_total``.
 
-Valkey unavailable = no auto-block (every request goes upstream), never an error. A process remembers blocks it has
-seen until they end, so blocked requests cost no Valkey round trip. Saving a repository clears its block.
+Valkey unavailable = no auto-block (every request goes upstream), never an error. A process remembers a block it has
+seen for up to 5 s, so most blocked requests cost no Valkey round trip. Saving a repository clears its block.
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ log = logging.getLogger('waystation.proxy.autoblock')
 
 PROBE_LEASE_S = 90.0  # a probe that neither succeeds nor fails within this is retried by someone else
 PROBER_INTERVAL_S = 5.0
+LOCAL_RECHECK_S = 5.0
 BLOCK_FIELDS = ('block_failures', 'blocked_until', 'blocked_at', 'block_level', 'probe_until', 'block_reason')
 
 # KEYS[1] health hash; ARGV now (ms), probe lease (ms). Returns {verdict, blocked_until ms}.
@@ -203,7 +204,9 @@ class UpstreamBreaker:
         self.probe_lease_s = probe_lease_s
         self._admit = valkey.register_script(_ADMIT)
         self._record = valkey.register_script(_RECORD)
-        self._blocked: dict[str, float] = {}  # repo id -> blocked until (s), as last seen by this process
+        # repo id -> (blocked until, re-check Valkey after), as last seen by this process: blocked requests skip
+        # Valkey for at most LOCAL_RECHECK_S, so a block lifted elsewhere (a probe, a saved repository) ends here soon.
+        self._blocked: dict[str, tuple[float, float]] = {}
         self._prober: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------ request path
@@ -212,9 +215,9 @@ class UpstreamBreaker:
         if not self._enabled(repo):
             return Verdict.OPEN
         now = self.clock()
-        until = self._blocked.get(repo.id)
-        if until is not None and now < until:
-            raise UpstreamAutoBlocked(until, now=now)
+        known = self._blocked.get(repo.id)
+        if known is not None and now < known[1]:
+            raise UpstreamAutoBlocked(known[0], now=now)
         try:
             verdict, until_ms = await self._admit(
                 keys=[event_keys.upstream_health_key(repo.id)], args=[int(now * 1000), int(self.probe_lease_s * 1000)]
@@ -229,9 +232,12 @@ class UpstreamBreaker:
         if Verdict(int(verdict)) is Verdict.PROBE:
             log.info('probing auto-blocked upstream', extra={'repo': repo.name})
             return Verdict.PROBE
-        if until > now:
-            self._blocked[repo.id] = until
+        self._remember(repo.id, until, now)
         raise UpstreamAutoBlocked(max(until, now + 1), now=now)
+
+    def _remember(self, repo_id: str, until: float, now: float) -> None:
+        if until > now:
+            self._blocked[repo_id] = (until, min(until, now + LOCAL_RECHECK_S))
 
     async def success(self, repo: RepoConfig) -> None:
         if self._enabled(repo) or repo.id in self._blocked:
@@ -266,8 +272,8 @@ class UpstreamBreaker:
             return
         change = Transition(int(transition))
         until = int(until_ms) / 1000
-        if change in (Transition.BLOCKED, Transition.REBLOCKED, Transition.STILL_BLOCKED) and until > now:
-            self._blocked[repo.id] = until
+        if change in (Transition.BLOCKED, Transition.REBLOCKED, Transition.STILL_BLOCKED):
+            self._remember(repo.id, until, now)
         elif change is Transition.RESUMED or ok:
             self._blocked.pop(repo.id, None)
         if change in (Transition.BLOCKED, Transition.REBLOCKED, Transition.RESUMED):
