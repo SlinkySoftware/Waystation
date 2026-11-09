@@ -89,7 +89,8 @@
 - Layout under `WAYSTATION_DATA_DIR`:
   - `blobs/sha256/<aa>/<bb>/<full-hex>`: immutable content. Created 0640, dirs 0750.
   - `uploads/<uuid>`: in-progress downloads (cache fill) and uploads (hosted, OCI chunked). Same filesystem as
-    `blobs/`. Orphans older than 24 h removed by GC.
+    `blobs/`. Orphans older than 24 h removed by GC. Blob verify moves damaged blob files here (`<uuid>.damaged`,
+    SPEC §8.5) so they are never served and GC removes them as orphans.
   - `keys/`: per-repo signing keys, encrypted with `SECRET_KEYS`.
 - A blob is written once; identical content from any repo or format is stored once (refcounted via assets, GC'd
   by mark-and-sweep, SPEC §4.8). Never mutate a blob; never hard-link.
