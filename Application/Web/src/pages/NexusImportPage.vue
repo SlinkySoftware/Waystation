@@ -27,10 +27,11 @@
             <span v-if="report.summary.invalid" class="ws-badge tone-degraded">{{ t('nexusImport.summary.invalid', { count: report.summary.invalid }) }}</span>
           </div>
           <div v-if="report.default_docker_repo" class="nx-page__docker">
-            <q-icon :name="iconInfo" size="16px" />
-            <span v-if="report.default_docker_repo.name">{{ t('nexusImport.defaultDockerIs', { name: report.default_docker_repo.name }) }}</span>
-            <span v-else>{{ t('nexusImport.defaultDockerNone') }}</span>
-            <span class="text-muted">({{ report.default_docker_repo.reason }})</span>
+            <q-icon :name="iconInfo" size="16px" class="nx-page__docker-icon" />
+            <span>
+              {{ report.default_docker_repo.name ? t('nexusImport.defaultDockerIs', { name: report.default_docker_repo.name }) : t('nexusImport.defaultDockerNone') }}
+              <span class="text-muted">({{ report.default_docker_repo.reason }})</span>
+            </span>
           </div>
         </div>
         <div class="nx-page__plan-actions">
@@ -154,10 +155,13 @@ async function apply(): Promise<void> {
   color: var(--text-secondary);
   font-size: var(--fs-13);
 }
+.nx-page__docker-icon {
+  flex: none;
+  margin-top: 2px;
+}
 .nx-page__docker {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   margin-top: 8px;
   font-size: var(--fs-13);

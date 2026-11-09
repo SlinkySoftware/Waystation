@@ -95,6 +95,7 @@ class Mapped:
     docker_hub: bool = False
     connector: bool = False  # a Nexus connector (port or subdomain) serves this repository at a host root
     members: list[str] = field(default_factory=list)
+    shown: Any = None  # ``exists``: the RepositoryWrite the import would have created (for reference)
 
     def refuse(self, action: Action, reason: str) -> Mapped:
         self.action, self.reason, self.body = action, reason, None

@@ -3251,7 +3251,7 @@ components:
             - type: 'null'
         reason: { type: [string, 'null'] }
         repository:
-          description: The repository the import creates
+          description: The Waystation repository; created when `action` is `create`, for `exists` what the import would have created
           oneOf:
             - $ref: '#/components/schemas/RepositoryWrite'
             - type: 'null'

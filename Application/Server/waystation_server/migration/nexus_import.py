@@ -103,7 +103,10 @@ class NexusImportItem(BaseModel):
     action: Literal['create', 'exists', 'unsupported', 'invalid']
     outcome: Outcome | None = Field(default=None, description='Apply only: what happened')
     reason: str | None = None
-    repository: RepositoryWrite | None = Field(default=None, description='The repository the import creates')
+    repository: RepositoryWrite | None = Field(
+        default=None,
+        description='The Waystation repository: created when `action` is `create`; for `exists` what the import would have created',
+    )
     differences: list[ImportDifference] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
@@ -365,8 +368,12 @@ async def plan(
             if m.format != current.format or m.type != current.type.value:
                 m.reason = f'a {current.format} {current.type.value} repository named {current.name} already exists'
             else:
-                m.reason = f'{current.name} already exists; left unchanged'
+                m.reason = 'already in Waystation; left unchanged'
             _compare(m, current)
+            try:  # what the import would have created, for reference
+                m.shown = RepositoryWrite.model_validate(m.body)
+            except ValidationError:
+                m.shown = None
     _plan_aliases(items, existing)
     _plan_groups(items, existing)
     default = _default_docker(items, existing, body.default_docker_repo)
@@ -395,7 +402,7 @@ def _item(m: Mapped, body: RepositoryWrite | None, outcome: Outcome | None = Non
         action=m.action,
         outcome=outcome,
         reason=m.reason,
-        repository=body,
+        repository=body or m.shown,
         differences=[ImportDifference(**d.__dict__) for d in m.differences],
         notes=m.notes,
     )
