@@ -56,7 +56,6 @@ function plan(body: NexusImportRequest, applied: Set<string> | null, selected: s
     if (n.format === 'maven2') return { ...base, action: 'unsupported', reason: 'Waystation does not serve maven yet' }
     if (n.type !== 'proxy') return { ...base, action: 'unsupported', reason: `Waystation has no ${n.format} ${n.type} repositories yet` }
     const found = existing.get(n.name.toLowerCase())
-    if (found && !applied?.has(n.name)) return { ...base, action: 'exists', reason: `${found.name} already exists; left unchanged` }
     const options = { ...(n.options ?? {}) }
     if (!body.docker_aliases) delete options.aliases
     const repository: RepositoryWrite = {
@@ -77,6 +76,7 @@ function plan(body: NexusImportRequest, applied: Set<string> | null, selected: s
       },
       format_options: options as RepositoryWrite['format_options'],
     }
+    if (found && !applied?.has(n.name)) return { ...base, action: 'exists', reason: 'already in Waystation; left unchanged', repository }
     return { ...base, action: 'create', repository }
   })
   if (applied) {

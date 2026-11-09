@@ -26,7 +26,7 @@
       </q-th>
     </template>
     <template #body="scope">
-      <q-tr :props="scope" class="nx-table__row" @click="toggleOpen(scope.row.name)">
+      <q-tr :props="scope" :class="{ 'nx-table__row': detailCount(scope.row) }" @click="detailCount(scope.row) && toggleOpen(scope.row.name)">
         <q-td class="nx-table__check" @click.stop>
           <q-checkbox
             v-if="scope.row.action === 'create' && !applied"
@@ -52,12 +52,14 @@
         </q-td>
         <q-td class="text-right">
           <q-btn
+            v-if="detailCount(scope.row)"
             flat
             dense
             no-caps
             size="sm"
+            class="nx-table__more"
             :icon-right="open.has(scope.row.name) ? iconUp : iconDown"
-            :label="t('nexusImport.differences', { count: scope.row.differences.length + scope.row.notes.length })"
+            :label="t('nexusImport.differences', { count: detailCount(scope.row) })"
             :aria-expanded="open.has(scope.row.name)"
             @click.stop="toggleOpen(scope.row.name)"
           />
@@ -114,6 +116,10 @@ const columns = computed<QTableColumn<NexusImportItem>[]>(() => [
   { name: 'details', label: '', field: 'name', align: 'right' },
 ])
 
+function detailCount(item: NexusImportItem): number {
+  return item.differences.length + item.notes.length
+}
+
 function upstreamOf(item: NexusImportItem): string | null {
   return item.repository?.proxy?.upstream_url ?? null
 }
@@ -140,6 +146,12 @@ function toggleOpen(name: string): void {
 }
 .nx-table__row {
   cursor: pointer;
+}
+.nx-table__more {
+  white-space: nowrap;
+}
+.nx-table__more :deep(.q-btn__content) {
+  flex-wrap: nowrap;
 }
 .nx-table__name {
   display: flex;
