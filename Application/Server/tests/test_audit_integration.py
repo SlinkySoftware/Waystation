@@ -45,6 +45,7 @@ pytestmark = pytest.mark.integration
 
 PASSWORD = 'correct horse battery staple'
 UPSTREAM_SECRET = 'upstream-hunter2'
+WEBHOOK_SECRET = 'webhook-signing-secret-hunter2'
 A = AuditAction
 
 
@@ -534,6 +535,25 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     await rec.expect(A.TASK_RETRY, **{'details.dead_letter': dead[0]})
     await rec.expect(A.TASK_DISCARD, **{'details.dead_letter': dead[1]})
 
+    # --- webhooks: create, change, test event, redelivery, delete (the secret is never recorded)
+    hook = {'name': 'ci', 'url': 'https://hooks.example.com/in', 'events': ['*'], 'secret': WEBHOOK_SECRET}
+    made_hook = await admin.post(f'{api}/webhooks', json=hook)
+    assert made_hook.status_code == 201, made_hook.text
+    hook_id = made_hook.json()['id']
+    changed_hook = await admin.put(f'{api}/webhooks/{hook_id}', json={**hook, 'secret': WEBHOOK_SECRET[::-1]})
+    assert changed_hook.status_code == 200
+    ping = await admin.post(f'{api}/webhooks/{hook_id}/test')
+    assert ping.status_code == 202
+    resent = await admin.post(f'{api}/webhooks/{hook_id}/deliveries/{ping.json()["delivery_id"]}/redeliver')
+    assert resent.status_code == 202
+    assert (await admin.delete(f'{api}/webhooks/{hook_id}')).status_code == 204
+    await rec.expect(A.WEBHOOK_CREATE, **{'target.id': hook_id})
+    hook_update = await rec.expect(A.WEBHOOK_UPDATE, **{'target.id': hook_id})
+    assert hook_update['changes'] == [{'field': 'secret', 'before': '***', 'after': '***', 'redacted': True}]
+    await rec.expect(A.WEBHOOK_TEST, **{'target.id': hook_id})
+    await rec.expect(A.WEBHOOK_REDELIVER, **{'details.redelivery_of': ping.json()['delivery_id']})
+    await rec.expect(A.WEBHOOK_DELETE, **{'target.id': hook_id})
+
     # --- sign-out
     signed_out = await admin.post(f'{api}/auth/logout')
     assert signed_out.status_code == 200
@@ -558,6 +578,8 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
         'erin-reset-Passw0rd',
         'erin-own-Passw0rd-123',
         *totp_secrets,
+        WEBHOOK_SECRET,
+        WEBHOOK_SECRET[::-1],
         *(code.replace('-', '') for code in totp_secrets if '-' in code),
     ):
         assert secret not in stored

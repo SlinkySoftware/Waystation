@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Waystation worker: background and scheduled jobs."
 requires-python = ">=3.14"
 license = "GPL-3.0-or-later"
-dependencies = ["waystation-common"]
+dependencies = ["waystation-common", "httpx[http2]>=0.28"]
 
 [build-system]
 requires = ["uv_build>=0.13,<0.14"]
