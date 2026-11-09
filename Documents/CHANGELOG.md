@@ -3,6 +3,17 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-M02: Nexus migration. `Documents/Operations/MIGRATING_FROM_NEXUS.md`, step by step: inventory, import,
+  re-entering upstream credentials and access (roles, sign-in, API tokens), copying hosted content (skopeo/crane for
+  docker, a Nexus assets API + curl loop with checksum for raw), warming the cache, side-by-side validation with the
+  expected differences, switching clients per format, cutover through the reverse proxy (per repository, docker
+  connector ports), rollback (uploads since the switch from the audit log) and decommissioning.
+  `Build/migration/nexus_compare.py` (standard library only) sends the same read-only requests from a TOML checks
+  file to a Nexus and a Waystation and compares status, size, sha256 (optionally after base-URL and JSON
+  normalisation), `Docker-Content-Digest`, media type and JSON Pointer values; answers docker Bearer challenges, never
+  sends credentials across redirects, takes credentials only from the environment; table, Markdown or JSON report and
+  exit code 0/1/2. `checks.example.toml` covers docker, npm, apt, yum, raw and pypi; `make nexus-compare`. Tested
+  against two fake servers in `make test`.
 - T-P2-RAW: raw hosted and group repositories, directory listings. Hosted (`formats/raw/hosted.py`): streaming
   `PUT /repository/<repo>/<path>` (live upload transfer, `WAYSTATION_MAX_UPLOAD_GB` and `Content-Length` bound,
   free-space guard), `X-Checksum-Sha256`/`-Sha1`/`-Md5` verified before anything is committed (400 on a mismatch or a
