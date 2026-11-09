@@ -224,13 +224,30 @@ def _proxy(m: Mapped, cfg: dict[str, Any], fmt: str) -> dict[str, Any] | None:
     return out
 
 
-def _docker(m: Mapped, cfg: dict[str, Any], body: dict[str, Any], *, aliases: bool) -> dict[str, Any]:
+def _connectors(cfg: dict[str, Any]) -> list[str]:
     docker = _dict(cfg.get('docker'))
     ports = [f'{k} {docker[k]}' for k in ('httpPort', 'httpsPort') if isinstance(docker.get(k), int)]
     if isinstance(docker.get('subdomain'), str) and docker['subdomain']:
         ports.append(f'subdomain {docker["subdomain"]}')
+    return ports
+
+
+def _facts(m: Mapped, cfg: dict[str, Any]) -> None:
+    """Docker routing facts the planner needs even for repositories it cannot import (a connector group)."""
+    if m.format != 'docker':
+        return
+    m.connector = bool(_connectors(cfg))
+    m.members = [str(n) for n in _dict(cfg.get('group')).get('memberNames') or [] if isinstance(n, str)]
+    if m.type == 'proxy':
+        remote = _dict(cfg.get('proxy')).get('remoteUrl')
+        host = upstream_host(remote) if isinstance(remote, str) else None
+        m.docker_hub = _dict(cfg.get('dockerProxy')).get('indexType') == 'HUB' or host in DOCKER_HUB_HOSTS
+
+
+def _docker(m: Mapped, cfg: dict[str, Any], body: dict[str, Any], *, aliases: bool) -> dict[str, Any]:
+    docker = _dict(cfg.get('docker'))
+    ports = _connectors(cfg)
     if ports:
-        m.connector = True
         m.differ(
             'docker connector',
             ', '.join(ports),
@@ -246,7 +263,6 @@ def _docker(m: Mapped, cfg: dict[str, Any], body: dict[str, Any], *, aliases: bo
     proxy_cfg = _dict(cfg.get('dockerProxy'))
     host = upstream_host((body.get('proxy') or {}).get('upstream_url', ''))
     index = str(proxy_cfg.get('indexType') or '')
-    m.docker_hub = index == 'HUB' or host in DOCKER_HUB_HOSTS
     if m.docker_hub:
         options['docker_hub'] = True
     elif index == 'CUSTOM' and proxy_cfg.get('indexUrl'):
@@ -343,13 +359,14 @@ def map_repository(repo: NexusRepository, *, supported: Mapping[str, frozenset[s
     if repo.type not in ('proxy', 'hosted', 'group'):
         return m.refuse('unsupported', f'unknown repository type {repo.type!r}')
     m.type = repo.type
+    cfg = repo.config
+    _facts(m, cfg)
     if fmt not in supported:
         return m.refuse('unsupported', f'Waystation does not serve {fmt} yet')
     if repo.type not in supported[fmt]:
         return m.refuse('unsupported', f'Waystation has no {fmt} {repo.type} repositories yet')
     if repo.type in ('hosted', 'group') and not supports_section(repo.type):
         return m.refuse('unsupported', f'Waystation has no {fmt} {repo.type} repositories yet')
-    cfg = repo.config
     if repo.detail_error:
         m.notes.append(repo.detail_error)
     body: dict[str, Any] = {

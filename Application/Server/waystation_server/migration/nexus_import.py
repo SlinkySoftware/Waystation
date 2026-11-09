@@ -260,46 +260,41 @@ def _plan_groups(items: list[Mapped], existing: list[RepoConfig]) -> None:
             m.differ('group.writable_member', group.pop('writable_member'), None, 'the writable member is left out')
 
 
-def _hub_members(group: Mapped, by_name: dict[str, Mapped]) -> list[Mapped]:
-    return [
-        by_name[n.lower()]
-        for n in group.members
-        if n.lower() in by_name and by_name[n.lower()].docker_hub and by_name[n.lower()].type == 'proxy'
-    ]
+def _usable(m: Mapped) -> bool:
+    return m.action in ('create', 'exists')
 
 
 def _default_docker(
     items: list[Mapped], existing: list[RepoConfig], requested: str | None
 ) -> DefaultDockerChoice | None:
-    docker = [m for m in items if m.format == 'docker' and m.action in ('create', 'exists')]
+    docker = [m for m in items if m.format == 'docker']
     current = next((r for r in existing if r.format == 'docker' and r.format_options.get('default_repo')), None)
     if current is not None:
         return DefaultDockerChoice(
             name=current.name, reason=f'Waystation already routes unprefixed names to {current.name}; unchanged'
         )
-    if not docker:
+    if not any(_usable(m) for m in docker):
         return None
     by_name = {m.name.lower(): m for m in docker}
+    hub = [m for m in docker if m.docker_hub and m.type == 'proxy' and _usable(m)]
     chosen: Mapped | None = None
     reason = ''
     if requested:
         chosen = by_name.get(requested.lower())
-        if chosen is None or chosen.type == 'hosted':
+        if chosen is None or chosen.type == 'hosted' or not _usable(chosen):
             return DefaultDockerChoice(
                 name=None, reason=f'{requested} is not a docker proxy or group the import creates'
             )
         reason = 'chosen in the import request'
     else:
-        hub = [m for m in docker if m.docker_hub and m.type == 'proxy']
-        for m in docker:
-            if not m.connector:
-                continue
-            if m.docker_hub and m.type == 'proxy':
+        # The repository behind a Nexus connector (a host root) received the unprefixed pulls.
+        for m in (m for m in docker if m.connector):
+            if m in hub:
                 chosen, reason = m, 'its Nexus connector served unprefixed Docker Hub pulls'
                 break
-            if m.type == 'group' and (members := _hub_members(m, by_name)):
-                chosen = members[0]
-                reason = f'Docker Hub proxy behind the Nexus connector of group {m.name}'
+            members = [by_name[n.lower()] for n in m.members if n.lower() in by_name and by_name[n.lower()] in hub]
+            if members:
+                chosen, reason = members[0], f'the Docker Hub proxy behind the Nexus connector of group {m.name}'
                 break
         if chosen is None and len(hub) == 1:
             chosen, reason = hub[0], 'the only Docker Hub proxy'
