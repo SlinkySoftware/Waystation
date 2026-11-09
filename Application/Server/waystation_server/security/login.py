@@ -9,7 +9,8 @@
   provider first, then the others; the first directory that knows the username decides. A success links and syncs
   the Waystation user (``security.external``). Directories enforce their own lockout.
 - Failures are indistinguishable: unknown user, wrong password, disabled, locked, not in the required group or
-  directory unavailable all raise the same ``Unauthorized`` (the reason is logged and goes to the audit record
+  directory unavailable, or a one-time password used outside the UI (``docker login``) all raise the same
+  ``Unauthorized`` (the reason is logged and goes to the audit record
   ``auth.login`` / failure; the attempt that locks an account also records ``auth.lockout``).
 """
 
@@ -83,7 +84,7 @@ async def verify_login(
 async def _verify(svc: Services, name: str, password: str, *, provider: str | None, interactive: bool) -> UserRecord:
     user = await users_db.get_by_username(svc.db, name)
     if user is not None and user.source == LOCAL and user.password_hash:
-        return await _verify_local(svc, user, password)
+        return await _verify_local(svc, user, password, interactive=interactive)
     candidates = [] if provider == LOCAL else await _ldap_candidates(svc, user, provider)
     if not candidates:
         await passwords.verify_password(None, password)  # same work as a wrong password
@@ -95,7 +96,7 @@ async def _verify(svc: Services, name: str, password: str, *, provider: str | No
     return await _verify_ldap(svc, candidates, name, password, interactive=interactive)
 
 
-async def _verify_local(svc: Services, user: UserRecord, password: str) -> UserRecord:
+async def _verify_local(svc: Services, user: UserRecord, password: str, *, interactive: bool) -> UserRecord:
     settings = svc.settings
     ok = await passwords.verify_password(user.password_hash, password)
     now = datetime.now(UTC)
@@ -118,6 +119,10 @@ async def _verify_local(svc: Services, user: UserRecord, password: str) -> UserR
                 details={'failures': failures, 'locked_until': locked_until},
             )
         raise LoginFailed('bad_credentials', user, LOCAL)
+    if user.must_change_password and not interactive:
+        # A one-time password only opens the UI, where it must be changed first (SPECIFICATION §4.9).
+        log.info('sign-in refused', extra={'user_id': user.id, 'reason': 'password_change_required'})
+        raise LoginFailed('password_change_required', user, LOCAL)
     rehash = None
     if user.password_hash and passwords.needs_rehash(user.password_hash):
         rehash = await passwords.hash_password(password)
