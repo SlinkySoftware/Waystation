@@ -3,8 +3,21 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
-- T-M01 (follow-up to T-P5-PYPI): the Nexus import maps PyPI proxies' content max age to "forever" like docker,
-  npm, apt and yum (PyPI files are verified against the project page's hashes), reporting the difference.
+- T-P5-GO: Go module proxy and group repositories (`formats/go/`). Proxy: the GOPROXY protocol (`@v/list`, `@latest`,
+  `.info`, `.mod`, `.zip`) with module paths and versions case-decoded, validated and re-encoded, lists and `@latest`
+  revalidated as metadata, version files kept as content, size limits, upstream `410` answered as `404`. `.mod` and
+  `.zip` files are verified against the checksum database's `go.sum` lines (`h1:` dirhash) before they are cached
+  (option `verify_checksums`; private modules skipped with `nosumdb` patterns). The checksum database is proxied at
+  `/repository/<repo>/sumdb/sum.golang.org/` (`supported`, `latest`, `lookup`, tiles), so the go command verifies
+  modules without reaching sum.golang.org. Groups merge `@v/list` and serve files from the first member that has them.
+  Browse (`go/modules`, `go/versions`) and search on `go_modules`; Go semver order for cleanup; UI create flow,
+  options, Go browser and "Set me up" (GOPROXY, GONOSUMDB, `.netrc`). Real-client harness `tests/clients/go/` (go
+  1.25 through a proxy and a group, recorded against proxy.golang.org and sum.golang.org); client guide
+  `Documents/Operations/clients/go.md`. Harness fixture store: file names keep their key when the last path segment
+  has a dot (`v1.6.0.info` and `v1.6.0.mod` no longer collide); older names are still read.
+- T-M01 (follow-up to T-P5-PYPI and T-P5-GO): the Nexus import maps PyPI and Go proxies' content max age to
+  "forever" like docker, npm, apt and yum (PyPI files are verified against the project page's hashes, Go module
+  versions are immutable and checked against the checksum database), reporting the difference.
 - T-P5-PYPI: PyPI proxy, hosted and group repositories (`formats/pypi/`). Proxy: `simple/` and `simple/<project>/`
   in PEP 503 HTML and PEP 691 JSON (negotiated by `Accept`, cached per representation, `301` to the normalised name and
   trailing slash), rendered from the upstream's JSON or HTML page with relative file URLs into the repository and
