@@ -105,13 +105,13 @@ step 'wipe the stack (down -v) and create an empty one'
 "${compose[@]}" up -d --wait --quiet-pull mongodb valkey
 "${compose[@]}" up -d --no-deps init
 [ "$(docker wait "$BT_PROJECT-init")" = 0 ] || fail 'init failed on the empty stack'
-"${compose[@]}" create --no-deps worker
+"${compose[@]}" create worker
 [ "$(mongo_eval 'db.assets.countDocuments()')" = 0 ] || fail 'the new stack is not empty'
 
 step 'restore the hosted-only backup'
 "$TOOL" restore --prefix "$BT_PROJECT" --from "$BACKUPS/$hosted_only"
 [ "$(mongo_eval 'db.assets.countDocuments()')" = 3 ] || fail 'assets were not restored'
-"${compose[@]}" up -d --wait --wait-timeout 300 web server worker
+"${compose[@]}" up -d --wait --wait-timeout 300 web server worker origin
 
 step 'blob verify: the proxied asset is marked for re-fetch, nothing hosted is lost'
 out=$("$TOOL" verify --prefix "$BT_PROJECT" --timeout 300)

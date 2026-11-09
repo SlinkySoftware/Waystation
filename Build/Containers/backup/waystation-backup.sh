@@ -105,7 +105,7 @@ inside_backup() {
   local linked=0 copied=0
   if [ -n "$prev" ] && [ "$hardlinks" = 1 ] && ln "$target/$prev/manifest.json" "$work/.probe" 2>/dev/null; then
     rm -f "$work/.probe"
-    (cd "$target/$prev" && while IFS= read -r rel; do [ -f "$rel" ] && echo "$rel"; done < "$list") > "$list.link"
+    (cd "$target/$prev" && while IFS= read -r rel; do if [ -f "$rel" ]; then echo "$rel"; fi; done < "$list") > "$list.link"
     comm -23 "$list" "$list.link" > "$list.copy"
     if [ -s "$list.link" ]; then
       (cd "$target/$prev" && xargs -r -d '\n' cp -l --parents -t "$work" < "$list.link")
@@ -189,7 +189,7 @@ inside_backup() {
 complete() {  # complete backups in a target, oldest first
   local d
   for d in "$1"/waystation-*/; do
-    [ -f "$d/manifest.json" ] && basename "$d"
+    if [ -f "$d/manifest.json" ]; then basename "$d"; fi
   done | sort
 }
 
