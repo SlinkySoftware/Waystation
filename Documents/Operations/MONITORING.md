@@ -47,6 +47,7 @@ Counters also have the usual `_created` series (except with several server proce
 | `waystation_upstream_latency_seconds` | histogram | `repo` | Upstream time to response headers. Buckets 5 ms to 60 s |
 | `waystation_coalesce_total` | counter | `repo`, `event` | Request coalescing: `owner` (fetched for others), `solo` (fetched without Valkey coordination), `tail` (followed a fetch by streaming its file), `wait` (waited for its commit), `takeover` (took over from an owner that went away) |
 | `waystation_http_request_duration_seconds` | histogram | `route`, `method`, `status` | Server time of every HTTP request (format, REST API, health, token service) except the long-lived event stream. `route` is the matched route template (`/api/v1/repositories/{name}`, `/repository/{repo_name}/{path}`; `unmatched` for unknown paths), never the raw path; `method` is the HTTP method (`OTHER` for unusual ones); `status` is the class (`2xx`, `3xx`, `4xx`, `5xx`). Buckets 5 ms to 30 s. For format requests served by `X-Accel-Redirect` this is the server's part only (lookup and headers), not the transfer |
+| `waystation_upstream_autoblock_total` | counter | `repo`, `event` | Auto-block transitions seen by this process: `blocked` (after N consecutive failures), `reblocked` (a probe failed; the period doubled), `resumed` (the upstream answered again) |
 | `waystation_storage_refusals_total` | counter | none | Cache fills and uploads refused by the free-space guard (free space would drop below `WAYSTATION_MIN_FREE_GB`) |
 | `waystation_inflight_transfers` | gauge | none | Live transfers right now |
 | `waystation_sse_clients` | gauge | none | Connected event-stream clients (open UI pages) |
@@ -60,8 +61,9 @@ never `sum`.
 
 | Metric | Labels | Meaning |
 |---|---|---|
-| `waystation_upstream_state` | `repo` | Per proxy repository: 0 ok, 1 degraded (an upstream request failed in the last 10 minutes and none succeeded since), 2 blocked (reserved for auto-block, T-S07), 3 offline (switched offline by an administrator, or the repository is disabled). The same rule as the UI |
+| `waystation_upstream_state` | `repo` | Per proxy repository: 0 ok, 1 degraded (an upstream request failed in the last 10 minutes and none succeeded since), 2 blocked (auto-blocked after repeated failures, including an ended period whose probe is due or running), 3 offline (switched offline by an administrator, or the repository is disabled). The same rule as the UI |
 | `waystation_upstream_consecutive_failures` | `repo` | Upstream failures since its last success |
+| `waystation_upstream_blocked_until_timestamp_seconds` | `repo` | When the auto-block of the upstream ends (Unix time); only while it is blocked |
 | `waystation_upstream_ratelimit_limit`, `waystation_upstream_ratelimit_remaining` | `repo` | The latest rate limit the upstream reported (Docker Hub `ratelimit-limit` / `ratelimit-remaining`); only repositories whose upstream reports one |
 | `waystation_upstream_ratelimit_window_seconds` | `repo` | Its window (Docker Hub: `w=21600`, 6 hours) |
 | `waystation_upstream_ratelimit_updated_timestamp_seconds` | `repo` | When the upstream last reported it (Unix time) |

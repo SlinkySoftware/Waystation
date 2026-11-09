@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -95,3 +96,120 @@ async def sync_external(
         return_document=ReturnDocument.AFTER,
     )
     return UserRecord.model_validate(doc) if doc else None
+
+
+# ---------------------------------------------------------------------------- administration (SPEC §4.12)
+LIST_MAX = 200
+
+
+async def list_page(
+    db: Database,
+    *,
+    prefix: str | None = None,
+    source: str | None = None,
+    disabled: bool | None = None,
+    group_id: str | None = None,
+    role: str | None = None,
+    after: str | None = None,
+    limit: int = 50,
+) -> list[UserRecord]:
+    """Users by username (index ``username_unique``), after the username ``after`` (keyset paging). ``prefix``
+    matches the start of the (lower-case) username; ``source`` is ``local``, a provider source (``ldap:<id>``) or a
+    kind (``ldap``/``oidc``: every provider of that kind)."""
+    query: dict[str, Any] = {}
+    names: dict[str, Any] = {}
+    if prefix:
+        names['$regex'] = '^' + re.escape(prefix.lower())
+    if after:
+        names['$gt'] = after
+    if names:
+        query['username'] = names
+    if source:
+        query['source'] = source if ':' in source or source == 'local' else {'$regex': '^' + re.escape(source) + ':'}
+    if disabled is not None:
+        query['disabled'] = True if disabled else {'$ne': True}
+    if group_id:
+        query['groups'] = group_id
+    if role:
+        query['roles'] = role
+    cursor = db[USERS].find(query).sort('username', 1).limit(max(1, min(limit, LIST_MAX)))
+    return [UserRecord.model_validate(doc) async for doc in cursor]
+
+
+async def update(db: Database, user_id: str, changes: dict[str, Any]) -> UserRecord | None:
+    doc = await db[USERS].find_one_and_update({'_id': user_id}, {'$set': changes}, return_document=ReturnDocument.AFTER)
+    return UserRecord.model_validate(doc) if doc else None
+
+
+async def set_password(db: Database, user_id: str, password_hash: str, *, must_change: bool) -> UserRecord | None:
+    """A new local password; clears the lockout and the failure count. Local accounts only."""
+    doc = await db[USERS].find_one_and_update(
+        {'_id': user_id, 'source': 'local'},
+        {
+            '$set': {
+                'password_hash': password_hash,
+                'must_change_password': must_change,
+                'failed_logins': 0,
+                'locked_until': None,
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    return UserRecord.model_validate(doc) if doc else None
+
+
+async def unlock(db: Database, user_id: str) -> UserRecord | None:
+    return await update(db, user_id, {'failed_logins': 0, 'locked_until': None})
+
+
+async def delete(db: Database, user_id: str) -> bool:
+    result = await db[USERS].delete_one({'_id': user_id})
+    return result.deleted_count == 1
+
+
+async def add_group(db: Database, user_ids: list[str], group_id: str) -> int:
+    result = await db[USERS].update_many({'_id': {'$in': user_ids}}, {'$addToSet': {'groups': group_id}})
+    return result.modified_count
+
+
+async def remove_group(db: Database, group_id: str, user_ids: list[str] | None = None) -> int:
+    """Remove a local group from ``user_ids`` (None: from every member, when the group is deleted)."""
+    query: dict[str, Any] = {'groups': group_id}
+    if user_ids is not None:
+        query['_id'] = {'$in': user_ids}
+    result = await db[USERS].update_many(query, {'$pull': {'groups': group_id}})
+    return result.modified_count
+
+
+async def count_members(db: Database, group_ids: list[str]) -> dict[str, int]:
+    """``{local group id: members}`` (index ``groups``)."""
+    if not group_ids:
+        return {}
+    pipeline: list[dict[str, Any]] = [
+        {'$match': {'groups': {'$in': group_ids}}},
+        {'$unwind': '$groups'},
+        {'$match': {'groups': {'$in': group_ids}}},
+        {'$group': {'_id': '$groups', 'n': {'$sum': 1}}},
+    ]
+    cursor = await db[USERS].aggregate(pipeline)
+    return {doc['_id']: int(doc['n']) async for doc in cursor}
+
+
+async def with_roles(db: Database, roles: list[str]) -> list[UserRecord]:
+    """Enabled users holding any of ``roles`` directly (last-administrator checks)."""
+    cursor = db[USERS].find({'roles': {'$in': roles}, 'disabled': {'$ne': True}}).limit(1000)
+    return [UserRecord.model_validate(doc) async for doc in cursor]
+
+
+async def in_groups(db: Database, group_ids: list[str]) -> list[UserRecord]:
+    """Enabled users in any of the local groups ``group_ids``."""
+    if not group_ids:
+        return []
+    cursor = db[USERS].find({'groups': {'$in': group_ids}, 'disabled': {'$ne': True}}).limit(1000)
+    return [UserRecord.model_validate(doc) async for doc in cursor]
+
+
+async def get_many(db: Database, user_ids: list[str]) -> list[UserRecord]:
+    if not user_ids:
+        return []
+    return [UserRecord.model_validate(doc) async for doc in db[USERS].find({'_id': {'$in': user_ids}})]

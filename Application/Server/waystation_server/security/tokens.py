@@ -37,9 +37,9 @@ import logging
 import re
 import secrets
 import time
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from redis.asyncio import Redis
 
@@ -55,8 +55,11 @@ from waystation_server.db import service_accounts as accounts_db
 from waystation_server.db import tokens as tokens_db
 from waystation_server.db import users as users_db
 from waystation_server.security import ratelimit
-from waystation_server.security.identity import ApiTokenRecord, TokenOwner, UserRecord
+from waystation_server.security.identity import ApiTokenRecord, TokenOwner
 from waystation_server.security.principal import AuthMethod, Principal, PrincipalKind, TokenLimits
+
+if TYPE_CHECKING:
+    from waystation_server.security.rbac import RbacState
 
 log = logging.getLogger('waystation.tokens')
 
@@ -131,9 +134,9 @@ class TokenService:
         valkey: Redis,
         settings: Settings,
         *,
-        roles_for: Callable[[UserRecord], Awaitable[tuple[str, ...]]] | None = None,
+        rbac: RbacState | None = None,
     ) -> None:
-        self._roles_for = roles_for  # effective roles of a token owner (own + groups, security.groups)
+        self._rbac = rbac  # effective roles and materialised grants of a token owner (security.rbac)
         self._db = db
         self._valkey = valkey
         self._settings = settings
@@ -207,7 +210,7 @@ class TokenService:
             user = await users_db.get(self._db, record.principal.id)
             if user is None or user.disabled:
                 return None
-            roles = await self._roles_for(user) if self._roles_for is not None else tuple(user.roles)
+            roles = await self._rbac.roles_for(user) if self._rbac is not None else tuple(user.roles)
             return Principal(
                 PrincipalKind.USER,
                 user.id,
@@ -216,17 +219,20 @@ class TokenService:
                 AuthMethod.API_TOKEN,
                 token=limits,
                 provider=user.source,
+                grants=await self._rbac.grants(user.id, roles) if self._rbac is not None else None,
             )
         account = await accounts_db.get(self._db, record.principal.id)
         if account is None or account.disabled:
             return None
+        roles = tuple(account.roles)
         return Principal(
             PrincipalKind.SERVICE_ACCOUNT,
             account.id,
             account.name,
-            tuple(account.roles),
+            roles,
             AuthMethod.API_TOKEN,
             token=limits,
+            grants=await self._rbac.grants(account.id, roles) if self._rbac is not None else None,
         )
 
     async def _load(self, record: ApiTokenRecord | None, now: float) -> _Entry:

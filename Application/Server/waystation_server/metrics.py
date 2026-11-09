@@ -94,6 +94,13 @@ class Metrics:
             buckets=HTTP_BUCKETS,
             registry=self.registry,
         )
+        self.autoblock = Counter(
+            'waystation_upstream_autoblock',
+            'Auto-block transitions by repository and event: blocked (after N consecutive failures), reblocked (a '
+            'probe failed; the period doubled), resumed (the upstream answered again).',
+            ['repo', 'event'],
+            registry=self.registry,
+        )
         self.storage_refusals = Counter(
             'waystation_storage_refusals',
             'Blob store writes refused by the free-space guard (WAYSTATION_MIN_FREE_GB).',
@@ -106,6 +113,9 @@ class Metrics:
     # ------------------------------------------------------------------ updates (O(1))
     def coalesce(self, *, repo: str, event: str) -> None:
         self.coalescing.labels(repo, event).inc()
+
+    def upstream_autoblock(self, *, repo: str, event: str) -> None:
+        self.autoblock.labels(repo, event).inc()
 
     def request(self, *, repo: str, format: str, status: int, cache: str) -> None:
         self.requests.labels(repo, format, str(status), cache).inc()

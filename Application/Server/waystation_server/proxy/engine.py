@@ -39,7 +39,12 @@ followers too (nothing unverified is ever completed); an owner that goes away (i
 expiry) is replaced by one of its followers, which continue after the bytes they already sent once those are
 confirmed identical. Valkey being down only disables coalescing.
 
-Not yet (later tasks): auto-block (T-S07 full), download counters (T-S09).
+**Auto-block** (``proxy.breaker``): every upstream request is admitted by the repository's breaker first (an
+auto-blocked upstream answers ``UpstreamAutoBlocked`` without a request, so stale-on-error applies) and every answer
+or transport failure is recorded; one request per ended block period probes the upstream.
+
+**Network options** per repository (``proxy.http.Network``): custom CA bundle and outbound HTTP proxy; through a
+proxy the SSRF guard checks every hop's target before the request.
 """
 
 from __future__ import annotations
@@ -81,9 +86,11 @@ from waystation_server.dataplane.xaccel import ServedBlob, serve_blob
 from waystation_server.db import assets as assets_db
 from waystation_server.metrics import Metrics
 from waystation_server.problems import ResponseAborted
+from waystation_server.proxy.breaker import UpstreamBreaker, blocking_status
 from waystation_server.proxy.coalesce import Coalescer, FillState, Follower, Lease, Status
-from waystation_server.proxy.http import UpstreamClients
+from waystation_server.proxy.http import UpstreamClients, network_of
 from waystation_server.proxy.records import AssetKind, StoredAsset, UpstreamMeta
+from waystation_server.proxy.ssrf import UpstreamBlocked
 from waystation_server.repos.model import AuthKind, RepoConfig, StoredProxy, secret_aad
 
 if TYPE_CHECKING:
@@ -357,6 +364,7 @@ class ProxyEngine:
         metrics: Metrics,
         keyring: Keyring | None,
         coalescer: Coalescer | None = None,
+        breaker: UpstreamBreaker | None = None,
     ) -> None:
         self.settings = settings
         self.db = db
@@ -373,6 +381,7 @@ class ProxyEngine:
             lease_s=settings.coalesce_lease_s,
             stall_s=self._stall_s,
         )
+        self.breaker = breaker or UpstreamBreaker(valkey, emitter, metrics)
 
     def _stall_s(self) -> float:
         """How long a fill may show no progress before it counts as abandoned: the owner's upstream timeouts (one
@@ -500,12 +509,15 @@ class ProxyEngine:
         if proxy.offline:
             raise NotFound('Not Found')
         url = _join(proxy.upstream_url, upstream_path)
+        await self.breaker.admit(req.repo)
         try:
-            client = self.clients.client_for(url, allow_private=proxy.allow_private_upstream)
+            client = await self.clients.client(url, network_of(proxy))
         except ValueError:
             raise UpstreamError('unsupported upstream URL') from None
-        if self.clients.proxy:
-            await self.clients.precheck(url, allow_private=proxy.allow_private_upstream)
+        except UpstreamError as exc:
+            await self._failed(req, exc.detail, blocking=not isinstance(exc, UpstreamBlocked))
+            self._account_error(req, started)
+            raise
         auth = self._auth(req.repo, proxy, AssetSpec(path=upstream_path))
         send = {'Accept-Encoding': 'gzip, deflate', **(headers or {})}
         if auth is not None:
@@ -514,19 +526,21 @@ class ProxyEngine:
             request = client.build_request(req.method, url, headers=send, content=body or None)
             response = await client.send(request, stream=True)
         except httpx.TimeoutException:
-            self._upstream_failed(req, 'upstream timed out')
+            await self._failed(req, 'upstream timed out')
             self._account_error(req, started)
             raise UpstreamTimeout('upstream timed out') from None
         except httpx.HTTPError as exc:
-            self._upstream_failed(req, _describe(exc))
+            await self._failed(req, _describe(exc))
             self._account_error(req, started)
             raise UpstreamError('upstream connection failed') from None
         except UpstreamError as exc:
-            self._upstream_failed(req, exc.detail)
+            await self._failed(req, exc.detail, blocking=not isinstance(exc, UpstreamBlocked))
             self._account_error(req, started)
             raise
         try:
             status = response.status_code
+            if blocking_status(status):
+                await self._answered(req, status)
             ok = status < 500 and status not in (401, 403, 429)
             latency = round((time.perf_counter() - started) * 1000, 1)
             self.emitter.upstream(
@@ -548,12 +562,14 @@ class ProxyEngine:
                     raise UpstreamError('upstream response exceeds the size limit')
                 chunks.append(chunk)
         except httpx.HTTPError as exc:
-            self._upstream_failed(req, _describe(exc), after_response=True)
+            await self._failed(req, _describe(exc), after_response=True)
             self._account_error(req, started)
             raise UpstreamError('upstream transfer failed') from None
         finally:
             with anyio.CancelScope(shield=True):
                 await response.aclose()
+        if not blocking_status(status):
+            await self._answered(req, status)  # success once the whole body arrived
         content = b''.join(chunks)
         self.metrics.add_bytes(repo=req.repo.name, direction='in_upstream', count=done)
         self._account(req, CacheState.FETCHING, status, len(content), started)
@@ -695,17 +711,19 @@ class ProxyEngine:
                 headers['If-None-Match'] = conditional.upstream.etag
             if conditional.upstream.last_modified:
                 headers['If-Modified-Since'] = conditional.upstream.last_modified
-        allow_private = proxy.allow_private_upstream
+        network = network_of(proxy)
         redirects = retries = 0
         challenged = False
+        await self.breaker.admit(req.repo)
         started = time.perf_counter()
         while True:
             try:
-                client = self.clients.client_for(url, allow_private=allow_private)
+                client = await self.clients.client(url, network)
             except ValueError:
                 raise UpstreamError('upstream redirected to an unsupported URL') from None
-            if self.clients.proxy:
-                await self.clients.precheck(url, allow_private=allow_private)
+            except UpstreamError as exc:  # SSRF guard refusals, DNS failures (outbound proxy: checked here)
+                await self._failed(req, exc.detail, blocking=not isinstance(exc, UpstreamBlocked))
+                raise
             hop_headers = dict(headers)
             if auth is not None:
                 hop_headers.update(await auth.headers(url))
@@ -716,23 +734,23 @@ class ProxyEngine:
                     retries += 1
                     await asyncio.sleep(0.2)
                     continue
-                self._upstream_failed(req, _describe(exc))
+                await self._failed(req, _describe(exc))
                 raise UpstreamError('upstream unreachable') from None
             except httpx.TimeoutException:
-                self._upstream_failed(req, 'upstream timed out')
+                await self._failed(req, 'upstream timed out')
                 raise UpstreamTimeout('upstream timed out') from None
             except httpx.HTTPError as exc:
-                self._upstream_failed(req, _describe(exc))
+                await self._failed(req, _describe(exc))
                 raise UpstreamError('upstream connection failed') from None
             except UpstreamError as exc:  # SSRF guard refusals, DNS failures
-                self._upstream_failed(req, exc.detail)
+                await self._failed(req, exc.detail, blocking=not isinstance(exc, UpstreamBlocked))
                 raise
             status = response.status_code
             if status in REDIRECT_CODES and 'location' in response.headers:
                 await response.aclose()
                 redirects += 1
                 if redirects > MAX_REDIRECTS:
-                    self._upstream_failed(req, 'too many redirects')
+                    await self._failed(req, 'too many redirects', blocking=False)
                     raise UpstreamError('upstream redirected too many times')
                 url = urljoin(url, response.headers['location'])
                 if urlsplit(url).scheme not in ('http', 'https'):
@@ -752,6 +770,8 @@ class ProxyEngine:
                 error=None if ok else f'upstream answered {status}',
                 latency_ms=latency,
             )
+            if not (status == 200 and method == 'GET'):
+                await self._answered(req, status)  # a 200 GET succeeds once its body arrived (fills, below)
             self.metrics.upstream_latency.labels(req.repo.name).observe(latency / 1000)
             info = UpstreamInfo(
                 url=url,
@@ -768,6 +788,23 @@ class ProxyEngine:
         self.emitter.upstream(
             repo_id=req.repo.id, format=req.repo.format, ok=False, error=error, count_request=not after_response
         )
+
+    async def _failed(
+        self, req: FormatRequest, error: str, *, after_response: bool = False, blocking: bool = True
+    ) -> None:
+        """An upstream request failed: health, counters and (``blocking``: the upstream is down) auto-block."""
+        self._upstream_failed(req, error, after_response=after_response)
+        if blocking:
+            with anyio.CancelScope(shield=True):
+                await self.breaker.failure(req.repo, error)
+
+    async def _answered(self, req: FormatRequest, status: int) -> None:
+        """The upstream answered ``status``: auto-block counts 5xx and 429 as failures, anything else as success."""
+        with anyio.CancelScope(shield=True):
+            if blocking_status(status):
+                await self.breaker.failure(req.repo, f'upstream answered {status}')
+            else:
+                await self.breaker.success(req.repo)
 
     # ------------------------------------------------------------------ coalescing: the owner
     async def _serve_owner(
@@ -1240,6 +1277,7 @@ class ProxyEngine:
                     raise UpstreamError('upstream file exceeds the size limit')
                 chunks.append(chunk)
                 self.emitter.transfer_progress(tid, done, bytes_total=total)
+            await self._answered(req, info.status)  # the whole body arrived (auto-block success)
             data = b''.join(chunks)
             checksums = await asyncio.to_thread(_verify, spec.expected, data)
             if spec.validate is not None:
@@ -1261,8 +1299,10 @@ class ProxyEngine:
                 self.emitter.transfer_finished(tid, status=502, bytes_done=done, error=error)
             else:
                 self._account_error(req, started)
-            if isinstance(exc, DigestMismatch | httpx.HTTPError):
+            if isinstance(exc, DigestMismatch):
                 self._upstream_failed(req, error, after_response=True)
+            elif isinstance(exc, httpx.HTTPError):
+                await self._failed(req, error, after_response=True)
             if isinstance(exc, httpx.TimeoutException):
                 raise UpstreamTimeout('upstream timed out') from None
             if isinstance(exc, httpx.HTTPError):
@@ -1376,6 +1416,7 @@ class ProxyEngine:
                 if held is not None:
                     yield held
                 held = chunk
+            await self._answered(req, info.status)  # the whole body arrived (auto-block success)
             if expected is not None:
                 for alg, hasher in fill.extra.items():
                     if hasher.hexdigest() != expected.digests()[alg]:
@@ -1392,8 +1433,10 @@ class ProxyEngine:
                 yield held
         except BaseException as exc:
             error = _describe(exc)
-            if isinstance(exc, DigestMismatch | httpx.HTTPError):
+            if isinstance(exc, DigestMismatch):
                 self._upstream_failed(req, error, after_response=True)
+            elif isinstance(exc, httpx.HTTPError):
+                await self._failed(req, error, after_response=True)
             log.warning('cache fill aborted', extra={'path': spec.path, 'error': error, 'bytes': fill.done})
             with anyio.CancelScope(shield=True):
                 await lease.fail(_as_error(exc))
