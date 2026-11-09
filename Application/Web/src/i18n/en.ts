@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // English catalogue. Plurals: "one|other", chosen by the `count` parameter.
+import { admin } from './admin'
 
 export const en = {
   common: {
@@ -1576,6 +1577,7 @@ export const en = {
     },
     loadFailed: 'Could not load storage figures',
   },
+  admin,
   nexusImport: {
     open: 'Import from Nexus',
     title: 'Import from Nexus',

@@ -47,6 +47,7 @@ JOB_OUTBOX = 'job_outbox'
 WORKERS = 'workers'
 
 DAY_S = 86_400
+STATS_MINUTE_RETENTION_DAYS = 7  # per-minute statistics (time-series TTL)
 CASE_INSENSITIVE = {'locale': 'en', 'strength': 2}
 
 
@@ -273,7 +274,7 @@ SPECS: tuple[CollectionSpec, ...] = (
         STATS_MINUTE,
         options={
             'timeseries': {'timeField': 'ts', 'metaField': 'm', 'granularity': 'minutes'},
-            'expireAfterSeconds': 7 * DAY_S,
+            'expireAfterSeconds': STATS_MINUTE_RETENTION_DAYS * DAY_S,
         },
     ),
     CollectionSpec(MIGRATIONS),
