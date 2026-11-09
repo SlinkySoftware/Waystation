@@ -158,6 +158,22 @@ class BlobGc(JobPayload):
         return 'blob.gc'
 
 
+class BlobVerify(JobPayload):
+    """Check that every asset's blob file exists with the right size (and, with ``deep``, the right sha256): proxy
+    assets whose blob is missing or damaged are marked and re-fetched on the next request, hosted ones are reported
+    as lost (SPECIFICATION §8.5; ``waystation_worker.verify``). Run after a restore and on a weekly schedule."""
+
+    kind: ClassVar[str] = 'blob.verify'
+    queue: ClassVar[Queue] = 'maintenance'
+    max_attempts: ClassVar[int] = 3
+
+    deep: bool = False  # also re-hash every blob file (reads all content: slow on a large store)
+    repair: bool = True  # move damaged blob files out of the way so proxies re-fetch them (False: report only)
+
+    def dedupe_key(self) -> str | None:
+        return 'blob.verify'
+
+
 class QuotaReconcile(JobPayload):
     """Recount every repository's stored bytes from ``assets`` (``repo_usage``; quotas, SPEC §4.8) and announce quota
     thresholds the recount crossed (``waystation_worker.quota``)."""

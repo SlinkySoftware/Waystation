@@ -23,7 +23,7 @@ STORAGE_LOW: Final = 'storage:low'
 # on /metrics as ``waystation_webhook_deliveries_total{outcome}`` (T-O05).
 WEBHOOK_TOTALS: Final = 'webhooks:totals'
 WEBHOOK_OUTCOMES: Final = ('succeeded', 'failed', 'dead')
-# Running totals of cleanup and blob GC (hash; fields in MAINTENANCE_FIELDS), exported on /metrics.
+# Running totals of cleanup, blob GC and blob verify (hash; fields in MAINTENANCE_FIELDS), exported on /metrics.
 MAINTENANCE_TOTALS: Final = 'maintenance:totals'
 MAINTENANCE_FIELDS: Final = (
     'cleanup_removed',
@@ -32,6 +32,11 @@ MAINTENANCE_FIELDS: Final = (
     'gc_freed_bytes',
     'gc_uploads_removed',
     'gc_runs',
+    'verify_runs',
+    'verify_missing_blobs',
+    'verify_damaged_blobs',
+    'verify_refetch_marked',
+    'verify_hosted_lost',
 )
 
 
