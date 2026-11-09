@@ -41,6 +41,16 @@ ensure_repo docker-hosted '{
 }'
 ensure_repo docker-hosted-copy '{"name": "docker-hosted-copy", "format": "docker", "type": "hosted", "online": true}'
 
+step 'create docker hosted repository docker-quota (hard quota of 64 KiB)'
+ensure_repo docker-quota '{
+  "name": "docker-quota",
+  "format": "docker",
+  "type": "hosted",
+  "online": true,
+  "description": "Hard quota (client harness)",
+  "storage": {"quota_bytes": 65536, "quota_mode": "hard"}
+}'
+
 step 'create docker group docker-group (docker-hosted-copy, then docker-hosted; pushes go to docker-hosted)'
 ensure_repo docker-group '{
   "name": "docker-group",

@@ -4,7 +4,7 @@
 // CSRF header on unsafe methods, cursor pagination, realistic latency.
 import { delay, http, HttpResponse } from 'msw'
 
-import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, Problem, Repository, RepositoryWrite, Session, StatsRange } from '@/api/types'
+import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, Problem, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
 import { activityCsv, activityPage, activityQuery } from './activity'
@@ -14,7 +14,7 @@ import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvi
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { genericTree, rawListing } from './fixtures/raw'
-import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
+import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
 import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
@@ -93,6 +93,11 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (body.type !== 'proxy' && body.format !== 'docker') {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
+  }
+  const quota = body.storage?.quota_bytes
+  if (quota !== null && quota !== undefined) {
+    if ((existing?.type ?? body.type) === 'group') errors.push({ field: 'storage.quota_bytes', message: 'groups store nothing: set quotas on their members', code: 'invalid' })
+    else if (!Number.isInteger(quota) || quota < 1) errors.push({ field: 'storage.quota_bytes', message: 'must be a whole number of bytes, at least 1', code: 'range' })
   }
   if (body.type === 'group') {
     const members = body.group?.members ?? []
@@ -178,10 +183,26 @@ function toRepository(body: RepositoryWrite, existing?: Repository): Repository 
     hosted: (existing?.type ?? body.type) === 'hosted' ? { write_policy: body.hosted?.write_policy ?? 'allow_redeploy', immutable_tag_patterns: body.hosted?.immutable_tag_patterns ?? [] } : undefined,
     group: (existing?.type ?? body.type) === 'group' && body.group ? { members: body.group.members, writable_member: body.group.writable_member ?? null } : undefined,
     format_options: body.format_options,
+    ...storageOf(body, existing),
     created_at: existing?.created_at ?? now,
     updated_at: now,
     stats: existing?.stats ?? { size_bytes: 0, artifact_count: 0, hit_ratio_24h: null, requests_24h: 0, bytes_served_24h: 0, bytes_saved_24h: 0, requests_spark_24h: Array(24).fill(0), last_activity_at: null },
   }
+}
+
+/** The quota fields of a written repository (groups store nothing: no quota). */
+function storageOf(body: RepositoryWrite, existing?: Repository): Pick<Repository, 'storage' | 'quota'> {
+  const group = (existing?.type ?? body.type) === 'group'
+  const storage = { quota_bytes: group ? null : (body.storage?.quota_bytes ?? null), quota_mode: body.storage?.quota_mode ?? 'soft' }
+  return { storage, quota: quotaView(storage, existing?.stats.size_bytes ?? 0) }
+}
+
+/** The low-disk guard as the server reports it: the settings and the data volume's free space now. */
+function guardView(): StorageGuard {
+  const total = world.storageTotal
+  const free = total - world.storageUsed - 312 * 1024 ** 3
+  const floor = Math.max(world.guard.min_free_bytes, Math.floor((total * world.guard.min_free_percent) / 100))
+  return { ...world.guard, floor_bytes: floor, free_bytes: free, total_bytes: total, low: free < floor, low_since: free < floor ? new Date().toISOString() : null }
 }
 
 function range(url: URL): StatsRange {
@@ -516,6 +537,24 @@ export const handlers = [
       by_format: [...formats].map(([format, v]) => ({ format, ...v })).sort((a, b) => b.bytes - a.bytes),
       by_repository: world.repos.map((r) => ({ repository: r.name, format: r.format, bytes: r.stats.size_bytes, artifacts: r.stats.artifact_count })).sort((a, b) => b.bytes - a.bytes),
     })
+  }),
+  http.get(`${API}/storage/guard`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    return HttpResponse.json(guardView())
+  }),
+  http.put(`${API}/storage/guard`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await delay(300)
+    const body = (await request.json()) as StorageGuardSettings
+    const errors: FieldError[] = []
+    if (!Number.isInteger(body.min_free_bytes) || body.min_free_bytes < 0) errors.push({ field: 'min_free_bytes', message: 'must be a whole number of bytes, 0 or more', code: 'range' })
+    if (typeof body.min_free_percent !== 'number' || body.min_free_percent < 0 || body.min_free_percent > 90) errors.push({ field: 'min_free_percent', message: 'must be between 0 and 90', code: 'range' })
+    if (errors.length) return problem(422, 'Validation failed', 'Some fields need attention.', errors)
+    world.guard = { min_free_bytes: body.min_free_bytes, min_free_percent: body.min_free_percent, updated_at: new Date().toISOString() }
+    return HttpResponse.json(guardView())
   }),
   http.get(`${API}/stats/upstreams`, async ({ request }) => {
     const denied = guard(request)

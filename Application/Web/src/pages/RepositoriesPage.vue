@@ -56,7 +56,10 @@
           </q-td>
         </template>
         <template #body-cell-size="{ row }">
-          <q-td class="text-right"><SizeCell :bytes="row.stats.size_bytes" /></q-td>
+          <q-td class="text-right">
+            <SizeCell :bytes="row.stats.size_bytes" />
+            <QuotaMeter v-if="row.quota" :quota="row.quota" compact class="repos__quota" />
+          </q-td>
         </template>
         <template #body-cell-hit="{ row }">
           <q-td class="text-right">{{ formatPercent(row.stats.hit_ratio_24h) }}</q-td>
@@ -85,6 +88,7 @@
             </div>
             <div class="repos__card-stats">
               <span><SizeCell :bytes="row.stats.size_bytes" /></span>
+              <span v-if="row.quota">{{ t('quota.title') }} {{ quotaMeta(row.quota).percent }}</span>
               <span>{{ formatCount(row.stats.artifact_count) }} {{ t('repos.artifactsShort') }}</span>
               <span>{{ formatPercent(row.stats.hit_ratio_24h) }} {{ t('repos.hitShort') }}</span>
               <span><TimeCell :value="row.stats.last_activity_at" /></span>
@@ -117,6 +121,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import CreateRepositoryDialog from '@/components/repositories/CreateRepositoryDialog.vue'
+import QuotaMeter from '@/components/repositories/QuotaMeter.vue'
 import SizeCell from '@/components/SizeCell.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import TimeCell from '@/components/TimeCell.vue'
@@ -128,6 +133,7 @@ import { useRepositoriesStore } from '@/stores/repositories'
 import { formatLabel, LISTED_FORMATS, repoMark, statusMeta, typeMeta } from '@/utils/domain'
 import { formatCount, formatPercent } from '@/utils/format'
 import { iconAdd, iconLink, iconSearch } from '@/utils/icons'
+import { quotaMeta } from '@/utils/quota'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -195,6 +201,12 @@ function onCreated(repo: Repository): void {
 </script>
 
 <style scoped>
+.repos__quota {
+  margin-top: 4px;
+  margin-left: auto;
+  max-width: 120px;
+}
+
 .repos {
   overflow: hidden;
 }
