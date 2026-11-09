@@ -114,3 +114,9 @@ go: fixtures are the version lists, `.info`/`.mod`/`.zip` files of `github.com/g
 depend on the order of its lookups. The go command sends credentials over HTTPS only, so the group scenario runs
 through `go/tlsfront.go` (a standard-library TLS reverse proxy with a throwaway self-signed certificate, started in the
 client container).
+terraform: fixtures are `hashicorp/null` 3.1.0 for linux_amd64 from both origin registries: service discovery,
+version lists, download documents, `SHA256SUMS`, signatures and the two provider archives (HashiCorp's release site;
+GitHub release assets behind a redirect for OpenTofu). A provider archive is a Go binary of about 4.6 MiB and no
+smaller real one with plugin protocol 5 exists, so the budget is raised to 11 MiB (5 MiB per file,
+`tests/clients/terraform/format.env`). Both clients accept only `https://` mirrors: `client-terraform` is Alpine with
+terraform, tofu, curl and `go/tlsfront.go` built in.
