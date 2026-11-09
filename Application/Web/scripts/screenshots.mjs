@@ -63,6 +63,8 @@ const MOCK_SHOTS = [
   { name: 'admin-tokens', path: 'admin/tokens?status=all', full: true },
   { name: 'admin-service-accounts', path: 'admin/tokens?tab=accounts' },
   { name: 'admin-service-account-panel', path: 'admin/tokens?tab=accounts', action: openAccount },
+  { name: 'admin-settings', path: 'admin/settings', full: true },
+  { name: 'admin-system', path: 'admin/system', full: true },
 ]
 
 /** The real-server tour: the demo repositories and the content `make e2e-m0` caches. */

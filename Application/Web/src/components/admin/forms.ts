@@ -203,3 +203,11 @@ export function toAccountUpdate(m: AccountFormModel, original: { description: st
 }
 
 export const ACCOUNT_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{1,62}$/
+
+/** A read-only setting (LimitList): label, formatted value, the environment variable that sets it. */
+export interface LimitItem {
+  key: string
+  label: string
+  value: string
+  env: string | null
+}
