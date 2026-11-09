@@ -1,6 +1,6 @@
 # ADR 0004: OIDC relying party on the shared upstream client, JOSE with `joserfc`
 
-Status: Proposed — needs the owner's approval (2026-11-09, T-A02). The code on the T-A02 branch already follows it.
+Status: accepted (2026-11-09, approved by the owner).
 
 ## Context
 ARCHITECTURE §2 names `authlib` for OIDC. T-A02 needs two things from a library: verifying ID tokens (JWS, JWK sets)

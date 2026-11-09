@@ -18,7 +18,7 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   follows the end-session URL; MSW mocks. Tests: unit (wrong aud/iss, expired, bad nonce, alg confusion, unknown
   kid → JWKS refresh, PKCE, state/binding) and integration against a Keycloak realm (`make test-integration`) and
   authentik (opt-in `make test-integration-authentik`; `Build/Containers/test/keycloak`, `.../authentik`). New
-  dependency `joserfc`; ADR 0004 (Proposed) replaces `authlib` in ARCHITECTURE §2.
+  dependency `joserfc`; ADR 0004 (accepted 2026-11-09) replaces `authlib` in ARCHITECTURE §2.
 - T-A03 (OIDC half): OIDC sign-ins go through `security.external.link_identity` (`oidc:<provider>`, auto-provision
   toggle, never linked to an account with a local password) and sync the group claim into `external_groups`, so
   provider group mappings apply; OIDC provider admin form. Left: Users/Groups admin pages (T-U08).
