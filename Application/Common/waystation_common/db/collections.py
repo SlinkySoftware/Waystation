@@ -148,6 +148,13 @@ SPECS: tuple[CollectionSpec, ...] = (
                 'repo_coordinates',
                 [('repo_id', ASCENDING), ('namespace', ASCENDING), ('name', ASCENDING), ('version_sort', ASCENDING)],
             ),
+            # Maven (T-P5-MAVEN): one component per groupId:artifactId:version of a repository.
+            _ix(
+                'maven_gav_unique',
+                [('repo_id', ASCENDING), ('namespace', ASCENDING), ('name', ASCENDING), ('version', ASCENDING)],
+                unique=True,
+                partialFilterExpression={'format': 'maven'},
+            ),
             _ix('format_name_ci', [('format', ASCENDING), ('name', ASCENDING)], collation=CASE_INSENSITIVE),
             _ix('last_downloaded_at', [('last_downloaded_at', ASCENDING)]),
             _ix('text', [('name', TEXT), ('attributes.description', TEXT)]),

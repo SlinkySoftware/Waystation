@@ -128,6 +128,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/tasks/dead-letters/{letter_id}', 'delete'),
     ('/tasks/dead-letters/{letter_id}/retry', 'post'),
     ('/repositories/{name}/docker/manifest', 'get'),
+    ('/repositories/{name}/maven/artifacts', 'get'),
+    ('/repositories/{name}/maven/versions', 'get'),
     ('/search', 'get'),
     ('/stats/summary', 'get'),
     ('/stats/traffic', 'get'),

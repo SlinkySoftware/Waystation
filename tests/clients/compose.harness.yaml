@@ -152,6 +152,19 @@ services:
         COPY --from=build /conformance.test /usr/local/bin/conformance.test
     image: waystation-harness-conformance:1.1.1-1  # bump the suffix when the Dockerfile above changes
     user: "0:0"
+  client-maven:  # Maven 3.9 (maven format); build plugins pre-seeded from Maven Central into /opt/m2-seed at image build
+    <<: *client
+    build:
+      dockerfile_inline: |
+        FROM maven:3.9.11-eclipse-temurin-21
+        RUN set -eu; mkdir -p /tmp/seed/src/main/java/seed; cd /tmp/seed; \
+            printf '%s\n' '<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>seed</groupId><artifactId>seed</artifactId><version>1</version><properties><maven.compiler.release>21</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties></project>' > pom.xml; \
+            printf 'package seed; public class Seed {}\n' > src/main/java/seed/Seed.java; \
+            mvn -B -q -Dmaven.repo.local=/opt/m2-seed org.apache.maven.plugins:maven-dependency-plugin:3.8.1:resolve deploy -DaltDeploymentRepository=seed::file:///tmp/seed-repo; \
+            rm -rf /tmp/seed /tmp/seed-repo /opt/m2-seed/seed; \
+            find /opt/m2-seed \( -name _remote.repositories -o -name '*.lastUpdated' -o -name resolver-status.properties -o -name 'maven-metadata-*.xml' \) -delete; \
+            chmod -R a+rX /opt/m2-seed
+    image: waystation-harness-maven:3.9.11-1  # bump the suffix when the Dockerfile above changes
 
   # ---- Waystation stack under test: own container names, no published port, trusts the harness CA.
   web:
