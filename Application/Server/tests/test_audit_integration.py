@@ -322,7 +322,9 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
             headers=basic('admin', PASSWORD),
         )
         auth = {'Authorization': f'Bearer {issued.json()["token"]}'}
-        blob = await docker.post('/v2/images/app/blobs/uploads/', params={'digest': config_digest}, content=config, headers=auth)
+        blob = await docker.post(
+            '/v2/images/app/blobs/uploads/', params={'digest': config_digest}, content=config, headers=auth
+        )
         assert blob.status_code == 201, blob.text
         pushed = await docker.put(
             '/v2/images/app/manifests/1.0',
