@@ -91,12 +91,15 @@ export const options = {
 // ---------------------------------------------------------------------------- helpers
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
+let loggedErrors = 0; // per VU: the first few failures are logged with their details
 function ok(res, expected, label) {
   const good = res.status === expected && res.error_code === 0;
   if (!good) {
     metrics.errors.add(1, { scenario: SCENARIO });
-    if (exec.vu.iterationInScenario < 3) {
-      console.warn(`${label}: status ${res.status} error ${res.error_code} ${res.error || ''}`);
+    if (loggedErrors < 3) {
+      loggedErrors += 1;
+      const id = res.headers['X-Request-Id'] || '-';
+      console.warn(`${label}: ${res.request.url} status ${res.status} error ${res.error_code} ${res.error || ''} request-id ${id}`);
     }
   }
   return good;
