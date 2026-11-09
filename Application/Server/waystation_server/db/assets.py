@@ -41,3 +41,19 @@ async def mark_revalidated(db: Database, asset_id: str, upstream: UpstreamMeta, 
 
 async def delete(db: Database, asset_id: str) -> None:
     await db[ASSETS].delete_one({'_id': asset_id})
+
+
+async def delete_path(db: Database, repo_id: str, path: str) -> StoredAsset | None:
+    """Remove the asset at ``(repo_id, path)`` (hosted deletes); returns what was removed."""
+    doc = await db[ASSETS].find_one_and_delete({'repo_id': repo_id, 'path': path})
+    return StoredAsset.model_validate(doc) if doc else None
+
+
+async def sizes(db: Database, repo_id: str, paths: list[str]) -> dict[str, int]:
+    """Which of ``paths`` the repository holds, with their sizes (index ``repo_path_unique``)."""
+    if not paths:
+        return {}
+    cursor = db[ASSETS].find(
+        {'repo_id': repo_id, 'path': {'$in': sorted(set(paths))}}, {'path': 1, 'size': 1, '_id': 0}
+    )
+    return {str(doc['path']): int(doc['size']) async for doc in cursor}

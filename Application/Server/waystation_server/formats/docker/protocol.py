@@ -41,14 +41,15 @@ TAG_RE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9._-]{0,127}')
 DIGEST_RE = re.compile(r'(sha256:[a-f0-9]{64}|sha512:[a-f0-9]{128})')
 NAME_MAX = 255
 
-Op = Literal['base', 'manifest', 'blob', 'tags', 'referrers']
+Op = Literal['base', 'manifest', 'blob', 'tags', 'referrers', 'upload']
+UPLOAD_ID_RE = re.compile(r'[0-9a-f]{32}')
 
 
 @dataclass(frozen=True)
 class Operation:
     op: Op
     name: str = ''  # the image name as the client wrote it (after the repository prefix/alias)
-    reference: str = ''  # tag or digest (manifests), digest (blobs, referrers)
+    reference: str = ''  # tag or digest (manifests), digest (blobs, referrers), session id (uploads; '' = start)
 
     @property
     def by_digest(self) -> bool:
@@ -79,6 +80,11 @@ def parse(path: str) -> Operation:
         name, op, rest = '/'.join(parts[:i]), parts[i], parts[i + 1 :]
         if op == 'tags' and rest == ['list']:
             return Operation('tags', _name(name))
+        if op == 'blobs' and rest[:1] == ['uploads'] and len(rest) <= 2:
+            session = rest[1] if len(rest) == 2 else ''
+            if session and not UPLOAD_ID_RE.fullmatch(session):
+                raise RequestRejected('BLOB_UPLOAD_UNKNOWN', 'blob upload unknown to registry', status=404)
+            return Operation('upload', _name(name), session)
         if len(rest) != 1:
             continue
         ref = rest[0]
@@ -173,6 +179,16 @@ def check_tags(data: bytes) -> None:
         raise UpstreamError('upstream tag list is not valid JSON') from None
     if not isinstance(doc, dict) or not isinstance(doc.get('tags') or [], list):
         raise UpstreamError('upstream tag list has an unexpected shape')
+
+
+def tag_names(data: bytes) -> list[str]:
+    """The valid tag names of a ``tags/list`` answer (already checked by ``check_tags`` when it was cached)."""
+    try:
+        doc = json.loads(data)
+    except ValueError:
+        return []
+    tags = doc.get('tags') if isinstance(doc, dict) else None
+    return [t for t in tags if isinstance(t, str) and TAG_RE.fullmatch(t)] if isinstance(tags, list) else []
 
 
 # ---------------------------------------------------------------------------- tag list paging

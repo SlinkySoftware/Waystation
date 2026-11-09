@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, DockerOptions, Format, M0Format, NpmOptions, RawOptions, Repository, RepositoryWrite, YumOptions } from '@/api/types'
+import type { AptOptions, DockerOptions, Format, M0Format, NpmOptions, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
 
 /** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (options carried through). */
 export type FormFormat = M0Format | 'yum'
 
+/** Repository types the form can create or edit: proxies for every format; hosted and group where the format serves them. */
+export type FormType = 'proxy' | 'hosted' | 'group'
+
+/** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker']
+/** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker']
+
 export interface RepoFormModel {
   name: string
   format: FormFormat
+  type: FormType
   description: string
   online: boolean
   upstreamUrl: string
@@ -23,6 +32,12 @@ export interface RepoFormModel {
   staleOnError: boolean
   offline: boolean
   allowPrivate: boolean
+  // hosted
+  writePolicy: WritePolicy
+  immutableTags: string[]
+  // group: member names in resolution order, and the hosted member that receives pushes (docker)
+  members: string[]
+  writableMember: string | null
   /** Extra trusted CA certificates (PEM) for this upstream; empty = system CAs only. */
   caPem: string
   /** Outbound HTTP proxy for this upstream; empty = the server-wide proxy. */
@@ -71,10 +86,11 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   raw: [{ id: 'github', label: 'GitHub releases', apply: { name: 'raw-github', upstreamUrl: 'https://github.com' } }],
 }
 
-export function emptyModel(format: FormFormat): RepoFormModel {
+export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFormModel {
   return {
     name: '',
     format,
+    type,
     description: '',
     online: true,
     upstreamUrl: '',
@@ -88,6 +104,10 @@ export function emptyModel(format: FormFormat): RepoFormModel {
     staleOnError: true,
     offline: false,
     allowPrivate: false,
+    writePolicy: 'allow_redeploy',
+    immutableTags: [],
+    members: [],
+    writableMember: null,
     caPem: '',
     httpProxy: '',
     autoBlock: true,
@@ -108,8 +128,9 @@ export function emptyModel(format: FormFormat): RepoFormModel {
 }
 
 export function modelFromRepository(repo: Repository): RepoFormModel {
-  const m = emptyModel(repo.format as FormFormat)
+  const m = emptyModel(repo.format as FormFormat, repo.type)
   const p = repo.proxy
+  const h = repo.hosted
   const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions
   return {
     ...m,
@@ -126,6 +147,10 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     staleOnError: p?.stale_on_error ?? true,
     offline: p?.offline ?? false,
     allowPrivate: p?.allow_private_upstream ?? false,
+    writePolicy: h?.write_policy ?? 'allow_redeploy',
+    immutableTags: h?.immutable_tag_patterns ?? [],
+    members: repo.group?.members ?? [],
+    writableMember: repo.group?.writable_member ?? null,
     caPem: p?.ca_pem ?? '',
     httpProxy: p?.http_proxy ?? '',
     autoBlock: p?.auto_block?.enabled ?? true,
@@ -148,7 +173,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
 function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
   switch (m.format) {
     case 'docker':
-      return { aliases: m.aliases, docker_hub: m.dockerHub, default_repo: m.defaultRepo }
+      return m.type !== 'proxy' ? { aliases: [], docker_hub: false, default_repo: m.defaultRepo } : { aliases: m.aliases, docker_hub: m.dockerHub, default_repo: m.defaultRepo }
     case 'npm':
       return { audit_passthrough: m.auditPassthrough }
     case 'apt':
@@ -162,12 +187,24 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
 }
 
 export function toWrite(m: RepoFormModel): RepositoryWrite {
-  return {
+  const common = {
     name: m.name.trim(),
     format: m.format as Format,
-    type: 'proxy',
     online: m.online,
     description: m.description.trim(),
+    format_options: formatOptions(m),
+  }
+  if (m.type === 'hosted') {
+    const patterns = m.immutableTags.map((p) => p.trim()).filter(Boolean)
+    return { ...common, type: 'hosted', hosted: { write_policy: m.writePolicy, immutable_tag_patterns: patterns } }
+  }
+  if (m.type === 'group') {
+    const writable = m.writableMember && m.members.includes(m.writableMember) ? m.writableMember : null
+    return { ...common, type: 'group', group: { members: [...m.members], writable_member: writable } }
+  }
+  return {
+    ...common,
+    type: 'proxy',
     proxy: {
       upstream_url: m.upstreamUrl.trim(),
       auth: {
@@ -191,7 +228,6 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
         max_s: Math.max(1, Math.round(m.autoBlockMaxMin * 60)),
       },
     },
-    format_options: formatOptions(m),
   }
 }
 
