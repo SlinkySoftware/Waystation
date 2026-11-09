@@ -1,4 +1,4 @@
-"""One bounded retry for idempotent MongoDB reads (ARCHITECTURE §6).
+"""One bounded retry for idempotent MongoDB reads (a T-P2-PERF finding).
 
 PyMongo's own ``retryReads`` retries a read once, at once, on a network error. Under a connection storm (hundreds of
 concurrent requests opening connections at the same moment) that immediate retry can meet the same condition, and a
