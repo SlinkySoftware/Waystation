@@ -105,6 +105,21 @@ services:
   client-alma:  # dnf on AlmaLinux 10 (yum format)
     <<: *client
     image: almalinux:10.2
+  client-python:  # pip, uv, twine, Poetry and PDM (pypi format)
+    <<: *client
+    build:
+      dockerfile_inline: |
+        FROM ghcr.io/astral-sh/uv:0.13.7 AS uv
+        FROM python:3.14-slim
+        RUN pip install --no-cache-dir --root-user-action=ignore pip==26.3 twine==7.0.0 poetry==2.5.1 pdm==2.29.7
+        COPY --from=uv /uv /usr/local/bin/uv
+    image: waystation-harness-python:3.14-2  # bump the suffix when the Dockerfile above changes
+    environment:
+      <<: *client-env
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_ROOT_USER_ACTION: ignore
+      UV_NO_PROGRESS: "1"
+      UV_PYTHON_DOWNLOADS: never
   client-skopeo:  # registry API pulls without a daemon (docker format)
     <<: *client
     image: quay.io/skopeo/stable:v1.20

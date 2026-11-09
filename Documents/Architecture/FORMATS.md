@@ -276,6 +276,45 @@ Specs: PEP 503 (simple HTML), PEP 691 (JSON simple API, `application/vnd.pypi.si
   metadata extraction from the wheel/sdist; yank support.
 - Group: merge simple pages (union of files by filename; first member wins).
 - Clients: pip, uv, poetry, pdm, twine.
+- Built (T-P5-PYPI, `formats/pypi/`):
+  - Routes: `simple/`, `simple/<project>/`, `packages/<project>/<file>` (+ `.metadata`), `pypi/<project>[/<version>]/json`,
+    `POST` to the repository root (or `legacy/`). A non-normalised project name or a missing trailing slash answers
+    `301` to the canonical URL (`?` query kept). `Accept` negotiation (PEP 691): highest `q`; between equals an
+    explicit type beats a wildcard, then JSON, `vnd.pypi.simple.v1+html`, `text/html`; no `Accept` or wildcards only
+    → `text/html`; nothing acceptable → `406`. The response's `Content-Type` is the negotiated type; `Vary: Accept`.
+  - Upstream URL = index root (`https://pypi.org`: pages at `<url>/simple/<project>/`, legacy JSON at
+    `<url>/pypi/...`); a URL ending in `/simple` or `/+simple` (devpi) is the simple root itself (no legacy JSON).
+  - Proxy pages: one metadata asset per representation (`simple/<project>/index.json` / `index.html`), both fetched
+    with `Accept: application/vnd.pypi.simple.v1+json, ...+html;q=0.2, text/html;q=0.01` and rendered from whatever
+    the upstream answered (JSON or HTML): file URLs become `../../packages/<project>/<file>` (relative, so pages work
+    for any repository or group), hashes (malformed known hashes refuse the page; unknown algorithms dropped),
+    `requires-python`, `yanked` (reason kept), `core-metadata` (+ legacy `data-dist-info-metadata`), `size`,
+    `upload-time`, PEP 700 `versions` (derived from file names when absent; API 1.1 when every file has a size, else
+    1.0). PEP 740 `provenance` links are dropped (they would point upstream). The cached JSON keeps each file's
+    upstream URL under the private key `_ws_url` (PEP 691 reserves `_`-prefixed keys); clients ignore it.
+  - Proxy files: looked up by file name in the cached JSON page (refreshed once when not listed, then `404`; parsed
+    pages kept in a small per-process cache by blob digest); fetched from the page's URL, verified against sha256
+    (else sha512/sha1/md5) and the size before commit. `.metadata`: `<file URL>.metadata`, verified against the
+    page's `core-metadata` hashes; `404` when the page announces none. A cached file is served without a page lookup.
+  - Legacy JSON (`json_api` option, default on, proxies only): pass-through cached as metadata with `urls[].url` and
+    `releases.*[].url` rewritten to absolute repository URLs; groups answer from their first proxy member.
+  - Hosted: upload API (multipart streamed by an in-house reader: text fields ≤ 4 MiB each and 8 MiB in total, ≤ 200
+    parts; `content` streamed into the blob store as a live upload transfer; signatures and attestations ignored).
+    Core metadata read in a thread (`distmeta`: zip/tar entry and size bounds, every member name and link target
+    checked for absolute paths, `..`, backslashes, NUL). Name/version must agree (normalised name, PEP 440 version)
+    across file name, metadata and form; `sha256_digest` checked at commit. Assets `packages/<project>/<file>`
+    carrying `pypi{project, name, version, version_sort, filetype, python_version, requires_python, summary, license,
+    metadata_sha256, yanked, yanked_reason, uploaded_by, uploaded_at}`; wheels also get `<file>.metadata`. Pages and
+    `simple/` rendered per request (`ETag`, `304`, `HEAD`). Yank: `POST /api/v1/repositories/{name}/pypi/yank`.
+  - Group: pages merged per request from members (hosted: stored files; proxy: cached page via `ensure`), first
+    member wins per file name; a member that fails is skipped unless none answers. Files: any member's stored or
+    cached copy first, then proxy members in order (`X-Ws-Group-Member`). Uploads to the hosted writable member
+    (RBAC on the member). Note: merging asks proxy members' upstreams for projects only a hosted member has (as Nexus).
+  - Browse/search: `pypi_packages` summaries (proxy: background after a page is cached; hosted: on upload);
+    `pypi/projects`, `pypi/versions`; search kind `package`. Cleanup: PEP 440 order per project, files of a release
+    share a rank.
+  - Clients verified (harness, recorded pypi.org fixtures): pip 26, uv 0.13 (`uv pip`, `uv publish`), twine 7,
+    Poetry 2.5, PDM 2.29.
 
 ## Maven — Phase 5
 Spec: Maven 2 repository layout (maven-resolver behaviour); `maven-metadata.xml` model 1.1.0.

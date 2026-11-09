@@ -74,7 +74,7 @@ async def test_traversal_rejected(unit_client: httpx.AsyncClient) -> None:
     assert response.status_code == 400
 
 
-@pytest.mark.parametrize('unit_repos', [[make_repo('files', fmt='pypi')]])  # a format with no plugin (yet)
+@pytest.mark.parametrize('unit_repos', [[make_repo('files', fmt='maven')]])  # a format with no plugin (yet)
 async def test_repository_without_plugin_is_404(unit_client: httpx.AsyncClient) -> None:
     response = await unit_client.get('/repository/files/a/b')
     assert response.status_code == 404

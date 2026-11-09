@@ -23,6 +23,25 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   recorded request matches. Draft ADR 0005 (401 challenge instead of 404 for anonymous requests to hidden
   repositories on format routes; proposed, not implemented). The Nexus import now creates `maven2` repositories
   (`maven.versionPolicy`/`layoutPolicy` mapped). `Documents/Operations/clients/maven.md`.
+- T-P5-PYPI: PyPI proxy, hosted and group repositories (`formats/pypi/`). Proxy: `simple/` and `simple/<project>/`
+  in PEP 503 HTML and PEP 691 JSON (negotiated by `Accept`, cached per representation, `301` to the normalised name and
+  trailing slash), rendered from the upstream's JSON or HTML page with relative file URLs into the repository and
+  hashes, requires-python, yanked and core-metadata kept (PEP 700 versions, sizes, upload times); files and PEP 658
+  `.metadata` files looked up in the cached page and verified by hash before they are cached; legacy JSON API
+  pass-through (`json_api` option). Hosted: twine / `uv publish` upload API streamed through an in-house multipart
+  reader into the blob store, core metadata read from wheels and sdists in a thread with zip/tar-slip and size checks
+  and matched against the file name and form, `sha256_digest` verified, wheel `METADATA` served as `.metadata`, write
+  policy (`disable_redeploy`: same bytes accepted, other content "File already exists"), pages rendered per request
+  (`ETag`/`304`), yank / un-yank (`POST /api/v1/repositories/{name}/pypi/yank`, audited as the new `content.update`;
+  uploads audited `content.upload`). Group: merged pages (first member wins per file), files from any member's copy
+  then the proxy members, uploads to the writable member. Browse API `pypi/projects` and `pypi/versions`, new
+  `pypi_packages` collection (search source, kind `package`), PEP 440 ordering (`waystation_common.cleanup.versions`:
+  tuple key and an index-sortable string) used by cleanup (files of one release share a rank). UI: PyPI tile in the
+  create flow (proxy with a pypi.org preset, hosted, group with writable member), `json_api` option, browse renderer
+  (projects, versions with wheels/sdists, yank dialog), MSW mocks, "Set me up" for pip, uv, Poetry, PDM, twine and
+  uv publish. Real-client harness `tests/clients/pypi/` (new `client-python` image: pip 26, uv 0.13, twine 7,
+  Poetry 2.5, PDM 2.29) against recorded pypi.org fixtures (~60 KB); replay and live pass.
+  `Documents/Operations/clients/pypi.md`.
 - T-O03: quota and low-disk monitoring. Grafana dashboard row "Quotas and disk" (low-disk guard state; repositories
   near their quota, over a soft quota and at a hard quota; downloads not cached and uploads refused by a quota;
   quota used per repository; a per-repository quota table). Zabbix template: items for the low-disk guard, downloads

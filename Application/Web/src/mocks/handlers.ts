@@ -4,7 +4,7 @@
 // CSRF header on unsafe methods, cursor pagination, realistic latency.
 import { delay, http, HttpResponse } from 'msw'
 
-import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, Problem, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
+import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, Problem, PypiYank, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
 import { activityCsv, activityPage, activityQuery } from './activity'
@@ -16,6 +16,7 @@ import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvi
 import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
+import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
@@ -101,7 +102,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!NAME_RE.test(body.name ?? '')) errors.push({ field: 'name', message: 'Use 2-63 letters, digits, dots, dashes or underscores, starting with a letter or digit.', code: 'pattern' })
     else if (world.repos.some((r) => r.name.toLowerCase() === body.name.toLowerCase())) errors.push({ field: 'name', message: 'A repository with this name already exists.', code: 'taken' })
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
-    if (body.type !== 'proxy' && !['docker', 'raw', 'maven'].includes(body.format)) {
+    if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -501,6 +502,38 @@ export const handlers = [
     const versions = mavenVersionsFor(repo, groupId, artifactId)
     if (!versions) return notFound()
     return HttpResponse.json({ group_id: groupId, artifact_id: artifactId, ...paginate(versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/pypi/projects`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'pypi')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase().replace(/[-_.]+/g, '-')
+    const items = pypiProjectList().filter((p) => !q || p.name.includes(q))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/pypi/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'pypi')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    const found = pypiVersionsFor(repo.name, repo.type === 'hosted', url.searchParams.get('project') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ project: found.project, ...paginate(found.versions, url) })
+  }),
+  http.post(`${API}/repositories/:name/pypi/yank`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'pypi')
+    if (!repo || repo.type !== 'hosted') return error ?? notFound()
+    const body = (await request.json()) as PypiYank
+    if (!pypiYank(repo.name, body.project, body.version, body.reason ?? null, body.yanked)) return notFound()
+    return HttpResponse.json({ project: body.project.toLowerCase(), version: body.version, yanked: body.yanked, files: 2 })
   }),
   http.get(`${API}/repositories/:name/apt/suites`, async ({ request, params }) => {
     const denied = guard(request)
