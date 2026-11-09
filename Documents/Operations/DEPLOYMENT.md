@@ -262,31 +262,16 @@ this for Traefik.
 
 ## 10. Backups
 
-`make backup` and `BACKUP.md` (hosted-only mode, restore verification) are **planned** (T-O07). Until then, back up
-the three things that matter, in this order:
+Full procedures are in [BACKUP.md](BACKUP.md). In short:
 
-1. **The env file and secret files** (`WAYSTATION_SECRET_KEYS` above all).
-2. **MongoDB**, consistent dump through the running container:
-   ```bash
-   docker exec waystation-mongodb mongodump --archive --gzip --db waystation > waystation-$(date +%F).archive.gz
-   ```
-3. **The blob store, after the dump.** Blobs are immutable and content-addressed, so copying them after the dump
-   captures everything the dump references (an incremental `rsync` is fine):
-   ```bash
-   # named volume
-   docker run --rm -v waystation_data:/data:ro -v /backup:/backup alpine \
-     tar -C /data -cf /backup/waystation-blobs-$(date +%F).tar blobs keys
-   # bind mount
-   rsync -a --delete /srv/waystation/data/blobs /srv/waystation/data/keys /backup/waystation/
-   ```
-   `uploads/` holds only in-progress transfers and need not be backed up. Cached proxy content can be re-fetched
-   from upstreams, so for a small backup you may skip `blobs/` entirely if you have no data you cannot re-download
-   (today all repositories are proxies; hosted repositories arrive in Phase 2).
-
-Restore: stop server, worker and web; restore the blob directory; `mongorestore --archive --gzip --drop` into the
-`waystation` database (`docker exec -i waystation-mongodb mongorestore --archive --gzip --drop < file`); start the
-stack (`init` re-applies schema and ownership). The `verify` job that marks assets whose blobs are missing for
-re-fetch is planned (T-O02).
+1. Keep **the env file and secret files** (`WAYSTATION_SECRET_KEYS` above all) in your host backups.
+2. Copy `Build/Containers/backup/waystation-backup.sh` next to `compose.yaml` and run it from cron or a systemd
+   timer: `sudo ./waystation-backup.sh backup --target /mnt/backup/waystation --keep 14`. It dumps MongoDB
+   (`mongodump --archive --gzip`), then copies the blob files (hard-linked from the previous backup when unchanged)
+   and `keys/`, and writes a manifest. `--hosted-only` skips cached proxy content (re-fetched after a restore).
+3. Restore: `docker compose stop web server worker`, `sudo ./waystation-backup.sh restore --from <backup>`,
+   `docker compose up -d`, then `./waystation-backup.sh verify` (the blob verify task marks proxied assets whose
+   content is missing for re-fetch and reports hosted losses).
 
 Valkey needs no backup: losing it never loses data (job outbox and schedules are re-derived from MongoDB).
 

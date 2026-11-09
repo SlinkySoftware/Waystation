@@ -8,7 +8,9 @@
 #
 # Options: --prefix NAME (container name prefix, default waystation: waystation-worker, waystation-mongodb, ...),
 #          --image IMAGE (tools image with mongodump/mongorestore/mongosh, default mongo:8),
-#          --db NAME (MongoDB database; default: the stack's WAYSTATION_MONGO_DB, else waystation).
+#          --db NAME (MongoDB database; default: the stack's WAYSTATION_MONGO_DB, else waystation),
+#          --user UID:GID (backup only: run as this user instead of root, e.g. 10001:10001 for NAS targets that
+#          squash root; it must be able to read the data directory and write the target).
 #
 # Host requirements: bash and docker. The work runs in a throwaway container of the tools image that mounts the
 # stack's data volume (--volumes-from its worker, server or init container) and joins that container's networks, so
@@ -37,7 +39,7 @@ die() { echo "waystation-backup: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
 
 usage() {
-  sed -n '2,13p' "$SELF" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,15p' "$SELF" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -166,7 +168,10 @@ inside_backup() {
         keys: {files: n("WS_KEY_FILES")},
       };
       require("fs").writeFileSync(e.WS_MANIFEST, JSON.stringify(manifest, null, 2) + "\n");'
-  chown -R "$(stat -c %u:%g "$target")" "$work"  # the backup belongs to whoever owns the target directory
+  # The backup belongs to whoever owns the target directory (not possible on some NAS mounts: then left as is).
+  if [ "$(id -u)" = 0 ]; then
+    chown -R "$(stat -c %u:%g "$target")" "$work" 2>/dev/null || echo "note: could not change the backup's owner" >&2
+  fi
   mv "$work" "$target/$name"
   ln -sfn "$name" "$target/latest" 2>/dev/null || true
   chown -h "$(stat -c %u:%g "$target")" "$target/latest" "$target/.lock" 2>/dev/null || true
@@ -254,7 +259,7 @@ command=${1:-}
 [ -n "$command" ] || usage
 shift
 prefix=waystation image=mongo:8 db='' target='' from='' mode=full keep=0 hardlinks=1 force=0 keep_valkey=0
-timeout=3600
+timeout=3600 user=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --prefix) prefix=$2; shift ;;
@@ -268,6 +273,7 @@ while [ $# -gt 0 ]; do
     --force) force=1 ;;
     --keep-valkey) keep_valkey=1 ;;
     --timeout) timeout=$2; shift ;;
+    --user) user=$2; shift ;;
     -h|--help) usage ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
@@ -311,7 +317,9 @@ run_tools() {  # run_tools <ro|rw> <host dir for /backup> <backup dir mode ro|rw
   read -r -a nets <<< "$(docker container inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$app")"
   [ ${#nets[@]} -gt 0 ] || die "$app is not attached to any network"
   first=${nets[0]}
-  cid=$(docker create --env-file "$envfile" --network "$first" --volumes-from "$app:$access" \
+  local as_user=()
+  [ -z "$user" ] || as_user=(--user "$user")
+  cid=$(docker create "${as_user[@]}" -e HOME=/tmp --env-file "$envfile" --network "$first" --volumes-from "$app:$access" \
     -v "$dir:/backup:$dir_mode" -v "$SELF:/waystation-backup.sh:ro" --tmpfs /tmp --entrypoint /bin/bash \
     --security-opt no-new-privileges:true --label waystation.backup-tool=1 "$image" /waystation-backup.sh __inside "$@")
   rm -f "$envfile"
@@ -346,6 +354,7 @@ case "$command" in
         ! running "$c" || die "$c is running: stop web, server and worker first (docker compose stop web server worker)"
       done
     fi
+    user=""  # restore runs as root: it sets the owner of the restored files
     run_tools rw "$from" ro restore
     if [ "$keep_valkey" != 1 ]; then
       if running "$prefix-valkey"; then

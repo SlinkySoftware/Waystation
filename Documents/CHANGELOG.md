@@ -3,6 +3,25 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-O07: backup and restore. `Build/Containers/backup/waystation-backup.sh` (bash + Docker only; `make backup`,
+  `make restore`, `make verify-blobs`) works in a throwaway `mongo:8` container that borrows the worker's data mount,
+  networks and MongoDB settings (URI never on a command line). Backup: `mongodump --archive --gzip` first, then the
+  blob files, `keys/` and `manifest.json` (mode, image, MongoDB version, migrations, collection counts, blob
+  files/bytes, archive sha256) into `waystation-<UTC time>/` (`.partial` until complete, `latest` link, lock), blob
+  files hard-linked from the previous backup (incremental snapshots, copies where the target cannot link),
+  `--keep N`, `--hosted-only` (only blobs hosted repositories reference), `--user` for NAS targets that squash root.
+  Restore: archive checked against the manifest, database replaced (renamed if needed), blobs and keys copied back
+  without overwriting, owner and modes set, Valkey emptied. New worker job `blob.verify` (built-in, Sunday 03:30 UTC,
+  `deep`/`repair` parameters): missing or damaged (size, or sha256 when deep) blob files; damaged files moved out of
+  `blobs/`; `assets.blob_missing` marks (partial index): proxied assets re-fetched on the next request (fills clear
+  the mark), hosted assets reported lost in the run's log and result, a `storage.blobs_missing` activity event and
+  `waystation_assets_blob_missing{repository_type}`; `waystation_verify_*_total` counters; Grafana panels and Zabbix
+  items with a "hosted content lost" trigger; Tasks page names the task and summarises its runs.
+  `python -m waystation_worker.run_task <task> --wait` runs any scheduled task from a worker container.
+  `make backup-test`: seeded stack (real uploads and a proxy fill), full and incremental backups, hosted-only backup
+  with retention, wipe, restore into an empty stack, verify (proxied asset marked and re-fetched, hosted files
+  intact), a deleted hosted blob reported lost. `Documents/Operations/BACKUP.md` (procedures, NAS targets, cron and
+  systemd timer); DEPLOYMENT.md §10 points to it.
 - T-O05: signed webhooks. Definitions in `webhooks` (name, URL, events with categories and `*`, repository globs, enabled, secret and custom headers write-only and AES-GCM encrypted, private-target exception, timeout, attempts) through `/api/v1/webhooks` (admin; CRUD, `POST /{id}/test`, `GET /{id}/deliveries[/{delivery}]`, `POST .../redeliver`), audited `webhook.create|update|delete|test|redeliver`. Events are the successful audit records of `content.upload|delete|update` and `repository.create|update|delete`: `audit.record` hands them to a server-side notifier that writes a `webhook.event` job to the durable outbox when an enabled webhook wants it. Worker jobs `webhook.event` (fan-out into `webhook_deliveries`, attempted at once), `webhook.deliver` (test events, redeliveries) and the scheduled `webhook.sweep` (every 15 s): at-least-once with leases, HMAC-SHA256 `Waystation-Signature: t=<unix>,v1=<hex>` over `<t>.` + body, `Idempotency-Key`, exponential retries to a dead delivery, 1 KiB answer snippets, 30-day log. The SSRF guard moved to `waystation_common.ssrf` (re-exported by `waystation_server.proxy.ssrf`) so worker deliveries use it; common now depends on `httpcore`, the worker on `httpx`. Metrics `waystation_webhook_deliveries_total{outcome}` (Valkey `webhooks:totals`) and `waystation_webhook_deliveries_pending`. UI Administration → Webhooks (table, editor with a browser-generated secret, delivery drawer with attempts, request and redeliver), MSW mocks, screenshot tour entries. `Documents/Operations/WEBHOOKS.md` with Python and Node verification snippets. Test helper `FakeUpstream` now records request bodies.
 - T-P5-HELM: Helm classic chart repositories (`formats/helm/`). Proxy: `index.yaml` cached as metadata (revalidated),
   parsed with a safe, bounded YAML loader in a thread (only `null` resolved implicitly, no tags or aliases), chart
