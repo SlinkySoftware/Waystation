@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://proxy.golang.org/github.com/!masterminds/semver/v3/@v/v3.3.1.info"
+  },
+  "response": {
+    "body_sha256": "868e02ce469a44c1ab87c4ed917a012216a0fb688b0e917873d2230b61165264",
+    "body_size": 194,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "194"
+      ],
+      [
+        "expires",
+        "Mon, 09 Nov 2026 23:07:32 GMT"
+      ],
+      [
+        "cache-control",
+        "public, max-age=10800"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ]
+    ],
+    "status": 200
+  }
+}

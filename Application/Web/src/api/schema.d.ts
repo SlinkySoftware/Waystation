@@ -1250,6 +1250,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/go/modules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Modules a Go proxy has cached (version lists or module files); groups are browsed through their members */
+        get: operations["listGoModules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/go/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One module and its versions (cached version list and cached files, newest first) */
+        get: operations["listGoVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/apt/suites": {
         parameters: {
             query?: never;
@@ -2862,8 +2900,32 @@ export interface components {
              */
             json_api: boolean;
         };
+        GoOptions: {
+            /**
+             * @description Proxy the checksum database at `sumdb/<name>/` so clients verify modules without direct access to it (proxy repositories; groups use their first proxy member that does)
+             * @default true
+             */
+            sumdb_proxy: boolean;
+            /**
+             * @description Name of the checksum database (GOSUMDB)
+             * @default sum.golang.org
+             */
+            sumdb_name: string;
+            /**
+             * @description URL of the checksum database (the SSRF guard applies as for the upstream)
+             * @default https://sum.golang.org
+             */
+            sumdb_url: string;
+            /**
+             * @description Verify `.mod` and `.zip` files against the checksum database before caching them (modules matching `nosumdb` are not looked up)
+             * @default true
+             */
+            verify_checksums: boolean;
+            /** @description Module path patterns never looked up in the checksum database (GONOSUMDB syntax: a glob per path prefix, e.g. `example.com/private/*`): private modules */
+            nosumdb?: string[];
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -3326,6 +3388,59 @@ export interface components {
             yanked: boolean;
             /** @description Files changed */
             files: number;
+        };
+        GoModule: {
+            /** @description Module path (decoded: upper-case letters as they are) */
+            module: string;
+            /** @description Newest release in the cached version list, else the newest version */
+            latest?: string | null;
+            /** @description Versions in the cached version list (`@v/list`) */
+            version_count: number;
+            /** @description Versions whose module zip is cached */
+            cached_versions: number;
+            /** @description Bytes of the cached module zips */
+            size_bytes: number;
+        };
+        GoModulePage: {
+            items: components["schemas"]["GoModule"][];
+            next_cursor: string | null;
+        };
+        GoFile: {
+            /** @enum {string} */
+            kind: "info" | "mod" | "zip";
+            size: number;
+            sha256: string;
+            /** Format: date-time */
+            cached_at?: string | null;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+            downloads?: number;
+        };
+        GoVersion: {
+            version: string;
+            /**
+             * Format: date-time
+             * @description Commit time from the cached `.info`
+             */
+            time?: string | null;
+            prerelease: boolean;
+            /** @description A pseudo-version (an untagged commit) */
+            pseudo: boolean;
+            /** @description `+incompatible`: a v2+ version of a module without a go.mod */
+            incompatible: boolean;
+            /** @description In the cached version list (tagged) */
+            listed: boolean;
+            /** @description The module zip is cached */
+            cached: boolean;
+            /** @description Files of the version held by this repository */
+            files: components["schemas"]["GoFile"][];
+            size_bytes: number;
+        };
+        GoVersionPage: {
+            module: components["schemas"]["GoModule"];
+            /** @description Newest first (semantic version order) */
+            items: components["schemas"]["GoVersion"][];
+            next_cursor: string | null;
         };
         AptSuite: {
             suite: string;
@@ -6566,6 +6681,63 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listGoModules: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Modules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoModulePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listGoVersions: {
+        parameters: {
+            query: {
+                /** @description Module path (decoded, e.g. `github.com/Azure/go-autorest`) */
+                module: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoVersionPage"];
+                };
+            };
             404: components["responses"]["NotFound"];
         };
     };
