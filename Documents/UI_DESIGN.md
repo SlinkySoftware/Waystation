@@ -162,6 +162,28 @@ connection" and "Test user lookup"; OIDC form with discovery "Fetch" and "Test l
 revoke), Audit log (filters in the URL: time range, actor, action, target, outcome; detail drawer with the
 change diff, secrets shown only as "changed"; CSV/NDJSON export), Settings (general, docker routing, security, stats retention, UI),
 System (versions, Mongo/Valkey health, storage path, support bundle).
+As built (T-U08): **Users**: table (initials, display name and username, source badge Local/LDAP/OIDC with the
+provider in a tooltip, direct roles as chips (administrator in amber), local group count, last sign-in, status badge
+Active/Disabled/Locked/Password change pending/Awaiting first sign-in), filters in the URL (`q` username prefix,
+`source`, `status`, `role`), "Load more" keyset paging, a row menu (open, edit, reset password for local accounts,
+unlock, sign out everywhere, disable/enable, delete with the username typed to confirm; never disable or delete
+yourself). The user page (`/admin/users/<id>`): account facts, access (direct roles, local and mapped groups, the
+groups a provider last reported), linked accounts, an effective-permissions panel (roles with where they come from,
+global permissions, a repository × action matrix), sessions (browser, address, started, last used, expiry; sign out
+everywhere) and the user's API tokens. Create user: password optional (generate button, copy, one-time by default);
+roles the caller may not hand out are disabled in the picker. **Groups**: tabs All/Local/Mapped, local groups with
+description, roles and a members button (dialog: add by username search, remove); mapped groups show the provider
+group and provider and take role changes only. **Roles**: a card per role (built-in/custom, permission summary per
+scope, "held by" counts), a dialog editor with the permission matrix (one row per scope × browse/read/write/delete/
+manage, write/delete/manage tick browse and read, "matches N repositories" per row, global actions as tiles that
+are disabled when the caller does not hold them); built-ins open read-only with "Duplicate". The **Anonymous
+access** card below lists which repositories anonymous requests could read. **API tokens**: tab Tokens (search,
+owner and status filters, revoke) and tab Service accounts (table; side panel with the account's tokens (create:
+the profile's token dialog, secret shown once) and permissions). **Settings**: General (instance name), Docker
+routing (default repository, aliases), and the environment limits read-only with their variable names. **System**:
+version tiles, MongoDB/Valkey cards (status, version, round trip), the data volume bar with a marker at the
+free-space floor; refreshes every 15 s. Refusals: 403 shows "Not allowed", 409 "Not possible", with the server's
+reason (dialogs for row actions, a banner in forms). Phones: every table becomes cards with the actions inline.
 
 ### 4.11 Profile
 Display name, theme, density, password (local accounts; while a one-time password is pending the router keeps

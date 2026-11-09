@@ -30,6 +30,7 @@ from waystation_server.db import auth_providers as auth_providers_db
 from waystation_server.db import repositories as repos_db
 from waystation_server.formats.registry import FormatRegistry
 from waystation_server.hosted.store import HostedStore
+from waystation_server.instance import InstanceSettings
 from waystation_server.metrics import Metrics
 from waystation_server.proxy import probe as probe_mod
 from waystation_server.proxy.breaker import blocking_status
@@ -79,6 +80,9 @@ class Services:
     oidc: OidcClient  # OIDC discovery/JWKS caches and protocol steps (security.oidc)
     jobs: JobClient  # enqueue worker jobs (durable via the outbox inside a transaction, or best effort; ARCH §10)
     audit: AuditWriter  # audit records, queued and batched (``waystation_server.audit.record``)
+    instance: (
+        InstanceSettings  # stored instance settings over the environment defaults (``waystation_server.instance``)
+    )
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
@@ -151,6 +155,7 @@ class Services:
             oidc=OidcClient(UpstreamHttp(upstream)),
             jobs=JobClient(redis, db),
             audit=AuditWriter(audit_db.inserter(db), retention_days=settings.audit_retention_days),
+            instance=InstanceSettings(db, settings),
             proxy=ProxyEngine(
                 settings=settings,
                 db=db,

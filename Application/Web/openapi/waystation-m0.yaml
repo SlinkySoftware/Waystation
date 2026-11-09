@@ -749,6 +749,79 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /users/{user_id}/sessions:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [admin]
+      operationId: listUserSessions
+      summary: A user's sessions, newest first (`current` marks the caller's own session)
+      responses:
+        '200':
+          description: Sessions (ids are opaque and never usable as cookies)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SessionInfo' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [admin]
+      operationId: revokeUserSessions
+      summary: Sign a user out everywhere (every session ends; API tokens are not affected)
+      description: A user holding more than the caller cannot be signed out by it (403). Audited as `session.revoke`.
+      responses:
+        '200':
+          description: How many sessions ended
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionsRevoked' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /settings:
+    get:
+      tags: [admin]
+      operationId: getSettings
+      summary: Instance settings, and the limits set in the environment (read-only); needs `settings-admin`
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstanceSettings' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [admin]
+      operationId: updateSettings
+      summary: Change the instance settings (applied by every replica within seconds; audited as `settings.update`)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InstanceSettingsWrite' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InstanceSettings' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /system:
+    get:
+      tags: [admin]
+      operationId: getSystem
+      summary: Version, MongoDB and Valkey health, and the data directory's usage; needs `admin`
+      responses:
+        '200':
+          description: System status (always 200; a component that does not answer is `unavailable`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SystemInfo' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /auth-providers:
     get:
       tags: [admin]
@@ -2678,6 +2751,75 @@ components:
           items: { type: string }
 
     # ---------------------------------------------------------------- administration: sign-in providers, roles
+    InstanceSettings:
+      type: object
+      required: [general, limits, updated_at, updated_by]
+      properties:
+        general: { $ref: '#/components/schemas/GeneralSettings' }
+        limits: { $ref: '#/components/schemas/EnvironmentLimits' }
+        updated_at: { type: [string, 'null'], format: date-time, description: null until first saved }
+        updated_by: { type: [string, 'null'], description: Username of the last change }
+    InstanceSettingsWrite:
+      type: object
+      required: [general]
+      additionalProperties: false
+      properties:
+        general: { $ref: '#/components/schemas/GeneralSettings' }
+    GeneralSettings:
+      type: object
+      required: [instance_name]
+      additionalProperties: false
+      properties:
+        instance_name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Shown in the top bar, the sign-in page and the browser title (default `WAYSTATION_INSTANCE_NAME`)
+    EnvironmentLimits:
+      type: object
+      description: Set with environment variables (SPECIFICATION §9); shown for reference
+      required: [session_idle_minutes, session_max_hours, login_rate_limit, login_lockout_failures, login_lockout_minutes,
+                 token_failure_limit, audit_retention_days, stats_minute_retention_days, max_upload_bytes, min_free_bytes]
+      properties:
+        session_idle_minutes: { type: integer }
+        session_max_hours: { type: integer }
+        login_rate_limit: { type: integer, description: Sign-in attempts per client address per 5 minutes }
+        login_lockout_failures: { type: integer }
+        login_lockout_minutes: { type: integer }
+        token_failure_limit: { type: integer, description: Rejected API tokens per client address per 5 minutes }
+        audit_retention_days: { type: integer }
+        stats_minute_retention_days: { type: integer, description: Per-minute statistics are kept this long }
+        max_upload_bytes: { type: integer, description: Largest single upload or cached file }
+        min_free_bytes: { type: integer, description: New cache and upload writes are refused below this much free space }
+    SystemInfo:
+      type: object
+      required: [version, python, started_at, components, storage]
+      properties:
+        version: { type: string }
+        python: { type: string, description: Python version of the server process }
+        started_at: { $ref: '#/components/schemas/Timestamp', description: When the answering server process started }
+        components:
+          type: array
+          items: { $ref: '#/components/schemas/SystemComponent' }
+        storage: { $ref: '#/components/schemas/SystemStorage' }
+    SystemComponent:
+      type: object
+      required: [name, status, version, latency_ms, detail]
+      properties:
+        name: { type: string, enum: [mongodb, valkey] }
+        status: { type: string, enum: [ok, unavailable] }
+        version: { type: [string, 'null'] }
+        latency_ms: { type: [number, 'null'], description: Round trip of a ping }
+        detail: { type: [string, 'null'], description: Why it is unavailable (the error class only) }
+    SystemStorage:
+      type: object
+      required: [path, total_bytes, used_bytes, free_bytes, min_free_bytes]
+      properties:
+        path: { type: string, description: The data directory (`WAYSTATION_DATA_DIR`) }
+        total_bytes: { type: [integer, 'null'], description: null when the volume cannot be read }
+        used_bytes: { type: [integer, 'null'] }
+        free_bytes: { type: [integer, 'null'] }
+        min_free_bytes: { type: integer, description: New writes are refused below this much free space }
     AnonymousAccess:
       type: object
       required: [roles]
