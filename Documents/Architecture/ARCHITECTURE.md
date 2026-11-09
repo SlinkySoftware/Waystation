@@ -128,6 +128,8 @@ connects, so the guard resolves and checks every hop's target just before the re
 (a DNS-rebinding window remains between the two lookups; the proxy itself is administrator-configured). Every
 upstream request first passes the repository's auto-block breaker (`proxy.breaker`, state in the Valkey health hash,
 one probe per ended period across replicas) and reports its outcome to it; Valkey down = no auto-block.
+The guard itself (`SsrfGuard`, `GuardedBackend`) lives in `waystation_common.ssrf` (re-exported by
+`waystation_server.proxy.ssrf`) so the worker's outbound calls (webhook deliveries, T-O05) apply the same rules.
 
 ### 6.2 Freshness
 Each cached asset stores `fetched_at`, `etag`, `last_modified`, `upstream_status`. Metadata older than
@@ -273,6 +275,10 @@ Operators see and steer this through `/api/v1/tasks/*` (T-O04, `admin`): definit
 `next_run_at`), runs, workers, and dead letters (retry = one Lua step that queues a fresh envelope and deletes the
 entry). `JobContext` progress and log lines are also published on `live:jobs`; the SSE hub relays them, plus job and
 worker activity, on the admin-only topic `tasks`.
+Webhooks (T-O05) use the same pieces: the server writes a `webhook.event` job to the outbox for each content or
+repository change an enabled webhook wants (taken from `audit.record`), and the worker's handler records and sends
+the deliveries; retries are scheduled on the delivery documents (`next_attempt_at`) and picked up by the scheduled
+`webhook.sweep`, not by job retries, so a receiver that is down never fills the dead-letter stream.
 
 ## 11. Format plugin contract
 `waystation_server.formats.base.Format` (protocol) with: `name`, `routes()` (mounted under `/repository/<repo>/`
