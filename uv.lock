@@ -1482,6 +1482,7 @@ dependencies = [
     { name = "joserfc" },
     { name = "ldap3" },
     { name = "prometheus-client" },
+    { name = "pyyaml" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "waystation-common" },
 ]
@@ -1494,6 +1495,7 @@ requires-dist = [
     { name = "joserfc", specifier = ">=1.3" },
     { name = "ldap3", specifier = ">=2.9" },
     { name = "prometheus-client", specifier = ">=0.23" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38" },
     { name = "waystation-common", editable = "Application/Common" },
 ]

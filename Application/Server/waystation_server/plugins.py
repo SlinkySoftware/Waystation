@@ -12,6 +12,8 @@ from waystation_server.formats.apt.descriptor import DESCRIPTOR as APT
 from waystation_server.formats.apt.plugin import AptPlugin
 from waystation_server.formats.docker.descriptor import DESCRIPTOR as DOCKER
 from waystation_server.formats.docker.plugin import DockerPlugin
+from waystation_server.formats.helm.descriptor import DESCRIPTOR as HELM
+from waystation_server.formats.helm.plugin import HelmPlugin
 from waystation_server.formats.npm.descriptor import DESCRIPTOR as NPM
 from waystation_server.formats.npm.plugin import NpmPlugin
 from waystation_server.formats.raw.descriptor import DESCRIPTOR as RAW
@@ -23,8 +25,9 @@ from waystation_server.formats.yum.plugin import YumPlugin
 
 def default_registry() -> FormatRegistry:
     registry = FormatRegistry()
-    for descriptor in (DOCKER, NPM, APT, RAW, YUM):
+    for descriptor in (DOCKER, NPM, APT, RAW, YUM, HELM):
         registry.register(descriptor)
+    registry.set_plugin(HelmPlugin())  # T-P5-HELM
     registry.set_plugin(RawPlugin())  # T-P2-RAW
     registry.set_plugin(AptPlugin())  # T-P2-APT
     registry.set_plugin(NpmPlugin())  # T-P2-NPM

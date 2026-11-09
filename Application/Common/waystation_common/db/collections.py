@@ -35,6 +35,7 @@ APT_POOL_INDEX = 'apt_pool_index'
 APT_PACKAGES = 'apt_packages'
 NPM_PACKAGES = 'npm_packages'
 YUM_PACKAGES = 'yum_packages'
+HELM_CHARTS = 'helm_charts'
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -258,6 +259,23 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('repo_dir_gen', [('repo_id', ASCENDING), ('repo_dir', ASCENDING), ('gen', ASCENDING)]),
             _ix('repo_verified', [('repo_id', ASCENDING), ('verified', ASCENDING)]),
             *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        HELM_CHARTS,
+        (
+            # One chart version per repository: a hosted upload, or an entry of a proxy's cached index.yaml.
+            _ix(
+                'repo_name_version_unique',
+                [('repo_id', ASCENDING), ('name', ASCENDING), ('version', ASCENDING)],
+                unique=True,
+            ),
+            # Browse (charts by name, versions newest first) and hosted index generation.
+            _ix('repo_name_sort', [('repo_id', ASCENDING), ('name', ASCENDING), ('version_sort', DESCENDING)]),
+            # Chart file path -> entry (proxy content validation, hosted provenance uploads).
+            _ix('repo_path', [('repo_id', ASCENDING), ('path', ASCENDING)]),
+            # A proxy listing's generation (sha256 of the index blob it came from): replaced on re-index.
+            _ix('repo_gen', [('repo_id', ASCENDING), ('gen', ASCENDING)]),
         ),
     ),
     CollectionSpec(
