@@ -68,7 +68,7 @@ async def publish_index(db: Database, repo_id: str, *, sha256: str, size: int, n
     }
     before = await db[ASSETS].find_one_and_update(
         {'repo_id': repo_id, 'path': INDEX_PATH},
-        {'$set': fields, '$setOnInsert': {'_id': new_id(), 'created_at': now}},
+        {'$set': fields, '$setOnInsert': {'_id': new_id(), 'created_at': now}, '$unset': {'blob_missing': ''}},
         upsert=True,
         return_document=ReturnDocument.BEFORE,
         projection={'size': 1},

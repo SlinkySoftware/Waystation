@@ -1,6 +1,6 @@
 """Cluster figures for ``/metrics`` (SPECIFICATION §10), read when it is scraped and cached for ``CACHE_TTL_S``.
 
-Nothing here runs on a request path: one scrape costs a few pipelined Valkey commands, three indexed MongoDB counts,
+Nothing here runs on a request path: one scrape costs a few pipelined Valkey commands, four indexed MongoDB counts,
 the (already cached) storage aggregation and one ``statvfs``. Each source is bounded by ``SOURCE_TIMEOUT_S``; a
 source that fails or times out is reported by ``waystation_metrics_source_up{source}`` = 0 and its metrics are
 left out of that scrape (never a failed scrape).
@@ -15,7 +15,8 @@ multi-process aggregation:
 - blob store: bytes held by blobs, blob count (MongoDB), free and total bytes of the data filesystem, the
   low-disk guard's effective floor and whether it is tripped (``waystation_storage_low``);
 - per repository with a quota: the quota, its mode and the stored bytes counted against it (``repo_usage``);
-- cleanup and blob GC running totals (Valkey ``maintenance:totals``, written by the workers) as counters;
+- cleanup, blob GC and blob verify running totals (Valkey ``maintenance:totals``, written by the workers) as
+  counters; assets blob verify marked as missing their blob, hosted and proxied (index ``blob_missing``);
 - webhook delivery attempts by outcome (Valkey ``webhooks:totals``) and deliveries waiting for an attempt.
 """
 
@@ -32,6 +33,7 @@ from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 from prometheus_client.metrics_core import Metric
 
 from waystation_common.db import jobs as jobs_db
+from waystation_common.db import verify as verify_db
 from waystation_common.db import webhooks as webhooks_db
 from waystation_common.events import keys as event_keys
 from waystation_common.jobs.model import QUEUES
@@ -56,6 +58,20 @@ MAINTENANCE_COUNTERS = {  # field of `maintenance:totals` -> (counter name witho
     'gc_freed_bytes': ('waystation_gc_freed_bytes', 'Bytes freed by blob GC.'),
     'gc_uploads_removed': ('waystation_gc_orphan_uploads_removed', 'Orphan upload files removed by blob GC.'),
     'gc_runs': ('waystation_gc_runs', 'Blob GC runs completed.'),
+    'verify_runs': ('waystation_verify_runs', 'Blob verify runs completed.'),
+    'verify_missing_blobs': ('waystation_verify_missing_blobs', 'Referenced blobs blob verify found without a file.'),
+    'verify_damaged_blobs': (
+        'waystation_verify_damaged_blobs',
+        'Blobs blob verify found damaged (wrong size or sha256) and moved out of the way.',
+    ),
+    'verify_refetch_marked': (
+        'waystation_verify_refetch_marked',
+        'Proxied assets blob verify marked for re-fetch (their blob was missing or damaged).',
+    ),
+    'verify_hosted_lost': (
+        'waystation_verify_hosted_lost',
+        'Hosted assets blob verify reported lost, counted on every run that still finds them.',
+    ),
 }
 
 Families = list[Metric]
@@ -103,6 +119,7 @@ class ClusterMetrics:
             ('valkey', self._maintenance),
             ('valkey', self._webhook_totals),
             ('mongodb', self._webhooks_pending),
+            ('mongodb', self._blob_missing),
             ('mongodb', self._workers),
             ('mongodb', self._storage),
             ('mongodb', self._quotas),
@@ -235,6 +252,18 @@ class ClusterMetrics:
     async def _webhooks_pending(self) -> Families:
         family = _gauge('waystation_webhook_deliveries_pending', 'Webhook deliveries waiting for an attempt.')
         family.add_metric([], await webhooks_db.pending_count(self._svc.db))
+        return [family]
+
+    async def _blob_missing(self) -> Families:
+        counts = await verify_db.marked_counts(self._svc.db)
+        family = _gauge(
+            'waystation_assets_blob_missing',
+            'Assets blob verify found without their blob, by repository type: hosted = lost (re-upload or restore), '
+            'proxy = re-fetched on the next request.',
+            ['repository_type'],
+        )
+        for kind in ('hosted', 'proxy'):
+            family.add_metric([kind], counts[kind])
         return [family]
 
     async def _workers(self) -> Families:

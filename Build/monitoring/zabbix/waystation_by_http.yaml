@@ -796,6 +796,56 @@ zabbix_export:
           tags:
             - tag: component
               value: storage
+        - uuid: f782239c1c8f422dbac19696e4fb1cca
+          name: 'Waystation: Hosted assets without their blob'
+          type: DEPENDENT
+          key: waystation.assets.blob_missing.hosted
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Assets of hosted repositories whose blob file the last blob verify run found missing or damaged. Their content is lost until it is uploaded again or restored from a backup (BACKUP.md).'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_assets_blob_missing{repository_type="hosted"}'
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
+          triggers:
+            - uuid: 3a5df7d1a669438daca0618e85034709
+              expression: 'last(/Waystation by HTTP/waystation.assets.blob_missing.hosted)>0'
+              name: 'Waystation: hosted content lost'
+              event_name: 'Waystation: {ITEM.LASTVALUE1} hosted assets lost'
+              priority: HIGH
+              description: 'Blob verify found hosted assets whose blob file is missing or damaged. The run''s log on the Tasks page lists them (lost: repository/path). Upload them again or restore their blobs from a backup, then run blob verify.'
+              tags:
+                - tag: scope
+                  value: availability
+        - uuid: c0fc31e7f2d24d40bca358eb94d9b932
+          name: 'Waystation: Cached assets waiting for a re-fetch'
+          type: DEPENDENT
+          key: waystation.assets.blob_missing.proxy
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          description: 'Assets of proxy repositories whose blob file blob verify found missing or damaged; each is fetched from the upstream again on its next request.'
+          preprocessing:
+            - type: PROMETHEUS_PATTERN
+              parameters:
+                - 'waystation_assets_blob_missing{repository_type="proxy"}'
+                - value
+                - ''
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: waystation.metrics.get
+          tags:
+            - tag: component
+              value: storage
         - uuid: feeeace91fd54b72b9280ce447730678
           name: 'Waystation: Downloads not cached for a quota per second'
           type: DEPENDENT

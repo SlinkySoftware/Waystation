@@ -1,0 +1,98 @@
+# Perf suite stack (tests/perf/README.md). Loaded by tests/perf/run.sh on top of Build/Containers/compose.yaml as its
+# own compose project (PERF_PROJECT, unique per checkout), so it never collides with `make dev-up`, the client
+# harness or another worktree. Production images built from this checkout (no source mounts, no reload), no
+# published ports, CPU and memory limits from the profile (tests/perf/profiles/<profile>.env) so a run cannot take
+# the whole machine.
+#
+# Variables (set by run.sh): PERF_PROJECT, PERF_RUN_DIR (generated origin content and config), PERF_DIR (absolute
+# path of tests/perf), PERF_RESULTS (results directory), PERF_UID/PERF_GID, PERF_* limits.
+
+x-limits: &limits
+  restart: "no"
+
+services:
+  # ---- synthetic upstream: nginx serving generated content (origin/generate.py)
+  perf-origin:
+    image: nginxinc/nginx-unprivileged:1.30-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+    container_name: ${PERF_PROJECT}-origin
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    cpus: ${PERF_ORIGIN_CPUS:-1}
+    mem_limit: 256m
+    volumes:
+      - {type: bind, source: "${PERF_RUN_DIR}/origin/docroot", target: /srv/origin, read_only: true}
+      - {type: bind, source: "${PERF_RUN_DIR}/origin/origin.conf", target: /etc/nginx/conf.d/default.conf, read_only: true}
+    networks:
+      frontend:
+        aliases: [perf-origin]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/v2/"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # ---- load generator (run with `compose run`)
+  k6:
+    profiles: [tools]
+    image: grafana/k6:1.4.2@sha256:3656673de3f30424e8ebcfa46acd9558d83b6a43612d0f668ffeac953950c6c7
+    container_name: ${PERF_PROJECT}-k6
+    user: "${PERF_UID}:${PERF_GID}"
+    cpus: ${PERF_K6_CPUS:-2}
+    mem_limit: ${PERF_K6_MEM:-2g}
+    working_dir: /perf
+    volumes:
+      - {type: bind, source: "${PERF_DIR}", target: /perf, read_only: true}
+      - {type: bind, source: "${PERF_RUN_DIR}", target: /run-dir, read_only: true}
+      - {type: bind, source: "${PERF_RESULTS}", target: /results}
+    environment:
+      K6_NO_USAGE_REPORT: "true"
+    networks: [frontend]
+
+  # ---- Waystation under test: own container names, no published port, bounded resources
+  web:
+    <<: *limits
+    build:
+      context: ../..
+      dockerfile: Build/Containers/web/Dockerfile
+    container_name: ${PERF_PROJECT}-web
+    ports: !reset []
+    cpus: ${PERF_WEB_CPUS:-2}
+    mem_limit: 512m
+  server:
+    <<: *limits
+    build:
+      context: ../..
+      dockerfile: Build/Containers/server/Dockerfile
+    container_name: ${PERF_PROJECT}-server
+    cpus: ${PERF_SERVER_CPUS:-2}
+    mem_limit: ${PERF_SERVER_MEM:-2g}
+    environment:
+      WAYSTATION_SERVER_WORKERS: ${PERF_SERVER_WORKERS:-2}
+  worker:
+    <<: *limits
+    build:
+      context: ../..
+      dockerfile: Build/Containers/worker/Dockerfile
+    container_name: ${PERF_PROJECT}-worker
+    cpus: 1
+    mem_limit: 1g
+  init:
+    build:
+      context: ../..
+      dockerfile: Build/Containers/server/Dockerfile
+    container_name: ${PERF_PROJECT}-init
+    environment:
+      WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD: ${PERF_ADMIN_PASSWORD:-}
+  mongodb:
+    <<: *limits
+    container_name: ${PERF_PROJECT}-mongodb
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--quiet", "--wiredTigerCacheSizeGB", "${PERF_MONGO_CACHE_GB:-0.5}"]
+    cpus: ${PERF_MONGO_CPUS:-2}
+    mem_limit: ${PERF_MONGO_MEM:-1536m}
+  valkey:
+    <<: *limits
+    container_name: ${PERF_PROJECT}-valkey
+    cpus: 1
+    mem_limit: 512m
