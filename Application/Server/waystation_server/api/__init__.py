@@ -20,6 +20,7 @@ from waystation_server.api import (
     search,
     settings,
     stats,
+    storage_guard,
     tasks,
     tokens,
     users,
@@ -46,6 +47,7 @@ def build_router() -> APIRouter:
     router.include_router(tasks.router)
     router.include_router(search.router)
     router.include_router(stats.router)
+    router.include_router(storage_guard.router)
     router.include_router(live.router)
     router.include_router(audit.router)
     router.include_router(settings.router)

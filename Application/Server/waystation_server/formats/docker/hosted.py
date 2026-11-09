@@ -25,6 +25,10 @@ image. A ``subject`` makes the manifest a referrer (answered with ``OCI-Subject`
 write policy: ``read_only`` refuses every change, ``disable_redeploy`` never moves or deletes a tag, and tags matching
 an ``immutable_tag_patterns`` regular expression never move or go away.
 
+Quotas (SPECIFICATION §4.8): when the repository's hard quota is reached, blob uploads (``POST``, ``PATCH``, ``PUT``),
+mounts and manifest pushes are refused with ``403 DENIED`` and a message naming the quota (docker shows it as
+``denied: ...``); deletes and pulls still work. The low-disk guard answers ``507`` (no space left for new writes).
+
 ``DELETE``: a tag (``/manifests/<tag>``), a manifest by digest (with its tags), a blob no manifest of the repository
 uses. ``GET /v2/<name>/referrers/<digest>`` (``artifactType`` filter, ``OCI-Filters-Applied``) and
 ``tags/list`` (``n``/``last``, ``Link``) read the records. Pushed manifests and deletes are audited
@@ -57,6 +61,7 @@ from waystation_server.hosted.store import UploadInterrupted
 from waystation_server.problems import oci_error
 from waystation_server.proxy.records import StoredAsset
 from waystation_server.repos.model import RepoConfig, RepoType, StoredHosted, WritePolicy
+from waystation_server.repos.quota import QuotaExceeded
 from waystation_server.security.actions import Action
 
 API_HEADERS = {'Docker-Distribution-API-Version': 'registry/2.0'}
@@ -255,6 +260,8 @@ class DockerHosted:
                     return await self.referrers(req, op)
         except Rejected as exc:
             return exc.response()
+        except QuotaExceeded as exc:
+            return _error(403, exc.detail, 'DENIED')
         except InsufficientStorage:
             return _error(507, 'not enough free space in the blob store', 'UNKNOWN')
         return _error(405, f'{req.method} is not supported here', 'UNSUPPORTED')
@@ -357,6 +364,7 @@ class DockerHosted:
         if length is not None and length.isdigit() and int(length) > p.MANIFEST_MAX_BYTES:
             raise Rejected(413, 'SIZE_INVALID', f'manifests are limited to {p.MANIFEST_MAX_BYTES} bytes')
         data = await self._read_body(req, p.MANIFEST_MAX_BYTES)
+        await req.hosted.admit(req.repo, len(data))
         algorithm = op.reference.split(':', 1)[0] if op.by_digest else 'sha256'
         digest = p.digest_of(data, algorithm)
         if op.by_digest and digest != op.reference:
@@ -504,6 +512,8 @@ class DockerHosted:
     # ------------------------------------------------------------------ uploads
     async def start_upload(self, req: FormatRequest, op: p.Operation) -> Response:
         self._writable(req)
+        length = req.request.headers.get('content-length')
+        await req.hosted.admit(req.repo, int(length) if length is not None and length.isdigit() else None)
         params = req.request.query_params
         prefix = client_prefix(req.request.url.path, '/blobs/uploads')
         mount = params.get('mount')
@@ -664,6 +674,7 @@ class DockerHosted:
 
     async def patch_upload(self, req: FormatRequest, op: p.Operation) -> Response:
         self._writable(req)
+        await req.hosted.admit(req.repo)
         content_range = _parse_range(req.request.headers.get('content-range'))
         session = await self._claim(req, op, content_range[0] if content_range else None)
         writer = await self._append(req, op, session, content_range)
@@ -673,6 +684,7 @@ class DockerHosted:
 
     async def finish_upload(self, req: FormatRequest, op: p.Operation) -> Response:
         self._writable(req)
+        await req.hosted.admit(req.repo)
         digest = req.request.query_params.get('digest')
         hexdigest = self._sha256(digest)
         assert digest is not None

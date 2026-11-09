@@ -20,7 +20,8 @@ from waystation_server.problems import FieldErrors
 from waystation_server.proxy import probe as probe_mod
 from waystation_server.proxy.http import Network
 from waystation_server.repos import service
-from waystation_server.repos.model import RepoConfig, RepoType
+from waystation_server.repos.model import QuotaMode, RepoConfig, RepoType
+from waystation_server.repos.quota import QuotaStatus
 from waystation_server.repos.schemas import (
     AutoBlockConfig,
     Format,
@@ -29,6 +30,7 @@ from waystation_server.repos.schemas import (
     ProxyConfig,
     RepositoryStatus,
     RepositoryWrite,
+    StorageConfig,
     UpstreamAuth,
     UpstreamTestRequest,
 )
@@ -54,6 +56,18 @@ class RepositorySummaryStats(BaseModel):
     last_activity_at: datetime | None
 
 
+class RepositoryQuota(BaseModel):
+    """Stored bytes against the repository's quota (SPECIFICATION §4.8)."""
+
+    quota_bytes: int
+    mode: QuotaMode
+    used_bytes: int = Field(description='Sum of the sizes of the assets the repository holds (shared blobs count)')
+    used_ratio: float = Field(ge=0, description='used_bytes / quota_bytes (above 1 when over the quota)')
+    state: Literal['ok', 'warning', 'exceeded'] = Field(
+        description='`warning` from 80 %; `exceeded` at or over the quota (hard: new writes refused)'
+    )
+
+
 class Repository(BaseModel):
     name: str
     format: Format
@@ -65,6 +79,8 @@ class Repository(BaseModel):
     proxy: ProxyConfig | None = None
     hosted: HostedConfig | None = None
     group: GroupConfig | None = None
+    storage: StorageConfig = Field(default_factory=StorageConfig)
+    quota: RepositoryQuota | None = Field(default=None, description='null when the repository has no quota')
     format_options: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
@@ -143,7 +159,25 @@ def _group_view(repo: RepoConfig) -> GroupConfig | None:
     return GroupConfig(members=list(repo.group.members), writable_member=repo.group.writable_member)
 
 
-def to_view(svc: Services, repo: RepoConfig, status: str, summary: repo_stats.RepoSummary) -> Repository:
+def _quota_view(quota: QuotaStatus | None) -> RepositoryQuota | None:
+    if quota is None:
+        return None
+    return RepositoryQuota(
+        quota_bytes=quota.quota_bytes,
+        mode=quota.mode,
+        used_bytes=quota.used_bytes,
+        used_ratio=round(quota.ratio, 4),
+        state=quota.state,
+    )
+
+
+def to_view(
+    svc: Services,
+    repo: RepoConfig,
+    status: str,
+    summary: repo_stats.RepoSummary,
+    quota: QuotaStatus | None = None,
+) -> Repository:
     return Repository(
         name=repo.name,
         format=repo.format,
@@ -155,6 +189,8 @@ def to_view(svc: Services, repo: RepoConfig, status: str, summary: repo_stats.Re
         proxy=_proxy_view(repo),
         hosted=_hosted_view(repo),
         group=_group_view(repo),
+        storage=StorageConfig(quota_bytes=repo.storage.quota_bytes, quota_mode=repo.storage.quota_mode),
+        quota=_quota_view(quota),
         format_options=repo.format_options,
         created_at=repo.created_at,
         updated_at=repo.updated_at,
@@ -169,7 +205,8 @@ def _target(repo: RepoConfig) -> audit.AuditTarget:
 async def _view(svc: Services, repo: RepoConfig) -> Repository:
     status = (await repo_stats.statuses(svc, [repo]))[repo.id]
     summary = (await repo_stats.summaries(svc, [repo]))[repo.id]
-    return to_view(svc, repo, status, summary)
+    quota = (await svc.quotas.statuses([repo])).get(repo.id)
+    return to_view(svc, repo, status, summary, quota)
 
 
 def _encode_cursor(name: str) -> str:
@@ -213,9 +250,12 @@ async def list_repositories(
         repos = [r for r in repos if r.name.lower() > after]
     page = repos[:limit]
     summaries = await repo_stats.summaries(svc, page)
+    quotas = await svc.quotas.statuses(page)
     next_cursor = _encode_cursor(page[-1].name) if len(repos) > limit else None
     return RepositoryPage(
-        items=[to_view(svc, r, statuses[r.id], summaries[r.id]) for r in page], next_cursor=next_cursor, total=total
+        items=[to_view(svc, r, statuses[r.id], summaries[r.id], quotas.get(r.id)) for r in page],
+        next_cursor=next_cursor,
+        total=total,
     )
 
 

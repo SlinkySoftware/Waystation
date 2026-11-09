@@ -92,6 +92,9 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     default), must be a docker repository the principal may `read` (the registry token must carry its `pull`
     scope), and must hold the blob; the blob is then linked (claimed against GC), `201`. Otherwise an upload session
     starts (`202`). A blob already in the target repository mounts without `from`.
+  - Quotas (T-O03): with a hard quota reached, `POST` (also mounts; refused early when its `Content-Length` would go
+    over), `PATCH`, `PUT` and manifest pushes (refused when the manifest would go over) answer `403 DENIED` with
+    "repository <name> is over its quota: ..."; pulls and deletes still work. The low-disk guard answers `507`.
   - Manifest `PUT`: `Content-Type` (or the document's `mediaType` when the header is generic) must be a manifest or
     index type and agree with `mediaType`; `schemaVersion` 2; descriptors well-formed; ≤ 4 MiB (`413`); by digest the
     bytes must match it (sha256 or sha512). Blobs referenced by a manifest (config, layers; not

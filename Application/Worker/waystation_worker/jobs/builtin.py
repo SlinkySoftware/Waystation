@@ -8,9 +8,9 @@ from typing import Any
 from waystation_common.db.jobs import Definition
 from waystation_common.events import keys
 from waystation_common.events.schema import ActivityEvent, EventType
-from waystation_common.jobs.model import BlobGc, CleanupRun, StatsRollup
+from waystation_common.jobs.model import BlobGc, CleanupRun, QuotaReconcile, StatsRollup, StorageCheck
 from waystation_common.storage import BlobStore
-from waystation_worker import cleanup, gc, rollup
+from waystation_worker import cleanup, gc, quota, rollup
 from waystation_worker.jobs.context import JobContext
 from waystation_worker.jobs.registry import handles
 
@@ -20,6 +20,9 @@ BUILTIN_DEFINITIONS: tuple[Definition, ...] = (
     Definition(
         id='blob.gc', kind=BlobGc.kind, schedule='0 */6 * * *', params={'grace_s': 86400, 'upload_age_s': 86400}
     ),
+    # Quotas (SPEC §4.8): recount usage hourly (the server counts incrementally between runs); low-disk alert.
+    Definition(id='quota.reconcile', kind=QuotaReconcile.kind, schedule='7 * * * *'),
+    Definition(id='storage.check', kind=StorageCheck.kind, schedule='@every 1m'),
 )
 log = logging.getLogger('waystation.worker.jobs')
 
@@ -79,3 +82,30 @@ async def blob_gc(job: BlobGc, ctx: JobContext) -> dict[str, Any]:
             )
         )
     return result.as_dict()
+
+
+@handles(QuotaReconcile)
+async def quota_reconcile(job: QuotaReconcile, ctx: JobContext) -> dict[str, Any]:
+    """Recount repository usage from ``assets`` and announce quota thresholds (``waystation_worker.quota``)."""
+    result = await quota.reconcile(ctx.db, ctx.emitter, now=ctx.now())
+    await ctx.log(
+        f'recounted {result.repositories} repositories; {result.drifted} corrected '
+        f'({cleanup.human_bytes(result.drift_bytes)} of drift), {result.announced} quota alerts'
+    )
+    return result.as_dict()
+
+
+@handles(StorageCheck)
+async def storage_check(job: StorageCheck, ctx: JobContext) -> dict[str, Any]:
+    """Free space against the low-disk guard: ``storage.low`` / ``storage.ok`` (``waystation_worker.quota``)."""
+    if ctx.settings is None:
+        raise RuntimeError('the storage check needs the worker settings (data directory)')
+    state = await quota.check_storage(
+        ctx.db,
+        ctx.valkey,
+        BlobStore.from_settings(ctx.settings),
+        ctx.emitter,
+        default_min_free_bytes=ctx.settings.min_free_bytes,
+        now=ctx.now(),
+    )
+    return state.as_dict()
