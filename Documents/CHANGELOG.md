@@ -18,6 +18,25 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   every asset write, reconciled hourly, filled by migration `0003_usage_artifacts`) and an expired snapshot is
   refreshed in the background. Folder browse: p95 40 ms -> 7 ms: the walk reads several small sub-folders per query
   (batches grow while they hold several children) and the first page walks the folder once instead of twice.
+- T-O07: backup and restore. `Build/Containers/backup/waystation-backup.sh` (bash + Docker only; `make backup`,
+  `make restore`, `make verify-blobs`) works in a throwaway `mongo:8` container that borrows the worker's data mount,
+  networks and MongoDB settings (URI never on a command line). Backup: `mongodump --archive --gzip` first, then the
+  blob files, `keys/` and `manifest.json` (mode, image, MongoDB version, migrations, collection counts, blob
+  files/bytes, archive sha256) into `waystation-<UTC time>/` (`.partial` until complete, `latest` link, lock), blob
+  files hard-linked from the previous backup (incremental snapshots, copies where the target cannot link),
+  `--keep N`, `--hosted-only` (only blobs hosted repositories reference), `--user` for NAS targets that squash root.
+  Restore: archive checked against the manifest, database replaced (renamed if needed), blobs and keys copied back
+  without overwriting, owner and modes set, Valkey emptied. New worker job `blob.verify` (built-in, Sunday 03:30 UTC,
+  `deep`/`repair` parameters): missing or damaged (size, or sha256 when deep) blob files; damaged files moved out of
+  `blobs/`; `assets.blob_missing` marks (partial index): proxied assets re-fetched on the next request (fills clear
+  the mark), hosted assets reported lost in the run's log and result, a `storage.blobs_missing` activity event and
+  `waystation_assets_blob_missing{repository_type}`; `waystation_verify_*_total` counters; Grafana panels and Zabbix
+  items with a "hosted content lost" trigger; Tasks page names the task and summarises its runs.
+  `python -m waystation_worker.run_task <task> --wait` runs any scheduled task from a worker container.
+  `make backup-test`: seeded stack (real uploads and a proxy fill), full and incremental backups, hosted-only backup
+  with retention, wipe, restore into an empty stack, verify (proxied asset marked and re-fetched, hosted files
+  intact), a deleted hosted blob reported lost. `Documents/Operations/BACKUP.md` (procedures, NAS targets, cron and
+  systemd timer); DEPLOYMENT.md §10 points to it.
 - T-P2-PERF: k6 performance suite, `make perf [PROFILE=ci|full] [STRICT=1]` (`tests/perf/README.md`). Each run
   starts a throwaway stack as its own compose project (production images built from the checkout, CPU and memory
   limits per profile) with a synthetic nginx upstream generated per profile (raw files, npm, PyPI, Maven, apt, yum,
