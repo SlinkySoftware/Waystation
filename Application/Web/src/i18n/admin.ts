@@ -201,7 +201,7 @@ export const admin = {
     caption: 'Local groups hold roles for their members; groups mapped from sign-in providers give roles to whoever the provider reports in them.',
     create: 'Create group',
     all: 'All groups',
-    local: 'Local',
+    localTab: 'Local',
     mapped: 'Mapped from providers',
     col: {
       name: 'Group',
