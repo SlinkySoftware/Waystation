@@ -79,12 +79,13 @@ async function setup(url: string, capabilities = ['admin']) {
   })
   useAuthStore().session = session(capabilities)
   await router.push(url)
-  const Shell = defineComponent({ render: () => h(QLayout, () => h(QPageContainer, () => h(TasksPage))) })
   const wrapper = mount(Shell, { attachTo: document.body, global: { plugins: [router] } })
   await flushPromises()
-  await vi.waitFor(() => expect(document.body.textContent).toContain('Workers'))
+  if (capabilities.includes('admin')) await vi.waitFor(() => expect(document.body.textContent).toContain('Workers'))
   return { router, wrapper }
 }
+
+const Shell = defineComponent({ render: () => h(QLayout, () => h(QPageContainer, () => h(TasksPage))) })
 
 describe('TasksPage', () => {
   beforeEach(() => {
@@ -98,12 +99,7 @@ describe('TasksPage', () => {
   })
 
   it('tells non-admins the page is for administrators', async () => {
-    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/tasks', component: TasksPage }] })
-    useAuthStore().session = session(['stats.read'])
-    await router.push('/tasks')
-    const Shell = defineComponent({ render: () => h(QLayout, () => h(QPageContainer, () => h(TasksPage))) })
-    const wrapper = mount(Shell, { attachTo: document.body, global: { plugins: [router] } })
-    await flushPromises()
+    const { wrapper } = await setup('/tasks', ['stats.read'])
     expect(wrapper.text()).toContain('Tasks and workers are for administrators.')
     wrapper.unmount()
   })
