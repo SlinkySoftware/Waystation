@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://sum.golang.org/lookup/github.com/google/uuid@v1.6.0"
+  },
+  "response": {
+    "body_sha256": "cc08dc5fa0f7df86f8b640023f04ef0c11abe6a5ee9605ecef2bf1744d7ba8ca",
+    "body_size": 361,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "361"
+      ],
+      [
+        "expires",
+        "Mon, 09 Nov 2026 22:59:21 GMT"
+      ],
+      [
+        "cache-control",
+        "public, max-age=10800"
+      ],
+      [
+        "etag",
+        "\"cc08dc5fa0f7df86f8b640023f04ef0c11abe6a5ee9605ecef2bf1744d7ba8ca\""
+      ],
+      [
+        "content-type",
+        "text/plain; charset=UTF-8"
+      ]
+    ],
+    "status": 200
+  }
+}

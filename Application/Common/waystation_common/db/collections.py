@@ -35,6 +35,7 @@ APT_POOL_INDEX = 'apt_pool_index'
 APT_PACKAGES = 'apt_packages'
 NPM_PACKAGES = 'npm_packages'
 PYPI_PACKAGES = 'pypi_packages'
+GO_MODULES = 'go_modules'
 YUM_PACKAGES = 'yum_packages'
 HELM_CHARTS = 'helm_charts'
 UPLOAD_SESSIONS = 'upload_sessions'
@@ -264,6 +265,14 @@ SPECS: tuple[CollectionSpec, ...] = (
             # One summary per project (normalised name) a repository has: cached page (proxy) or uploads (hosted).
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        GO_MODULES,
+        (
+            # One summary per module path a Go proxy has cached something of (version list or files).
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=True),
         ),
     ),
     CollectionSpec(

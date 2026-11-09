@@ -128,6 +128,9 @@ services:
       PIP_ROOT_USER_ACTION: ignore
       UV_NO_PROGRESS: "1"
       UV_PYTHON_DOWNLOADS: never
+  client-go:  # the go command and curl (go format)
+    <<: *client
+    image: golang:1.25-trixie
   client-skopeo:  # registry API pulls without a daemon (docker format)
     <<: *client
     image: quay.io/skopeo/stable:v1.20

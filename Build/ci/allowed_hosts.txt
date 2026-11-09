@@ -65,6 +65,9 @@ charts.jetstack.io
 # Standards, licences and tooling referenced in code and docs
 w3.org
 gnu.org
+# The Go project: golang.org/x/mod (module path and version rules, dirhash) cited by the Go format; also covers
+# proxy.golang.org and sum.golang.org
+golang.org
 # XML namespace URIs of yum repodata (repomd.xml, primary.xml: xmlns="http://linux.duke.edu/metadata/...")
 linux.duke.edu
 # XML namespace URIs of Maven documents (settings.xml, maven-metadata.xml: xmlns="http://maven.apache.org/...")

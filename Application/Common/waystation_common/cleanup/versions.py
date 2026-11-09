@@ -2,6 +2,9 @@
 
 * npm: Semantic Versioning 2.0 precedence (``1.0.0-rc.1 < 1.0.0``); anything that is not semver sorts before
   every semver version, by a generic natural order.
+* go: the same precedence on ``v``-prefixed module versions (``golang.org/x/mod/semver``): pseudo-versions
+  (``v0.0.0-20191109021931-daa7c04131f5``) are pre-releases ordered by their timestamp, ``+incompatible`` (build
+  metadata) is ignored.
 * apt: dpkg ordering (``epoch:upstream-revision``; ``~`` sorts before everything, even the end of the string).
 * yum: rpm ``rpmvercmp`` on version, then release (``~`` pre-releases, ``^`` post-releases).
 * pypi: PEP 440 (epoch, release with trailing zeros ignored, ``a``/``b``/``rc`` pre-releases, ``.post``, ``.dev``,
@@ -304,7 +307,7 @@ _CMP: dict[str, Callable[[str, str], int]] = {'apt': dpkg_compare, 'yum': rpm_co
 
 def sort_key(fmt: str, version: str) -> Any:
     """Ascending sort key for versions of one format (higher = newer)."""
-    if fmt == 'npm':
+    if fmt in ('npm', 'go'):
         return _npm_key(version)
     if fmt == 'pypi':
         return pep440_key(version)
@@ -315,7 +318,7 @@ def sort_key(fmt: str, version: str) -> Any:
 
 
 def is_prerelease(fmt: str, version: str) -> bool:
-    if fmt == 'npm':
+    if fmt in ('npm', 'go'):
         key = semver_key(version)
         if key is not None:
             return bool(key[3][0] == 0)
