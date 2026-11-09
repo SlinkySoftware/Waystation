@@ -109,15 +109,34 @@ services:
     <<: *client
     image: quay.io/skopeo/stable:v1.20
     entrypoint: []
-  client-docker:  # docker CLI + daemon, plus curl (setup.sh) and skopeo (docker format: one client container)
+  client-docker:  # docker CLI + daemon (buildx), plus curl (setup.sh), skopeo, crane, oras and cosign (docker format)
     <<: *client
     build:
       dockerfile_inline: |
+        FROM gcr.io/go-containerregistry/crane:v0.22.1@sha256:1f968817b95790bed063f71175aa6b8ff879fa17064020415f3e18bb6e6a36e1 AS crane
+        FROM ghcr.io/oras-project/oras:v1.3.6@sha256:9cfb578be975b762fd898b9d004243d8003aeb807a3e15b2ed212cdd1326c9eb AS oras
+        FROM ghcr.io/sigstore/cosign/cosign:v3.1.4@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d AS cosign
         FROM docker:29-dind
         RUN apk add --no-cache curl skopeo
-    image: waystation-harness-docker:29-1  # bump the suffix when the Dockerfile above changes
+        COPY --from=crane /ko-app/crane /usr/local/bin/crane
+        COPY --from=oras /bin/oras /usr/local/bin/oras
+        COPY --from=cosign /ko-app/cosign /usr/local/bin/cosign
+    image: waystation-harness-docker:29-2  # bump the suffix when the Dockerfile above changes
     entrypoint: []  # dockerd is started by the format's setup.sh (the dind entrypoint would set DOCKER_HOST)
     privileged: true
+  client-conformance:  # OCI distribution-spec conformance suite v1.1.1 (docker format: hosted repositories)
+    <<: *client
+    build:
+      dockerfile_inline: |
+        FROM golang:1.25-alpine AS build
+        ARG SPEC=https://github.com/opencontainers/distribution-spec/archive/refs/tags/v1.1.1.tar.gz
+        RUN wget -qO- "$$SPEC" | tar -xz -C / && cd /distribution-spec-1.1.1/conformance \
+            && CGO_ENABLED=0 go test -c -o /conformance.test
+        FROM alpine:3.22
+        RUN apk add --no-cache curl
+        COPY --from=build /conformance.test /usr/local/bin/conformance.test
+    image: waystation-harness-conformance:1.1.1-1  # bump the suffix when the Dockerfile above changes
+    user: "0:0"
 
   # ---- Waystation stack under test: own container names, no published port, trusts the harness CA.
   web:

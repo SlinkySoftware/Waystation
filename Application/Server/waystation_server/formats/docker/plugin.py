@@ -116,6 +116,10 @@ class DockerPlugin:
         try:
             op = p.parse(path)
         except p.RequestRejected as exc:
+            if exc.code == 'MANIFEST_INVALID':  # a tag that cannot exist: unknown when read, invalid when pushed
+                if req.method == 'PUT':
+                    return _error(400, 'invalid tag', 'TAG_INVALID')
+                return _error(404, 'manifest unknown to registry', 'MANIFEST_UNKNOWN')
             return _error(exc.status, exc.message, exc.code)
         if req.repo.type is RepoType.HOSTED:
             return await self.hosted.handle(req, op)
