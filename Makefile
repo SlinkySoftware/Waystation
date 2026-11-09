@@ -10,7 +10,7 @@ GID         := $(shell id -g)
 VERSION     := $(shell cat VERSION)
 TTY         := $(shell [ -t 0 ] && echo -t)
 DEV_RUN      = docker run --rm -i $(TTY) --user $(UID):$(GID) -v $(CURDIR):/src -w /src $(DEV_ENV) $(DEV_IMAGE)
-PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness Build/ci
+PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness Build/ci Build/migration
 # Modules held to 100% branch coverage (TASKS T-F04 acceptance).
 FULL_COVERAGE := --include="*/waystation_common/paths.py,*/waystation_common/crypto.py"
 
@@ -66,7 +66,7 @@ lint: sync ## ruff + import-linter contracts (ARCHITECTURE §3)
 
 .PHONY: typecheck
 typecheck: sync ## mypy --strict
-	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker tests/clients/harness Build/ci
+	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker tests/clients/harness Build/ci Build/migration
 
 .PHONY: test
 test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 100% branch coverage
@@ -235,6 +235,18 @@ clients-test: dev-image ## Real-client format tests: FORMAT=<name|all> MODE=repl
 	tests/clients/run.sh $(FORMAT) $(MODE)
 clients-check: dev-image ## Forbidden-strings + size check on upstream fixtures and the client harness
 	tests/clients/check_fixtures.sh
+# Side-by-side Nexus/Waystation checks (Documents/Operations/MIGRATING_FROM_NEXUS.md step 6). Credentials only from
+# the environment (NEXUS_USERNAME/NEXUS_PASSWORD, WAYSTATION_USERNAME/WAYSTATION_TOKEN); NETWORK=host reaches servers
+# on this host.
+CHECKS ?= Build/migration/checks.example.toml
+REPORT ?= table
+.PHONY: nexus-compare
+nexus-compare: DEV_ENV = $(if $(NETWORK),--network $(NETWORK)) -e NEXUS_USERNAME -e NEXUS_PASSWORD -e WAYSTATION_USERNAME -e WAYSTATION_TOKEN
+nexus-compare: dev-image ## Compare a Nexus and a Waystation: NEXUS=<url> WAYSTATION=<url> [CHECKS=<toml>] [REPORT=table|markdown|json] [OUTPUT=<file>] [ONLY=docker,npm]
+	@[ -n "$(NEXUS)" ] && [ -n "$(WAYSTATION)" ] || { echo 'make nexus-compare: set NEXUS=<url> and WAYSTATION=<url>'; exit 2; }
+	$(DEV_RUN) python Build/migration/nexus_compare.py --nexus '$(NEXUS)' --waystation '$(WAYSTATION)' \
+	  --checks '$(CHECKS)' --report $(REPORT) $(if $(OUTPUT),--output '$(OUTPUT)') $(if $(ONLY),--only '$(ONLY)') \
+	  $(if $(CA_FILE),--ca-file '$(CA_FILE)')
 .PHONY: proxies-check
 proxies-check: ## Reverse-proxy examples in containers (REVERSE_PROXIES.md; SIZE_MB=1024, SLOW=1 for 60 s timeouts)
 	Build/Containers/examples/reverse-proxies/check/check.sh

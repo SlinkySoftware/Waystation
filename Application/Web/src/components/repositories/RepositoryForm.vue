@@ -75,7 +75,7 @@
         :error-message="membersError"
       />
       <q-select
-        v-if="model.format === 'docker'"
+        v-if="WRITABLE_GROUP_FORMATS.includes(model.format)"
         v-model="model.writableMember"
         outlined
         dense
@@ -171,7 +171,7 @@
         </div>
       </template>
       <template v-else>
-        <q-input v-model="model.metadataRegex" outlined dense :label="t('repoForm.metadataRegex')" :hint="t('repoForm.metadataRegexHint')" class="mono-input" />
+        <q-input v-if="model.type === 'proxy'" v-model="model.metadataRegex" outlined dense :label="t('repoForm.metadataRegex')" :hint="t('repoForm.metadataRegexHint')" class="mono-input" />
         <q-select v-model="model.contentDisposition" outlined dense emit-value map-options :options="dispositionOptions" :label="t('repoForm.disposition')" />
       </template>
     </section>
@@ -315,7 +315,7 @@ import { useRepositoriesStore } from '@/stores/repositories'
 import { typeMeta } from '@/utils/domain'
 import { QUOTA_UNITS } from '@/utils/quota'
 
-import { NAME_PATTERN, type Preset, PRESETS, type RepoFormModel } from './form'
+import { NAME_PATTERN, type Preset, PRESETS, type RepoFormModel, WRITABLE_GROUP_FORMATS } from './form'
 import UpstreamTest from './UpstreamTest.vue'
 
 const props = withDefaults(defineProps<{ mode?: 'create' | 'edit'; errors?: Record<string, string> }>(), { mode: 'create', errors: () => ({}) })

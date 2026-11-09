@@ -1,0 +1,90 @@
+# Side-by-side checks for `nexus_compare.py` (Documents/Operations/MIGRATING_FROM_NEXUS.md, step 6).
+# Copy this file, then change the repository names and paths to the ones your clients really use: the best checks
+# are the requests in your Nexus request log. Every path is sent to both servers (Waystation serves the Nexus
+# `/repository/<name>/...` layout; set `waystation_path` where a repository was renamed).
+#
+# Keys: name, format, method (GET|HEAD), path, headers, waystation_path,
+#       compare (status, size, digest, docker_digest, content_type), normalise (base_url, json), json (JSON Pointers).
+
+# ---- Docker / OCI: manifests through the repository path (both servers answer the Bearer challenge flow)
+[[check]]
+name = "alpine:3.20 index (HEAD, as the docker daemon asks)"
+format = "docker"
+method = "HEAD"
+path = "/repository/docker-group/v2/library/alpine/manifests/3.20"
+headers = { Accept = "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" }
+compare = ["status", "docker_digest", "content_type"]
+
+[[check]]
+name = "alpine:3.20 index (GET)"
+format = "docker"
+path = "/repository/docker-group/v2/library/alpine/manifests/3.20"
+headers = { Accept = "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json" }
+
+# ---- npm: the packument is rewritten by both servers (tarball URLs): compare chosen values, then a tarball
+[[check]]
+name = "lodash packument"
+format = "npm"
+path = "/repository/npm/lodash"
+compare = ["status", "content_type"]
+json = ["/name", "/dist-tags/latest", "/versions/4.17.21/dist/integrity", "/versions/4.17.21/dist/shasum"]
+
+[[check]]
+name = "lodash 4.17.21 tarball"
+format = "npm"
+path = "/repository/npm/lodash/-/lodash-4.17.21.tgz"
+
+# ---- apt: signed index, a package index and a pool file must be byte-identical
+[[check]]
+name = "trixie InRelease"
+format = "apt"
+path = "/repository/debian/dists/trixie/InRelease"
+compare = ["status", "size", "digest"]
+
+[[check]]
+name = "trixie main amd64 Packages.xz"
+format = "apt"
+path = "/repository/debian/dists/trixie/main/binary-amd64/Packages.xz"
+compare = ["status", "size", "digest"]
+
+[[check]]
+name = "a pool file"
+format = "apt"
+path = "/repository/debian/pool/main/h/hello/hello_2.10-5_amd64.deb"
+compare = ["status", "size", "digest"]
+
+# ---- yum / dnf: repomd.xml and a package
+[[check]]
+name = "Rocky 9 BaseOS repomd.xml"
+format = "yum"
+path = "/repository/rocky/9/BaseOS/x86_64/os/repodata/repomd.xml"
+compare = ["status", "size", "digest"]
+
+[[check]]
+name = "an rpm"
+format = "yum"
+path = "/repository/rocky/9/BaseOS/x86_64/os/Packages/b/bash-5.1.8-9.el9.x86_64.rpm"
+compare = ["status", "size", "digest"]
+
+# ---- raw: a proxied release file and an uploaded file (content types may legitimately differ: Waystation types by
+# extension, so it is left out here)
+[[check]]
+name = "release binary through the raw proxy"
+format = "raw"
+path = "/repository/github-releases/cli/cli/releases/download/v2.83.0/gh_2.83.0_linux_amd64.tar.gz"
+compare = ["status", "size", "digest"]
+
+[[check]]
+name = "an uploaded file (copy hosted content first)"
+format = "raw"
+path = "/repository/files/releases/1.0/app-1.0.tar.gz"
+compare = ["status", "size", "digest"]
+
+# ---- PyPI: the simple page links are rewritten by both servers; compare the JSON form's stable values
+[[check]]
+name = "requests simple page (PEP 691 JSON)"
+format = "pypi"
+path = "/repository/pypi/simple/requests/"
+headers = { Accept = "application/vnd.pypi.simple.v1+json" }
+compare = ["status", "content_type"]
+json = ["/name"]
