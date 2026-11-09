@@ -5,12 +5,22 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from waystation_common.db import jobs as jobs_db
+from waystation_common.db.blobs import MongoBlobGuard
 from waystation_common.db.jobs import Definition
 from waystation_common.events import keys
 from waystation_common.events.schema import ActivityEvent, EventType
-from waystation_common.jobs.model import BlobGc, CleanupRun, QuotaReconcile, StatsRollup, StorageCheck
+from waystation_common.jobs.model import (
+    BlobGc,
+    CleanupRun,
+    HelmIndex,
+    JobEnvelope,
+    QuotaReconcile,
+    StatsRollup,
+    StorageCheck,
+)
 from waystation_common.storage import BlobStore
-from waystation_worker import cleanup, gc, quota, rollup
+from waystation_worker import cleanup, gc, helm, quota, rollup
 from waystation_worker.jobs.context import JobContext
 from waystation_worker.jobs.registry import handles
 
@@ -44,6 +54,10 @@ async def cleanup_run(job: CleanupRun, ctx: JobContext) -> dict[str, Any]:
     if policy is None:
         return {'policy_id': job.policy_id, 'skipped': 'the policy was deleted', 'removed': 0, 'bytes': 0}
     await cleanup.record(ctx.valkey, ctx.emitter, policy, outcomes, now)
+    for outcome in outcomes:  # hosted Helm charts removed: their index must drop them (waystation_worker.helm)
+        if outcome.format == 'helm' and outcome.removed.items and outcome.repo_id:
+            envelope = JobEnvelope.for_payload(HelmIndex(repo_id=outcome.repo_id), now=now)
+            await jobs_db.outbox_add(ctx.db, envelope, now=now)
     return cleanup.summarise(policy, outcomes)
 
 
@@ -109,3 +123,17 @@ async def storage_check(job: StorageCheck, ctx: JobContext) -> dict[str, Any]:
         now=ctx.now(),
     )
     return state.as_dict()
+
+
+@handles(HelmIndex)
+async def helm_index(job: HelmIndex, ctx: JobContext) -> dict[str, Any]:
+    """Regenerate and publish a hosted Helm repository's ``index.yaml`` (``waystation_worker.helm``)."""
+    if ctx.settings is None:
+        raise RuntimeError('the Helm index needs the worker settings (data directory)')
+    store = BlobStore.from_settings(ctx.settings)
+    store.guard = MongoBlobGuard(ctx.db)  # the commit claims the blob against GC (ARCHITECTURE §5)
+    result = await helm.rebuild(ctx.db, store, job.repo_id, now=ctx.now())
+    if result is None:
+        return {'repo_id': job.repo_id, 'skipped': 'not a hosted Helm repository (deleted?)'}
+    await ctx.log(f'published index.yaml: {result.charts} charts, {result.versions} versions, {result.size} bytes')
+    return {'repo_id': job.repo_id, **result.as_dict()}

@@ -34,6 +34,7 @@ class RepoOutcome:
     name: str
     format: str
     removed: cleanup_db.Removed
+    repo_id: str = ''
 
 
 def human_bytes(n: int) -> str:
@@ -81,7 +82,7 @@ async def run_policy(
 
         removed = await cleanup_db.remove(db, str(repo['_id']), plan, progress=report)
         done += len(plan)
-        outcomes.append(RepoOutcome(name, str(repo['format']), removed))
+        outcomes.append(RepoOutcome(name, str(repo['format']), removed, str(repo['_id'])))
         if log_line is not None:
             await log_line(f'{name}: removed {removed.items} of {len(plan)} planned ({human_bytes(removed.bytes)})')
     return policy, outcomes

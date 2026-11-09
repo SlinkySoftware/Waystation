@@ -122,6 +122,7 @@ class Services:
         blobs.guard = MongoBlobGuard(db)  # commits claim their blob against GC (waystation_common.db.blobs)
         storage = StorageStats(db, settings.data_dir)
         quotas = Quotas(db, emitter, metrics)
+        jobs = JobClient(redis, db)
         catalog = RepoCatalog(load)
         rbac = RbacState(db, redis)
 
@@ -159,7 +160,7 @@ class Services:
             groups=rbac.groups,
             ldap=LdapAuthenticator(),
             oidc=OidcClient(UpstreamHttp(upstream)),
-            jobs=JobClient(redis, db),
+            jobs=jobs,
             audit=AuditWriter(audit_db.inserter(db), retention_days=settings.audit_retention_days),
             instance=InstanceSettings(db, settings),
             proxy=ProxyEngine(
@@ -173,7 +174,7 @@ class Services:
                 keyring=keyring,
                 quotas=quotas,
             ),
-            hosted=HostedStore(db=db, blobs=blobs, emitter=emitter, metrics=metrics, quotas=quotas),
+            hosted=HostedStore(db=db, blobs=blobs, emitter=emitter, metrics=metrics, quotas=quotas, jobs=jobs),
             keyring=keyring,
             mongo_client=client,
             check_schema_on_start=check_schema_on_start,

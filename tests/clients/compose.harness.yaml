@@ -105,6 +105,14 @@ services:
   client-alma:  # dnf on AlmaLinux 10 (yum format)
     <<: *client
     image: almalinux:10.2
+  client-helm:  # helm 3 + curl (helm format)
+    <<: *client
+    image: alpine/helm:3.19.0
+    entrypoint: []
+  client-helm4:  # helm 4 + curl (helm format)
+    <<: *client
+    image: alpine/helm:4.0.0
+    entrypoint: []
   client-python:  # pip, uv, twine, Poetry and PDM (pypi format)
     <<: *client
     build:

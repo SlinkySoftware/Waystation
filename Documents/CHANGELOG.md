@@ -3,6 +3,25 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-P5-HELM: Helm classic chart repositories (`formats/helm/`). Proxy: `index.yaml` cached as metadata (revalidated),
+  parsed with a safe, bounded YAML loader in a thread (only `null` resolved implicitly, no tags or aliases), chart
+  URLs rewritten to the repository (relative paths kept, charts hosted elsewhere served at
+  `_ext/<scheme>/<host>/<path>`), served as JSON (valid YAML); a chart package is fetched only when the cached index
+  lists it and verified against its sha256 `digest` while streaming; `.prov` pass-through. Hosted: `PUT` uploads and
+  the ChartMuseum API (`api/charts`, multipart `chart`/`prov`, deletes by `api/charts/<name>/<version>`), chart
+  packages read without extraction (one top-level directory, no links or unsafe names, member and size limits,
+  `Chart.yaml` validated: apiVersion, name, SemVer version), stored as `<name>-<version>.tgz`, write policy, deletes,
+  quotas, audit. The chart record and an `index.helm` job are written in one transaction (outbox, dedupe per
+  repository); the worker rebuilds `index.yaml` from the records and publishes it in one asset write; cleanup runs
+  that remove hosted charts trigger it too. Group: one merged `index.yaml` (first member wins per chart version)
+  committed to the blob store and served by X-Accel, charts from the first member that has them, uploads to the
+  writable member. New `helm_charts` collection (SemVer `version_sort`), browse API `helm/charts` and
+  `helm/versions`. UI: Helm tile in the create flow (proxy presets, hosted, group), browse renderer (charts →
+  versions), "Set me up" (repo add/update/search/install/pull, upload with curl or `helm cm-push`), mocks.
+  Real-client harness `tests/clients/helm/` (helm 3 and helm 4: repo add, search, pull, template through a proxy of
+  the metrics-server chart repository and a group; curl and ChartMuseum uploads to a hosted repository, index rebuild,
+  delete), recorded and replayed. Client guide `Documents/Operations/clients/helm.md`. OCI charts stay in docker
+  repositories.
 - T-O08: two-factor sign-in (TOTP, RFC 6238) for local accounts. `security.totp` (standard library: HMAC-SHA1, 6 digits, 30 s, ±1 step, constant time), `security.second_factor` (replay protection in Valkey `totp:used:<user>:<step>` and `users.totp_last_step`, recovery codes as keyed hashes consumed atomically, pending sign-ins in the new `login_challenges` collection, the admin policy). API: `POST /auth/login` answers `202` (`SecondFactorRequired`, HttpOnly SameSite=Strict `ws_mfa` cookie) for enrolled accounts, `POST /auth/login/totp`, `GET /auth/me/totp`, `POST /auth/me/totp/{setup,confirm,recovery-codes,disable}`, `DELETE /users/{id}/totp`, `Session.totp_setup_required`, `UserSummary.totp_enabled`, `InstanceSettings.security.require_totp_for_admins` (`settings` document `security`), problem+json `code`. Wrong codes count towards the lockout; the password step of an enrolled account no longer resets the failure count. `docker login` with the password of an enrolled account (or of an administrator who must enrol) is refused. Audit actions `auth.totp_enable`, `auth.totp_disable`, `auth.totp_recovery_codes`. UI: second sign-in step (code or recovery code), profile card (set-up dialog with a QR code from an in-house SVG encoder, recovery codes dialog with copy/download, new codes, turn off), admin "Reset two-factor sign-in", Settings toggle, router guard; MSW mocks (`sam` signs in with a code).
 - T-P5-GO: Go module proxy and group repositories (`formats/go/`). Proxy: the GOPROXY protocol (`@v/list`, `@latest`,
   `.info`, `.mod`, `.zip`) with module paths and versions case-decoded, validated and re-encoded, lists and `@latest`
