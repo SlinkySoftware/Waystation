@@ -153,7 +153,27 @@ function yum(repo: Repository): SetupClient[] {
   ]
 }
 
+function rawHosted(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}`
+  const file = 'releases/1.0/app-1.0.tar.gz'
+  const s = (id: string, title: string, content: string): SetupClient['snippets'][number] => ({ id, title, language: 'shell', filename: null, os: null, content })
+  const writable = repo.type === 'hosted' || Boolean(repo.group?.writable_member)
+  return [
+    { id: 'curl', label: 'curl', snippets: [
+      s('curl-get', 'Download a file', `curl -fSLO ${url}/${file}`),
+      s('curl-auth', 'With credentials (when anonymous reads are not allowed)', `curl -fSLO -u {{USERNAME}}:{{TOKEN}} ${url}/${file}`),
+      ...(writable ? [
+        { ...s('curl-put', 'Upload a file', `curl -fS -u {{USERNAME}}:{{TOKEN}} --upload-file app-1.0.tar.gz ${url}/${file}`), description: 'Uploads need the write permission; an API token is the password.' },
+        s('curl-put-checksum', 'Upload with a checksum the server verifies', `curl -fS -u {{USERNAME}}:{{TOKEN}} \\\n  -H "X-Checksum-Sha256: $(sha256sum app-1.0.tar.gz | cut -d' ' -f1)" \\\n  --upload-file app-1.0.tar.gz ${url}/${file}`),
+      ] : []),
+      ...(repo.type === 'hosted' ? [s('curl-delete', 'Delete a file', `curl -fS -u {{USERNAME}}:{{TOKEN}} -X DELETE ${url}/${file}`)] : []),
+    ] },
+    { id: 'wget', label: 'wget', snippets: [s('wget-get', 'Download a file', `wget ${url}/${file}`)] },
+  ]
+}
+
 function raw(repo: Repository): SetupClient[] {
+  if (repo.type === 'hosted' || repo.type === 'group') return rawHosted(repo)
   const url = `${BASE_URL}/repository/${repo.name}`
   const sample = 'cli/cli/releases/download/v2.83.0/gh_2.83.0_linux_amd64.tar.gz'
   return [
