@@ -75,7 +75,10 @@ def test_routes() -> None:
 def test_asset_keys() -> None:
     assert paths.discovery_key('registry.terraform.io') == 'registry.terraform.io/.well-known/terraform.json'
     assert paths.versions_key(NULL) == 'registry.terraform.io/hashicorp/null/versions'
-    assert paths.download_key(NULL, '1.0.0', 'linux', 'amd64') == 'registry.terraform.io/hashicorp/null/1.0.0/download/linux/amd64'
+    assert (
+        paths.download_key(NULL, '1.0.0', 'linux', 'amd64')
+        == 'registry.terraform.io/hashicorp/null/1.0.0/download/linux/amd64'
+    )
     assert paths.sums_key(NULL, '1.0.0').endswith('/1.0.0/SHA256SUMS')
     assert paths.signature_key(NULL, '1.0.0').endswith('/1.0.0/SHA256SUMS.sig')
     key = paths.archive_key(NULL, '1.0.0', 'linux', 'amd64', 'p.zip')
@@ -91,7 +94,13 @@ def test_discovery() -> None:
     absolute = json.dumps({'providers.v1': 'https://api.example.com/tf/providers'}).encode()
     assert registry.parse_discovery(absolute, 'example.com') == 'https://api.example.com/tf/providers/'
     assert registry.parse_discovery(doc, '127.0.0.1:8080', 'http') == 'http://127.0.0.1:8080/v1/providers/'
-    for bad in (b'nope', b'[]', b'{"modules.v1": "/m/"}', b'{"providers.v1": "ftp://x/"}', b'{"providers.v1": "/p?x=1"}'):
+    for bad in (
+        b'nope',
+        b'[]',
+        b'{"modules.v1": "/m/"}',
+        b'{"providers.v1": "ftp://x/"}',
+        b'{"providers.v1": "/p?x=1"}',
+    ):
         with pytest.raises(UpstreamError):
             registry.parse_discovery(bad, 'example.com')
     with pytest.raises(UpstreamError, match='too large'):
@@ -103,7 +112,11 @@ def test_discovery() -> None:
 def test_versions_and_index() -> None:
     doc = {
         'versions': [
-            {'version': '3.2.0', 'protocols': ['5.0'], 'platforms': [{'os': 'linux', 'arch': 'amd64'}, {'os': 'darwin', 'arch': 'arm64'}]},
+            {
+                'version': '3.2.0',
+                'protocols': ['5.0'],
+                'platforms': [{'os': 'linux', 'arch': 'amd64'}, {'os': 'darwin', 'arch': 'arm64'}],
+            },
             {'version': '3.10.0-beta.1', 'protocols': ['5.0', 6], 'platforms': [{'os': 'linux', 'arch': 'amd64'}, 'x']},
             {'version': '3.9.1', 'platforms': None},
             {'version': 'not-a-version'},
@@ -195,7 +208,13 @@ def test_sums_archives_and_version_document() -> None:
     assert [(a.os, a.arch, a.filename) for a in only] == [('linux', 'amd64', 'provider.zip')]
     with pytest.raises(UpstreamError, match='shasum'):
         registry.archives({'provider.zip': 'b' * 64}, odd, ())
-    for bad in (b'', b'zz  file\n', b'\xff', b'a' * (registry.MAX_SUMS + 1), f'{"1" * 64}  x\n{"2" * 64}  x\n'.encode()):
+    for bad in (
+        b'',
+        b'zz  file\n',
+        b'\xff',
+        b'a' * (registry.MAX_SUMS + 1),
+        f'{"1" * 64}  x\n{"2" * 64}  x\n'.encode(),
+    ):
         with pytest.raises(UpstreamError):
             registry.parse_sums(bad)
 

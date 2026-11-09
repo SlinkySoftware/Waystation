@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from ws_openpgp import NOW, Sub, PgpKey, armor, cert, detached, packet, signature, subpacket
+from ws_openpgp import NOW, PgpKey, Sub, armor, cert, detached, packet, signature, subpacket
 
 from waystation_common import openpgp
 from waystation_common.openpgp import OpenPgpError, dearmor, packets, read_certs, verify_detached
