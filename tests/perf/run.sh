@@ -116,7 +116,7 @@ sample() {  # sample <file>: docker stats of the stack every ~2 s until killed
 }
 
 k6_env=()
-for var in $(compgen -e | grep -E '^PERF_'); do k6_env+=(-e "$var"); done
+for var in $(compgen -e | grep -E '^PERF_' | grep -vE '^PERF_(DIR|RUN_DIR|RESULTS|UID|GID|PROJECT)$'); do k6_env+=(-e "$var"); done
 failed=()
 for scenario in $SCENARIOS; do
   echo "==> scenario $scenario"
@@ -128,6 +128,7 @@ for scenario in $SCENARIOS; do
   else
     "${compose[@]}" --profile tools run --rm --no-deps --quiet-pull "${k6_env[@]}" -e SCENARIO="$scenario" k6 \
       run --quiet --no-color /perf/k6/main.js || failed+=("$scenario")
+    [ -s "$PERF_RESULTS/k6-$scenario.json" ] || { echo "perf: $scenario left no results" >&2; failed+=("$scenario"); }
   fi
   kill "$SAMPLER" 2>/dev/null || true
   wait "$SAMPLER" 2>/dev/null || true

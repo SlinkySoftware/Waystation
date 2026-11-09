@@ -48,8 +48,6 @@ services:
       - {type: bind, source: "${PERF_RESULTS}", target: /results}
     environment:
       K6_NO_USAGE_REPORT: "true"
-      PERF_TARGETS: /run-dir/targets.json
-      PERF_RESULTS: /results
     networks: [frontend]
 
   # ---- Waystation under test: own container names, no published port, bounded resources
