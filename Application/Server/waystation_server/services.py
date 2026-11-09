@@ -37,6 +37,7 @@ from waystation_server.proxy.engine import ProxyEngine
 from waystation_server.proxy.http import UpstreamClients, network_of
 from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import AuthKind, RepoConfig, secret_aad
+from waystation_server.repos.quota import GuardKeeper, Quotas
 from waystation_server.security.groups import GroupDirectory
 from waystation_server.security.ldap import LdapAuthenticator
 from waystation_server.security.oidc import OidcClient, UpstreamHttp
@@ -70,6 +71,8 @@ class Services:
     proxy: ProxyEngine
     hosted: HostedStore  # hosted repositories' uploads and stored content (waystation_server.hosted)
     storage: StorageStats
+    quotas: Quotas  # repository quotas: hard-quota refusals, threshold alerts (repos.quota)
+    guard: GuardKeeper  # low-disk guard settings -> the blob store's free-space floor
     hub: Hub
     registry_signer: SignerHolder
     auth_providers: ProviderCatalog  # external sign-in providers (security.providers)
@@ -114,6 +117,7 @@ class Services:
         blobs.on_refused = metrics.storage_refused
         blobs.guard = MongoBlobGuard(db)  # commits claim their blob against GC (waystation_common.db.blobs)
         storage = StorageStats(db, settings.data_dir)
+        quotas = Quotas(db, emitter, metrics)
         catalog = RepoCatalog(load)
         rbac = RbacState(db, redis)
 
@@ -142,6 +146,8 @@ class Services:
             tokens=TokenService(db, redis, settings, rbac=rbac),
             upstream=upstream,
             storage=storage,
+            quotas=quotas,
+            guard=GuardKeeper(db, blobs, default_min_free_bytes=settings.min_free_bytes),
             hub=hub,
             registry_signer=SignerHolder(settings.data_dir, keyring),
             auth_providers=ProviderCatalog(lambda: auth_providers_db.list_all(db)),
@@ -160,8 +166,9 @@ class Services:
                 clients=upstream,
                 metrics=metrics,
                 keyring=keyring,
+                quotas=quotas,
             ),
-            hosted=HostedStore(db=db, blobs=blobs, emitter=emitter, metrics=metrics),
+            hosted=HostedStore(db=db, blobs=blobs, emitter=emitter, metrics=metrics, quotas=quotas),
             keyring=keyring,
             mongo_client=client,
             check_schema_on_start=check_schema_on_start,
@@ -218,6 +225,7 @@ class Services:
         self.rbac.on_change.append(self.tokens.clear)  # resolved token principals carry materialised grants
         self.rbac.start()
         self.metrics.start()
+        self.guard.start()
         self.proxy.breaker.start_prober(self.catalog.all, self.probe_upstream)
         self._started = True
 
@@ -226,6 +234,7 @@ class Services:
             return
         self._started = False
         await self.metrics.stop()
+        await self.guard.stop()
         await self.proxy.breaker.stop()
         await self.hub.stop()
         await self.proxy.coalescer.aclose()

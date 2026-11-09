@@ -12,8 +12,9 @@ multi-process aggregation:
   consecutive failures; the latest upstream rate limit (Docker Hub ``ratelimit-*``) per repository;
 - per job queue: waiting, running, delayed jobs and the age of the oldest waiting job; dead letters;
 - live workers (heartbeat within ``WORKER_ALIVE_S``) and scheduler leaders;
-- blob store: bytes held by blobs, blob count (MongoDB), free and total bytes of the data filesystem and the
-  free-space guard threshold;
+- blob store: bytes held by blobs, blob count (MongoDB), free and total bytes of the data filesystem, the
+  low-disk guard's effective floor and whether it is tripped (``waystation_storage_low``);
+- per repository with a quota: the quota, its mode and the stored bytes counted against it (``repo_usage``);
 - cleanup and blob GC running totals (Valkey ``maintenance:totals``, written by the workers) as counters.
 """
 
@@ -100,6 +101,7 @@ class ClusterMetrics:
             ('valkey', self._maintenance),
             ('mongodb', self._workers),
             ('mongodb', self._storage),
+            ('mongodb', self._quotas),
             ('filesystem', self._disk),
         ]
         results = await asyncio.gather(*(self._bounded(name, fn) for name, fn in sources))
@@ -228,13 +230,39 @@ class ClusterMetrics:
 
     async def _disk(self) -> Families:
         st = await asyncio.to_thread(os.statvfs, self._svc.settings.data_dir)
+        free_bytes, total_bytes = st.f_bavail * st.f_frsize, st.f_blocks * st.f_frsize
         free = _gauge('waystation_blobstore_free_bytes', 'Free bytes on the data directory filesystem.')
-        free.add_metric([], st.f_bavail * st.f_frsize)
+        free.add_metric([], free_bytes)
         size = _gauge('waystation_blobstore_size_bytes', 'Size of the data directory filesystem.')
-        size.add_metric([], st.f_blocks * st.f_frsize)
+        size.add_metric([], total_bytes)
+        floor_bytes = self._svc.guard.current.floor(total_bytes)
         floor = _gauge(
             'waystation_blobstore_min_free_bytes',
-            'Free-space guard: new cache and upload writes are refused below this (WAYSTATION_MIN_FREE_GB).',
+            'Low-disk guard: new cache fills and uploads are refused below this many free bytes (the larger of the '
+            'minimum free bytes and percent settings).',
         )
-        floor.add_metric([], self._svc.settings.min_free_bytes)
-        return [free, size, floor]
+        floor.add_metric([], floor_bytes)
+        low = _gauge('waystation_storage_low', '1 while free space is below the low-disk guard (writes refused).')
+        low.add_metric([], int(free_bytes < floor_bytes))
+        return [free, size, floor, low]
+
+    async def _quotas(self) -> Families:
+        repos = [r for r in await self._svc.catalog.all() if r.storage.quota_bytes is not None]
+        statuses = await self._svc.quotas.statuses(repos)
+        quota = _gauge(
+            'waystation_repository_quota_bytes', 'Repository quota, by repository and mode.', ['repo', 'mode']
+        )
+        used = _gauge(
+            'waystation_repository_stored_bytes',
+            'Bytes stored by a repository with a quota (sum of its assets; shared blobs count in each repository).',
+            ['repo'],
+        )
+        ratio = _gauge('waystation_repository_quota_used_ratio', 'Stored bytes / quota (1 = quota reached).', ['repo'])
+        for repo in repos:
+            status = statuses.get(repo.id)
+            if status is None:
+                continue
+            quota.add_metric([repo.name, status.mode.value], status.quota_bytes)
+            used.add_metric([repo.name], status.used_bytes)
+            ratio.add_metric([repo.name], round(status.ratio, 4))
+        return [quota, used, ratio]

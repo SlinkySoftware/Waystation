@@ -21,7 +21,9 @@ Guarantees:
   exactly one writer); across processes the race is benign: both renames carry identical bytes atomically.
 - No file I/O on the event loop: buffered writes (``chunk_size``, default 1 MiB) are hashed and written in a worker
   thread; every other filesystem call also runs in ``asyncio.to_thread``.
-- ``open_writer`` refuses to start when free space would drop below ``min_free_bytes`` (``InsufficientStorage``).
+- ``open_writer`` refuses to start when free space would drop below the guard's floor, the larger of
+  ``min_free_bytes`` and ``min_free_percent`` of the filesystem (``InsufficientStorage``; low-disk guard settings,
+  ``waystation_common.db.storage_guard``).
 
 Resumable uploads (hosted writes that span several requests, e.g. OCI chunked blob uploads)::
 
@@ -278,6 +280,7 @@ class BlobStore:
         root: Path,
         *,
         min_free_bytes: int = 0,
+        min_free_percent: float = 0.0,
         max_size: int | None = None,
         chunk_size: int = DEFAULT_CHUNK,
         guard: BlobGuard | None = None,
@@ -287,6 +290,7 @@ class BlobStore:
         self.blobs_dir = root / 'blobs'
         self.uploads_dir = root / 'uploads'
         self.min_free_bytes = min_free_bytes
+        self.min_free_percent = min_free_percent  # the server keeps both in step with the guard settings
         self.max_size = max_size
         self.chunk_size = chunk_size
         self._active: set[str] = set()
@@ -309,16 +313,24 @@ class BlobStore:
         return f'{XACCEL_PREFIX}sha256/{sha256[:2]}/{sha256[2:4]}/{sha256}'
 
     # ---- space
-    def _free_bytes_sync(self) -> int:
+    def _space_sync(self) -> tuple[int, int]:
         st = os.statvfs(self.root)
-        return st.f_bavail * st.f_frsize
+        return st.f_bavail * st.f_frsize, st.f_blocks * st.f_frsize
+
+    async def space(self) -> tuple[int, int]:
+        """(free bytes, filesystem size) of the data directory."""
+        return await asyncio.to_thread(self._space_sync)
 
     async def free_bytes(self) -> int:
-        return await asyncio.to_thread(self._free_bytes_sync)
+        return (await self.space())[0]
+
+    def floor(self, total_bytes: int) -> int:
+        """The guard threshold: ``min_free_bytes`` or ``min_free_percent`` of the filesystem, the larger."""
+        return max(self.min_free_bytes, int(total_bytes * self.min_free_percent / 100))
 
     async def check_free_space(self, needed: int = 0) -> None:
-        free = await self.free_bytes()
-        if free - needed < self.min_free_bytes:
+        free, total = await self.space()
+        if free - needed < self.floor(total):
             if self.on_refused is not None:
                 self.on_refused()
             raise InsufficientStorage('not enough free space in the blob store')

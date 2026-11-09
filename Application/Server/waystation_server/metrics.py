@@ -103,7 +103,26 @@ class Metrics:
         )
         self.storage_refusals = Counter(
             'waystation_storage_refusals',
-            'Blob store writes refused by the free-space guard (WAYSTATION_MIN_FREE_GB).',
+            'Blob store writes refused by the low-disk guard (minimum free bytes / percent).',
+            registry=self.registry,
+        )
+        self.quota_refusals = Counter(
+            'waystation_quota_refusals',
+            'Writes refused by a hard repository quota, by repository and kind: upload (refused with an error) or '
+            'fill (a proxy download passed through without being cached).',
+            ['repo', 'kind'],
+            registry=self.registry,
+        )
+        self.not_stored = Counter(
+            'waystation_fills_not_stored',
+            'Proxy downloads served to the client without being cached, by repository and reason (quota, low_disk).',
+            ['repo', 'reason'],
+            registry=self.registry,
+        )
+        self.quota_alerts = Counter(
+            'waystation_quota_alerts',
+            'Quota thresholds reached (level 80 = warning, 100 = quota reached), by repository.',
+            ['repo', 'level'],
             registry=self.registry,
         )
 
@@ -130,6 +149,15 @@ class Metrics:
 
     def storage_refused(self) -> None:
         self.storage_refusals.inc()
+
+    def quota_refused(self, *, repo: str, kind: str) -> None:
+        self.quota_refusals.labels(repo, kind).inc()
+
+    def fill_not_stored(self, *, repo: str, reason: str) -> None:
+        self.not_stored.labels(repo, reason).inc()
+
+    def quota_alert(self, *, repo: str, level: int) -> None:
+        self.quota_alerts.labels(repo, str(level)).inc()
 
     # ------------------------------------------------------------------ per-process gauges
     def track(self, gauge: Gauge, read: Callable[[], float]) -> None:
