@@ -10,6 +10,7 @@ from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupC
 from waystation_server.formats.common.setup import TOKEN, USERNAME, snippet
 from waystation_server.repos.model import RepoType
 
+PREEMPTIVE = '-Daether.connector.http.preemptiveAuth=true'
 VersionPolicy = Literal['release', 'snapshot', 'mixed']
 LayoutPolicy = Literal['strict', 'permissive']
 
@@ -45,7 +46,25 @@ def _server(repo: str) -> str:
     )
 
 
-def _settings(ctx: SetupContext) -> str:
+SNAPSHOT_PROFILE = (
+    '  <!-- Maven Central (which the mirror replaces) has SNAPSHOTs turned off: turn them on -->\n'
+    '  <profiles>\n'
+    '    <profile>\n'
+    '      <id>waystation</id>\n'
+    '      <repositories>\n'
+    '        <repository>\n'
+    '          <id>central</id>\n'
+    '          <url>http://central</url>\n'
+    '          <snapshots><enabled>true</enabled></snapshots>\n'
+    '        </repository>\n'
+    '      </repositories>\n'
+    '    </profile>\n'
+    '  </profiles>\n'
+    '  <activeProfiles><activeProfile>waystation</activeProfile></activeProfiles>\n'
+)
+
+
+def _settings(ctx: SetupContext, snapshots: bool) -> str:
     name = ctx.repo.name
     return (
         '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">\n'
@@ -63,8 +82,7 @@ def _settings(ctx: SetupContext) -> str:
         f'      <username>{USERNAME}</username>\n'
         f'      <password>{TOKEN}</password>\n'
         '    </server>\n'
-        '  </servers>\n'
-        '</settings>\n'
+        '  </servers>\n' + (SNAPSHOT_PROFILE if snapshots else '') + '</settings>\n'
     )
 
 
@@ -88,6 +106,8 @@ def _gradle_read(ctx: SetupContext) -> str:
         '        // credentials {\n'
         '        //     username = providers.gradleProperty("wsUser").get()\n'
         '        //     password = providers.gradleProperty("wsToken").get()\n'
+        '        //     // send them up front: Waystation answers 404, not a challenge, to anonymous requests\n'
+        '        // authentication { create<BasicAuthentication>("basic") }\n'
         '        // }\n'
         '    }\n'
         '}\n'
@@ -108,6 +128,7 @@ def _gradle_publish(ctx: SetupContext) -> str:
         '                username = providers.gradleProperty("wsUser").get()\n'
         '                password = providers.gradleProperty("wsToken").get()\n'
         '            }\n'
+        '            authentication { create<BasicAuthentication>("basic") }  // send them up front\n'
         '        }\n'
         '    }\n'
         '}\n'
@@ -127,10 +148,18 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
         snippet(
             'settings-mirror',
             'Resolve everything through this repository (~/.m2/settings.xml)',
-            _settings(ctx),
+            _settings(ctx, snapshots=ctx.repo.type is RepoType.GROUP or policy != 'release'),
             language='xml',
             filename='settings.xml',
-        )
+        ),
+        snippet(
+            'maven-config',
+            'Send the credentials up front (.mvn/maven.config, or on the command line)',
+            PREEMPTIVE + '\n',
+            filename='.mvn/maven.config',
+            description='Needed when anonymous users cannot read this repository: Waystation answers 404, not a '
+            'challenge, to anonymous requests for it, and Maven only sends credentials after a challenge.',
+        ),
     ]
     if hosted:
         maven.append(

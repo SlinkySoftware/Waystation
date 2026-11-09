@@ -46,11 +46,31 @@ SNAPSHOTs and Maven Central come from one URL:
       <password>your-api-token</password>
     </server>
   </servers>
+  <!-- Maven Central (which the mirror replaces) has SNAPSHOTs turned off: turn them on -->
+  <profiles>
+    <profile>
+      <id>waystation</id>
+      <repositories>
+        <repository>
+          <id>central</id>
+          <url>http://central</url>
+          <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+      </repositories>
+    </profile>
+  </profiles>
+  <activeProfiles><activeProfile>waystation</activeProfile></activeProfiles>
 </settings>
 ```
 
-The `<server>` id must match the mirror id. Use `--strict-checksums` (`-C`) in CI: Waystation serves checksum
-files for everything it holds, so a checksum failure is a real problem, not a missing file.
+The profile matters only when SNAPSHOTs come through the mirror (a group with a SNAPSHOT member, or a SNAPSHOT
+repository): the mirror replaces Maven Central, whose definition in Maven's super POM has SNAPSHOTs disabled, so
+without it Maven never asks for a SNAPSHOT (`Could not find artifact ...-SNAPSHOT` within a fraction of a second).
+
+The `<server>` id must match the mirror id. When anonymous users cannot read the repository, also send the
+credentials up front (see "Authentication"): `-Daether.connector.http.preemptiveAuth=true` in `.mvn/maven.config`.
+Use `--strict-checksums` (`-C`) in CI: Waystation serves checksum files for everything it holds, so a checksum
+failure is a real problem, not a missing file.
 
 ### Deploy (mvn deploy)
 
@@ -94,6 +114,7 @@ repositories {
             username = providers.gradleProperty("wsUser").get()
             password = providers.gradleProperty("wsToken").get()
         }
+        authentication { create<BasicAuthentication>("basic") }  // send the credentials up front
     }
 }
 ```
@@ -118,6 +139,7 @@ publishing {
                 username = providers.gradleProperty("wsUser").get()
                 password = providers.gradleProperty("wsToken").get()
             }
+            authentication { create<BasicAuthentication>("basic") }
         }
     }
 }
@@ -134,11 +156,24 @@ credentials += Credentials("Waystation", "waystation.example.com", "your-usernam
 
 ## Authentication
 
-Maven, Gradle and sbt send HTTP basic credentials after a `401` with `WWW-Authenticate: Basic` (which Waystation
-answers when anonymous access is not enough). Use your username and an **API token** as the password (create one on
-your profile page: avatar menu → Profile → API tokens; deploying needs the `write` scope, deleting `delete`). Any
-username works with a token; the token decides. Proxy repositories are usually readable anonymously; hosted and
-group repositories follow your RBAC settings.
+Use your username and an **API token** as the password (create one on your profile page: avatar menu → Profile →
+API tokens; deploying needs the `write` scope, deleting `delete`). Any username works with a token; the token
+decides. Proxy repositories are usually readable anonymously; hosted and group repositories follow your RBAC
+settings.
+
+**Send the credentials up front.** Maven, Gradle and sbt send credentials for a `GET` only after a `401` challenge,
+but Waystation answers `404` to an anonymous request for a repository anonymous users cannot see (hidden
+repositories never reveal that they exist). So for hosted and group repositories that anonymous users cannot read,
+turn on preemptive authentication:
+
+- Maven 3.9: `-Daether.connector.http.preemptiveAuth=true`, best in the project's `.mvn/maven.config` (one
+  argument per line) or in `MAVEN_OPTS`/`MAVEN_ARGS`. Deploys (`PUT`) already send credentials up front.
+- Gradle: `authentication { create<BasicAuthentication>("basic") }` inside the `maven { }` block, next to
+  `credentials`.
+
+Symptoms without it: `Could not find artifact`, `No versions available for ... within specified range`, or a `404`
+for `maven-metadata.xml`, although the credentials in `settings.xml` are right. (Answering such requests with a
+`401` challenge instead, as Nexus does, is proposed in ADR 0005.)
 
 ## What Waystation verifies (proxies)
 
