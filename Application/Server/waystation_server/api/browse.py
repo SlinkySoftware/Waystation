@@ -475,7 +475,11 @@ async def list_go_versions(
 
 
 ProviderAddress = Annotated[
-    str, Query(max_length=400, description='Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null`')
+    str,
+    Query(
+        max_length=400,
+        description='Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null`',
+    ),
 ]
 
 

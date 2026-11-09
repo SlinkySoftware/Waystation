@@ -25,11 +25,11 @@ class TerraformOptions(BaseModel):
         default_factory=lambda: list(DEFAULT_ORIGINS),
         max_length=50,
         description='Provider registry host names this mirror serves providers of (the first part of a provider '
-        'address, e.g. `registry.terraform.io/hashicorp/null`). The upstream URL\'s host is always allowed too',
+        "address, e.g. `registry.terraform.io/hashicorp/null`). The upstream URL's host is always allowed too",
     )
     verify_signatures: bool = Field(
         default=True,
-        description='Verify each version\'s SHA256SUMS against its OpenPGP signature and the signing keys the origin '
+        description="Verify each version's SHA256SUMS against its OpenPGP signature and the signing keys the origin "
         'registry publishes before anything of that version is served',
     )
 
