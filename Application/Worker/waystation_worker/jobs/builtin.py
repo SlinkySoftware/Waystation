@@ -108,7 +108,7 @@ async def blob_gc(job: BlobGc, ctx: JobContext) -> dict[str, Any]:
 
 @handles(BlobVerify)
 async def blob_verify(job: BlobVerify, ctx: JobContext) -> dict[str, Any]:
-    """Missing or damaged blobs: proxy assets marked for re-fetch, hosted losses reported (``waystation_worker.verify``)."""
+    """Missing or damaged blobs: proxies marked for re-fetch, hosted losses reported (``waystation_worker.verify``)."""
     if ctx.settings is None:
         raise RuntimeError('blob verify needs the worker settings (data directory)')
     store = BlobStore.from_settings(ctx.settings)
