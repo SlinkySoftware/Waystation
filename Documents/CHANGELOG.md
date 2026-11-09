@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- CI: GitHub Actions run only for major releases (`vX.0.0` tags) or by hand (ci, release); the live-client run is
+  manual only (no nightly schedule). Gitea keeps building images on every push to `main`.
 - T-A02: OIDC sign-in providers (kind `oidc` in `auth_providers`). `security.oidc` (protocol side): discovery
   (cached per issuer, issuer must match exactly), authorization code + PKCE S256 with `state` and `nonce`, token
   request (`client_secret_basic`/`client_secret_post`/public), ID token verification with `joserfc` (asymmetric alg

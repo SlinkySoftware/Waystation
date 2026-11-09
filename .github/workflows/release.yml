@@ -4,8 +4,9 @@
 name: release
 
 on:
+  # Major releases only (vX.0.0): GitHub Actions cost money. Everyday image builds run on Gitea.
   push:
-    tags: ['v*']
+    tags: ['v[0-9]+.0.0']
 
 permissions:
   contents: read

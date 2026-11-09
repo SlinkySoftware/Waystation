@@ -4,8 +4,7 @@
 name: clients-live
 
 on:
-  schedule:
-    - cron: '17 3 * * *'
+  # Manual only: GitHub Actions cost money (no nightly schedule).
   workflow_dispatch: {}
 
 permissions:

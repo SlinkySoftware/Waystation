@@ -6,10 +6,13 @@ Every CI step is a `make` target, so anything CI runs can be reproduced locally 
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `.github/workflows/ci.yml` | pull request, push to `main` | `make check`; the generated API client is current (`make gen-api` then `git diff --exit-code`); the budget report in the job summary; in a parallel job, `make clients-test FORMAT=all MODE=replay` |
-| `.github/workflows/release.yml` | tag `v*` | server, worker and web images for linux/amd64 and linux/arm64 pushed to GHCR, with SBOM and SLSA provenance attestations |
-| `.github/workflows/clients-live.yml` | nightly, manual | the real-client harness against the live upstreams (`MODE=live`) |
+| `.github/workflows/ci.yml` | major release tag `vX.0.0`, manual | `make check`; the generated API client is current (`make gen-api` then `git diff --exit-code`); the budget report in the job summary; in a parallel job, `make clients-test FORMAT=all MODE=replay` |
+| `.github/workflows/release.yml` | major release tag `vX.0.0` | server, worker and web images for linux/amd64 and linux/arm64 pushed to GHCR, with SBOM and SLSA provenance attestations |
+| `.github/workflows/clients-live.yml` | manual | the real-client harness against the live upstreams (`MODE=live`) |
 | `.gitea/workflows/images.yml` | push to `main` (Gitea), manual | server, worker and web images pushed to the Gitea container registry |
+
+GitHub Actions cost money, so GitHub runs only for major releases (`vX.0.0` tags) or when started by hand. Gitea
+runs on local runners at no cost and builds images on every push to `main`. Run `make check` locally before pushing.
 
 Every third-party action is pinned by full commit SHA with its version in a comment. To update one, resolve the new
 release tag to its commit and replace the SHA and the comment everywhere it is used. `make workflow-lint` (part of
