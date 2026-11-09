@@ -64,34 +64,34 @@ class PgpKey:
     algorithm: str = 'ed25519'  # ed25519 (legacy EdDSA, 22), ed25519v6 (27), ed448 (28), rsa (1), p256 (19), dsa (17)
     created: int = NOW - 86_400
     bits: int = 2048
-    private: Any = field(init=False, repr=False)
+    signer: Any = field(init=False, repr=False)
     body: bytes = field(init=False)
 
     def __post_init__(self) -> None:
         head = b'\x04' + self.created.to_bytes(4, 'big')
         match self.algorithm:
             case 'ed25519':
-                self.private = ed25519.Ed25519PrivateKey.generate()
-                raw = self.private.public_key().public_bytes_raw()
+                self.signer = ed25519.Ed25519PrivateKey.generate()
+                raw = self.signer.public_key().public_bytes_raw()
                 self.body = head + bytes([22, len(ED25519_OID)]) + ED25519_OID + mpi(b'\x40' + raw)
             case 'ed25519v6':
-                self.private = ed25519.Ed25519PrivateKey.generate()
-                self.body = head + bytes([27]) + self.private.public_key().public_bytes_raw()
+                self.signer = ed25519.Ed25519PrivateKey.generate()
+                self.body = head + bytes([27]) + self.signer.public_key().public_bytes_raw()
             case 'ed448':
-                self.private = ed448.Ed448PrivateKey.generate()
-                self.body = head + bytes([28]) + self.private.public_key().public_bytes_raw()
+                self.signer = ed448.Ed448PrivateKey.generate()
+                self.body = head + bytes([28]) + self.signer.public_key().public_bytes_raw()
             case 'rsa':
-                self.private = rsa.generate_private_key(public_exponent=65537, key_size=self.bits)
-                numbers = self.private.public_key().public_numbers()
+                self.signer = rsa.generate_private_key(public_exponent=65537, key_size=self.bits)
+                numbers = self.signer.public_key().public_numbers()
                 self.body = head + bytes([1]) + mpi(numbers.n) + mpi(numbers.e)
             case 'p256':
-                self.private = ec.generate_private_key(ec.SECP256R1())
-                point = self.private.public_key().public_bytes(
+                self.signer = ec.generate_private_key(ec.SECP256R1())
+                point = self.signer.public_key().public_bytes(
                     encoding=serialization.Encoding.X962, format=serialization.PublicFormat.UncompressedPoint
                 )
                 self.body = head + bytes([19, len(P256_OID)]) + P256_OID + mpi(point)
             case 'dsa':
-                self.private = None
+                self.signer = None
                 self.body = head + bytes([17]) + mpi(23) + mpi(11) + mpi(5) + mpi(7)
             case _:
                 raise ValueError(self.algorithm)
@@ -115,14 +115,14 @@ class PgpKey:
         """The algorithm-specific signature fields over ``digest``."""
         match self.algorithm:
             case 'ed25519':
-                raw = self.private.sign(digest)
+                raw = self.signer.sign(digest)
                 return mpi(raw[:32]) + mpi(raw[32:])
             case 'ed25519v6' | 'ed448':
-                return bytes(self.private.sign(digest))
+                return bytes(self.signer.sign(digest))
             case 'rsa':
-                return mpi(self.private.sign(digest, padding.PKCS1v15(), Prehashed(HASHES[hash_id]())))
+                return mpi(self.signer.sign(digest, padding.PKCS1v15(), Prehashed(HASHES[hash_id]())))
             case 'p256':
-                r, s = decode_dss_signature(self.private.sign(digest, ec.ECDSA(Prehashed(HASHES[hash_id]()))))
+                r, s = decode_dss_signature(self.signer.sign(digest, ec.ECDSA(Prehashed(HASHES[hash_id]()))))
                 return mpi(r) + mpi(s)
         return mpi(1) + mpi(1)  # dsa: never valid
 
