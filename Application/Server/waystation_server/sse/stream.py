@@ -21,7 +21,7 @@ from waystation_server.stats import live
 HEARTBEAT_S = 15.0
 REPLAY_MAX = 1000
 STREAM_ID = re.compile(r'^\d{1,20}-\d{1,20}$')
-TOPIC = re.compile(r'^(transfers|stats|activity|repo:[A-Za-z0-9][A-Za-z0-9._-]{1,62})$')
+TOPIC = re.compile(r'^(transfers|stats|activity|tasks|repo:[A-Za-z0-9][A-Za-z0-9._-]{1,62})$')
 
 
 def parse_topics(raw: str) -> frozenset[str] | None:

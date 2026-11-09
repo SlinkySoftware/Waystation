@@ -13,8 +13,8 @@ from redis.asyncio import Redis
 
 from waystation_common.db import jobs as jobs_db
 from waystation_common.db.client import Database
-from waystation_common.events import EventEmitter
-from waystation_common.jobs.model import JobEnvelope
+from waystation_common.events import EventEmitter, EventType, JobLiveMessage, JobProgress
+from waystation_common.jobs.model import JOB_TYPES, JobEnvelope
 from waystation_common.settings import Settings
 
 log = logging.getLogger('waystation.worker.jobs')
@@ -54,10 +54,31 @@ class JobContext:
         self._pending_progress = None
         self._last_progress = time.monotonic()
         await quietly(jobs_db.run_progress(self.db, self.run_id, done=done, total=total, message=message))
+        self._live(EventType.JOB_PROGRESS, progress=JobProgress(done=done, total=total, message=message))
 
     async def log(self, line: str) -> None:
         """Append a line to the run's log (capped at the last 500 lines)."""
-        await quietly(jobs_db.run_log(self.db, self.run_id, [f'{self.now().isoformat()} {line}'[:2000]]))
+        entry = f'{self.now().isoformat()} {line}'[:2000]
+        await quietly(jobs_db.run_log(self.db, self.run_id, [entry]))
+        self._live(EventType.JOB_LOG, lines=[entry])
+
+    def _live(self, kind: EventType, *, progress: JobProgress | None = None, lines: list[str] | None = None) -> None:
+        """Tell the Tasks page (SSE topic ``tasks``) right away; routine jobs (the 10 s rollup) stay quiet."""
+        payload_type = JOB_TYPES.get(self.job.kind)
+        if self.emitter is None or (payload_type is not None and payload_type.routine):
+            return
+        self.emitter.job_live(
+            JobLiveMessage(
+                type=kind,
+                ts=self.now(),
+                run_id=self.run_id,
+                job_id=self.job.id,
+                kind=self.job.kind,
+                queue=self.job.queue,
+                progress=progress,
+                lines=lines or [],
+            )
+        )
 
 
 async def quietly(op: Awaitable[Any]) -> None:

@@ -132,11 +132,12 @@ class JobSystem:
                 'hostname': socket.gethostname(),
                 'version': _version(),
                 'queues': self.queues,
+                'concurrency': self.runner.concurrency,
                 'started_at': self.started_at,
                 'leader': self.coordinator.is_leader,
                 'running_jobs': [
-                    {'job_id': env.id, 'kind': env.kind, 'queue': env.queue}
-                    for env in list(self.runner.running.values())
+                    {'job_id': env.id, 'run_id': run_id, 'kind': env.kind, 'queue': env.queue, 'started_at': started}
+                    for env, run_id, started in list(self.runner.running.values())
                 ],
             }
             now = datetime.fromtimestamp(self.clock(), UTC)

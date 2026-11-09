@@ -17,7 +17,7 @@ from waystation_common.db import jobs as jobs_db
 from waystation_common.db.client import Document
 from waystation_common.jobs import BlobGc
 from waystation_common.jobs.schedule import parse_schedule
-from waystation_server.api.cleanup import JobAccepted, JobProgress, RunStatus
+from waystation_server.api.cleanup import JobAccepted, JobProgress, RunStatus, run_trigger
 from waystation_server.api.deps import ServicesDep
 from waystation_server.security import access
 from waystation_server.security.access import Action
@@ -58,7 +58,7 @@ def _run_view(doc: Document) -> GcRun:
     return GcRun(
         id=str(doc['_id']),
         status=doc.get('status', 'running'),
-        trigger='schedule' if doc.get('definition_id') else 'manual',
+        trigger='schedule' if run_trigger(doc) == 'schedule' else 'manual',
         started_at=doc['started_at'],
         finished_at=doc.get('finished_at'),
         progress=JobProgress(
