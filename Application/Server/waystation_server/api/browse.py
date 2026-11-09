@@ -26,6 +26,9 @@ from waystation_server.browse.models import (
     DockerManifest,
     DockerTagPage,
     FolderListing,
+    HelmBrowser,
+    HelmChartPage,
+    HelmVersionPage,
     NpmBrowser,
     NpmPackagePage,
     NpmVersionPage,
@@ -242,3 +245,51 @@ async def get_docker_manifest(
     repo: RepoConfig = request.state.repo
     browser = _docker(svc, repo)
     return await browser.manifest(_context(svc, repo), image=image, reference=reference, platform=platform)
+
+
+# ---------------------------------------------------------------------------- helm
+def _helm(svc: Services, repo: RepoConfig) -> HelmBrowser:
+    browser = _browser(svc, repo, 'helm')
+    if not isinstance(browser, HelmBrowser):
+        raise NotFound('not a helm repository')
+    return browser
+
+
+@router.get(
+    '/repositories/{name}/helm/charts',
+    response_model=HelmChartPage,
+    operation_id='listHelmCharts',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_helm_charts(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=250)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> HelmChartPage:
+    repo: RepoConfig = request.state.repo
+    browser = _helm(svc, repo)
+    return await browser.charts(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/helm/versions',
+    response_model=HelmVersionPage,
+    operation_id='listHelmVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_helm_versions(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    chart: Annotated[str, Query(max_length=250, description='Chart name')],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> HelmVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _helm(svc, repo)
+    return await browser.versions(_context(svc, repo), chart=chart, cursor=cursor, limit=limit)
