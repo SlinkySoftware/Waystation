@@ -38,6 +38,7 @@ class StorageGuardSettings(BaseModel):
 
 
 class StorageGuard(StorageGuardSettings):
+    min_free_percent: float
     floor_bytes: int = Field(description='The effective floor: the larger of the two settings')
     free_bytes: int
     total_bytes: int

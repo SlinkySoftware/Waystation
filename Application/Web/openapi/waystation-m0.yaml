@@ -1798,6 +1798,36 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/StorageSummary' }
 
+  /storage/guard:
+    get:
+      tags: [stats]
+      operationId: getStorageGuard
+      summary: The low-disk guard's settings and live state (any signed-in user; the UI shows a banner while it is tripped)
+      responses:
+        '200':
+          description: Guard settings, free space and whether new writes are refused
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageGuard' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      tags: [admin]
+      operationId: updateStorageGuard
+      summary: Change the low-disk guard (needs `settings-admin`; every replica applies it within seconds)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StorageGuardSettings' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageGuard' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /stats/upstreams:
     get:
       tags: [stats]
@@ -3010,6 +3040,43 @@ components:
         - $ref: '#/components/schemas/AptOptions'
         - $ref: '#/components/schemas/RawOptions'
         - $ref: '#/components/schemas/YumOptions'
+    QuotaMode:
+      type: string
+      enum: [soft, hard]
+      description: '`soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)'
+    StorageConfig:
+      type: object
+      description: Stored-bytes quota (proxy and hosted repositories). Usage counts every asset the repository holds; a blob shared with other repositories counts in each of them
+      properties:
+        quota_bytes: { type: [integer, 'null'], minimum: 1, maximum: 9007199254740992, description: 'Quota in bytes; null = no quota (group repositories: always null)' }
+        quota_mode: { $ref: '#/components/schemas/QuotaMode' }
+    RepositoryQuota:
+      type: object
+      required: [quota_bytes, mode, used_bytes, used_ratio, state]
+      properties:
+        quota_bytes: { type: integer }
+        mode: { $ref: '#/components/schemas/QuotaMode' }
+        used_bytes: { type: integer, description: Sum of the sizes of the assets the repository holds (shared blobs count) }
+        used_ratio: { type: number, minimum: 0, description: used_bytes / quota_bytes (above 1 when over the quota) }
+        state: { type: string, enum: [ok, warning, exceeded], description: '`warning` from 80 %; `exceeded` at or over the quota (hard: new writes refused)' }
+    StorageGuardSettings:
+      type: object
+      required: [min_free_bytes]
+      properties:
+        min_free_bytes: { type: integer, minimum: 0, maximum: 9007199254740992, description: Refuse new cache fills and uploads below this many free bytes }
+        min_free_percent: { type: number, minimum: 0, maximum: 90, default: 0, description: '... or below this percentage of the filesystem (the larger floor wins)' }
+    StorageGuard:
+      type: object
+      required: [min_free_bytes, min_free_percent, floor_bytes, free_bytes, total_bytes, low]
+      properties:
+        min_free_bytes: { type: integer }
+        min_free_percent: { type: number }
+        floor_bytes: { type: integer, description: 'The effective floor: the larger of the two settings' }
+        free_bytes: { type: integer }
+        total_bytes: { type: integer }
+        low: { type: boolean, description: 'Free space is below the floor: new cache fills and uploads are refused' }
+        low_since: { type: [string, 'null'], format: date-time, description: When the worker first reported low disk (null when it has not) }
+        updated_at: { type: [string, 'null'], format: date-time }
     RepositoryWrite:
       type: object
       required: [name, format, type, online]
@@ -3022,6 +3089,7 @@ components:
         proxy: { $ref: '#/components/schemas/ProxyConfig' }
         hosted: { $ref: '#/components/schemas/HostedConfig' }
         group: { $ref: '#/components/schemas/GroupConfig' }
+        storage: { $ref: '#/components/schemas/StorageConfig' }
         format_options: { $ref: '#/components/schemas/FormatOptions' }
     RepositorySummaryStats:
       type: object
@@ -3052,6 +3120,12 @@ components:
         proxy: { $ref: '#/components/schemas/ProxyConfig' }
         hosted: { $ref: '#/components/schemas/HostedConfig' }
         group: { $ref: '#/components/schemas/GroupConfig' }
+        storage: { $ref: '#/components/schemas/StorageConfig' }
+        quota:
+          description: Stored bytes against the quota; null when the repository has no quota
+          oneOf:
+            - $ref: '#/components/schemas/RepositoryQuota'
+            - type: 'null'
         format_options: { $ref: '#/components/schemas/FormatOptions' }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }
@@ -3544,7 +3618,7 @@ components:
         as_of: { $ref: '#/components/schemas/Timestamp' }
     ActivityKind:
       type: string
-      enum: [download, upload, delete, cache_miss, upstream_state, repository, cleanup, auth, error]
+      enum: [download, upload, delete, cache_miss, upstream_state, repository, cleanup, auth, error, storage]
     ActivityEvent:
       type: object
       required: [id, ts, kind, summary, outcome]
