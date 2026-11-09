@@ -140,12 +140,18 @@ Panels, top to bottom:
 - **Storage**: free space, free space %, blob store used, blobs, writes refused, metric sources down (tiles); the
   data filesystem (free, guard, used); writes refused per second; bytes freed by cleanup policies and blob GC;
   cleanup and GC activity (items, blobs, orphan uploads, runs).
+- **Quotas and disk**: low-disk guard (OK / Active), repositories near their quota (80 % or more), over a soft
+  quota, at a hard quota, downloads not cached and uploads refused by a quota (tiles); quota used per repository
+  (dashed 80 % and 100 % thresholds); downloads not cached by reason and uploads refused per repository; a table of
+  every repository with a quota (mode, quota, stored, used, downloads not cached and uploads refused in the range).
 - **HTTP**: API latency p95 by route; requests by status class; event-stream clients; a per-route table (requests,
   p95, 5xx).
 
 Ratios and totals in the tiles and tables cover the selected time range.
 
-Checked by loading it into Grafana 12.2 through file provisioning, with Prometheus 3.7 scraping sample output of
+The "Quotas and disk" row was added with T-O03 after that check: its queries pass `promtool check rules` and a
+`promtool test rules` case on sample quota series, but it has not been loaded into Grafana yet. Checked by loading
+the rest into Grafana 12.2 through file provisioning, with Prometheus 3.7 scraping sample output of
 the real `waystation_server.metrics.Metrics` class plus cluster figures with the real names: every panel query
 returned data.
 
@@ -167,13 +173,15 @@ later), link "Waystation by HTTP" to a host (no agent or interface needed) and s
 | `{$WAYSTATION.WORKERS.MIN}` | `1` | Fewest live workers expected |
 | `{$WAYSTATION.JOBS.AGE.WARN}` | `1800` | Age (s) of the oldest waiting job that raises a trigger after 10 minutes |
 | `{$WAYSTATION.DISK.FREE.WARN}` | `15` | Free space (% of the data filesystem) below which "low disk space" fires |
+| `{$WAYSTATION.QUOTA.WARN}` | `80` | Share of a repository quota (%) from which "near its quota" fires |
 | `{$WAYSTATION.API.LATENCY.WARN}` | `1` | Average REST API latency (s) that raises a trigger after 10 minutes |
 
 Items: liveness (`/healthz`), readiness (`/readyz`), the raw `/metrics` master item (not stored) and dependent
 items for requests per second (all, from cache, upstream errors), cache hit and upstream error ratio, bytes per
 second (served from cache, served while fetching, fetched from upstream), transfers in flight, coalesced followers,
 workers, scheduler leaders, jobs waiting and running, oldest waiting job, dead letters, blob store free, size,
-used, guard and blobs, free space %, writes refused per second, blob GC runs, bytes freed by blob GC and removed
+used, guard and blobs, free space %, low-disk guard active (OK / Active), writes refused per second, downloads
+not cached for a quota and for lack of disk space per second, uploads refused by a hard quota per second, blob GC runs, bytes freed by blob GC and removed
 by cleanup policies per second, event-stream clients, HTTP 5xx per second, API
 requests per second and average API latency, and whether all metric sources answered. Cluster figures keep no value
 while their source is down (rather than a misleading 0).
@@ -185,6 +193,9 @@ Discovery:
 - **Upstreams** (labels of `waystation_upstream_state`: every proxy repository, even before its first request): state
   (value map OK / Degraded / Blocked / Offline), consecutive failures, rate limit and rate limit remaining.
 - **Job queues** (labels of `waystation_jobs_waiting`): waiting, running, delayed and oldest waiting job per queue.
+- **Repository quotas** (labels of `waystation_repository_quota_bytes`: every repository with a quota; lost
+  repositories are dropped after a day): quota, quota mode (value map Soft / Hard), stored bytes, quota used (%),
+  downloads not cached for the quota and uploads refused by it per second.
 
 Triggers:
 
@@ -209,6 +220,9 @@ Triggers:
 | Waystation: blob store full (free space at or below the free-space guard: new writes refused) | High |
 | Waystation: low disk space (below `{$WAYSTATION.DISK.FREE.WARN}`% free for 5 minutes) | Warning, depends on "blob store full" |
 | Waystation: writes refused for lack of disk space (in the last 5 minutes) | Average, depends on "blob store full" |
+| Waystation: `<repo>` reached its hard quota (used ≥ 100 % with a hard quota: uploads refused, downloads not cached) | High |
+| Waystation: `<repo>` is over its soft quota (used ≥ 100 % with a soft quota) | Warning |
+| Waystation: `<repo>` is near its quota (used ≥ `{$WAYSTATION.QUOTA.WARN}`% and below 100 %) | Information |
 | Waystation: API slower than `{$WAYSTATION.API.LATENCY.WARN}`s on average for 10 minutes | Warning |
 | Waystation: blob GC has not run for a day (no `blob.gc` run completed in 24 hours, once a day of data exists) | Warning |
 
@@ -216,8 +230,15 @@ Checked by importing it into Zabbix 7.0 through the API and linking it to a host
 output of the real `Metrics` class plus cluster figures: every item and discovered prototype received values, and
 the liveness, readiness, failing-upstream, rate-limit, job-age, refused-writes, low-disk and blob-store-full
 triggers fired on matching sample values. The blob GC items, the "blob GC has not run for a day" trigger and the two
-cleanup/GC dashboard panels were added afterwards (with the T-O01/T-O02 counters) and have not been through that
-check yet.
+cleanup/GC dashboard panels were added afterwards (with the T-O01/T-O02 counters), and so were the quota and
+low-disk items, the "Repository quotas" discovery and its three triggers (T-O03); those have not been through that
+check yet. The quota triggers resolve when the quota figure has had no value for 10 minutes (the quota was removed
+or the cluster figures are unavailable). The low-disk guard itself is covered by "blob store full" (free space at
+or below the guard's floor, the same condition as `waystation_storage_low`) and "low disk space".
+
+`Application/Server/tests/test_monitoring_assets.py` (part of `make test`) checks both files statically: they parse,
+every metric they query is one the server exports, dashboard panels have unique ids and do not overlap, and the
+template's uuids, item keys, trigger item references, trigger dependencies, value maps and macros resolve.
 
 ## 5. Not exported yet
 

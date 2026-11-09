@@ -1,0 +1,83 @@
+# Gitea mirror: the day-to-day CI checks (T-F03, Documents/Operations/CI.md). Gitea runs on local runners at no
+# cost, so this runs on every push to main and on every pull request; GitHub runs `make check` only for major
+# release tags. Every step is a `make` target that also runs locally; nothing here needs a secret.
+#
+# The runner must run jobs on the host (an `ubuntu-latest:host` runner label) or in a container whose checkout path
+# is the same on the Docker host: make starts its tools in containers that bind-mount the checkout.
+#
+# Optional organisation-level setting, referenced here by name only:
+#   vars.WAYSTATION_CI_INTEGRATION   'false' skips the integration-test job (it needs about 6 GB of free memory)
+# Actions are pinned by commit SHA (version in the comment).
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DEV_IMAGE: waystation-dev:local
+  # The dev image is built once per job by the first step; make must not rebuild it for every target.
+  SKIP_DEV_IMAGE_BUILD: '1'
+
+jobs:
+  check:
+    name: make check (without integration tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Dev image
+        # The runner's Docker layer cache keeps this quick after the first run.
+        run: docker build -q -t "$DEV_IMAGE" -f Build/Containers/dev/Dockerfile Build/Containers/dev
+      - name: Forbidden strings
+        run: make forbidden-strings
+      - name: Workflow lint
+        run: make workflow-lint
+      - name: Format check
+        run: make fmt-check
+      - name: Lint (ruff + import-linter)
+        run: make lint
+      - name: Typecheck (mypy strict)
+        run: make typecheck
+      - name: Unit tests
+        run: make test
+      - name: Client harness fixtures
+        run: make clients-check
+      - name: Frontend (generated API client current, ESLint, vue-tsc, Vitest, build)
+        run: make frontend-check
+      - name: Generated API client is current
+        run: |
+          make gen-api
+          git diff --exit-code -- Application/Web/src/api
+      - name: Performance budgets (warnings until M2)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: make --no-print-directory budgets
+
+  integration:
+    name: integration tests
+    # About 6 GB of memory (MongoDB, Valkey, OpenLDAP, Samba AD, Keycloak), so not on pull requests and not
+    # alongside the check job on the same runner.
+    needs: check
+    if: >-
+      ${{ vars.WAYSTATION_CI_INTEGRATION != 'false' &&
+          (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Dev image
+        run: docker build -q -t "$DEV_IMAGE" -f Build/Containers/dev/Dockerfile Build/Containers/dev
+      - name: Integration tests
+        # Waits on the machine-wide TEST_LOCK when another run (a developer's or another job's) holds it.
+        run: make test-integration
