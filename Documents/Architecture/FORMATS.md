@@ -436,7 +436,7 @@ As implemented (T-P5-HELM, `waystation_server.formats.helm`; client guide `Docum
   member that has them; writes go to the writable member (RBAC on the member).
 - **Browse**: `GET /api/v1/repositories/{name}/helm/charts` and `/helm/versions?chart=` from `helm_charts`
   (`version_sort` = SemVer precedence as a sortable string); groups show their members' records.
-- Not done: Helm 4 in the harness, `helm cm-push` itself in the harness (its multipart request is tested with curl),
+- Not done: `helm cm-push` itself in the harness (its multipart request is tested with curl),
   global search over `helm_charts` (chart files are found as cached files), signing/verifying provenance.
 
 ## Terraform / OpenTofu — Phase 5
