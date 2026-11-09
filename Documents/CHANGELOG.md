@@ -23,6 +23,21 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   recorded request matches. Draft ADR 0005 (401 challenge instead of 404 for anonymous requests to hidden
   repositories on format routes; proposed, not implemented). The Nexus import now creates `maven2` repositories
   (`maven.versionPolicy`/`layoutPolicy` mapped). `Documents/Operations/clients/maven.md`.
+- T-O03: quota and low-disk monitoring. Grafana dashboard row "Quotas and disk" (low-disk guard state; repositories
+  near their quota, over a soft quota and at a hard quota; downloads not cached and uploads refused by a quota;
+  quota used per repository; a per-repository quota table). Zabbix template: items for the low-disk guard, downloads
+  not cached (quota, low disk) and uploads refused; "Repository quotas" discovery with quota, mode, stored bytes,
+  quota used and per-repository refusals; triggers "reached its hard quota" (High), "over its soft quota" (Warning)
+  and "near its quota" (Information, macro `{$WAYSTATION.QUOTA.WARN}`, default 80). New unit test
+  `test_monitoring_assets.py` checks the dashboard and template against the metrics the server exports. The PromQL
+  was checked with promtool; neither file has been re-imported into Grafana or Zabbix yet.
+- T-F03: Gitea check workflow `.gitea/workflows/check.yml`. Every push to `main` and every pull request runs the
+  parts of `make check` except the integration tests as separate steps (forbidden strings, workflow lint, format
+  check, lint, typecheck, unit tests, client-harness fixtures, frontend checks), the generated API client diff and
+  the budget report, with the dev image built once per job. `make test-integration` (about 6 GB of memory) runs in a
+  second job after it, only on push to `main` and manual runs, with a 60 minute timeout; the organisation variable
+  `WAYSTATION_CI_INTEGRATION=false` skips it. Checked with actionlint; not yet run on the Gitea runners. CI.md
+  documents the runner needs (host-mode jobs, Docker, memory) and the variable.
 - T-M02: Nexus migration. `Documents/Operations/MIGRATING_FROM_NEXUS.md`, step by step: inventory, import,
   re-entering upstream credentials and access (roles, sign-in, API tokens), copying hosted content (skopeo/crane for
   docker, a Nexus assets API + curl loop with checksum for raw), warming the cache, side-by-side validation with the
