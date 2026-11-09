@@ -101,7 +101,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!NAME_RE.test(body.name ?? '')) errors.push({ field: 'name', message: 'Use 2-63 letters, digits, dots, dashes or underscores, starting with a letter or digit.', code: 'pattern' })
     else if (world.repos.some((r) => r.name.toLowerCase() === body.name.toLowerCase())) errors.push({ field: 'name', message: 'A repository with this name already exists.', code: 'taken' })
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
-    if (body.type !== 'proxy' && body.format !== 'docker' && body.format !== 'maven') {
+    if (body.type !== 'proxy' && !['docker', 'raw', 'maven'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }

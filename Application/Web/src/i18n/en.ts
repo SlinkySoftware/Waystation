@@ -364,7 +364,7 @@ export const en = {
     membersLabel: 'Member repositories',
     membersHint: 'Searched in the order you pick them: put hosted repositories before proxies. Remove and re-add to reorder.',
     writableMember: 'Writable member (optional)',
-    writableMemberHint: 'The hosted member that receives pushes sent to this group. Empty: the group is read-only.',
+    writableMemberHint: 'The hosted member that receives pushes and uploads sent to this group. Empty: the group is read-only.',
     autoBlock: 'Auto-block the upstream after repeated failures',
     autoBlockFailures: 'Failures in a row',
     autoBlockInitial: 'First block',
