@@ -179,7 +179,7 @@ The authoritative list of application settings, with defaults and descriptions, 
 | `WAYSTATION_TRUST_FORWARDED` / `TRUSTED_PROXIES` | `false` / empty | Trust `X-Forwarded-For` from these CIDRs (REVERSE_PROXIES.md) |
 | `WAYSTATION_METRICS_ALLOW_CIDRS` | `127.0.0.0/8,::1/128` | Who may scrape `/metrics` |
 | `WAYSTATION_SSRF_ALLOW_CIDRS` | empty | Private ranges upstreams may resolve to (e.g. an internal registry) |
-| `WAYSTATION_HTTP_PROXY` / `NO_PROXY` | empty | Outbound proxy for upstream fetches |
+| `WAYSTATION_HTTP_PROXY` / `NO_PROXY` | empty | Outbound proxy for upstream fetches (`NO_PROXY`: comma-separated host names, a leading dot matches subdomains). A repository can set its own proxy (`proxy.http_proxy`, no credentials), which then wins. The SSRF guard still checks every target, so the server must be able to resolve upstream names (unless the repository allows private upstreams) |
 | `WAYSTATION_EXTRA_CA_FILE` | empty | Extra PEM bundle trusted for upstream TLS (mount it like the secrets above) |
 | `WAYSTATION_SERVER_WORKERS` | `1` | uvicorn processes in the server container |
 | `WAYSTATION_WORKER_QUEUES` / `WORKER_CONCURRENCY` | all queues / `4` | Which job queues a worker consumes, and how many jobs at once |

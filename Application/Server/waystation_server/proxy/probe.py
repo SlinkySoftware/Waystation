@@ -4,6 +4,7 @@ after) saving a proxy repository. A failing upstream is a normal result (``reach
 from __future__ import annotations
 
 import base64
+import ssl
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -12,7 +13,7 @@ from urllib.parse import urljoin
 import httpx
 
 from waystation_common.errors import UpstreamError
-from waystation_server.proxy.http import UpstreamClients
+from waystation_server.proxy.http import Network, UpstreamClients
 from waystation_server.proxy.ssrf import UpstreamBlocked
 
 AuthResult = Literal['anonymous', 'authenticated', 'failed', 'not_required']
@@ -66,13 +67,14 @@ async def probe(
     *,
     upstream_url: str,
     probe_path: str,
-    allow_private: bool,
+    network: Network,
     headers: dict[str, str],
+    timeout: float = PROBE_TIMEOUT_S,  # noqa: ASYNC109 - an httpx request timeout, not a deadline
 ) -> ProbeResult:
     result = ProbeResult()
     url = urljoin(upstream_url if upstream_url.endswith('/') else upstream_url + '/', probe_path)
     try:
-        await clients.precheck(url, allow_private=allow_private)
+        await clients.check_target(url, network)
     except UpstreamBlocked as exc:
         result.checks.append(Check('ssrf', ok=False, message=exc.detail))
         return result
@@ -81,10 +83,13 @@ async def probe(
         return result
     result.checks.append(Check('dns', ok=True, message='resolved'))
     result.checks.append(Check('ssrf', ok=True, message='allowed address'))
-    client = clients.client_for(url, allow_private=allow_private)
+    via = clients.proxy_for(url, network)
+    if via:
+        result.checks.append(Check('proxy', ok=True, message='through the outbound HTTP proxy'))
     started = time.perf_counter()
     try:
-        async with client.stream('GET', url, headers=headers, timeout=PROBE_TIMEOUT_S) as response:
+        client = await clients.client(url, network)
+        async with client.stream('GET', url, headers=headers, timeout=timeout) as response:
             result.latency_ms = round((time.perf_counter() - started) * 1000, 1)
             result.reachable = True
             result.http_status = response.status_code
@@ -92,6 +97,15 @@ async def probe(
             challenge = response.headers.get('www-authenticate', '')
     except UpstreamBlocked as exc:
         result.checks.append(Check('ssrf', ok=False, message=exc.detail))
+        return result
+    except UpstreamError as exc:
+        result.checks.append(Check('dns', ok=False, message=exc.detail))
+        return result
+    except (ssl.SSLError, ValueError) as exc:
+        result.checks.append(Check('tls', ok=False, message=f'invalid CA bundle ({type(exc).__name__})'))
+        return result
+    except httpx.ProxyError as exc:
+        result.checks.append(Check('proxy', ok=False, message=f'outbound proxy failed ({type(exc).__name__})'))
         return result
     except httpx.HTTPError as exc:
         name = 'tls' if 'SSL' in repr(exc) or 'certificate' in str(exc).lower() else 'http'

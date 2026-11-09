@@ -4,7 +4,7 @@ SPECIFICATION §7, ARCHITECTURE §8). All need ``stats-read`` and only show repo
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
@@ -12,13 +12,13 @@ from starlette.responses import StreamingResponse
 
 from waystation_common.errors import ValidationFailed
 from waystation_server.api.deps import ServicesDep
-from waystation_server.api.stats import UpstreamHealth
+from waystation_server.api.stats import UpstreamHealth, upstream_health
 from waystation_server.repos.schemas import Format
 from waystation_server.security import access
 from waystation_server.security.access import Action
 from waystation_server.security.authn import authenticate
 from waystation_server.services import Services
-from waystation_server.sse.hub import Subscriber
+from waystation_server.sse.hub import Subscriber, UpstreamHealthSource
 from waystation_server.sse.stream import event_stream, parse_topics, valid_event_id
 from waystation_server.stats import export, live
 
@@ -270,6 +270,17 @@ async def export_activity(request: Request, flt: ActivityFilterDep, svc: Service
     )
 
 
+def upstream_health_source(svc: Services) -> UpstreamHealthSource:
+    """The hub's ``upstream.state`` payload: a repository's ``UpstreamHealth`` (the event-stream route installs it)."""
+
+    async def health(name: str) -> dict[str, Any] | None:
+        repo = await svc.catalog.get(name)
+        rows = await upstream_health(svc, [repo]) if repo is not None else []
+        return rows[0].model_dump(mode='json') if rows else None
+
+    return health
+
+
 @router.get('/events/stream', operation_id='streamEvents', response_class=StreamingResponse)
 @access.requires(Action.STATS_READ)
 async def stream_events(
@@ -283,6 +294,8 @@ async def stream_events(
     if wanted is None:
         raise ValidationFailed('topics must be a comma-separated list of transfers, stats, activity, repo:<name>')
     principal = await authenticate(request)
+    if svc.hub.upstream_health is None:
+        svc.hub.upstream_health = upstream_health_source(svc)
     sub = Subscriber(principal=principal, topics=wanted)
     resume = valid_event_id(last_event_id_header) or valid_event_id(last_event_id)
     return StreamingResponse(
