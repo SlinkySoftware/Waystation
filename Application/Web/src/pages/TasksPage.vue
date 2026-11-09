@@ -18,7 +18,7 @@
         <q-tab name="scheduled" :label="t('tasks.tab.scheduled')" />
         <q-tab name="runs" :label="t('tasks.tab.runs')" />
         <q-tab name="workers" :label="t('tasks.tab.workers')" />
-        <q-tab name="dead" :label="t('tasks.tab.dead')">
+        <q-tab name="dead" class="tasks__tab-inline" :label="t('tasks.tab.dead')">
           <q-badge v-if="deadCount" color="negative" rounded class="q-ml-xs" :label="deadCount" />
         </q-tab>
       </q-tabs>
@@ -183,6 +183,11 @@ function toggleTask(task: ScheduledTask, enabled: boolean): void {
 .tasks {
   display: grid;
   gap: 16px;
+}
+
+.tasks__tab-inline :deep(.q-tab__content) {
+  flex-direction: row;
+  flex-wrap: nowrap;
 }
 
 .tasks__tabs {
