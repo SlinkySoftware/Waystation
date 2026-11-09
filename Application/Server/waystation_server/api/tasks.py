@@ -30,7 +30,7 @@ from waystation_common.db.client import Document
 from waystation_common.errors import Conflict, NotFound
 from waystation_common.ids import new_id
 from waystation_common.jobs import JOB_TYPES, QUEUES, JobEnvelope, Queue
-from waystation_common.jobs.queue import DeadLetter
+from waystation_common.jobs.queue import DeadLetter as StoredDeadLetter
 from waystation_common.jobs.schedule import parse_schedule, validate_schedule
 from waystation_server import audit
 from waystation_server.api.cleanup import JobAccepted, JobProgress, RunStatus, run_trigger
@@ -156,7 +156,7 @@ class WorkerOverview(BaseModel):
     dead_letters: int
 
 
-class DeadLetterView(BaseModel):
+class DeadLetter(BaseModel):
     id: str = Field(description='Dead-letter entry id')
     job_id: str | None
     kind: str | None
@@ -171,7 +171,7 @@ class DeadLetterView(BaseModel):
 
 
 class DeadLetterPage(BaseModel):
-    items: list[DeadLetterView]
+    items: list[DeadLetter]
     total: int
     next_cursor: str | None
 
@@ -270,9 +270,9 @@ async def _task(svc: Any, task_id: str) -> Document:
     return doc
 
 
-def _dead_view(letter: DeadLetter) -> DeadLetterView:
+def _dead_view(letter: StoredDeadLetter) -> DeadLetter:
     env = letter.envelope
-    return DeadLetterView(
+    return DeadLetter(
         id=letter.id,
         job_id=env.id if env else None,
         kind=env.kind if env else None,
