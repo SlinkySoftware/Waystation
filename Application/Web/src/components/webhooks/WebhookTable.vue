@@ -156,9 +156,24 @@ const columns = computed<QTableColumn<Webhook>[]>(() => [
   padding-right: 8px !important;
 }
 
+.hooks__card .hooks__ident {
+  flex: 1 1 0;
+}
+
+.hooks__card .hooks__url,
+.hooks__card .hooks__desc {
+  max-width: none;
+}
+
+.hooks__card .q-toggle {
+  flex: none;
+}
+
 .hooks__card {
   width: 100%;
+  min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);

@@ -357,6 +357,7 @@ async function save(): Promise<void> {
 }
 
 .hook-editor__verify summary {
+  display: list-item;
   cursor: pointer;
   color: var(--text-primary);
 }
