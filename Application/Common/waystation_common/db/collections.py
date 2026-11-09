@@ -34,6 +34,7 @@ DOCKER_MANIFESTS = 'docker_manifests'
 APT_POOL_INDEX = 'apt_pool_index'
 APT_PACKAGES = 'apt_packages'
 NPM_PACKAGES = 'npm_packages'
+PYPI_PACKAGES = 'pypi_packages'
 YUM_PACKAGES = 'yum_packages'
 HELM_CHARTS = 'helm_charts'
 UPLOAD_SESSIONS = 'upload_sessions'
@@ -248,6 +249,14 @@ SPECS: tuple[CollectionSpec, ...] = (
         (
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=True),
+        ),
+    ),
+    CollectionSpec(
+        PYPI_PACKAGES,
+        (
+            # One summary per project (normalised name) a repository has: cached page (proxy) or uploads (hosted).
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=False),
         ),
     ),
     CollectionSpec(

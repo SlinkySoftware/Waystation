@@ -1348,6 +1348,70 @@ paths:
               schema: { $ref: '#/components/schemas/NpmVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/pypi/projects:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listPypiProjects
+      summary: Projects cached (proxy) or uploaded (hosted) in a PyPI repository; groups are browsed through their members
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Projects
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PypiProjectPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/pypi/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listPypiVersions
+      summary: One project and its versions with their files (newest first, PEP 440)
+      parameters:
+        - name: project
+          in: query
+          required: true
+          description: Project name (any spelling; normalised per PEP 503)
+          schema: { type: string, maxLength: 200 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PypiVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/pypi/yank:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    post:
+      tags: [browse]
+      operationId: yankPypiVersion
+      summary: Yank (PEP 592) or un-yank every file of a version of a hosted PyPI repository (needs `write`)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PypiYank' }
+      responses:
+        '200':
+          description: Files changed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PypiYankResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/helm/charts:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -3273,6 +3337,10 @@ components:
       properties:
         repo_path: { type: string, maxLength: 200, default: '', description: 'Path of the yum repository (the directory holding `repodata/`) below the upstream URL, e.g. `$releasever/BaseOS/$basearch/os/`. Empty: derived for well-known upstreams, else the repository root. Only used by "Set me up" and "test upstream"' }
         gpg_key: { type: [string, 'null'], maxLength: 500, description: '`gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams' }
+    PypiOptions:
+      type: object
+      properties:
+        json_api: { type: boolean, default: true, description: 'Proxy the legacy JSON API (`/pypi/<project>/json`) to the upstream (proxy repositories)' }
     HelmOptions:
       type: object
       description: 'Helm (classic chart repositories): no options yet'
@@ -3285,6 +3353,7 @@ components:
         - $ref: '#/components/schemas/AptOptions'
         - $ref: '#/components/schemas/RawOptions'
         - $ref: '#/components/schemas/YumOptions'
+        - $ref: '#/components/schemas/PypiOptions'
         - $ref: '#/components/schemas/HelmOptions'
     QuotaMode:
       type: string
@@ -3749,6 +3818,82 @@ components:
           type: array
           items: { $ref: '#/components/schemas/NpmVersion' }
         next_cursor: { type: [string, 'null'] }
+    PypiProject:
+      type: object
+      required: [name, display_name, version_count, files, size_bytes]
+      properties:
+        name: { type: string, description: Normalised project name (PEP 503) }
+        display_name: { type: string }
+        summary: { type: [string, 'null'] }
+        latest: { type: [string, 'null'], description: 'Newest final release (PEP 440), else the newest version' }
+        version_count: { type: integer, description: Versions on the project page }
+        files: { type: integer, description: 'Distribution files held: cached (proxy) or uploaded (hosted)' }
+        size_bytes: { type: integer }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer }
+    PypiProjectPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PypiProject' }
+        next_cursor: { type: [string, 'null'] }
+    PypiFile:
+      type: object
+      required: [filename, kind, cached]
+      properties:
+        filename: { type: string }
+        kind: { type: string, enum: [wheel, sdist, other] }
+        size: { type: [integer, 'null'] }
+        sha256: { type: [string, 'null'] }
+        requires_python: { type: [string, 'null'] }
+        yanked: { type: boolean }
+        yanked_reason: { type: [string, 'null'] }
+        core_metadata: { type: boolean, description: 'A PEP 658 `.metadata` file is available' }
+        cached: { type: boolean, description: 'Held by this repository (cached or uploaded)' }
+        uploaded_at: { type: [string, 'null'], format: date-time }
+        uploaded_by: { type: [string, 'null'], description: 'Hosted: who uploaded the file' }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer }
+    PypiVersion:
+      type: object
+      required: [version, prerelease, yanked, files, cached_files, size_bytes]
+      properties:
+        version: { type: string }
+        prerelease: { type: boolean }
+        yanked: { type: boolean, description: Every file of the version is yanked }
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/PypiFile' }
+        cached_files: { type: integer }
+        size_bytes: { type: integer, description: Bytes of the files held }
+    PypiVersionPage:
+      type: object
+      required: [project, items, next_cursor]
+      properties:
+        project: { $ref: '#/components/schemas/PypiProject' }
+        items:
+          type: array
+          description: Newest first (PEP 440)
+          items: { $ref: '#/components/schemas/PypiVersion' }
+        next_cursor: { type: [string, 'null'] }
+    PypiYank:
+      type: object
+      required: [project, version, yanked]
+      properties:
+        project: { type: string, maxLength: 200 }
+        version: { type: string, maxLength: 200 }
+        yanked: { type: boolean, description: 'True: yank every file of the version (PEP 592); false: un-yank' }
+        reason: { type: [string, 'null'], maxLength: 500 }
+    PypiYankResult:
+      type: object
+      required: [project, version, yanked, files]
+      properties:
+        project: { type: string }
+        version: { type: string }
+        yanked: { type: boolean }
+        files: { type: integer, description: Files changed }
     HelmChart:
       type: object
       required: [name, latest_version, version_count]

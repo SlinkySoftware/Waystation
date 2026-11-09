@@ -4,6 +4,9 @@
   every semver version, by a generic natural order.
 * apt: dpkg ordering (``epoch:upstream-revision``; ``~`` sorts before everything, even the end of the string).
 * yum: rpm ``rpmvercmp`` on version, then release (``~`` pre-releases, ``^`` post-releases).
+* pypi: PEP 440 (epoch, release with trailing zeros ignored, ``a``/``b``/``rc`` pre-releases, ``.post``, ``.dev``,
+  ``+local``); versions that are not PEP 440 sort before every valid one, by the generic natural order.
+  ``pep440_sort_string`` gives the same order as a plain string (MongoDB ``version_sort``).
 * everything else: a generic natural order (digit runs numerically, other runs as text).
 
 ``sort_key(fmt, version)`` returns a key usable with ``sorted``; ``is_prerelease(fmt, version)`` follows each
@@ -196,6 +199,105 @@ def _sign(n: int) -> int:
     return (n > 0) - (n < 0)
 
 
+# ---------------------------------------------------------------- PEP 440
+# The version grammar of PEP 440, appendix B (the canonical regular expression; case-insensitive, verbose).
+_PEP440 = re.compile(
+    r"""
+    ^\s*v?
+    (?:(?P<epoch>[0-9]+)!)?
+    (?P<release>[0-9]+(?:\.[0-9]+)*)
+    (?P<pre>[-_.]?(?P<pre_l>alpha|a|beta|b|preview|pre|c|rc)[-_.]?(?P<pre_n>[0-9]+)?)?
+    (?P<post>(?:-(?P<post_n1>[0-9]+))|(?:[-_.]?(?P<post_l>post|rev|r)[-_.]?(?P<post_n2>[0-9]+)?))?
+    (?P<dev>[-_.]?(?P<dev_l>dev)[-_.]?(?P<dev_n>[0-9]+)?)?
+    (?:\+(?P<local>[a-z0-9]+(?:[-_.][a-z0-9]+)*))?
+    \s*$
+    """,
+    re.VERBOSE | re.IGNORECASE,
+)
+_PRE_RANK = {'a': 0, 'alpha': 0, 'b': 1, 'beta': 1, 'c': 2, 'rc': 2, 'pre': 2, 'preview': 2}
+_MAX_DIGITS = 40  # longer numbers are cut (sort strings stay bounded)
+
+
+@functools.lru_cache(maxsize=4096)
+def pep440_parts(version: str) -> tuple[Any, ...] | None:
+    """The PEP 440 comparison key of ``version`` (the order of ``packaging.version``), or None when it is not a
+    PEP 440 version: ``(epoch, release, pre, post, dev, local)``, with -1/2/3 standing in for the infinities."""
+    match = _PEP440.match(version)
+    if match is None:
+        return None
+    epoch = int(match.group('epoch') or 0)
+    release = [int(p) for p in match.group('release').split('.')]
+    while len(release) > 1 and release[-1] == 0:
+        release.pop()
+    pre_l = match.group('pre_l')
+    has_post = bool(match.group('post_n1') or match.group('post_l'))
+    pre = (_PRE_RANK[pre_l.lower()], int(match.group('pre_n') or 0)) if pre_l else None
+    post = int(match.group('post_n1') or match.group('post_n2') or 0) if has_post else None
+    dev = int(match.group('dev_n') or 0) if match.group('dev_l') else None
+    # packaging's _cmpkey: a dev release with neither pre nor post sorts before the pre-releases; no pre sorts after.
+    if pre is None and post is None and dev is not None:
+        pre_key: tuple[int, ...] = (-1,)
+    elif pre is None:
+        pre_key = (3,)
+    else:
+        pre_key = pre
+    post_key = (-1,) if post is None else (0, post)
+    dev_key = (2,) if dev is None else (0, dev)
+    local = match.group('local')
+    if local is None:
+        local_key: tuple[Any, ...] = (-1,)
+    else:
+        segments = re.split(r'[-_.]', local.lower())
+        local_key = (0, tuple((1, int(s), '') if s.isdigit() else (0, 0, s) for s in segments))
+    return (epoch, tuple(release), pre_key, post_key, dev_key, local_key)
+
+
+def pep440_key(version: str) -> tuple[Any, ...]:
+    parts = pep440_parts(version)
+    return (1, parts) if parts is not None else (0, natural_key(version))
+
+
+def pep440_is_prerelease(version: str) -> bool:
+    """PEP 440 pre-releases (``a``/``b``/``rc``) and development releases."""
+    parts = pep440_parts(version)
+    if parts is None:
+        return _MARKERS.search(version) is not None
+    return bool(parts[2] != (3,) or parts[4] != (2,))
+
+
+def _num(n: int) -> str:
+    digits = str(n)[:_MAX_DIGITS]
+    return f'{len(digits):02d}{digits}'
+
+
+def _sentinel(value: tuple[int, ...]) -> str:
+    """(-1,) → ``0``, a number pair → ``1…``, (2,) → ``2``, (3,) → ``3``: the order of the tuple keys."""
+    if len(value) == 1:
+        return {-1: '0', 2: '2', 3: '3'}[value[0]]
+    return '1' + ''.join(_num(v) for v in value)
+
+
+def pep440_sort_string(version: str) -> str:
+    """A string whose plain (byte) order is the PEP 440 order: an index-backed ``version_sort`` (DATA_MODEL)."""
+    parts = pep440_parts(version)
+    if parts is None:
+        runs = ''.join(('a' + _num(int(r))) if r.isdigit() else ('b' + r) for r in _RUNS.findall(version))
+        return '0' + runs[:200]
+    epoch, release, pre, post, dev, local = parts
+    out = ['1', _num(epoch)]
+    out += ['.' + _num(r) for r in release]
+    out.append('!')  # ends the release: a shorter release sorts first ('!' < '.')
+    out += [_sentinel(pre), _sentinel(post), _sentinel(dev)]
+    if local == (-1,):
+        out.append('0')
+    else:
+        out.append('1')
+        for numeric, number, text in local[1]:
+            out.append(('b' + _num(number)) if numeric else ('a' + text + '!'))
+        out.append(' ')  # ends the local part: fewer segments sort first
+    return ''.join(out)
+
+
 # ---------------------------------------------------------------- dispatch
 _CMP: dict[str, Callable[[str, str], int]] = {'apt': dpkg_compare, 'yum': rpm_compare}
 
@@ -204,6 +306,8 @@ def sort_key(fmt: str, version: str) -> Any:
     """Ascending sort key for versions of one format (higher = newer)."""
     if fmt == 'npm':
         return _npm_key(version)
+    if fmt == 'pypi':
+        return pep440_key(version)
     compare = _CMP.get(fmt)
     if compare is not None:
         return functools.cmp_to_key(compare)(version)
@@ -215,6 +319,8 @@ def is_prerelease(fmt: str, version: str) -> bool:
         key = semver_key(version)
         if key is not None:
             return bool(key[3][0] == 0)
+    if fmt == 'pypi':
+        return pep440_is_prerelease(version)
     if fmt in ('apt', 'yum') and '~' in version:
         return True
     return _MARKERS.search(version) is not None

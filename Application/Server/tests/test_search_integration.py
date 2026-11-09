@@ -22,6 +22,7 @@ from waystation_common.db.collections import (
     DOCKER_MANIFESTS,
     DOCKER_TAGS,
     NPM_PACKAGES,
+    PYPI_PACKAGES,
     REPOSITORIES,
     YUM_PACKAGES,
 )
@@ -34,6 +35,7 @@ from waystation_server.db import apt as apt_db
 from waystation_server.db import assets as assets_db
 from waystation_server.db import docker as docker_db
 from waystation_server.db import npm as npm_db
+from waystation_server.db import pypi as pypi_db
 from waystation_server.db import yum as yum_db
 from waystation_server.proxy.records import AssetKind, StoredAsset, UpstreamMeta
 from waystation_server.services import Services
@@ -42,7 +44,7 @@ pytestmark = pytest.mark.integration
 
 API = '/api/v1/search'
 PASSWORD = 'correct horse battery staple'
-WATCHED = {ASSETS, NPM_PACKAGES, APT_PACKAGES, YUM_PACKAGES, DOCKER_TAGS, DOCKER_MANIFESTS}
+WATCHED = {ASSETS, NPM_PACKAGES, PYPI_PACKAGES, APT_PACKAGES, YUM_PACKAGES, DOCKER_TAGS, DOCKER_MANIFESTS}
 NOISE = {'lsid', 'txnNumber', '$db', '$clusterTime', '$readPreference', 'readConcern', 'apiVersion', 'cursor'}
 NOW = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
 NGINX_DIGEST = 'sha256:' + 'a1' * 32
@@ -446,3 +448,20 @@ async def test_migration_backfills_search_keys(admin: httpx.AsyncClient, service
     doc = await db[NPM_PACKAGES].find_one({'repo_id': npm})
     assert doc is not None
     assert (doc['name_lc'], doc['base_lc']) == ('@legacy/pkg', 'pkg')
+
+
+async def test_pypi_projects_and_files(admin: httpx.AsyncClient, services: Services, recorder: Recorder) -> None:
+    """PyPI project summaries are packages (version = latest, Browse link to the project); files link the same."""
+    pypi = await insert_repo(services, 'pypi-proxy', 'pypi')
+    await pypi_db.upsert_package(services.db, pypi, 'requests', {'display_name': 'requests', 'latest': '2.32.5'})
+    await pypi_db.upsert_package(services.db, pypi, 'requests-toolbelt', {'display_name': 'requests-toolbelt'})
+    await save_file(services, pypi, 'packages/requests/requests-2.32.5-py3-none-any.whl', b'wheel')
+    recorder.on = True
+    body = (await admin.get(API, params={'q': 'requests 2.32'})).json()
+    await assert_indexed(services.db, recorder)
+    assert summary(body['items']) == [('pypi-proxy', 'package', 'requests', '2.32.5')]
+    assert body['items'][0]['browse']['query'] == {'project': 'requests'}
+    files = (await admin.get(API, params={'q': 'requests-2', 'kind': 'file'})).json()['items']
+    assert [(f['name'], f['browse']['query']) for f in files] == [
+        ('requests-2.32.5-py3-none-any.whl', {'project': 'requests'})
+    ]
