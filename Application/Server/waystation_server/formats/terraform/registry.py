@@ -57,17 +57,17 @@ def _http_url(value: object, what: str) -> str:
 
 
 # ---------------------------------------------------------------------------- discovery
-def discovery_url(hostname: str) -> str:
-    return f'https://{hostname}/.well-known/terraform.json'
+def discovery_url(hostname: str, scheme: str = 'https') -> str:
+    return f'{scheme}://{hostname}/.well-known/terraform.json'
 
 
-def parse_discovery(data: bytes, hostname: str) -> str:
+def parse_discovery(data: bytes, hostname: str, scheme: str = 'https') -> str:
     """The provider registry base URL (ending with ``/``) a host's discovery document announces."""
     doc = _json(data, 'service discovery document', MAX_DISCOVERY)
     value = doc.get('providers.v1') if isinstance(doc, dict) else None
     if not isinstance(value, str) or not value:
         raise UpstreamError(f'{hostname} does not offer a provider registry (no providers.v1)')
-    base = _http_url(urljoin(discovery_url(hostname), value), 'service discovery document')
+    base = _http_url(urljoin(discovery_url(hostname, scheme), value), 'service discovery document')
     if '?' in base or '#' in base:
         raise UpstreamError('service discovery document has no valid URL')
     return base if base.endswith('/') else base + '/'
