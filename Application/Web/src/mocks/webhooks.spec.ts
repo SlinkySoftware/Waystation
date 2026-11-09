@@ -46,7 +46,7 @@ describe('mock webhooks API', () => {
     const noSecret = await api<Problem>('POST', '/webhooks', write({ secret: null }))
     expect(noSecret.status).toBe(422)
     expect(noSecret.json.errors?.[0]?.field).toBe('secret')
-    const local = await api<Problem>('POST', '/webhooks', write({ url: 'http://192.168.1.20/in' }))
+    const local = await api<Problem>('POST', '/webhooks', write({ url: 'http://localhost:8080/in' }))
     expect(local.json.errors?.[0]?.code).toBe('private_address')
     const taken = await api<Problem>('POST', '/webhooks', write({ name: 'CI-release-builds' }))
     expect(taken.status).toBe(409)
