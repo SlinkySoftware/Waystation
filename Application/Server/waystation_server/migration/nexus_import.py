@@ -93,6 +93,8 @@ class ImportDifference(BaseModel):
 
 
 class NexusImportItem(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
     name: str
     nexus_format: str
     nexus_type: str
@@ -112,6 +114,8 @@ class DefaultDockerChoice(BaseModel):
 
 
 class ImportSummary(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
     total: int = 0
     create: int = 0
     exists: int = 0
@@ -122,6 +126,8 @@ class ImportSummary(BaseModel):
 
 
 class NexusImportReport(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
     applied: bool
     nexus_version: str | None = Field(description='From the Nexus `Server` header, when it sends one')
     items: list[NexusImportItem]

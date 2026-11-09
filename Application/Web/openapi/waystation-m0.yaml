@@ -42,6 +42,7 @@ tags:
   - name: cleanup
   - name: tasks
   - name: admin
+  - name: import
 security:
   - session: []
   - bearer: []
@@ -1349,6 +1350,57 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  # ---------------------------------------------------------------- import from Nexus (T-M01; needs `admin`)
+  /import/nexus/preview:
+    post:
+      tags: [import]
+      operationId: previewNexusImport
+      summary: Dry run of an import from Nexus Repository 3 (nothing is written; needs `admin`)
+      description: |
+        Reads the repository configuration of the Nexus at `url` through its REST API (basic auth with a Nexus
+        administrator; the credentials are used for this request only, never stored, logged or returned) and plans
+        every repository: `create` (with the repository it would create), `exists` (name taken; never changed;
+        field-level `differences`), `unsupported` or `invalid` (with the reason). Nexus errors (unreachable, refused
+        credentials, private address without `allow_private`) answer 502 with the reason in `detail`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NexusImportRequest' }
+      responses:
+        '200':
+          description: The plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NexusImportReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+  /import/nexus/apply:
+    post:
+      tags: [import]
+      operationId: applyNexusImport
+      summary: Import repositories from Nexus Repository 3 (needs `admin`)
+      description: |
+        Reads Nexus again (nothing is kept from a preview) and creates the selected `create` repositories (members
+        before groups), each audited as `repository.create`. Idempotent: names that exist by then are reported
+        `exists` and left alone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NexusApplyRequest' }
+      responses:
+        '200':
+          description: What happened to each repository
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NexusImportReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
   /cleanup-policies:
     get:
       tags: [cleanup]
@@ -2111,6 +2163,11 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     ValidationFailed:
       description: Request body failed validation; `errors[]` has field-level detail
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    BadGateway:
+      description: A remote system the request depends on failed (the reason is in `detail`)
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -3094,6 +3151,147 @@ components:
         notes:
           type: array
           items: { type: string }
+
+    # ---------------------------------------------------------------- import from Nexus (T-M01)
+    NexusImportRequest:
+      type: object
+      additionalProperties: false
+      required: [url, username, password]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+        username: { type: string, minLength: 1, maxLength: 256, description: A Nexus administrator (reads the configuration) }
+        password: { type: string, format: password, minLength: 1, maxLength: 1024, writeOnly: true }
+        allow_private:
+          type: boolean
+          default: false
+          description: Allow a Nexus on a private or loopback address (SSRF guard exception)
+        ca_pem:
+          type: [string, 'null']
+          maxLength: 262144
+          description: Extra CA certificates (PEM) trusted for the Nexus TLS certificate
+        docker_aliases:
+          type: boolean
+          default: true
+          description: Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+        default_docker_repo:
+          type: [string, 'null']
+          maxLength: 63
+          description: Nexus docker repository to make the default docker repository; null = detect it
+    NexusApplyRequest:
+      type: object
+      additionalProperties: false
+      required: [url, username, password]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Nexus base URL (with its context path, if any), e.g. `https://nexus.example.com`
+        username: { type: string, minLength: 1, maxLength: 256, description: A Nexus administrator (reads the configuration) }
+        password: { type: string, format: password, minLength: 1, maxLength: 1024, writeOnly: true }
+        allow_private:
+          type: boolean
+          default: false
+          description: Allow a Nexus on a private or loopback address (SSRF guard exception)
+        ca_pem:
+          type: [string, 'null']
+          maxLength: 262144
+          description: Extra CA certificates (PEM) trusted for the Nexus TLS certificate
+        docker_aliases:
+          type: boolean
+          default: true
+          description: Give each docker proxy its upstream host as an alias (`docker.io` for Docker Hub, `ghcr.io`, ...)
+        default_docker_repo:
+          type: [string, 'null']
+          maxLength: 63
+          description: Nexus docker repository to make the default docker repository; null = detect it
+        repositories:
+          type: [array, 'null']
+          maxItems: 1000
+          items: { type: string }
+          description: Names to import (from the preview); null = every repository the preview would create
+    ImportDifference:
+      type: object
+      required: [field, nexus, waystation, note]
+      properties:
+        field: { type: string, description: Waystation field or Nexus setting }
+        nexus: { type: [string, 'null'] }
+        waystation: { type: [string, 'null'] }
+        note: { type: string }
+    NexusImportAction:
+      type: string
+      enum: [create, exists, unsupported, invalid]
+    NexusImportOutcome:
+      type: string
+      enum: [created, exists, unsupported, invalid, failed, not_selected]
+    NexusImportItem:
+      type: object
+      required: [name, nexus_format, nexus_type, format, type, action, outcome, reason, repository, differences, notes]
+      properties:
+        name: { type: string }
+        nexus_format: { type: string }
+        nexus_type: { type: string }
+        format:
+          oneOf:
+            - $ref: '#/components/schemas/Format'
+            - type: 'null'
+        type:
+          oneOf:
+            - $ref: '#/components/schemas/RepositoryType'
+            - type: 'null'
+        action: { $ref: '#/components/schemas/NexusImportAction' }
+        outcome:
+          description: 'Apply only: what happened'
+          oneOf:
+            - $ref: '#/components/schemas/NexusImportOutcome'
+            - type: 'null'
+        reason: { type: [string, 'null'] }
+        repository:
+          description: The repository the import creates
+          oneOf:
+            - $ref: '#/components/schemas/RepositoryWrite'
+            - type: 'null'
+        differences:
+          type: array
+          items: { $ref: '#/components/schemas/ImportDifference' }
+        notes:
+          type: array
+          items: { type: string }
+    DefaultDockerChoice:
+      type: object
+      required: [name, reason]
+      properties:
+        name: { type: [string, 'null'], description: Repository that receives unprefixed docker names after the import }
+        reason: { type: string }
+    ImportSummary:
+      type: object
+      required: [total, create, exists, unsupported, invalid, created, failed]
+      properties:
+        total: { type: integer }
+        create: { type: integer }
+        exists: { type: integer }
+        unsupported: { type: integer }
+        invalid: { type: integer }
+        created: { type: integer }
+        failed: { type: integer }
+    NexusImportReport:
+      type: object
+      required: [applied, nexus_version, items, summary, default_docker_repo]
+      properties:
+        applied: { type: boolean }
+        nexus_version: { type: [string, 'null'], description: From the Nexus `Server` header, when it sends one }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/NexusImportItem' }
+        summary: { $ref: '#/components/schemas/ImportSummary' }
+        default_docker_repo:
+          oneOf:
+            - $ref: '#/components/schemas/DefaultDockerChoice'
+            - type: 'null'
 
     # ---------------------------------------------------------------- browse
     FolderEntry:
