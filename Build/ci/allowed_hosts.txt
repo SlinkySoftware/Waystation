@@ -56,6 +56,12 @@ dl.rockylinux.org
 repo.almalinux.org
 yum.oracle.com
 
+# Public upstreams: Helm chart repositories (form presets, client guide, the helm client harness)
+prometheus-community.github.io
+kubernetes.github.io
+kubernetes-sigs.github.io
+charts.jetstack.io
+
 # Standards, licences and tooling referenced in code and docs
 w3.org
 gnu.org
@@ -69,6 +75,8 @@ maven.apache.org
 fsf.org
 quasar.dev
 simpleicons.org
+# YAML tag URIs (tag:yaml.org,2002:null in the Helm index loader)
+yaml.org
 
 # npm package names that are also domains (package-lock.json "resolved" URLs)
 colorjs.io

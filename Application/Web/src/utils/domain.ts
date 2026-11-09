@@ -76,8 +76,8 @@ export function formatColor(format: string): string {
   return slot ? `var(--chart-${slot})` : 'var(--text-tertiary)'
 }
 
-/** Formats offered in list and live filters: the M0 formats plus yum (displayed, not yet creatable). */
-export const LISTED_FORMATS: readonly Format[] = ['docker', 'npm', 'apt', 'yum', 'raw']
+/** Formats offered in list and live filters: the creatable formats plus yum (displayed, not yet creatable). */
+export const LISTED_FORMATS: readonly Format[] = ['docker', 'npm', 'apt', 'yum', 'raw', 'helm']
 
 /** The mark for a format, refined by upstream for apt (Debian / Ubuntu / Raspberry Pi) and yum (Rocky / Alma / Fedora). */
 export function formatMark(format: Format, upstreamUrl?: string | null): BrandMark {

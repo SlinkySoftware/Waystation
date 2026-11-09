@@ -170,6 +170,19 @@ class QuotaReconcile(JobPayload):
         return 'quota.reconcile'
 
 
+class HelmIndex(JobPayload):
+    """Regenerate a hosted Helm repository's ``index.yaml`` from its ``helm_charts`` (FORMATS.md "Helm";
+    ``waystation_worker.helm``). Enqueued through the outbox in the transaction that changed the charts."""
+
+    kind: ClassVar[str] = 'index.helm'
+    queue: ClassVar[Queue] = 'index'
+
+    repo_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'index.helm:{self.repo_id}'
+
+
 class StorageCheck(JobPayload):
     """Compare the data filesystem's free space with the low-disk guard and announce ``storage.low`` /
     ``storage.ok`` on a change (``waystation_worker.quota``); scheduled every minute."""

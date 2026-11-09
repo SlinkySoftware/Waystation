@@ -120,6 +120,12 @@ Windows containers support for the server.
   allowed); directory listings (HTML, or JSON for scripts) at the root and any path ending in `/`.
   Now (T-P2-RAW): built as described; uploads need `write`, deletes `delete`; both are audited and live in the
   activity feed.
+- Helm: `curl --upload-file` (`PUT`) and the ChartMuseum API (`POST api/charts`, as `helm cm-push` sends it);
+  provenance files; delete by file or `api/charts/<name>/<version>`.
+  Now (T-P5-HELM): chart packages are checked before they are stored (single top-level directory, no links or
+  unsafe names, size limits, `Chart.yaml` with a valid name and SemVer version) and stored as
+  `<name>-<version>.tgz`; write policy as above; the worker rebuilds `index.yaml` from the stored charts through the
+  outbox (seconds after an upload or delete) and publishes it atomically. Uploads and deletes are audited.
 - Index generation for apt and yum hosted repos by workers, signed with a per-repo GPG key (key generated or
   imported; public key downloadable from the repo root and shown in "Set me up").
 - Quotas per repo (soft warn / hard block) on stored bytes (§4.8).
@@ -149,6 +155,9 @@ Windows containers support for the server.
   Now (T-P2-RAW): raw groups (raw proxy/hosted members) answer each file from the first member that has it, list
   folders as the members' listings merged, and send uploads and deletes to the writable member (a hosted raw
   repository the client may also write to); without one the group is read-only.
+  Now (T-P5-HELM): Helm groups serve one `index.yaml` merged from their members' indexes (the first member that
+  lists a chart version wins it), charts from the first member that has them, and send uploads and deletes to the
+  writable member.
   Now (T-P5-PYPI): PyPI groups merge their members' project pages per request (union by file name, the first member
   wins; a proxy member's cached page, refreshed as needed), serve files from the first member holding them (else the
   proxy members in order) and send uploads to a hosted writable member.
@@ -220,7 +229,9 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   labels, pull commands) and Maven `artifacts`/`versions` (T-P5-MAVEN: groupId:artifactId with the highest version,
   versions in Maven order with file count and size; the files are the version folder's listing) show what is held.
   Browsing needs `browse` on the repository (anonymous: proxy repositories); download counts are not recorded yet
-  (0/null). PyPI (T-P5-PYPI): `pypi/projects` (summaries in
+  (0/null). Helm (T-P5-HELM): `helm/charts` and `helm/versions?chart=` list charts (latest version, app version,
+  description) and their versions newest first (created, digest, size, cached) for proxy, hosted and group
+  repositories. PyPI (T-P5-PYPI): `pypi/projects` (summaries in
   `pypi_packages`: latest final release by PEP 440, version count, files held) and `pypi/versions?project=` (versions
   newest first, each with its wheels and sdist: size, sha256, requires-python, yanked, PEP 658 metadata, held or not,
   uploader for hosted files) for proxy and hosted repositories; groups are browsed through their members. Go
@@ -945,6 +956,7 @@ Waystation/
 | Import from Nexus (T-M01) | 2026-11-09: `POST /api/v1/import/nexus/preview` (dry run) and `/apply` (admin): reads a Nexus 3 configuration over its REST API (SSRF-guarded, optional CA bundle, bounded; credentials used per request, never stored or logged), maps names, formats, types, upstreams, ages, negative cache, auto-block, docker Hub/aliases/default repository, apt distribution, raw disposition, hosted write policy and group members (where Waystation has those types: docker and, since T-P2-RAW, raw hosted and group), reports create / exists / unsupported / invalid with field-level differences, applies the selection idempotently with a `repository.create` audit record per repository; UI page Repositories → "Import from Nexus" (connect, plan table with differences, selection, apply), MSW mocks. Tested against hand-written Nexus 3 REST fixtures (`Application/Server/tests/fixtures/nexus3`); not yet against a live Nexus 3 container |
 | Nexus migration guide + validation (T-M02) | 2026-11-10: `Documents/Operations/MIGRATING_FROM_NEXUS.md` (inventory, import, credentials and access, hosted content copy with skopeo/crane and a raw asset loop, cache warm-up, side-by-side validation with expected differences, client switch per format, reverse-proxy cutover per repository and docker connector ports, rollback from the audit log, decommission); `Build/migration/nexus_compare.py` (standard library only; checks from TOML; docker Bearer challenge, redirects without credentials to other hosts, base-URL and JSON normalisation, JSON Pointer comparisons; table/Markdown/JSON report; exit 0/1/2), `checks.example.toml` (docker, npm, apt, yum, raw, pypi), `make nexus-compare`; tested against two fake servers in `make test` (no real Nexus) |
 | Administration UI (T-U08) | Done 2026-11-09: Users (list, filters, keyset paging, create/edit, reset password, unlock, disable, sign out everywhere, delete) and a page per user (identities, groups, effective permissions, sessions, tokens); Groups (local + members, mapped roles); Roles (permission matrix editor, held by) and Anonymous access; API tokens (all tokens, revoke) and Service accounts (tokens shown once, permissions); Settings (instance name, docker default repository, environment limits); System (version, MongoDB/Valkey health, data volume). New API `GET/DELETE /users/{id}/sessions`, `GET/PUT /settings`, `GET /system`; MSW mocks for every admin endpoint. Editable retention and UI defaults, support bundle (T-O10) pending |
+| Helm format (T-P5-HELM) | Done 2026-11-10: Helm proxy, hosted and group repositories (FORMATS.md "Helm"): proxy `index.yaml` validated with a safe YAML loader and rewritten (relative chart URLs, `_ext/<scheme>/<host>/...` for charts hosted elsewhere, served as JSON), charts fetched only when the cached index lists them and verified against its sha256 `digest`, `.prov` pass-through; hosted uploads by `PUT` and the ChartMuseum API (`api/charts`, multipart), chart packages read safely (tar-slip guards, size limits, `Chart.yaml` validation), write policy, deletes, `index.yaml` regenerated by the worker job `index.helm` through the outbox and published atomically (cleanup runs trigger it too); group index merged (first member wins per version) and served by X-Accel; `helm_charts` with SemVer `version_sort`; browse `helm/charts` and `helm/versions` with a UI renderer, create flow (proxy presets, hosted, group) and "Set me up"; real-client harness `tests/clients/helm/` (helm 3.19 and 4.0: repo add/search/pull/template through proxy and group, curl and ChartMuseum uploads, index rebuild, delete; replay passing); `Documents/Operations/clients/helm.md` |
 | Everything else | Not started |
 | M0 feedback build (T-V02) | Done 2026-11-09, tagged `v0.1.0-m0`: `make e2e-m0` runs real docker, npm, apt (Debian 13) and raw clients through a running stack and checks the live stream, stats, activity and browse; `Documents/Operations/TRY_IT.md` (fresh host from images and an env file); real-server screenshot tour `Documents/Notes/UI_TOUR_M0.md`; feedback log `Documents/Notes/UI_FEEDBACK.md` |
 

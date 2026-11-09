@@ -24,17 +24,18 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from starlette.requests import ClientDisconnect
 from starlette.responses import Response
 
-from waystation_common.db.client import Database
+from waystation_common.db.client import Database, Session
 from waystation_common.errors import WaystationError
 from waystation_common.events import ActivityEvent, CacheState, Direction, EventEmitter, EventType, Transfer
 from waystation_common.ids import new_id
+from waystation_common.jobs import JobClient
 from waystation_common.storage import BlobRef, BlobStore, BlobWriter
 from waystation_server.dataplane.xaccel import ServedBlob, serve_blob
 from waystation_server.db import assets as assets_db
@@ -63,12 +64,20 @@ class HostedStore:
         emitter: EventEmitter,
         metrics: Metrics,
         quotas: Quotas | None = None,
+        jobs: JobClient | None = None,
     ) -> None:
         self.db = db
         self.blobs = blobs
         self.emitter = emitter
         self.metrics = metrics
         self.quotas = quotas
+        self.jobs = jobs  # index rebuilds etc.: enqueue_durable inside ``transaction`` (ARCHITECTURE §10)
+
+    async def transaction[T](self, work: Callable[[Session], Awaitable[T]]) -> T:
+        """Run ``work(session)`` in a MongoDB transaction (retried on transient errors): format records and the
+        outbox entry of the job they trigger commit together."""
+        async with self.db.client.start_session() as session:
+            return await session.with_transaction(work)
 
     async def admit(self, repo: RepoConfig, incoming: int | None = None) -> None:
         """Raise ``QuotaExceeded`` when the repository's hard quota refuses a write of ``incoming`` bytes (unknown:
@@ -230,6 +239,18 @@ class HostedStore:
         sent = asset.size if response.status_code == 200 and req.method == 'GET' else 0
         if sent:
             self.emitter.asset_downloaded(asset.id)
+        self.account(req, CacheState.HIT, response.status_code, sent, started)
+        return response
+
+    def serve_generated(
+        self, req: FormatRequest, sha256: str, size: int, *, content_type: str, last_modified: datetime | None = None
+    ) -> Response:
+        """Serve a blob that is not a repository asset (metadata generated per request and kept in the blob store,
+        e.g. a group's merged index) by X-Accel, like ``serve``."""
+        started = time.perf_counter()
+        blob = ServedBlob(sha256=sha256, size=size, content_type=content_type, last_modified=last_modified)
+        response = serve_blob(req.request, blob, cache=CacheState.HIT.value)
+        sent = size if response.status_code == 200 and req.method == 'GET' else 0
         self.account(req, CacheState.HIT, response.status_code, sent, started)
         return response
 
