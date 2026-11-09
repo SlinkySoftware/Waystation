@@ -555,6 +555,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/anonymous-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The roles of requests without credentials; needs `user-admin` */
+        get: operations["getAnonymousAccess"];
+        /** Change what requests without credentials may do (repository permissions only) */
+        put: operations["updateAnonymousAccess"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth-providers": {
         parameters: {
             query?: never;
@@ -1711,6 +1729,13 @@ export interface components {
         };
         GroupMembersAdd: {
             user_ids: string[];
+        };
+        AnonymousAccess: {
+            /**
+             * @description `anonymous` (browse and read proxy repositories, the default) and/or roles holding repository permissions
+             *     only; empty = no anonymous access.
+             */
+            roles: string[];
         };
         RolePermission: {
             action: components["schemas"]["Action"];
@@ -4044,6 +4069,53 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getAnonymousAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Anonymous access */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnonymousAccess"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateAnonymousAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnonymousAccess"];
+            };
+        };
+        responses: {
+            /** @description Saved (applied by every replica within seconds) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnonymousAccess"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     listAuthProviderConfigs: {

@@ -29,7 +29,7 @@ from waystation_common.logs import bind_context
 from waystation_server.db import users as users_db
 from waystation_server.security.actions import Grants
 from waystation_server.security.identity import SessionRecord, UserRecord
-from waystation_server.security.principal import ANONYMOUS, AuthMethod, Principal, PrincipalKind
+from waystation_server.security.principal import AuthMethod, Principal, PrincipalKind
 from waystation_server.security.sessions import SESSION_COOKIE
 from waystation_server.security.tokens import looks_like_token
 from waystation_server.services import Services
@@ -139,7 +139,7 @@ async def authenticate(request: Request) -> Principal:
     principal = await _from_session(services, request)
     if principal is None:
         principal = await _from_header(services, request)
-    principal = principal or ANONYMOUS
+    principal = principal or await services.rbac.anonymous()
     request.state.principal = principal
     request.state.log['principal'] = principal.display
     bind_context(principal=principal.display)

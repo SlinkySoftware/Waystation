@@ -1,4 +1,4 @@
-"""``/api/v1/roles``: built-in and custom roles (SPECIFICATION §4.10).
+"""``/api/v1/roles`` and ``/api/v1/anonymous-access``: built-in and custom roles (SPECIFICATION §4.10).
 
 - ``GET /roles`` (any signed-in principal): the grantable roles with their permissions (built-in first, then custom
   by id). ``anonymous`` is the anonymous principal's own role and is not listed.
@@ -7,6 +7,8 @@
   only on ``*``). Permissions a caller adds must be ones it may give away (``access.may_assign``: ``admin`` only by
   administrators, other global actions only by holders). A role still held by a user, group or service account
   cannot be deleted (409; remove it from them first).
+- ``GET/PUT /anonymous-access`` (``user-admin``): the roles of requests without credentials (default: the built-in
+  ``anonymous`` role, browse and read on proxy repositories); repository permissions only, never a global action.
 - Every change bumps ``grant_version`` (``RbacState.changed``): every replica applies it within moments.
 """
 
@@ -30,7 +32,7 @@ from waystation_server.security import access
 from waystation_server.security.actions import Action, Permission
 from waystation_server.security.authn import authenticate
 from waystation_server.security.identity import RolePermission, RoleRecord
-from waystation_server.security.principal import Principal
+from waystation_server.security.principal import ANONYMOUS_ROLE, Principal
 from waystation_server.services import Services
 
 router = APIRouter(tags=['admin'])
@@ -274,3 +276,63 @@ async def delete_role(role_id: RoleId, request: Request, svc: ServicesDep) -> Re
         changes=audit.diff(record.model_dump(include={'name', 'description', 'permissions'}), None),
     )
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------- anonymous access
+class AnonymousAccess(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    roles: list[str] = Field(
+        max_length=20,
+        description='Roles of requests without credentials: `anonymous` (browse and read proxy repositories, the '
+        'default) and/or roles holding repository permissions only; empty = no anonymous access',
+    )
+
+
+ANONYMOUS_TARGET = ('anonymous_access', 'anonymous', 'Anonymous access')
+
+
+@router.get('/anonymous-access', response_model=AnonymousAccess, operation_id='getAnonymousAccess')
+@access.requires(Action.USER_ADMIN)
+async def get_anonymous_access(svc: ServicesDep) -> AnonymousAccess:
+    return AnonymousAccess(roles=list(await svc.rbac.anonymous_roles()))
+
+
+@router.put(
+    '/anonymous-access',
+    response_model=AnonymousAccess,
+    operation_id='updateAnonymousAccess',
+    responses={403: PROBLEM, 422: PROBLEM},
+)
+@access.requires(Action.USER_ADMIN)
+async def update_anonymous_access(body: AnonymousAccess, request: Request, svc: ServicesDep) -> AnonymousAccess:
+    """What requests without credentials may do (SPECIFICATION §4.9). Only repository permissions can be given
+    (no global action), and only ones the caller may give away; applied by every replica within moments."""
+    principal = await authenticate(request)
+    custom = await svc.rbac.table()
+    roles = list(dict.fromkeys(body.roles))
+    errors: list[FieldError] = []
+    for i, role in enumerate(roles):
+        if role != ANONYMOUS_ROLE and not access.is_role(role, custom):
+            errors.append(FieldError(field=f'roles.{i}', message=f'unknown role {role!r}', code='role'))
+            continue
+        grants = access.materialise((role,), custom)
+        if grants.is_admin or access.global_actions(grants):
+            errors.append(
+                FieldError(
+                    field=f'roles.{i}', message='anonymous access can only hold repository permissions', code='global'
+                )
+            )
+        elif not access.may_assign(principal, grants):
+            errors.append(FieldError(field=f'roles.{i}', message=f'you cannot grant {role!r}', code='role'))
+    if errors:
+        raise FieldErrors(errors)
+    before = list(await svc.rbac.anonymous_roles())
+    await roles_db.set_anonymous_roles(svc.db, roles)
+    await svc.rbac.changed()
+    audit.record(
+        AuditAction.ROLE_UPDATE,
+        target=audit.target(*ANONYMOUS_TARGET),
+        changes=audit.diff({'roles': before}, {'roles': roles}),
+    )
+    return AnonymousAccess(roles=roles)

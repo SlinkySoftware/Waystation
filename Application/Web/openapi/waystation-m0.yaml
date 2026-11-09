@@ -717,6 +717,36 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /anonymous-access:
+    get:
+      tags: [admin]
+      operationId: getAnonymousAccess
+      summary: The roles of requests without credentials; needs `user-admin`
+      responses:
+        '200':
+          description: Anonymous access
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnonymousAccess' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [admin]
+      operationId: updateAnonymousAccess
+      summary: Change what requests without credentials may do (repository permissions only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnonymousAccess' }
+      responses:
+        '200':
+          description: Saved (applied by every replica within seconds)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnonymousAccess' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /auth-providers:
     get:
       tags: [admin]
@@ -2395,6 +2425,18 @@ components:
           items: { type: string }
 
     # ---------------------------------------------------------------- administration: sign-in providers, roles
+    AnonymousAccess:
+      type: object
+      required: [roles]
+      additionalProperties: false
+      properties:
+        roles:
+          type: array
+          maxItems: 20
+          description: |
+            `anonymous` (browse and read proxy repositories, the default) and/or roles holding repository permissions
+            only; empty = no anonymous access.
+          items: { type: string }
     RolePermission:
       type: object
       required: [action, scope]
