@@ -83,8 +83,8 @@ project "$work/tf" hashicorp/null
 run terraform "$work/tf" "$work/anonymous.rc" anonymous
 grep -q 'provider "registry.terraform.io/hashicorp/null"' "$work/tf/.terraform.lock.hcl" \
   || fail 'terraform lock file names no provider'
-grep -q '"zh:' "$work/tf/.terraform.lock.hcl" || fail 'terraform lock file has no zh: hashes from the mirror'
 grep -q '"h1:' "$work/tf/.terraform.lock.hcl" || fail 'terraform lock file has no h1: hash'
+# (a mirror's hashes are checked, not signed: terraform records only the h1: of the package it installed)
 
 step 'the version document now carries the h1: hash of the cached archive'
 i=0

@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.terraform.io/.well-known/terraform.json"
+  },
+  "response": {
+    "body_sha256": "b9f54de00c40ba5b8c37a4cecc04b8907c3bbc82c4b404a55bbfbb73b93a11f7",
+    "body_size": 62,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "62"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "stale-if-error=31536000, public, max-age=3600"
+      ],
+      [
+        "last-modified",
+        "Wed, 04 Nov 2026 20:24:27 GMT"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ]
+    ],
+    "status": 200
+  }
+}
