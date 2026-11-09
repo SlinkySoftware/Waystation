@@ -52,7 +52,7 @@ const groups = computed(() =>
 function isActive(item: NavItem): boolean {
   if (item.name === 'repositories') return route.name === 'repositories' || (route.name === 'repository' && route.params.tab !== 'browse')
   if (item.name === 'browse') return route.name === 'browse' || (route.name === 'repository' && route.params.tab === 'browse')
-  return route.name === item.name
+  return route.name === item.name || route.meta.nav === item.name
 }
 </script>
 

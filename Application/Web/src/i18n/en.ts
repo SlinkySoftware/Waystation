@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // English catalogue. Plurals: "one|other", chosen by the `count` parameter.
+import { admin } from './admin'
 
 export const en = {
   common: {
@@ -1344,6 +1345,7 @@ export const en = {
     },
     loadFailed: 'Could not load storage figures',
   },
+  admin,
   placeholder: {
     title: '{page} is on its way',
     text: 'This page is planned (task {task}) and not part of the M0 feedback build.',
