@@ -227,8 +227,10 @@ async def create_role(body: RoleCreate, request: Request, response: Response, sv
 async def update_role(role_id: RoleId, body: RoleWrite, request: Request, svc: ServicesDep) -> Role:
     principal = await authenticate(request)
     before = await _custom(svc, role_id)
-    perms = _check_permissions(body)
     held = {Permission(Action(p.action), p.scope) for p in before.permissions if p.action in Action}
+    if not access.may_assign(principal, access.materialise(('_',), {'_': tuple(held)})):
+        raise Forbidden('you cannot change a role holding more permissions than you')
+    perms = _check_permissions(body)
     _check_delegation(principal, [p for p in perms if p not in held])
     updated = await roles_db.update(
         svc.db,
