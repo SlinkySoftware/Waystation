@@ -3,6 +3,28 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-P5-NPMH: npm hosted and group repositories. Hosted (`formats/npm/hosted.py`, `publish.py`): `npm publish` bodies
+  (≤ 100 MiB) parsed in a thread, one version and its base64 tarball, `length`/`dist.integrity`/`dist.shasum` checked,
+  the tarball read without extraction (bounded, safe entry names) and its `package.json` matched to the version;
+  stored as a live upload transfer with the manifest's `dist` computed by the server; write policy (`disable_redeploy`
+  answers npm's "cannot publish over"), quotas. Packuments (full and abbreviated) generated from the new
+  `npm_versions` collection and the hosted `npm_packages` document (compare-and-set on `rev`; a regeneration that
+  raced runs again) and stored as metadata assets (X-Accel, `ETag`/`304`). `npm deprecate` and
+  `npm unpublish <pkg>@<v>` (packument updates; removing versions needs `delete`), `unpublish --force`, tarball
+  deletes (also behind the `repository/<repo>/` path npm sends), dist-tags `GET/PUT/DELETE` (`dist-tag rm` = `write`),
+  hosted search; a version whose tarball a cleanup removed is dropped when a client asks for it. `npm login
+  --auth-type=legacy` / `npm logout` on every npm repository: new descriptor hooks `client_login` and
+  `request_action`, `FormatRequest.sign_in`/`sign_out`, `waystation_server.client_login` (password checked like
+  `docker login`, API token with the user's repository scopes, hidden repositories answer 404 for any failure,
+  audited); `verify_login(via=...)`. Groups (`formats/npm/group.py`): packuments merged in a thread (first member wins
+  per version, dist-tags from the first member with the tag, tarball URLs to the group), kept in the blob store per
+  members' digests, tarballs from the members in order, `?write=true` from the writable member, writes to the
+  writable member; proxies answer `dist-tags` too. UI: npm hosted and group in the create flow, hosted browse shows
+  version counts instead of cache state, "Set me up" publish snippets (`.npmrc` `_authToken`, `npm login`,
+  `publishConfig`, publish/dist-tag/deprecate/unpublish, pnpm). Harness `tests/clients/npm/`: npm 11 login, whoami,
+  publish to the group and the hosted repository, republish refused, install of a hosted and a proxied package
+  through the group, dist-tag add/ls/rm, deprecate, unpublish of a version and of the package, logout (fixtures
+  re-recorded). Client guide `Documents/Operations/clients/npm.md` (publishing, groups, `npm login`).
 - T-O05: signed webhooks. Definitions in `webhooks` (name, URL, events with categories and `*`, repository globs, enabled, secret and custom headers write-only and AES-GCM encrypted, private-target exception, timeout, attempts) through `/api/v1/webhooks` (admin; CRUD, `POST /{id}/test`, `GET /{id}/deliveries[/{delivery}]`, `POST .../redeliver`), audited `webhook.create|update|delete|test|redeliver`. Events are the successful audit records of `content.upload|delete|update` and `repository.create|update|delete`: `audit.record` hands them to a server-side notifier that writes a `webhook.event` job to the durable outbox when an enabled webhook wants it. Worker jobs `webhook.event` (fan-out into `webhook_deliveries`, attempted at once), `webhook.deliver` (test events, redeliveries) and the scheduled `webhook.sweep` (every 15 s): at-least-once with leases, HMAC-SHA256 `Waystation-Signature: t=<unix>,v1=<hex>` over `<t>.` + body, `Idempotency-Key`, exponential retries to a dead delivery, 1 KiB answer snippets, 30-day log. The SSRF guard moved to `waystation_common.ssrf` (re-exported by `waystation_server.proxy.ssrf`) so worker deliveries use it; common now depends on `httpcore`, the worker on `httpx`. Metrics `waystation_webhook_deliveries_total{outcome}` (Valkey `webhooks:totals`) and `waystation_webhook_deliveries_pending`. UI Administration → Webhooks (table, editor with a browser-generated secret, delivery drawer with attempts, request and redeliver), MSW mocks, screenshot tour entries. `Documents/Operations/WEBHOOKS.md` with Python and Node verification snippets. Test helper `FakeUpstream` now records request bodies.
 - T-P5-HELM: Helm classic chart repositories (`formats/helm/`). Proxy: `index.yaml` cached as metadata (revalidated),
   parsed with a safe, bounded YAML loader in a thread (only `null` resolved implicitly, no tags or aliases), chart

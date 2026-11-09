@@ -12,7 +12,8 @@
   ``<pkg>/-/packument.json`` and ``<pkg>/-/packument.install-v1.json`` (the keys a proxy caches them under), so they
   are served by X-Accel with ``ETag``/``304`` and browse reads them like a proxy's. Changes move the package's
   ``rev`` by compare-and-set; a regeneration that finds the ``rev`` moved while it ran runs again, so the last
-  writer always leaves the newest state. Versions whose tarball a cleanup policy removed are left out.
+  writer always leaves the newest state. Versions whose tarball a cleanup policy removed are left out (and dropped
+  when a client asks for the missing tarball).
 - **Packument updates** (``PUT /<pkg>`` or ``PUT /<pkg>/-rev/<rev>`` without attachments: ``npm deprecate``,
   ``npm unpublish <pkg>@<version>``): deprecation messages of held versions are applied, held versions missing from
   the body are unpublished (needs ``delete``), dist-tags are taken from the body (only tags on held versions; a
@@ -34,7 +35,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from starlette.responses import JSONResponse, Response
@@ -62,7 +63,12 @@ CAS_ROUNDS = 20
 REGENERATE_ROUNDS = 8
 CHUNK = 256 * 1024
 SEARCH_MAX = 250
+REPAIR_AFTER = timedelta(minutes=10)
 _KEEP: Any = object()
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def npm_json(body: dict[str, Any], status: int = 200) -> Response:
@@ -147,8 +153,20 @@ class NpmHosted:
         asset = await req.hosted.get(req.repo, metadata.tarball_path(route.package, route.filename))
         if asset is None:
             req.hosted.account(req, CacheState.HIT, 404, 0, started)
+            await self._repair(req, route)
             raise NotFound('Not found')
         return req.hosted.serve(req, asset)
+
+    async def _repair(self, req: FormatRequest, route: Route) -> None:
+        """A listed version whose tarball is gone (a cleanup policy removed it): drop the version and regenerate the
+        packuments, so clients stop being offered it."""
+        state = await self.state(req, req.repo, route.package)
+        record = next((r for r in state.versions if r.filename == route.filename), None) if state else None
+        if record is None or datetime.now(UTC) - _aware(record.published_at) < REPAIR_AFTER:
+            return  # (a publish in progress records its tarball moments after the version)
+        log.info('dropping an npm version whose tarball is gone', extra={'repo': req.repo.name, 'path': req.path})
+        await npm_db.delete_version(req.hosted.db, req.repo.id, route.package, record.version)
+        await self.commit(req, req.repo, route.package)
 
     async def state(self, req: FormatRequest, repo: RepoConfig, package: str) -> publish.PackageState | None:
         """The package as stored (None: the repository has neither a package document nor versions of it)."""
