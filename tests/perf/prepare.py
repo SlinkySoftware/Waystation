@@ -94,7 +94,11 @@ class Client:
 
     def docker_token(self, url: str) -> str:
         """A pull token for the image of ``url``, from the registry's own 401 challenge (anonymous)."""
-        status, headers, _ = self.request('GET', url)
+        for _ in range(40):  # 404 until every server process has seen the new repository (see warm)
+            status, headers, _ = self.request('GET', url)
+            if status != 404:
+                break
+            time.sleep(0.25)
         if status != 401:
             return ''
         params = dict(BEARER.findall(headers.get('www-authenticate', '')))
