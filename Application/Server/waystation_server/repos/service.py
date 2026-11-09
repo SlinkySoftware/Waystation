@@ -249,6 +249,15 @@ async def _after_write(services: Services, repo: RepoConfig) -> None:
     services.catalog.invalidate()
 
 
+async def check(services: Services, body: RepositoryWrite, principal: Principal) -> list[FieldError]:
+    """The field errors creating ``body`` would raise now (a dry run: nothing is written or encrypted for keeps)."""
+    try:
+        await _build(services, body, principal, None)
+    except FieldErrors as exc:
+        return list(exc.errors)
+    return []
+
+
 async def create(services: Services, body: RepositoryWrite, principal: Principal) -> RepoConfig:
     if await services.catalog.get_ci(body.name) is not None:
         raise Conflict('A repository with this name already exists.', field='name')
