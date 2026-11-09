@@ -316,6 +316,7 @@ async def test_hosted_release_deploy_metadata_and_redeploy(
     assert audits == 6
 
     # Browse: artifacts and versions in Maven order, files through the folder listing.
+    recorder.on = True
     artifacts = (await admin.get('/api/v1/repositories/releases/maven/artifacts')).json()
     assert artifacts['items'] == [
         {
@@ -346,6 +347,8 @@ async def test_hosted_release_deploy_metadata_and_redeploy(
         '/api/v1/repositories/releases/maven/versions', params={'group_id': 'org.example', 'artifact_id': 'nope'}
     )
     assert missing.status_code == 404
+    await assert_indexed(services.db, recorder)
+    recorder.on = False
 
     # Delete a version folder: its files, component and metadata entry go.
     assert (await mvn.delete(f'/repository/releases/{GA}/1.2/')).status_code == 204
