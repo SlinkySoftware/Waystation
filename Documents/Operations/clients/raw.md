@@ -118,4 +118,5 @@ Prefer a `~/.netrc` entry (`machine registry.example.com login alice password <t
 | `405 Method Not Allowed` on `PUT` | Uploads go to hosted raw repositories (or a group with a writable member), never to a proxy. |
 | `409 Conflict` on `PUT` | The hosted repository's write policy is `disable_redeploy` and the path exists: upload under a new path (a new version). |
 | `400` on `PUT` | A checksum header does not match the body (nothing was stored), a checksum header is malformed, or the URL ends in `/` (name the file). |
+| `507` on `PUT` | The repository's hard quota is reached, or the server is low on disk space: delete files or ask an administrator to raise the quota. Downloads keep working. |
 | `403` on `PUT`/`DELETE` | The token lacks the `write`/`delete` scope or permission, the repository is `read_only`, or (through a group) you may not write to its writable member. |

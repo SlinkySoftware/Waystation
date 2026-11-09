@@ -6,6 +6,7 @@
   as Nexus and Artifactory clients send them) are verified before anything is stored: a mismatch is a 400 and
   stores nothing. The stored Content-Type comes from the file extension (never the client's), else
   ``application/octet-stream``. Answers ``201`` with the ``ETag`` (``"sha256:<hex>"``) and ``X-Checksum-Sha256``.
+- A hard repository quota refuses the upload before any byte is read (``507``, like the low-disk guard).
 - Write policy (``hosted.write_policy``): ``allow_redeploy`` replaces an existing file, ``disable_redeploy`` refuses
   to (409; deleting stays allowed), ``read_only`` refuses every change (403).
 - ``GET``/``HEAD``: the stored file by X-Accel (conditional requests and ranges as for cache hits), with
@@ -112,6 +113,7 @@ class RawHosted:
             raise Conflict(f'{path} exists and this repository does not allow redeploying')
         length = req.request.headers.get('content-length')
         total = int(length) if length is not None and length.isdigit() else None
+        await req.hosted.admit(req.repo, total)  # a hard quota refuses before any byte is accepted (507)
         extra = {alg: hashlib.new(alg, usedforsecurity=False) for alg in expected if alg != 'sha256'}
 
         async def body() -> AsyncIterator[bytes]:

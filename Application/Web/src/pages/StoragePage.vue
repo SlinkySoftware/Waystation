@@ -65,6 +65,8 @@
         </PageCard>
       </div>
 
+      <GuardCard :can-edit="canEditGuard" class="q-mb-md" />
+
       <StorageTable :rows="rows" :loading="!data" class="q-mb-md" />
 
       <GcCard v-if="isAdmin" :can-run="isAdmin" class="q-mb-md" />
@@ -89,6 +91,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
 import PageCard from '@/components/PageCard.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import GuardCard from '@/components/storage/GuardCard.vue'
 import StorageTable from '@/components/storage/StorageTable.vue'
 import VolumeBar from '@/components/storage/VolumeBar.vue'
 import { useAsync } from '@/composables/useAsync'
@@ -103,6 +106,8 @@ import { iconError, iconRefresh, iconStorage, iconTrend } from '@/utils/icons'
 import { dedupFigures, largest, repoRows, volumeBreakdown } from '@/utils/storageStats'
 
 const isAdmin = computed(() => useAuthStore().can('admin'))
+// A hint only: the server authorises the change (settings-admin).
+const canEditGuard = computed(() => useAuthStore().can('settings.admin'))
 const TOP = 8
 
 const live = useLiveStore()

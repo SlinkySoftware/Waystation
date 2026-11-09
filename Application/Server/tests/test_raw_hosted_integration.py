@@ -198,6 +198,14 @@ async def test_write_policies(
     assert (await client.get('/repository/once/a.txt', auth=auth)).status_code == 200
     assert (await client.delete('/repository/once/a.txt', auth=auth)).status_code == 204  # deleting stays allowed
 
+    storage = {'quota_bytes': 1000, 'quota_mode': 'hard'}
+    made = await create(admin, {'name': 'capped', 'type': 'hosted', 'storage': storage})
+    assert made.status_code == 201, made.text
+    assert (await client.put('/repository/capped/small.txt', content=b'x' * 900, auth=auth)).status_code == 201
+    refused = await client.put('/repository/capped/big.txt', content=b'x' * 500, auth=auth)
+    assert refused.status_code == 507  # the hard quota refuses the write ...
+    assert (await client.get('/repository/capped/small.txt', auth=auth)).status_code == 200  # ... and still serves
+
     made = await create(admin, {'name': 'frozen', 'type': 'hosted', 'hosted': {'write_policy': 'read_only'}})
     assert made.status_code == 201
     assert (await client.put('/repository/frozen/a.txt', content=b'1', auth=auth)).status_code == 403

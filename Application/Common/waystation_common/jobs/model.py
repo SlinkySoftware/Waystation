@@ -156,3 +156,27 @@ class BlobGc(JobPayload):
 
     def dedupe_key(self) -> str | None:
         return 'blob.gc'
+
+
+class QuotaReconcile(JobPayload):
+    """Recount every repository's stored bytes from ``assets`` (``repo_usage``; quotas, SPEC §4.8) and announce quota
+    thresholds the recount crossed (``waystation_worker.quota``)."""
+
+    kind: ClassVar[str] = 'quota.reconcile'
+    queue: ClassVar[Queue] = 'maintenance'
+    max_attempts: ClassVar[int] = 3
+
+    def dedupe_key(self) -> str | None:
+        return 'quota.reconcile'
+
+
+class StorageCheck(JobPayload):
+    """Compare the data filesystem's free space with the low-disk guard and announce ``storage.low`` /
+    ``storage.ok`` on a change (``waystation_worker.quota``); scheduled every minute."""
+
+    kind: ClassVar[str] = 'storage.check'
+    queue: ClassVar[Queue] = 'maintenance'
+    routine: ClassVar[bool] = True
+
+    def dedupe_key(self) -> str | None:
+        return 'storage.check'
