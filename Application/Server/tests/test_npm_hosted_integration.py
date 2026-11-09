@@ -8,6 +8,7 @@ import io
 import json
 import tarfile
 from collections.abc import AsyncIterator, Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -16,7 +17,7 @@ from pydantic import SecretStr
 from ws_fake_upstream import FakeUpstream, Respond
 from ws_testing import asgi_client
 
-from waystation_common.db.collections import AUDIT, NPM_PACKAGES, NPM_VERSIONS
+from waystation_common.db.collections import ASSETS, AUDIT, NPM_PACKAGES, NPM_VERSIONS
 from waystation_common.settings import Settings
 from waystation_server.bootstrap import ensure_bootstrap_admin
 from waystation_server.services import Services
@@ -339,3 +340,25 @@ async def test_group_merges_publishes_and_serves_in_member_order(
     assert (await client.put('/repository/npm-ro/demo', content=body, headers=headers)).status_code == 405
     read_only = await token(admin, ['read'])
     assert (await client.put('/repository/npm-all/demo', content=body, headers=read_only)).status_code == 403
+
+
+@pytest.mark.usefixtures('repos')
+async def test_version_whose_tarball_was_cleaned_up_is_dropped(
+    client: httpx.AsyncClient, admin: httpx.AsyncClient, services: Services
+) -> None:
+    headers = await token(admin, ['read', 'write', 'delete'])
+    for version in ('1.0.0', '1.1.0'):
+        body = publish_body('demo', version, tarball('demo', version))
+        assert (await client.put('/repository/npm-hosted/demo', content=body, headers=headers)).status_code == 201
+    repo = await services.catalog.get('npm-hosted')
+    assert repo is not None
+    await services.db[ASSETS].delete_one({'repo_id': repo.id, 'path': 'demo/-/demo-1.0.0.tgz'})  # as cleanup does
+    missing = await client.get('/repository/npm-hosted/demo/-/demo-1.0.0.tgz', headers=headers)
+    assert missing.status_code == 404  # just published: left alone (a publish may be between its two writes)
+    assert await services.db[NPM_VERSIONS].count_documents({'repo_id': repo.id}) == 2
+    old = datetime.now(UTC) - timedelta(hours=1)
+    await services.db[NPM_VERSIONS].update_many({'repo_id': repo.id}, {'$set': {'published_at': old}})
+    assert (await client.get('/repository/npm-hosted/demo/-/demo-1.0.0.tgz', headers=headers)).status_code == 404
+    full = await client.get('/repository/npm-hosted/demo', headers=headers)
+    doc = json.loads(services.blobs.blob_path(full.headers['x-ws-digest'].removeprefix('sha256:')).read_bytes())
+    assert list(doc['versions']) == ['1.1.0'] and doc['dist-tags'] == {'latest': '1.1.0'}
