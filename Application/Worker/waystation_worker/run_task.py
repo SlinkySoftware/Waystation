@@ -116,11 +116,11 @@ async def _main(args: argparse.Namespace) -> int:  # pragma: no cover - process 
         try:
             out = await run(db, args.task, wait=args.wait, timeout_s=args.timeout)
         except TaskError as exc:
-            print(f'run_task: {exc}', file=sys.stderr)
+            sys.stderr.write(f'run_task: {exc}\n')
             return 2
     finally:
         await client.close()
-    print(json.dumps(out, default=str, indent=2))
+    sys.stdout.write(json.dumps(out, default=str, indent=2) + '\n')
     return 0 if out['status'] in {'queued', 'succeeded'} else 1
 
 

@@ -23,7 +23,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import os
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
@@ -103,7 +102,7 @@ def _move_sync(store: BlobStore, sha256: str, expected: set[int]) -> bool:
         return False
     store.uploads_dir.mkdir(parents=True, exist_ok=True)
     try:
-        os.rename(path, store.uploads_dir / f'{uuid.uuid4().hex}.damaged')
+        path.rename(store.uploads_dir / f'{uuid.uuid4().hex}.damaged')
     except FileNotFoundError:
         return False
     return True

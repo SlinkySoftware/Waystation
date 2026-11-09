@@ -57,7 +57,14 @@ async def put(store: BlobStore, data: bytes) -> str:
 
 async def asset(db: Database, asset_id: str, repo_id: str, sha: str, size: int) -> None:
     await db[ASSETS].insert_one(
-        {'_id': asset_id, 'repo_id': repo_id, 'path': f'{asset_id}.txt', 'blob_sha256': sha, 'size': size}
+        {
+            '_id': asset_id,
+            'repo_id': repo_id,
+            'path': f'{asset_id}.txt',
+            'blob_sha256': sha,
+            'size': size,
+            'created_at': NOW,
+        }
     )
 
 
@@ -96,8 +103,16 @@ async def test_verify_marks_proxies_and_reports_hosted_losses(db: Database, stor
     assert (result.proxy_marked, result.hosted_lost, result.cleared) == (2, 1, 0)
     assert result.lost_repositories == {'files-hosted': 1}
     assert lines == ['lost: files-hosted/h-hgone.txt (blob missing)']
-    assert await mark_of(db, 'h-hgone') == {'reason': 'missing', 'hosted': True, 'detected_at': NOW.replace(tzinfo=None)}
-    assert await mark_of(db, 'p-pgone') == {'reason': 'missing', 'hosted': False, 'detected_at': NOW.replace(tzinfo=None)}
+    assert await mark_of(db, 'h-hgone') == {
+        'reason': 'missing',
+        'hosted': True,
+        'detected_at': NOW,
+    }
+    assert await mark_of(db, 'p-pgone') == {
+        'reason': 'missing',
+        'hosted': False,
+        'detected_at': NOW,
+    }
     assert (await mark_of(db, 'p-bad') or {})['reason'] == 'damaged'
     assert await mark_of(db, 'h-ok') is None and await mark_of(db, 'p-shared') is None
     # The damaged file was moved out of blobs/ (into uploads/, where GC sweeps it): a proxy request re-fetches it.
@@ -108,7 +123,7 @@ async def test_verify_marks_proxies_and_reports_hosted_losses(db: Database, stor
     # A second run: nothing new to mark, the loss is still reported; the first detection time is kept.
     again = await verify.verify(db, store, now=NOW + timedelta(days=7))
     assert (again.proxy_marked, again.hosted_lost, again.damaged_blobs, again.missing_blobs) == (0, 1, 0, 3)
-    assert (await mark_of(db, 'h-hgone') or {})['detected_at'] == NOW.replace(tzinfo=None)
+    assert (await mark_of(db, 'h-hgone') or {})['detected_at'] == NOW
 
     # The blobs come back (a re-fetch, a re-upload or a restore): the marks go.
     for name in ('hgone', 'pgone', 'bad'):
@@ -159,11 +174,14 @@ async def test_handler_records_totals_and_activity(db: Database, valkey: Redis, 
     assert totals['verify_refetch_marked'] == '2'
     events = await valkey.xrange(keys.ACTIVITY)
     assert len(events) == 1 and events[0][1]['type'] == 'storage.blobs_missing'
-    assert 'Blob verify: 1 hosted assets lost (files-hosted (1)); 2 cached assets will be re-fetched' in events[0][1][
-        'data'
-    ]
+    assert (
+        'Blob verify: 1 hosted assets lost (files-hosted (1)); 2 cached assets will be re-fetched'
+        in events[0][1]['data']
+    )
     with pytest.raises(RuntimeError):
-        await HANDLERS[BlobVerify.kind](job, JobContext(job=env, run_id='r2', attempt=1, worker_id='w', db=db, valkey=valkey))
+        await HANDLERS[BlobVerify.kind](
+            job, JobContext(job=env, run_id='r2', attempt=1, worker_id='w', db=db, valkey=valkey)
+        )
 
 
 async def test_run_task_enqueues_and_waits(db: Database) -> None:

@@ -59,7 +59,9 @@ async def apply_marks(
         ]
         marked = (await db[ASSETS].bulk_write(ops, ordered=False)).modified_count
     if clear:
-        result = await db[ASSETS].update_many({'_id': {'$in': list(clear)}, MARK: {'$exists': True}}, {'$unset': {MARK: ''}})
+        result = await db[ASSETS].update_many(
+            {'_id': {'$in': list(clear)}, MARK: {'$exists': True}}, {'$unset': {MARK: ''}}
+        )
         cleared = result.modified_count
     return marked, cleared
 
