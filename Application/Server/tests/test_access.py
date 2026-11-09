@@ -173,11 +173,13 @@ def _api_routes(rule_kinds: set[str]) -> list[tuple[str, str, access.RouteAccess
 async def test_every_protected_api_route_refuses_anonymous_and_unprivileged(
     matrix_client: httpx.AsyncClient, method: str, path: str, rule: access.RouteAccess
 ) -> None:
-    """Route x principal matrix for the REST API: anonymous gets 401 wherever a principal is needed, and a reader
-    (no global actions) gets 403 on every route that needs one (decided by ``enforce`` before the handler runs)."""
+    """Route x principal matrix for the REST API: anonymous gets 401 wherever a principal is needed, and a reader and
+    a deployer (no global actions) get 403 on every route that needs one (decided by ``enforce`` before the handler
+    runs). The administrator column is ``test_identity_integration.test_admin_passes_every_access_rule``."""
     body = {} if method in ('POST', 'PUT', 'PATCH') else None
     anonymous = await matrix_client.request(method, path, json=body)
     assert anonymous.status_code == 401, f'{method} {path}: {anonymous.status_code}'
     if rule.kind == 'global':
-        reader = await matrix_client.request(method, path, json=body, headers={'Authorization': 'Bearer reader'})
-        assert reader.status_code == 403, f'{method} {path}: {reader.status_code}'
+        for who in ('reader', 'deployer'):
+            denied = await matrix_client.request(method, path, json=body, headers={'Authorization': f'Bearer {who}'})
+            assert denied.status_code == 403, f'{who} {method} {path}: {denied.status_code}'

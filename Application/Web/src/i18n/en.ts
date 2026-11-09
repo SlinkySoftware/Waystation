@@ -1092,6 +1092,7 @@ export const en = {
       invalid_token: 'Invalid, expired or revoked token',
       not_in_group: 'Not in the required group',
       too_many_failures: 'Too many failed attempts',
+      password_change_required: 'One-time password not changed yet',
       not_found: 'Not found',
     },
     targetKind: {
@@ -1105,6 +1106,7 @@ export const en = {
       upstream: 'Upstream',
       group: 'Group',
       role: 'Role',
+      anonymous_access: 'Anonymous access',
     },
     auth: {
       session: 'Web session',
