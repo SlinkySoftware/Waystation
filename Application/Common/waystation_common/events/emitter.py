@@ -22,6 +22,7 @@ from waystation_common.events.schema import (
     CacheState,
     Direction,
     EventType,
+    JobLiveMessage,
     LiveMessage,
     Transfer,
 )
@@ -138,6 +139,15 @@ class EventEmitter:
             pipe.publish(keys.LIVE, message)
 
         return op
+
+    def job_live(self, message: JobLiveMessage) -> None:
+        """Publish a running job's progress or log lines on ``live:jobs`` (the Tasks page; no history)."""
+        data = message.model_dump_json()
+
+        def op(pipe: Pipeline) -> None:
+            pipe.publish(keys.JOBS_LIVE, data)
+
+        self._enqueue(op)
 
     def activity(self, event: ActivityEvent) -> None:
         """Append to the ``activity`` stream (uploads, deletes, upstream state, jobs...)."""

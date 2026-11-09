@@ -80,6 +80,10 @@ class AuditAction(StrEnum):
     CONTENT_UPLOAD = 'content.upload'
     CONTENT_DELETE = 'content.delete'
     CLEANUP_RUN = 'cleanup.run'
+    TASK_UPDATE = 'task.update'  # a scheduled task's schedule or enabled flag (Tasks page)
+    TASK_RUN = 'task.run'  # a scheduled task run now
+    TASK_RETRY = 'task.retry'  # a dead-lettered job queued again
+    TASK_DISCARD = 'task.discard'  # a dead-lettered job dropped
     SETTINGS_UPDATE = 'settings.update'
 
     @property
@@ -117,6 +121,7 @@ SPEC_ACTIONS: dict[str, tuple[AuditAction, ...]] = {
     'uploads on hosted repos': (A.CONTENT_UPLOAD,),
     'deletes on hosted repos': (A.CONTENT_DELETE,),
     'cleanup runs': (A.CLEANUP_RUN,),
+    'task changes': (A.TASK_UPDATE, A.TASK_RUN, A.TASK_RETRY, A.TASK_DISCARD),
     'settings changes': (A.SETTINGS_UPDATE,),
 }
 

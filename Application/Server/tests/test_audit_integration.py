@@ -28,7 +28,9 @@ from pydantic import SecretStr
 from ws_testing import asgi_client
 
 from waystation_common.audit import PENDING, SPEC_ACTIONS, AuditAction, AuditActor, AuditEvent, AuditTarget, Outcome
-from waystation_common.db.collections import AUDIT, USERS
+from waystation_common.db.collections import AUDIT, JOB_DEFINITIONS, USERS
+from waystation_common.jobs import BlobGc, JobEnvelope
+from waystation_common.jobs import keys as job_keys
 from waystation_common.settings import Settings
 from waystation_server import audit
 from waystation_server.api import audit as audit_api
@@ -441,6 +443,30 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     syncs = await rec.all(action='user.groups_sync', **{'target.name': 'dave'})
     assert sorted(s['changes'][0]['after'] for s in syncs) == [[], ['ops']]
     rec.seen.add(A.USER_GROUPS_SYNC)
+
+    # --- tasks: schedule edit, run now, dead-letter retry and discard
+    await services.db[JOB_DEFINITIONS].insert_one(
+        {'_id': 'blob.gc', 'kind': BlobGc.kind, 'params': {}, 'schedule': '0 */6 * * *', 'enabled': True}
+    )
+    assert (await admin.patch(f'{api}/tasks/scheduled/blob.gc', json={'schedule': '@daily'})).status_code == 200
+    assert (await admin.post(f'{api}/tasks/scheduled/blob.gc/run')).status_code == 202
+    dead = [
+        str(
+            await services.valkey.xadd(
+                job_keys.DEAD, {'job': JobEnvelope.for_payload(BlobGc()).to_json(), 'error': 'x'}
+            )
+        )
+        for _ in range(2)
+    ]
+    assert (await admin.post(f'{api}/tasks/dead-letters/{dead[0]}/retry')).status_code == 202
+    assert (await admin.delete(f'{api}/tasks/dead-letters/{dead[1]}')).status_code == 204
+    task_update = await rec.expect(A.TASK_UPDATE, **{'target.id': 'blob.gc'})
+    assert task_update['changes'] == [
+        {'field': 'schedule', 'before': '0 */6 * * *', 'after': '@daily', 'redacted': False}
+    ]
+    await rec.expect(A.TASK_RUN, **{'target.id': 'blob.gc'})
+    await rec.expect(A.TASK_RETRY, **{'details.dead_letter': dead[0]})
+    await rec.expect(A.TASK_DISCARD, **{'details.dead_letter': dead[1]})
 
     # --- sign-out
     signed_out = await admin.post(f'{api}/auth/logout')

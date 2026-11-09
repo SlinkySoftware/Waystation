@@ -7,6 +7,8 @@ One hub per server process runs (from the first subscriber until shutdown):
 - one blocking ``XREAD`` on the ``activity`` stream (durable events; their stream ids are the SSE ``id:``),
 - ``upstream.state`` (the repository's ``UpstreamHealth``) after every upstream state change in the activity stream
   (auto-block blocked / reblocked / resumed), for every subscriber that follows anything global or that repository,
+- the ``tasks`` topic (``admin`` only, ``tasks_access``): ``job.progress`` / ``job.log`` from the ``live:jobs``
+  pub/sub channel (the same listener), ``job.update`` / ``worker.update`` from job and worker activity events,
 - a 1 Hz ``stats.tick`` computed from the live per-minute counters (rates over the last 10 s, hit ratio over the last
   minute), only while someone subscribes to ``stats``,
 
@@ -30,7 +32,7 @@ from typing import Any
 
 from redis.asyncio import Redis
 
-from waystation_common.events import EventType, LiveMessage, keys
+from waystation_common.events import ActivityEvent, EventType, JobLiveMessage, LiveMessage, keys
 from waystation_server.security.principal import Principal
 from waystation_server.stats import live, series
 
@@ -42,11 +44,18 @@ TICK_S = 1.0
 RATE_WINDOW_S = 10.0
 RATIO_WINDOW_S = 60.0
 GLOBAL_TOPICS = frozenset({'transfers', 'stats', 'activity'})
+JOB_EVENTS = {EventType.JOB_STARTED: 'started', EventType.JOB_FINISHED: 'finished', EventType.JOB_FAILED: 'failed'}
+WORKER_EVENTS = {EventType.WORKER_ONLINE: 'online', EventType.WORKER_OFFLINE: 'offline'}
 
 Frame = tuple[str | None, str, str]  # (id, event, data)
 VisibleRepos = Callable[[Principal], Awaitable[set[str]]]
 StorageFigures = Callable[[], Awaitable[tuple[int, int]]]  # (used bytes, artifacts)
 UpstreamHealthSource = Callable[[str], Awaitable[dict[str, Any] | None]]  # repository name -> UpstreamHealth
+TasksAccess = Callable[[Principal], bool]  # may this principal follow the ``tasks`` topic (security.access)
+
+
+def _no_tasks(principal: Principal) -> bool:
+    return False
 
 
 @dataclass(eq=False)
@@ -54,6 +63,7 @@ class Subscriber:
     principal: Principal
     topics: frozenset[str]
     visible: set[str] = field(default_factory=set)
+    tasks_allowed: bool = False  # the ``tasks`` topic is admin-only; re-evaluated with ``visible``
     queue: asyncio.Queue[Frame | None] = field(default_factory=lambda: asyncio.Queue(QUEUE_SIZE))
     dropped: int = 0
 
@@ -62,6 +72,8 @@ class Subscriber:
         return {t[5:] for t in self.topics if t.startswith('repo:')}
 
     def wants(self, topic: str, repo: str | None) -> bool:
+        if topic == 'tasks':
+            return self.tasks_allowed and 'tasks' in self.topics
         if repo is not None and repo not in self.visible:
             return False
         if topic == 'upstream':
@@ -77,6 +89,10 @@ class Subscriber:
             self.dropped += 1
 
 
+def _iso(ts: datetime) -> str:
+    return ts.astimezone(UTC).isoformat().replace('+00:00', 'Z')
+
+
 def _frame(event: dict[str, Any], stream_id: str | None = None) -> Frame:
     return stream_id, str(event['type']), json.dumps(event, separators=(',', ':'), default=str)
 
@@ -87,6 +103,7 @@ class Hub:
         self._visible_repos = visible_repos
         self._storage = storage
         self.upstream_health: UpstreamHealthSource | None = None  # set by the event stream route
+        self.tasks_access: TasksAccess = _no_tasks  # set by the event stream route
         self.subscribers: set[Subscriber] = set()
         self._tasks: list[asyncio.Task[None]] = []
         self._closed = False
@@ -94,6 +111,7 @@ class Hub:
     # ------------------------------------------------------------------ lifecycle
     async def subscribe(self, sub: Subscriber) -> None:
         sub.visible = await self._visible_repos(sub.principal)
+        sub.tasks_allowed = self.tasks_access(sub.principal)
         self.subscribers.add(sub)
         if not self._tasks and not self._closed:
             self._tasks = [
@@ -127,9 +145,12 @@ class Hub:
         while True:
             pubsub = self.valkey.pubsub()
             try:
-                await pubsub.subscribe(keys.LIVE)
+                await pubsub.subscribe(keys.LIVE, keys.JOBS_LIVE)
                 async for message in pubsub.listen():
                     if message.get('type') != 'message':
+                        continue
+                    if message.get('channel') == keys.JOBS_LIVE:
+                        self._job_live(message['data'])
                         continue
                     try:
                         parsed = LiveMessage.model_validate_json(message['data'])
@@ -169,6 +190,60 @@ class Hub:
                     self.publish('activity', parsed.repo, _frame(event, stream_id))
                 if parsed.type is EventType.UPSTREAM_STATE and parsed.repo:
                     await self._upstream_state(parsed.repo, parsed.ts)
+                if parsed.type in JOB_EVENTS or parsed.type in WORKER_EVENTS:
+                    self._task_event(parsed)
+
+    def _job_live(self, data: Any) -> None:
+        """``live:jobs`` -> ``job.progress`` / ``job.log`` frames for ``tasks`` subscribers."""
+        if not any(sub.wants('tasks', None) for sub in self.subscribers):
+            return
+        try:
+            message = JobLiveMessage.model_validate_json(data)
+        except ValueError:
+            return
+        event: dict[str, Any] = {
+            'type': message.type.value,
+            'ts': _iso(message.ts),
+            'run_id': message.run_id,
+            'job_id': message.job_id,
+            'kind': message.kind,
+        }
+        if message.type is EventType.JOB_PROGRESS and message.progress is not None:
+            event.update(message.progress.model_dump())
+        elif message.type is EventType.JOB_LOG:
+            event['lines'] = message.lines
+        else:
+            return
+        self.publish('tasks', None, _frame(event))
+
+    def _task_event(self, parsed: ActivityEvent) -> None:
+        """Job and worker activity -> ``job.update`` / ``worker.update`` frames for ``tasks`` subscribers."""
+        detail = parsed.detail
+        event: dict[str, Any]
+        if parsed.type in WORKER_EVENTS:
+            event = {
+                'type': 'worker.update',
+                'ts': _iso(parsed.ts),
+                'worker_id': str(detail.get('worker_id') or ''),
+                'state': WORKER_EVENTS[parsed.type],
+            }
+        elif detail.get('run_id'):
+            event = {
+                'type': 'job.update',
+                'ts': _iso(parsed.ts),
+                'event': JOB_EVENTS[parsed.type],
+                'run_id': str(detail['run_id']),
+                'job_id': str(detail.get('job_id') or ''),
+                'kind': str(detail.get('kind') or ''),
+                'queue': str(detail.get('queue') or ''),
+                'attempt': int(detail.get('attempt') or 1),
+                'status': str(detail.get('status') or 'running'),
+                'worker_id': detail.get('worker_id'),
+                'error': detail.get('error'),
+            }
+        else:
+            return  # a job's own summary event (e.g. what blob GC freed): the activity feed shows it
+        self.publish('tasks', None, _frame(event))
 
     async def _upstream_state(self, repo: str, ts: datetime) -> None:
         if self.upstream_health is None:
@@ -192,6 +267,7 @@ class Hub:
                 for sub in list(self.subscribers):
                     with contextlib.suppress(Exception):
                         sub.visible = await self._visible_repos(sub.principal)
+                        sub.tasks_allowed = self.tasks_access(sub.principal)
             if not any('stats' in sub.topics for sub in self.subscribers):
                 ticker.reset()
                 continue
