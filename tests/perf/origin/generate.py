@@ -247,6 +247,31 @@ def go_modules(docroot: Path, p: Profile) -> dict[str, Any]:
     return {'modules': modules}
 
 
+def helm_index(docroot: Path, p: Profile) -> dict[str, Any]:
+    """A Helm chart repository ``index.yaml`` (one entry per chart version; the charts themselves are not needed)."""
+    lines = ['apiVersion: v1', 'entries:']
+    for i in range(p.packages):
+        name = f'perf-chart-{i:04d}'
+        lines.append(f'  {name}:')
+        for v in reversed(range(p.versions)):
+            ver = _version(v)
+            digest = hashlib.sha256(f'{name}-{ver}'.encode()).hexdigest()
+            lines += [
+                '  - apiVersion: v2',
+                f'    name: {name}',
+                f'    version: {ver}',
+                f'    appVersion: "{ver}"',
+                f'    description: Synthetic chart {name} for the Waystation perf suite',
+                '    created: "2026-11-01T00:00:00Z"',
+                f'    digest: {digest}',
+                '    urls:',
+                f'    - charts/{name}-{ver}.tgz',
+            ]
+    lines.append('generated: "2026-11-10T00:00:00Z"')
+    _write(docroot / 'helm' / 'index.yaml', ('\n'.join(lines) + '\n').encode())
+    return {'index': 'index.yaml'}
+
+
 MANIFEST_TYPE = 'application/vnd.oci.image.manifest.v1+json'
 
 
@@ -353,6 +378,10 @@ server {{
         types {{ xml text/xml; }}
         default_type application/octet-stream;
     }}
+    location /helm/ {{
+        types {{ yaml application/x-yaml; }}
+        default_type application/octet-stream;
+    }}
     location /go/ {{
         types {{ }}
         default_type "text/plain; charset=utf-8";
@@ -399,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         'apt': apt_suite(docroot, profile),
         'yum': yum_repository(docroot, profile),
         'go': go_modules(docroot, profile),
+        'helm': helm_index(docroot, profile),
     }
     catalog['docker'], locations = docker_images(docroot, profile, rng)
     rate = profile.origin_rate

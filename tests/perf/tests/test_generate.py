@@ -78,6 +78,11 @@ def test_content_matches_its_metadata(tmp_path: Path) -> None:
     assert f'<size>{len(primary_gz)}</size>' in repomd
     assert primary.count(b'<package type="rpm">') == 10
 
+    # Helm: one entry per chart version, each with a 64-hex digest and a chart URL
+    index = (docroot / 'helm' / 'index.yaml').read_text()
+    assert index.count('  - apiVersion: v2\n') == 4 * 3
+    assert len(re.findall(r'^    digest: [0-9a-f]{64}$', index, re.MULTILINE)) == 4 * 3
+
     # Go: version lists end with the version @latest names
     lines = (docroot / 'go' / 'example.com/perf/mod-0000' / '@v' / 'list').read_text().split()
     assert json.loads((docroot / 'go' / 'example.com/perf/mod-0000' / '@latest').read_text())['Version'] == lines[-1]

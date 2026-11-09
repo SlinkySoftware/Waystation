@@ -6,7 +6,7 @@ All notable changes, newest first. Each entry: date, task ID, summary.
 - T-P2-PERF: k6 performance suite, `make perf [PROFILE=ci|full] [STRICT=1]` (`tests/perf/README.md`). Each run
   starts a throwaway stack as its own compose project (production images built from the checkout, CPU and memory
   limits per profile) with a synthetic nginx upstream generated per profile (raw files, npm, PyPI, Maven, apt, yum,
-  Go and OCI content whose digests the proxies verify), creates one proxy repository per format, warms the cache,
+  Go, Helm and OCI content whose digests the proxies verify), creates one proxy repository per format, warms the cache,
   bulk-seeds cached-file records for the API (100 000 in CI, 1 000 000 in the full profile), runs one k6 scenario
   per SPECIFICATION §5.1 budget (content hits incl. ranges and a large file, metadata hits, docker manifests, miss
   overhead against the origin, API list/search, 500 concurrent downloads in the full profile) plus a live-event

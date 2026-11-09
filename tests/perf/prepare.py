@@ -142,6 +142,7 @@ REPOS = [
     proxy('apt-perf', 'apt', f'{ORIGIN}/apt/', format_options={'distribution': 'perf'}),
     proxy('yum-perf', 'yum', f'{ORIGIN}/yum/'),
     proxy('go-perf', 'go', f'{ORIGIN}/go/', format_options={'sumdb_proxy': False}),
+    proxy('helm-perf', 'helm', f'{ORIGIN}/helm/'),
     proxy('docker-perf', 'docker', ORIGIN),
     proxy('perf-bulk', 'raw', f'{ORIGIN}/bulk/'),  # API list/search: seeded by seed_assets.py, never fetched
 ]
@@ -170,7 +171,8 @@ def targets(catalog: dict[str, Any]) -> dict[str, Any]:
         + [[f'/repository/yum-perf/{catalog["yum"]["repomd"]}', '*/*']]
         + [[f'/repository/yum-perf/{catalog["yum"]["primary"]}', '*/*']]
         + [[f'/repository/go-perf/{m}/@v/list', '*/*'] for m in catalog['go']['modules']]
-        + [[f'/repository/go-perf/{m}/@latest', '*/*'] for m in catalog['go']['modules']],
+        + [[f'/repository/go-perf/{m}/@latest', '*/*'] for m in catalog['go']['modules']]
+        + [['/repository/helm-perf/index.yaml', '*/*']],
         'docker': docker,
         'miss_small': [f'/repository/raw-perf/{p}' for p in raw['miss_small']],
         'miss_small_direct': [f'{ORIGIN}/raw/{p}' for p in raw['miss_small']],

@@ -37,7 +37,7 @@ k6 / sse_probe ──► waystation-web (nginx) ──► server ──► perf-
 1. `origin/generate.py` (dev image) writes synthetic upstream content for the profile into `tests/perf/.run/origin`:
    raw files, npm packuments + tarballs (real sha1/SRI), PyPI simple pages + wheels (sha256 fragments),
    `maven-metadata.xml`, an apt suite (`Release` listing the `Packages` hashes), a yum repository (`repomd.xml`
-   listing a `primary.xml.gz`), Go module version lists, OCI images (manifests, configs,
+   listing a `primary.xml.gz`), Go module version lists, a Helm `index.yaml`, OCI images (manifests, configs,
    layers) and the origin's nginx config (Docker manifest locations with `Docker-Content-Digest`, a bandwidth limit
    on the miss paths: `PERF_ORIGIN_RATE`, 100 MiB/s by default, roughly a 1 Gbit/s upstream).
 2. `compose.perf.yaml` on top of `Build/Containers/compose.yaml` starts the stack as compose project
@@ -65,7 +65,7 @@ TTFB plus one bridge hop).
 | `hit_small` | random cached 4 KiB raw files | `cache_hit_content_ttfb_p95_ms`: highest p95 TTFB of the three content scenarios |
 | `hit_range` | 64 KiB ranges at random offsets of the large cached file (206) | same |
 | `hit_large` | the whole large cached file (CI 256 MiB, full 2 GiB), one at a time; MiB/s reported (line rate) | same |
-| `metadata` | npm packuments (abbreviated and full), PyPI pages (JSON and HTML), `maven-metadata.xml`, apt `Release` and `Packages.gz`, yum `repomd.xml` and `primary.xml.gz`, Go `@v/list` and `@latest` | `cache_hit_metadata_p95_ms` (p95 duration) |
+| `metadata` | npm packuments (abbreviated and full), PyPI pages (JSON and HTML), `maven-metadata.xml`, apt `Release` and `Packages.gz`, yum `repomd.xml` and `primary.xml.gz`, Go `@v/list` and `@latest`, Helm `index.yaml` | `cache_hit_metadata_p95_ms` (p95 duration) |
 | `docker` | cached manifest HEAD and GET, by tag and by digest, with an anonymous pull token | `docker_manifest_cached_p95_ms` |
 | `miss_small` | each never-cached 4 KiB file once straight from the origin, then through Waystation | `cache_miss_added_ttfb_ms`: median TTFB difference |
 | `miss_large` | each never-cached large file (CI 128 MiB, full 1 GiB) from the origin, then through Waystation | `cache_miss_throughput_loss_pct`: 1 - median MiB/s ratio |
