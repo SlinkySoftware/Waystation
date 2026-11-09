@@ -68,6 +68,10 @@ manifest() {  # manifest <backup name> <expression on m>
     --eval "const m = JSON.parse(require('fs').readFileSync('/m.json', 'utf8')); print($2)"
 }
 
+backups() {  # complete and partial backup directories, oldest first
+  find "$BACKUPS" -mindepth 1 -maxdepth 1 -type d -name 'waystation-*' -printf '%f\n' | sort
+}
+
 quiet_build=()
 if docker compose up --help 2>/dev/null | grep -q -- '--quiet-build'; then quiet_build=(--quiet-build); fi
 
@@ -78,7 +82,7 @@ client seed
 step 'full backup, twice (the second links every blob from the first)'
 "$TOOL" backup --prefix "$BT_PROJECT" --target "$BACKUPS"
 "$TOOL" backup --prefix "$BT_PROJECT" --target "$BACKUPS"
-mapfile -t names < <(cd "$BACKUPS" && ls -d waystation-*/ | tr -d /)
+mapfile -t names < <(backups)
 [ "${#names[@]}" = 2 ] || fail "expected 2 backups, found ${names[*]}"
 [ "$(manifest "${names[0]}" 'm.mode + " " + m.blobs.files')" = 'full 3' ] || fail "first backup: $(manifest "${names[0]}" 'JSON.stringify(m.blobs)')"
 [ "$(manifest "${names[1]}" 'm.blobs.linked_from_previous + " " + m.blobs.copied')" = '3 0' ] \
@@ -92,7 +96,7 @@ blob=$(cd "$BACKUPS/${names[1]}" && find blobs -type f | head -n 1)
 
 step 'hosted-only backup with --keep 2 (the oldest full backup goes)'
 "$TOOL" backup --prefix "$BT_PROJECT" --target "$BACKUPS" --hosted-only --keep 2
-mapfile -t names < <(cd "$BACKUPS" && ls -d waystation-*/ | tr -d /)
+mapfile -t names < <(backups)
 [ "${#names[@]}" = 2 ] || fail "retention: expected 2 backups, found ${names[*]}"
 hosted_only=${names[1]}
 [ "$(manifest "$hosted_only" 'm.mode + " " + m.blobs.files + " " + m.blobs.hosted_missing')" = 'hosted-only 2 0' ] \
@@ -123,6 +127,7 @@ echo "$out" | grep -q '"hosted_lost": 0' || fail 'verify reported hosted losses 
   || fail 'no blob_missing mark on the proxied asset'
 
 client check
+# shellcheck disable=SC2016  # $exists is MongoDB syntax
 [ "$(mongo_eval 'db.assets.countDocuments({blob_missing: {$exists: true}})')" = 0 ] \
   || fail 'the re-fetch did not clear the mark'
 
