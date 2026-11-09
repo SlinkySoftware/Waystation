@@ -123,7 +123,7 @@
       />
     </section>
 
-    <section v-if="model.format !== 'yum' && !(model.format === 'pypi' && model.type !== 'proxy')" class="repo-form__section">
+    <section v-if="model.format !== 'yum' && !((model.format === 'pypi' || model.format === 'go') && model.type !== 'proxy')" class="repo-form__section">
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
       <template v-if="model.format === 'docker' && model.type !== 'proxy'">
         <q-toggle v-model="model.defaultRepo" :label="t('repoForm.defaultRepoHosted')" />
@@ -151,6 +151,46 @@
       </template>
       <template v-else-if="model.format === 'pypi'">
         <q-toggle v-model="model.jsonApi" :label="t('repoForm.jsonApi')" />
+      </template>
+      <template v-else-if="model.format === 'go'">
+        <q-toggle v-model="model.sumdbProxy" :label="t('repoForm.sumdbProxy')" />
+        <q-toggle v-model="model.verifyChecksums" :label="t('repoForm.verifyChecksums')" />
+        <div v-if="model.sumdbProxy || model.verifyChecksums" class="repo-form__row">
+          <q-input
+            v-model="model.sumdbName"
+            outlined
+            dense
+            :label="t('repoForm.sumdbName')"
+            class="col mono-input"
+            spellcheck="false"
+            :error="!!errors['format_options.sumdb_name']"
+            :error-message="errors['format_options.sumdb_name']"
+          />
+          <q-input
+            v-model="model.sumdbUrl"
+            outlined
+            dense
+            :label="t('repoForm.sumdbUrl')"
+            class="col mono-input"
+            spellcheck="false"
+            :error="!!errors['format_options.sumdb_url']"
+            :error-message="errors['format_options.sumdb_url']"
+          />
+        </div>
+        <q-select
+          v-model="model.nosumdb"
+          outlined
+          dense
+          multiple
+          use-chips
+          use-input
+          new-value-mode="add-unique"
+          hide-dropdown-icon
+          :label="t('repoForm.nosumdb')"
+          :hint="t('repoForm.nosumdbHint')"
+          :error="!!errors['format_options.nosumdb']"
+          :error-message="errors['format_options.nosumdb']"
+        />
       </template>
       <template v-else-if="model.format === 'apt'">
         <div class="repo-form__row">
