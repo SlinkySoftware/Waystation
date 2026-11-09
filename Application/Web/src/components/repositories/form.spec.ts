@@ -13,6 +13,18 @@ describe('repository form model', () => {
     expect(w.format_options).toEqual({ aliases: ['docker.io'], docker_hub: true, default_repo: false })
   })
 
+  it('builds helm proxy, hosted and group repositories (no format options)', () => {
+    expect(HOSTED_FORMATS).toContain('helm')
+    expect(GROUP_FORMATS).toContain('helm')
+    expect(WRITABLE_GROUP_FORMATS).toContain('helm')
+    const proxy = toWrite({ ...emptyModel('helm'), ...PRESETS.helm[0]!.apply })
+    expect(proxy).toMatchObject({ format: 'helm', type: 'proxy', proxy: { upstream_url: 'https://prometheus-community.github.io/helm-charts' } })
+    expect(proxy.format_options).toEqual({})
+    expect(toWrite({ ...emptyModel('helm', 'hosted'), name: 'charts' })).toMatchObject({ type: 'hosted', hosted: { write_policy: 'allow_redeploy' } })
+    const group = toWrite({ ...emptyModel('helm', 'group'), name: 'all', members: ['charts'], writableMember: 'charts' })
+    expect(group.group).toEqual({ members: ['charts'], writable_member: 'charts' })
+  })
+
   it('never sends an empty secret (write-only: omitted keeps the stored one)', () => {
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', authKind: 'bearer' as const }
     expect(toWrite(m).proxy?.auth).toEqual({ kind: 'bearer', username: null })

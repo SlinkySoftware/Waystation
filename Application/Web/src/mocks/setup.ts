@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // "Set me up" snippets per format (FORMATS.md), as the server's format plugins will generate them
 // (`setup_snippets(repo, user)`). {{TOKEN}} / {{USERNAME}} are placeholders the UI masks and can fill.
-import type { AptOptions, DockerOptions, Repository, SetupClient, SetupGuide } from '@/api/types'
+import type { AptOptions, DockerOptions, Repository, SetupClient, SetupGuide, SetupSnippet } from '@/api/types'
 
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 
@@ -98,6 +98,24 @@ function npm(repo: Repository): SetupClient[] {
   ]
 }
 
+function helm(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const snippet = (id: string, title: string, content: string, description?: string): SetupSnippet => ({ id, title, description, language: 'shell', filename: null, os: null, content })
+  const snippets = [
+    snippet('helm-repo-add', 'Add the repository', `helm repo add ${repo.name} ${url}\nhelm repo update ${repo.name}`),
+    snippet('helm-repo-add-auth', 'With credentials (when anonymous reads are not allowed)', `helm repo add ${repo.name} ${url} --username {{USERNAME}} --password {{TOKEN}}`, 'An API token is the password. Helm sends it only to this host.'),
+    snippet('helm-search', 'List the charts', `helm search repo ${repo.name}/ --versions`),
+    snippet('helm-install', 'Install or download a chart', `helm install my-release ${repo.name}/<chart> --version <version>\nhelm pull ${repo.name}/<chart> --version <version>`),
+  ]
+  if (repo.type === 'hosted' || (repo.type === 'group' && repo.group?.writable_member)) {
+    snippets.push(
+      snippet('helm-package-push', 'Package and upload a chart', `helm package ./mychart\ncurl -fS -u {{USERNAME}}:{{TOKEN}} --upload-file mychart-0.1.0.tgz ${url}`, `Uploads need the write permission. The index is rebuilt within seconds; then run helm repo update ${repo.name}.`),
+      snippet('helm-cm-push', 'Or with the helm-push plugin (ChartMuseum API)', `helm plugin install https://github.com/chartmuseum/helm-push\nhelm cm-push mychart-0.1.0.tgz ${repo.name} --context-path=/repository/${repo.name}`, 'The repository must have been added with --username and --password.'),
+    )
+  }
+  return [{ id: 'helm', label: 'Helm', snippets }]
+}
+
 function apt(repo: Repository): SetupClient[] {
   const opts = (repo.format_options ?? {}) as AptOptions
   const upstream = repo.proxy?.upstream_url ?? ''
@@ -186,7 +204,7 @@ function raw(repo: Repository): SetupClient[] {
 }
 
 export function setupGuide(repo: Repository): SetupGuide {
-  const clients = repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : raw(repo)
+  const clients = repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'helm' ? helm(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {
