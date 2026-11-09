@@ -1,6 +1,6 @@
 """Cluster figures for ``/metrics`` (SPECIFICATION §10), read when it is scraped and cached for ``CACHE_TTL_S``.
 
-Nothing here runs on a request path: one scrape costs a few pipelined Valkey commands, two indexed MongoDB counts,
+Nothing here runs on a request path: one scrape costs a few pipelined Valkey commands, three indexed MongoDB counts,
 the (already cached) storage aggregation and one ``statvfs``. Each source is bounded by ``SOURCE_TIMEOUT_S``; a
 source that fails or times out is reported by ``waystation_metrics_source_up{source}`` = 0 and its metrics are
 left out of that scrape (never a failed scrape).
@@ -15,7 +15,8 @@ multi-process aggregation:
 - blob store: bytes held by blobs, blob count (MongoDB), free and total bytes of the data filesystem, the
   low-disk guard's effective floor and whether it is tripped (``waystation_storage_low``);
 - per repository with a quota: the quota, its mode and the stored bytes counted against it (``repo_usage``);
-- cleanup and blob GC running totals (Valkey ``maintenance:totals``, written by the workers) as counters.
+- cleanup and blob GC running totals (Valkey ``maintenance:totals``, written by the workers) as counters;
+- webhook delivery attempts by outcome (Valkey ``webhooks:totals``) and deliveries waiting for an attempt.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 from prometheus_client.metrics_core import Metric
 
 from waystation_common.db import jobs as jobs_db
+from waystation_common.db import webhooks as webhooks_db
 from waystation_common.events import keys as event_keys
 from waystation_common.jobs.model import QUEUES
 from waystation_common.jobs.queue import JobQueue
@@ -99,6 +101,8 @@ class ClusterMetrics:
             ('valkey', self._upstreams),
             ('valkey', self._jobs),
             ('valkey', self._maintenance),
+            ('valkey', self._webhook_totals),
+            ('mongodb', self._webhooks_pending),
             ('mongodb', self._workers),
             ('mongodb', self._storage),
             ('mongodb', self._quotas),
@@ -210,6 +214,28 @@ class ClusterMetrics:
             CounterMetricFamily(metric, doc, value=values.get(field, 0))
             for field, (metric, doc) in MAINTENANCE_COUNTERS.items()
         ]
+
+    async def _webhook_totals(self) -> Families:
+        raw = await self._svc.valkey.hgetall(event_keys.WEBHOOK_TOTALS)
+        values: dict[str, int] = {}
+        for key, value in raw.items():
+            name = key.decode() if isinstance(key, bytes) else str(key)
+            text = value.decode() if isinstance(value, bytes) else str(value)
+            if (number := _int(text)) is not None:
+                values[name] = number
+        family = CounterMetricFamily(
+            'waystation_webhook_deliveries',
+            'Webhook delivery attempts by outcome: succeeded, failed (will be retried), dead (given up).',
+            labels=['outcome'],
+        )
+        for outcome in event_keys.WEBHOOK_OUTCOMES:
+            family.add_metric([outcome], values.get(outcome, 0))
+        return [family]
+
+    async def _webhooks_pending(self) -> Families:
+        family = _gauge('waystation_webhook_deliveries_pending', 'Webhook deliveries waiting for an attempt.')
+        family.add_metric([], await webhooks_db.pending_count(self._svc.db))
+        return [family]
 
     async def _workers(self) -> Families:
         since = datetime.fromtimestamp(self._clock(), UTC) - timedelta(seconds=WORKER_ALIVE_S)

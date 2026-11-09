@@ -490,7 +490,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 ### 4.11 Audit
 Append-only audit log of security-relevant actions: sign-in/out/failure, token create/revoke/use-refused,
 user/group/role/provider changes, repo create/update/delete, uploads and deletes on hosted repos, cleanup runs, task changes,
-settings changes. Searchable in the UI, exported via API; retention configurable (default 400 days).
+settings changes, webhook changes. Searchable in the UI, exported via API; retention configurable (default 400 days).
 - **Record**: time, action (`<category>.<verb>`, catalog `waystation_common.audit.AuditAction`), outcome
   (`success`/`failure`) and for failures a reason code (`bad_credentials`, `unknown_user`, `locked`, `disabled`,
   `not_in_group`, `directory_unavailable`, `link_refused`, `invalid_token`, `too_many_failures`,
@@ -520,8 +520,9 @@ settings changes. Searchable in the UI, exported via API; retention configurable
   a docker hosted repository, with image, tag, digest, media type and size; a file uploaded to a PyPI hosted
   repository, with project, version, file name, sha256, size and whether it replaced one) and `content.delete` (a
   docker tag, manifest or blob deleted), `content.update` (a PyPI release yanked or un-yanked, with the reason and the
-  files changed), `settings.update` (the instance settings, with field changes); an administrator
-  signing a user out everywhere is `session.revoke` on the user with `details.by_admin`. Not yet (the feature does
+  files changed), `settings.update` (the instance settings, with field changes), `webhook.create|update|delete`
+  (field changes; a new secret or new custom headers show as redacted changes), `webhook.test` and
+  `webhook.redeliver` (with the delivery ids); an administrator signing a user out everywhere is `session.revoke` on the user with `details.by_admin`. Not yet (the feature does
   not exist): cleanup runs (T-O01); `PENDING`
   in the catalog names them and the acceptance test fails when one is emitted without a test.
 - **Writing never fails or slows a request**: records go to a bounded in-process queue (10 000) drained by one task
@@ -577,7 +578,7 @@ settings changes. Searchable in the UI, exported via API; retention configurable
 - Users: an administrator lists a user's sessions and signs the user out everywhere
   (`GET/DELETE /api/v1/users/{id}/sessions`, `user-admin`; not for a user holding more than the caller).
 - UI: Administration → Users (and a page per user), Groups, Roles (with Anonymous access), Auth providers, API tokens
-  (with Service accounts), Audit log, Settings, System; each rail item shows only with the matching capability.
+  (with Service accounts), Audit log, Webhooks, Settings, System; each rail item shows only with the matching capability.
 - **Import from Nexus** (`admin`; REST `POST /api/v1/import/nexus/preview` and `/apply`; UI Repositories → "Import
   from Nexus"): reads a Nexus Repository 3 configuration through its REST API (`/service/rest/v1/repositories`, then
   `/service/rest/v1/repositories/<format>/<type>/<name>` per repository, `maven` for `maven2`; a repository without
@@ -617,7 +618,37 @@ settings changes. Searchable in the UI, exported via API; retention configurable
     switch per format, reverse-proxy cutover, rollback) and `Build/migration/nexus_compare.py`, which sends the same
     read-only requests (a TOML list per format) to Nexus and Waystation and compares status, size, sha256, docker
     digest, media type and chosen JSON values (report table/Markdown/JSON; exit 0 = all match).
-- Webhooks (Phase 6): on push/publish/delete, signed payloads.
+- **Webhooks** (`admin`; REST `/api/v1/webhooks`; UI Administration → Webhooks; operations guide
+  `Documents/Operations/WEBHOOKS.md`): signed HTTP `POST`s of a JSON document when content is pushed, published,
+  changed or deleted and when repositories change.
+  - **Definition**: name (§3 pattern, unique case-insensitively), description, target URL (http(s), no credentials
+    in it, a literal private address only with `allow_private`), events (`content.upload|delete|update`,
+    `repository.create|update|delete`, a category `content.*` / `repository.*`, or `*`), repository scope (name
+    globs, case-insensitive; empty = all), enabled, signing secret (required on create, ≥ 16 characters; write-only:
+    AES-GCM under `SECRET_KEYS`, reads return `secret_set`; omitted on update = kept), optional custom headers
+    (write-only values, encrypted; reads return `header_names`; Waystation's own and transport headers refused),
+    `timeout_s` (1-30, default 10), `max_attempts` (1-20, default 8).
+  - **Events** are the audit records of those actions (§4.11), handed by `audit.record` to an in-process notifier
+    that matches them against the enabled webhooks (cached ≤ 5 s) and, when one wants it, writes a `webhook.event`
+    job to the durable outbox. The worker records one delivery per matching webhook (id `<event id>-<webhook id>`,
+    so a re-run creates nothing new) and attempts it at once.
+  - **Request**: JSON `{id, type, occurred_at, repository, actor{kind,name}, target, details, changes?, source}`
+    (≤ 256 KiB, else the details are dropped); headers `Waystation-Event`, `Waystation-Event-Id`,
+    `Waystation-Delivery` = `Idempotency-Key` (same on every retry), `Waystation-Attempt`, `Waystation-Timestamp`
+    and `Waystation-Signature: t=<unix>,v1=<HMAC-SHA256(secret, "<t>." + body) hex>`, re-signed per attempt;
+    receivers refuse timestamps older than 5 minutes (replay window).
+  - **Delivery**: at least once (a delivery is claimed with a lease for one attempt; a retry sweep every 15 s picks
+    up due retries and lost attempts); through the SSRF guard (connect-time check; private targets only with
+    `allow_private` or `WAYSTATION_SSRF_ALLOW_CIDRS`; a refused target is dead at once); the server-wide outbound
+    proxy and extra CA file apply; no redirects; the webhook's timeout per attempt; 2xx = success, anything else is
+    retried after 30 s doubling to at most 1 h (±10 %) until `max_attempts`, then the delivery is dead. A webhook
+    that is off gets no new deliveries and its waiting retries end as dead.
+  - **Log** (30 days): per delivery its status (`pending`, `succeeded`, `dead`), trigger (`event`, `test`,
+    `redeliver`), the JSON sent and the headers (custom values masked), and the last 20 attempts (status, latency,
+    error, first KiB of the answer). **Send test event** records a `webhook.ping` delivery (one attempt, even while the
+    webhook is off); **Redeliver** sends a delivery's document again as a new delivery (same event id).
+  - Audited `webhook.create|update|delete|test|redeliver`; metrics `waystation_webhook_deliveries_total{outcome}`
+    and `waystation_webhook_deliveries_pending` (§10).
 
 ## 5. Non-functional requirements
 
@@ -790,7 +821,9 @@ See §5.5. `/metrics` on the server exports two kinds of metric (the full list w
   `waystation_repository_quota_bytes{repo,mode}`, `waystation_repository_stored_bytes{repo}` and
   `waystation_repository_quota_used_ratio{repo}`, and the cleanup and blob GC
   running totals `waystation_cleanup_removed_{items,bytes}_total`, `waystation_gc_{runs,freed_blobs,freed_bytes,
-  orphan_uploads_removed}_total` (counters, from the Valkey hash `maintenance:totals` the workers write). Every server
+  orphan_uploads_removed}_total` (counters, from the Valkey hash `maintenance:totals` the workers write), webhook
+  delivery attempts `waystation_webhook_deliveries_total{outcome=succeeded|failed|dead}` (Valkey `webhooks:totals`)
+  and `waystation_webhook_deliveries_pending`. Every server
   process and replica reports the same values (aggregate with `max`).
 
 The Grafana dashboard (`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) cover all
@@ -922,6 +955,7 @@ Waystation/
 | Quotas and low-disk guard (T-O03) | Done 2026-11-10: per-repository quotas (soft warns, hard refuses new writes) on stored asset bytes (`repo_usage`, incremental + hourly `quota.reconcile`; shared blobs count in each repository), 80 %/100 % alerts in the activity feed and on `/metrics`, docker hosted pushes refused with `403 DENIED`, proxy fills over quota or below the low-disk floor served verified and uncached; low-disk guard settings API (`/api/v1/storage/guard`, bytes and percent), `storage.check` alerts, UI form section, usage meters, shell banner and Storage page card; client harness pushes to a hard-quota docker hosted repository. 2026-11-10: Grafana "Quotas and disk" row and Zabbix quota items, discovery and triggers (hard quota reached, over soft quota, near quota), not yet loaded into Grafana/Zabbix |
 | Maven format (T-P5-MAVEN) | Proxy, hosted and group 2026-11-10: Maven proxies (Central or any Maven 2 layout; `maven-metadata.xml` revalidated and refused unless it parses, artifacts verified against the upstream `.sha1`/`.sha256` while streaming, checksum files generated from stored digests, `.asc` passed through), hosted repositories (`mvn deploy`/Gradle publish, version, layout and write policies, server-side `maven-metadata.xml` regeneration serialised per artifact, file and version deletes, audited) and groups (first member wins, merged `maven-metadata.xml`, read-only); components in Maven version order; browse API and UI (artifacts → versions → files); create flow and Set me up for Maven, Gradle and sbt. Real mvn 3.9 resolves through a proxy and a group and deploys releases and SNAPSHOTs in the harness. The Nexus import maps `maven2` repositories. Gradle/sbt/mvn 4 harness runs and Maven components in global search pending |
 | Tasks and workers (T-O04) | Done 2026-11-09: REST `/api/v1/tasks/*` (admin): scheduled tasks with last/next run, schedule edit (validated cron/macro/`@every` ≥ 10 s; restarts the timer; cleanup-policy schedules stay with the policy) and pause/resume, run now; job runs with filters, keyset cursor and detail with the capped log (`trigger` schedule/manual/retry on runs); workers (heartbeat health, running jobs with run ids, leader) and queue figures; dead letters with atomic, idempotent retry (`jobs:dead:retried`) and discard; all changes audited (`task.*`). Live: the worker publishes `job.progress`/`job.log` on `live:jobs`; SSE topic `tasks` (admin only) carries those plus `job.update`/`worker.update`. UI `/tasks`: summary strip, tabs Scheduled / Runs / Workers / Dead letters, schedule dialog, run drawer with live log viewer, mobile cards; contract + MSW mock job system with live events; Vitest + API integration tests. Later: GC grace/parameter editor, retry-all, per-kind retry metrics (T-O06) |
+| Webhooks (T-O05) | Done 2026-11-10: signed webhooks (REST `/api/v1/webhooks`, admin): definitions with event filter (content and repository events, categories, `*`), repository globs, write-only secret and custom headers (AES-GCM), timeout and attempt limits, private-target exception; events taken from the audit records of content/repository changes into the durable outbox; worker deliveries (`webhook.event`, `webhook.deliver`, `webhook.sweep` every 15 s) at least once with leases, HMAC-SHA256 `Waystation-Signature` over timestamp + body, idempotency key, exponential retries to a dead delivery, SSRF guard at connect time (guard moved to `waystation_common.ssrf`), no redirects, bounded answers; delivery log (30 days) with test event and redelivery; audited `webhook.*`; metrics by outcome and pending. UI Administration → Webhooks (table, editor with generated secret, delivery drawer with attempts, request and redeliver; phone cards); contract + MSW mocks; unit (signature, filters, payloads, backoff), integration (fake receiver: real uploads → signed delivery, retry → dead → redeliver, SSRF refusal, timeout, metrics, audit acceptance) and Vitest tests; `Operations/WEBHOOKS.md` with verification snippets. Later: events of worker-side deletes (cleanup runs), Grafana/Zabbix panels for the webhook metrics |
 | Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Left: substring matching, the 1M-asset p95 benchmark |
 | Import from Nexus (T-M01) | 2026-11-09: `POST /api/v1/import/nexus/preview` (dry run) and `/apply` (admin): reads a Nexus 3 configuration over its REST API (SSRF-guarded, optional CA bundle, bounded; credentials used per request, never stored or logged), maps names, formats, types, upstreams, ages, negative cache, auto-block, docker Hub/aliases/default repository, apt distribution, raw disposition, hosted write policy and group members (where Waystation has those types: docker and, since T-P2-RAW, raw hosted and group), reports create / exists / unsupported / invalid with field-level differences, applies the selection idempotently with a `repository.create` audit record per repository; UI page Repositories → "Import from Nexus" (connect, plan table with differences, selection, apply), MSW mocks. Tested against hand-written Nexus 3 REST fixtures (`Application/Server/tests/fixtures/nexus3`); not yet against a live Nexus 3 container |
 | Nexus migration guide + validation (T-M02) | 2026-11-10: `Documents/Operations/MIGRATING_FROM_NEXUS.md` (inventory, import, credentials and access, hosted content copy with skopeo/crane and a raw asset loop, cache warm-up, side-by-side validation with expected differences, client switch per format, reverse-proxy cutover per repository and docker connector ports, rollback from the audit log, decommission); `Build/migration/nexus_compare.py` (standard library only; checks from TOML; docker Bearer challenge, redirects without credentials to other hosts, base-URL and JSON normalisation, JSON Pointer comparisons; table/Markdown/JSON report; exit 0/1/2), `checks.example.toml` (docker, npm, apt, yum, raw, pypi), `make nexus-compare`; tested against two fake servers in `make test` (no real Nexus) |

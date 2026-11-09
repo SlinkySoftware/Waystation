@@ -1778,6 +1778,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Webhooks by name with their latest delivery, and the events they can subscribe to (needs `admin`) */
+        get: operations["listWebhooks"];
+        put?: never;
+        /**
+         * Create a webhook (needs `admin`; audited as `webhook.create`)
+         * @description `secret` is required and write-only (AES-GCM at rest under `WAYSTATION_SECRET_KEYS`); custom header values
+         *     are write-only too. A URL with a literal private or reserved address needs `allow_private`.
+         */
+        post: operations["createWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{webhook_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+            };
+            cookie?: never;
+        };
+        /** One webhook */
+        get: operations["getWebhook"];
+        /** Replace a webhook (null `secret` / `headers` keep the stored ones; audited as `webhook.update`) */
+        put: operations["updateWebhook"];
+        post?: never;
+        /** Delete a webhook and its delivery log (pending deliveries are dropped; audited as `webhook.delete`) */
+        delete: operations["deleteWebhook"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{webhook_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a `webhook.ping` event now (one attempt, whether the webhook is on or off; audited as `webhook.test`) */
+        post: operations["testWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{webhook_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+            };
+            cookie?: never;
+        };
+        /** The delivery log, newest first (kept 30 days) */
+        get: operations["listWebhookDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{webhook_id}/deliveries/{delivery_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+                delivery_id: components["parameters"]["DeliveryId"];
+            };
+            cookie?: never;
+        };
+        /** One delivery with the request it sends and every attempt (status, latency, the first KiB of the answer) */
+        get: operations["getWebhookDelivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+                delivery_id: components["parameters"]["DeliveryId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a delivery's document again as a new delivery (same event id; audited as `webhook.redeliver`) */
+        post: operations["redeliverWebhookDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search": {
         parameters: {
             query?: never;
@@ -4416,6 +4537,118 @@ export interface components {
             items: components["schemas"]["AuditRecord"][];
             next_cursor: string | null;
         };
+        /**
+         * @description An event (`content.upload`), a category (`content.*`) or every event (`*`)
+         * @enum {string}
+         */
+        WebhookEventName: "*" | "content.*" | "repository.*" | "content.upload" | "content.delete" | "content.update" | "repository.create" | "repository.update" | "repository.delete";
+        WebhookWrite: {
+            name: components["schemas"]["RepositoryName"];
+            description?: string;
+            /** @description Where events are POSTed (http or https; no credentials in the URL) */
+            url: string;
+            events: components["schemas"]["WebhookEventName"][];
+            /** @description Repository name globs (`*`, `?`, case-insensitive); empty = every repository */
+            repositories?: string[];
+            /** @default true */
+            enabled: boolean;
+            /** @description HMAC-SHA256 signing key. Required when creating; null keeps the stored one */
+            secret?: string | null;
+            /** @description Extra request headers (values may be credentials). Null keeps the stored ones; `{}` removes them */
+            headers?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * @description Allow targets on private or reserved addresses
+             * @default false
+             */
+            allow_private: boolean;
+            /** @default 10 */
+            timeout_s: number;
+            /** @default 8 */
+            max_attempts: number;
+        };
+        /** @enum {string} */
+        WebhookDeliveryStatus: "pending" | "succeeded" | "dead";
+        WebhookDeliverySummary: {
+            /** @description Delivery id (the `Waystation-Delivery` and `Idempotency-Key` headers) */
+            id: string;
+            /** @description Event type (`content.upload`, `webhook.ping`...) */
+            event: string;
+            /** @description The `Waystation-Event-Id` header (the same on a redelivery) */
+            event_id: string;
+            /** @enum {string} */
+            trigger: "event" | "test" | "redeliver";
+            repository: string | null;
+            status: components["schemas"]["WebhookDeliveryStatus"];
+            attempts: number;
+            created_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            finished_at: string | null;
+            /**
+             * Format: date-time
+             * @description When a pending delivery is attempted next
+             */
+            next_attempt_at: string | null;
+            /** @description The last attempt's HTTP status */
+            status_code: number | null;
+            latency_ms: number | null;
+            /** @description The last attempt's failure (connection, timeout, refused target) */
+            error: string | null;
+        };
+        Webhook: {
+            id: string;
+            name: string;
+            description: string;
+            url: string;
+            events: components["schemas"]["WebhookEventName"][];
+            repositories: string[];
+            enabled: boolean;
+            /** @description A signing secret is stored (never returned) */
+            secret_set: boolean;
+            /** @description Custom headers sent (values are never returned) */
+            header_names: string[];
+            allow_private: boolean;
+            timeout_s: number;
+            max_attempts: number;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            last_delivery: components["schemas"]["WebhookDeliverySummary"] | null;
+        };
+        WebhookList: {
+            items: components["schemas"]["Webhook"][];
+            /** @description Events a webhook can subscribe to */
+            events: string[];
+        };
+        WebhookAttempt: {
+            n: number;
+            at: components["schemas"]["Timestamp"];
+            /** @enum {string} */
+            outcome: "succeeded" | "failed";
+            status_code: number | null;
+            latency_ms: number | null;
+            error: string | null;
+            /** @description The first KiB of the answer */
+            response: string | null;
+        };
+        WebhookDelivery: components["schemas"]["WebhookDeliverySummary"] & {
+            redelivery_of: string | null;
+            /** @description The JSON document sent */
+            request_body: string;
+            /** @description Headers sent (custom header values masked; timestamp and signature differ per attempt) */
+            request_headers: {
+                [key: string]: string;
+            };
+            /** @description Attempts, newest first (the last 20) */
+            log: components["schemas"]["WebhookAttempt"][];
+        };
+        WebhookDeliveryList: {
+            items: components["schemas"]["WebhookDeliverySummary"][];
+            next_cursor: string | null;
+        };
+        WebhookDeliveryAccepted: {
+            delivery_id: string;
+        };
     };
     responses: {
         /** @description Not signed in */
@@ -4494,6 +4727,8 @@ export interface components {
         Until: string;
         TrafficMetric: "bytes" | "requests";
         PolicyId: string;
+        WebhookId: string;
+        DeliveryId: string;
         TaskId: string;
         /** @description Dead-letter entry id */
         LetterId: string;
@@ -7651,6 +7886,225 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    listWebhooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Webhooks */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookList"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookWrite"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhook"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The webhook */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhook"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookWrite"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Webhook"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    testWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The delivery was recorded and a worker attempts it within seconds */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryAccepted"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listWebhookDeliveries: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["WebhookDeliveryStatus"];
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deliveries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryList"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getWebhookDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+                delivery_id: components["parameters"]["DeliveryId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The delivery */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDelivery"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    redeliverWebhookDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhook_id: components["parameters"]["WebhookId"];
+                delivery_id: components["parameters"]["DeliveryId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new delivery was recorded and a worker attempts it within seconds */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryAccepted"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     search: {

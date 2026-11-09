@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // English catalogue. Plurals: "one|other", chosen by the `count` parameter.
 import { admin } from './admin'
+import { webhooks } from './webhooks'
 
 export const en = {
   common: {
@@ -50,6 +51,7 @@ export const en = {
     authProviders: 'Auth providers',
     apiTokens: 'API tokens',
     audit: 'Audit log',
+    webhooks: 'Webhooks',
     settings: 'Settings',
     system: 'System',
     profile: 'Profile',
@@ -1508,6 +1510,7 @@ export const en = {
       cleanup: 'Cleanup',
       task: 'Tasks',
       settings: 'Settings',
+      webhook: 'Webhooks',
     },
     allInCategory: 'All {category}',
     action: {
@@ -1532,6 +1535,7 @@ export const en = {
       cleanup: { run: 'Ran cleanup' },
       task: { update: 'Changed a task schedule', run: 'Ran a task', retry: 'Retried a dead letter', discard: 'Discarded a dead letter' },
       settings: { update: 'Changed settings' },
+      webhook: { create: 'Created a webhook', update: 'Changed a webhook', delete: 'Deleted a webhook', test: 'Sent a test event', redeliver: 'Redelivered a webhook event' },
     },
     failed: {
       auth: {
@@ -1845,6 +1849,7 @@ export const en = {
     dismiss: 'Dismiss',
   },
   admin,
+  webhooks,
   nexusImport: {
     open: 'Import from Nexus',
     title: 'Import from Nexus',
