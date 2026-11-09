@@ -28,6 +28,7 @@ import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
 import { serviceAccounts, tokenHandlers } from './tokens'
 import { TotpState } from './totp'
+import { webhookHandlers } from './webhooks'
 import { upstreamHealth, world } from './world'
 
 const API = '/api/v1'
@@ -310,6 +311,9 @@ export const handlers = [
 
   // ---------------------------------------------------------------- import from Nexus (T-M01)
   ...nexusImportHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }, (body) => toRepository(body)),
+
+  // ---------------------------------------------------------------- webhooks (T-O05)
+  ...webhookHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
   // ---------------------------------------------------------------- audit log (T-S10)
   ...auditHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
