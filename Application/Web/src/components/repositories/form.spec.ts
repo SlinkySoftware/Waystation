@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Repository } from '@/api/types'
 
-import { emptyModel, modelFromRepository, NAME_PATTERN, PRESETS, toWrite } from './form'
+import { emptyModel, GROUP_FORMATS, HOSTED_FORMATS, modelFromRepository, NAME_PATTERN, PRESETS, toWrite, WRITABLE_GROUP_FORMATS } from './form'
 
 describe('repository form model', () => {
   it('builds a docker proxy from a preset', () => {
@@ -108,6 +108,19 @@ describe('repository form model', () => {
     expect(group).toMatchObject({ type: 'group', group: { members: ['pypi-internal', 'pypi-proxy'], writable_member: 'pypi-internal' } })
     const back = modelFromRepository({ ...proxy, format_options: { json_api: false }, status: 'ok' } as unknown as Repository)
     expect(back.jsonApi).toBe(false)
+    expect(WRITABLE_GROUP_FORMATS).toContain('pypi')
+  })
+
+  it('maps raw hosted and group repositories', () => {
+    const hosted = { ...emptyModel('raw'), type: 'hosted' as const, name: 'files', metadataRegex: '^/x', writePolicy: 'disable_redeploy' as const }
+    const w = toWrite(hosted)
+    expect(w).toMatchObject({ type: 'hosted', hosted: { write_policy: 'disable_redeploy' } })
+    expect(w.format_options).toEqual({ metadata_path_regex: null, content_disposition: 'attachment' })
+    const group = { ...emptyModel('raw'), type: 'group' as const, name: 'all-files', members: ['files', 'mirror'], writableMember: 'files' }
+    expect(toWrite(group).group).toEqual({ members: ['files', 'mirror'], writable_member: 'files' })
+    expect(HOSTED_FORMATS).toContain('raw')
+    expect(GROUP_FORMATS).toContain('raw')
+    expect(WRITABLE_GROUP_FORMATS).toContain('raw')
   })
 
   it('maps the storage quota (bytes from size and unit; none for groups or when off)', () => {

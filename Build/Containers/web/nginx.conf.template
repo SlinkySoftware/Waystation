@@ -105,6 +105,7 @@ server {
         add_header Docker-Distribution-API-Version $upstream_http_docker_distribution_api_version always;
         add_header X-Ws-Digest $upstream_http_x_ws_digest always;
         add_header X-Ws-Cache $upstream_http_x_ws_cache always;
+        add_header X-Ws-Group-Member $upstream_http_x_ws_group_member always;
         add_header X-Request-Id $upstream_http_x_request_id always;
         add_header X-Content-Type-Options nosniff always;
     }

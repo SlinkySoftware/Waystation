@@ -85,6 +85,15 @@ async def test_content_miss_then_hit(
     assert asset['kind'] == 'content'
     assert asset['blob_sha256'] == SHA
 
+    # directory listings show what is cached (never asked upstream)
+    root = await client.get('/repository/files/', headers={'Accept': 'application/json'})
+    assert [(e['kind'], e['name']) for e in root.json()['entries']] == [('folder', 'tools')]
+    folder = await client.get('/repository/files/tools/v1/')
+    assert folder.headers['content-type'].startswith('text/html')
+    assert 'tool.tar.gz' in folder.text
+    assert (await client.get('/repository/files/tools/v2/')).status_code == 404
+    assert upstream.hits('/mirror/tools/v1/') == 0
+
 
 async def test_metadata_regex_revalidates(
     client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, make: RepoFactory
