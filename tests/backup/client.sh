@@ -3,8 +3,9 @@
 #   client.sh seed   create a raw hosted and a raw proxy repository, upload two files, fetch one through the proxy
 #   client.sh check  after the restore: hosted files intact, the proxied file re-fetched from the origin
 set -eu
+# shellcheck source=tests/clients/lib.sh
 . /harness/lib.sh
-HARNESS_FORMAT=backup HARNESS_MODE=${1:-?}
+export HARNESS_FORMAT=backup HARNESS_MODE="${1:-?}"  # step/fail/pass labels (lib.sh)
 
 header() {  # header <name> <file>: value of a response header in a curl -D dump (lower-case name)
   tr -d '\r' < "$2" | awk -v n="$1" 'index($0, ":") { k = tolower(substr($0, 1, index($0, ":") - 1));
