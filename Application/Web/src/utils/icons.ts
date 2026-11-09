@@ -105,3 +105,6 @@ export {
   symOutlinedPending as iconPending,
   symOutlinedLan as iconNetwork,
 } from '@quasar/extras/material-symbols-outlined'
+
+// Webhooks (T-O05).
+export { symOutlinedSend as iconSend, symOutlinedWebhook as iconWebhook } from '@quasar/extras/material-symbols-outlined'

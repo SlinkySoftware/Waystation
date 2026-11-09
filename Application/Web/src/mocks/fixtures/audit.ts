@@ -8,6 +8,7 @@ import { between, pick, rng } from '../rng'
 const DAY = 86_400_000
 const ADMIN_ID = '01JC0000000000000000000ADM'
 const LDAP_ID = '01JC0000000000000000000LDP'
+const WEBHOOK_ID = '01JCWEBHOOK0000000000000CI1'
 const SA_ID = '01JC00000000000000000SA001'
 const REPOS = ['dockerhub-proxy', 'ghcr-proxy', 'debian', 'debian-security', 'ubuntu', 'npm', 'rocky', 'epel', 'raw-releases']
 
@@ -76,6 +77,11 @@ const TEMPLATES: Template[] = [
   { action: 'content.delete', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('repository', 'raw-releases'), details: { path: 'tools/waystation-cli-1.2.0-linux-amd64.tar.gz' } }) },
   { action: 'cleanup.run', weight: 3, make: (n) => ({ actor: ACTORS.system, target: repoTarget(n), details: { policy: 'Unused for 90 days', deleted_assets: Math.floor(between(3, 900, n)), reclaimed_bytes: Math.floor(between(1e6, 8e9, n)) } }) },
   { action: 'settings.update', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('settings', 'general'), changes: [change('instance_name', 'Waystation', 'Package mirror')] }) },
+  { action: 'webhook.create', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'ci-release-builds', WEBHOOK_ID), changes: [change('url', null, 'https://ci.example.com/hooks/waystation'), change('events', null, ['content.upload']), change('secret', null, '***', true)] }) },
+  { action: 'webhook.update', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'ci-release-builds', WEBHOOK_ID), changes: [change('repositories', [], ['raw-*'])] }) },
+  { action: 'webhook.delete', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'old-chat-hook', '01JCWEBHOOK0000000000000OLD') }) },
+  { action: 'webhook.test', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'ci-release-builds', WEBHOOK_ID), details: { delivery_id: '01JCDELIVERY00000000000001' } }) },
+  { action: 'webhook.redeliver', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'chat-notifications', '01JCWEBHOOK0000000000000CHT'), details: { delivery_id: '01JCDELIVERY00000000000003', redelivery_of: '01JCDELIVERY00000000000002', event: 'content.upload' } }) },
 ]
 
 function requestId(next: () => number): string {

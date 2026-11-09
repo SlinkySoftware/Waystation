@@ -67,6 +67,10 @@ const MOCK_SHOTS = [
   { name: 'admin-service-account-panel', path: 'admin/tokens?tab=accounts', action: openAccount },
   { name: 'admin-settings', path: 'admin/settings', full: true },
   { name: 'admin-system', path: 'admin/system', full: true },
+  { name: 'admin-webhooks', path: 'admin/webhooks', full: true },
+  { name: 'admin-webhook-editor', path: 'admin/webhooks', action: newWebhook },
+  { name: 'admin-webhook-deliveries', path: 'admin/webhooks', action: openDeliveries },
+  { name: 'admin-webhook-delivery', path: 'admin/webhooks', action: openDelivery },
   { name: 'tasks-scheduled', path: 'tasks', settle: 2500, full: true },
   { name: 'tasks-runs', path: 'tasks?tab=runs', settle: 3000, full: true },
   { name: 'tasks-run-log', path: 'tasks?tab=runs&status=running', settle: 2500, action: openRunLog },
@@ -197,6 +201,22 @@ async function createUser(page) {
 async function editRole(page) {
   await page.getByText('npm publisher', { exact: true }).first().click()
   await page.waitForTimeout(900)
+}
+
+async function newWebhook(page) {
+  await page.getByRole('button', { name: /new webhook/i }).first().click()
+  await page.waitForTimeout(900)
+}
+
+async function openDeliveries(page) {
+  await page.getByRole('button', { name: 'Deliveries of chat-notifications' }).first().click()
+  await page.waitForTimeout(1200)
+}
+
+async function openDelivery(page) {
+  await openDeliveries(page)
+  await page.locator('.deliveries').getByText('Content uploaded').first().click()
+  await page.waitForTimeout(1200)
 }
 
 async function openAccount(page) {

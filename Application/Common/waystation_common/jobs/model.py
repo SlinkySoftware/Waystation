@@ -193,3 +193,45 @@ class StorageCheck(JobPayload):
 
     def dedupe_key(self) -> str | None:
         return 'storage.check'
+
+
+class WebhookEvent(JobPayload):
+    """An event some webhook may want (SPEC §4.12, T-O05): the worker matches it against the enabled webhooks, records
+    one delivery per match and attempts each at once (``waystation_worker.webhooks``). Enqueued through the outbox."""
+
+    kind: ClassVar[str] = 'webhook.event'
+    queue: ClassVar[Queue] = 'maintenance'
+    max_attempts: ClassVar[int] = 5
+
+    event_id: str
+    event: str
+    repository: str | None = None
+    document: dict[str, Any]  # the JSON document receivers get (``waystation_common.webhooks.build_event``)
+
+    def dedupe_key(self) -> str | None:
+        return f'webhook.event:{self.event_id}'
+
+
+class WebhookDeliver(JobPayload):
+    """Attempt one delivery now (a test event or a redelivery from the delivery log). Best effort: the retry sweep
+    finds the delivery anyway if this job is lost."""
+
+    kind: ClassVar[str] = 'webhook.deliver'
+    queue: ClassVar[Queue] = 'maintenance'
+    max_attempts: ClassVar[int] = 2
+
+    delivery_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'webhook.deliver:{self.delivery_id}'
+
+
+class WebhookSweep(JobPayload):
+    """Attempt the webhook deliveries whose retry is due; scheduled every 15 s."""
+
+    kind: ClassVar[str] = 'webhook.sweep'
+    queue: ClassVar[Queue] = 'maintenance'
+    routine: ClassVar[bool] = True
+
+    def dedupe_key(self) -> str | None:
+        return 'webhook.sweep'
