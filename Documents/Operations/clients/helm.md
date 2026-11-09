@@ -2,7 +2,7 @@
 
 A Helm proxy repository caches a public chart repository (`index.yaml` plus chart packages). A Helm hosted
 repository stores charts you upload with curl or `helm cm-push`; a worker rebuilds its `index.yaml`. A Helm group
-serves several Helm repositories under one URL with one merged index. Tested with helm 3 (`tests/clients/helm/`).
+serves several Helm repositories under one URL with one merged index. Tested with helm 3.19 and helm 4.0 (`tests/clients/helm/`).
 Protocol notes: FORMATS.md "Helm".
 
 OCI charts (`helm push oci://...`, `helm install oci://...`) are not classic repositories: they live in **docker**
