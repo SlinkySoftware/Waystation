@@ -257,7 +257,8 @@ async def test_proxy_without_upstream_checksums_and_policies(
     assert (await anon.get('/repository/central/index.html')).status_code == 404
     assert (await anon.get('/repository/central/org/')).status_code == 404
     assert len(upstream.seen) == before
-    assert (await anon.put(f'/repository/central/{GA}/1.0/lib-1.0.jar', content=b'x')).status_code in (401, 405)
+    denied = await anon.put(f'/repository/central/{GA}/1.0/lib-1.0.jar', content=b'x')
+    assert denied.status_code == 401 and denied.headers['www-authenticate'].startswith('Basic')
 
 
 # ---------------------------------------------------------------------------- hosted
@@ -289,15 +290,15 @@ async def test_hosted_release_deploy_metadata_and_redeploy(
     await assert_indexed(services.db, recorder)
     recorder.on = False
 
-    meta = await anon.get(f'/repository/releases/{GA}/maven-metadata.xml')
+    meta = await mvn.get(f'/repository/releases/{GA}/maven-metadata.xml')
     assert meta.status_code == 200
     doc = md.parse(services.blobs.blob_path(_sha(meta)).read_bytes())
     assert doc.versions == ['1.0', '1.2', '1.10'] and doc.latest == '1.10' and doc.release == '1.10'
-    metasum = await anon.get(f'/repository/releases/{GA}/maven-metadata.xml.sha1')
+    metasum = await mvn.get(f'/repository/releases/{GA}/maven-metadata.xml.sha1')
     assert metasum.text == sha1(services.blobs.blob_path(_sha(meta)).read_bytes())
-    jar = await anon.get(f'/repository/releases/{GA}/1.2/lib-1.2.jar')
+    jar = await mvn.get(f'/repository/releases/{GA}/1.2/lib-1.2.jar')
     assert jar.status_code == 200 and 'x-accel-redirect' in jar.headers
-    assert (await anon.get(f'/repository/releases/{GA}/1.2/lib-1.2.jar.sha512')).text == hashlib.sha512(JAR).hexdigest()
+    assert (await mvn.get(f'/repository/releases/{GA}/1.2/lib-1.2.jar.sha512')).text == hashlib.sha512(JAR).hexdigest()
 
     # Redeploying a release file is refused (disable_redeploy); a wrong checksum is refused; anonymous may not write.
     again = await mvn.put(f'/repository/releases/{GA}/1.0/lib-1.0.jar', content=JAR)
@@ -305,7 +306,7 @@ async def test_hosted_release_deploy_metadata_and_redeploy(
     bad = await mvn.put(f'/repository/releases/{GA}/1.0/lib-1.0.jar.sha1', content=b'f' * 40)
     assert bad.status_code == 400
     denied = await anon.put(f'/repository/releases/{GA}/9.0/lib-9.0.jar', content=JAR)
-    assert denied.status_code == 401 and denied.headers['www-authenticate'].startswith('Basic')
+    assert denied.status_code == 404  # hidden from anonymous (ARCHITECTURE §7)
     snapshot = await mvn.put(f'/repository/releases/{GA}/2.0-SNAPSHOT/lib-2.0-SNAPSHOT.jar', content=JAR)
     assert snapshot.status_code == 400 and 'SNAPSHOT' in snapshot.text
     layout = await mvn.put('/repository/releases/files/readme.txt', content=b'x')
@@ -348,12 +349,12 @@ async def test_hosted_release_deploy_metadata_and_redeploy(
 
     # Delete a version folder: its files, component and metadata entry go.
     assert (await mvn.delete(f'/repository/releases/{GA}/1.2/')).status_code == 204
-    meta = await anon.get(f'/repository/releases/{GA}/maven-metadata.xml')
+    meta = await mvn.get(f'/repository/releases/{GA}/maven-metadata.xml')
     assert md.parse(services.blobs.blob_path(_sha(meta)).read_bytes()).versions == ['1.0', '1.10']
-    assert (await anon.get(f'/repository/releases/{GA}/1.2/lib-1.2.jar')).status_code == 404
+    assert (await mvn.get(f'/repository/releases/{GA}/1.2/lib-1.2.jar')).status_code == 404
     assert (await mvn.delete(f'/repository/releases/{GA}/1.10/lib-1.10.jar')).status_code == 204
     assert (await mvn.delete(f'/repository/releases/{GA}/1.10/lib-1.10.pom')).status_code == 204
-    meta = await anon.get(f'/repository/releases/{GA}/maven-metadata.xml')
+    meta = await mvn.get(f'/repository/releases/{GA}/maven-metadata.xml')
     assert md.parse(services.blobs.blob_path(_sha(meta)).read_bytes()).latest == '1.0'
 
 
@@ -372,7 +373,7 @@ async def test_hosted_snapshots_redeploy_and_version_metadata(
     release = await mvn.put(f'/repository/snapshots/{GA}/1.0/lib-1.0.jar', content=JAR)
     assert release.status_code == 400
 
-    meta = await anon.get(f'/repository/snapshots/{folder}/maven-metadata.xml')
+    meta = await mvn.get(f'/repository/snapshots/{folder}/maven-metadata.xml')
     doc = md.parse(services.blobs.blob_path(_sha(meta)).read_bytes())
     assert (doc.snapshot_timestamp, doc.snapshot_build) == ('20261108.120002', 2)
     assert {(v.classifier, v.extension): v.value for v in doc.snapshot_versions} == {
@@ -380,7 +381,7 @@ async def test_hosted_snapshots_redeploy_and_version_metadata(
         (None, 'pom'): '1.0-20261108.120002-2',
         ('sources', 'jar'): '1.0-20261108.120002-2',
     }
-    ga = await anon.get(f'/repository/snapshots/{GA}/maven-metadata.xml')
+    ga = await mvn.get(f'/repository/snapshots/{GA}/maven-metadata.xml')
     ga_doc = md.parse(services.blobs.blob_path(_sha(ga)).read_bytes())
     assert ga_doc.versions == ['1.0-SNAPSHOT'] and ga_doc.latest == '1.0-SNAPSHOT' and ga_doc.release is None
 
@@ -393,7 +394,7 @@ async def test_hosted_concurrent_deploys_lose_no_versions(
     await asyncio.gather(
         *(deploy(mvn, 'releases', f'{GA}/{v}/lib-{v}.pom', POM + v.encode(), sums=False) for v in versions)
     )
-    meta = await anon.get(f'/repository/releases/{GA}/maven-metadata.xml')
+    meta = await mvn.get(f'/repository/releases/{GA}/maven-metadata.xml')
     doc = md.parse(services.blobs.blob_path(_sha(meta)).read_bytes())
     assert doc.versions == [f'1.{i}' for i in range(12)]
     assert doc.latest == '1.11'
@@ -406,7 +407,7 @@ async def test_hosted_read_only_and_permissive(
     assert (await mvn.put(f'/repository/frozen/{GA}/1.0/lib-1.0.jar', content=JAR)).status_code == 403
     await create(admin, 'loose', 'hosted', format_options={'version_policy': 'mixed', 'layout_policy': 'permissive'})
     assert (await mvn.put('/repository/loose/files/readme.txt', content=b'hello')).status_code == 201
-    assert (await anon.get('/repository/loose/files/readme.txt')).status_code == 200
+    assert (await mvn.get('/repository/loose/files/readme.txt')).status_code == 200
     assert (await mvn.put('/repository/loose/files/readme.txt', content=b'again')).status_code == 201
     assert (await mvn.put(f'/repository/loose/{GA}/1.0-SNAPSHOT/lib-1.0-SNAPSHOT.jar', content=JAR)).status_code == 201
 
@@ -425,21 +426,21 @@ async def test_group_resolves_members_in_order_and_merges_metadata(
     route_lib(upstream)
     await deploy(mvn, 'releases', f'{GA}/2.0/lib-2.0.jar', b'hosted jar', sums=False)
 
-    hosted_jar = await anon.get(f'/repository/public/{GA}/2.0/lib-2.0.jar')
+    hosted_jar = await mvn.get(f'/repository/public/{GA}/2.0/lib-2.0.jar')
     assert hosted_jar.status_code == 200 and upstream.hits(f'/{GA}/2.0/lib-2.0.jar') == 0
-    proxied = await anon.get(f'/repository/public/{GA}/1.0/lib-1.0.jar')
+    proxied = await mvn.get(f'/repository/public/{GA}/1.0/lib-1.0.jar')
     assert proxied.status_code == 200 and proxied.content == JAR
-    assert (await anon.get(f'/repository/public/{GA}/1.0/lib-1.0.jar.sha1')).text == sha1(JAR)
-    assert (await anon.get(f'/repository/public/{GA}/7.0/lib-7.0.jar')).status_code == 404
+    assert (await mvn.get(f'/repository/public/{GA}/1.0/lib-1.0.jar.sha1')).text == sha1(JAR)
+    assert (await mvn.get(f'/repository/public/{GA}/7.0/lib-7.0.jar')).status_code == 404
 
-    meta = await anon.get(f'/repository/public/{GA}/maven-metadata.xml')
+    meta = await mvn.get(f'/repository/public/{GA}/maven-metadata.xml')
     assert meta.status_code == 200 and meta.headers['content-type'].startswith('text/xml')
     doc = md.parse(meta.content)
     assert doc.versions == ['1.0', '2.0'] and doc.latest == '2.0' and doc.release == '2.0'
-    assert (await anon.get(f'/repository/public/{GA}/maven-metadata.xml.sha1')).text == sha1(meta.content)
-    conditional = await anon.get(
+    assert (await mvn.get(f'/repository/public/{GA}/maven-metadata.xml.sha1')).text == sha1(meta.content)
+    conditional = await mvn.get(
         f'/repository/public/{GA}/maven-metadata.xml', headers={'If-None-Match': meta.headers['etag']}
     )
     assert conditional.status_code == 304
-    assert (await anon.get('/repository/public/org/none/maven-metadata.xml')).status_code == 404
+    assert (await mvn.get('/repository/public/org/none/maven-metadata.xml')).status_code == 404
     assert (await mvn.put(f'/repository/public/{GA}/3.0/lib-3.0.jar', content=JAR)).status_code == 405

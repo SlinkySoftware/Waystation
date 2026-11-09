@@ -250,14 +250,42 @@ Specs: PEP 503 (simple HTML), PEP 691 (JSON simple API, `application/vnd.pypi.si
 - Clients: pip, uv, poetry, pdm, twine.
 
 ## Maven — Phase 5
+Spec: Maven 2 repository layout (maven-resolver behaviour); `maven-metadata.xml` model 1.1.0.
 - Path layout `<group/as/path>/<artifactId>/<version>/<artifactId>-<version>[-classifier].<ext>`, plus checksums
-  `.md5 .sha1 .sha256 .sha512` and `.asc`. `maven-metadata.xml` at artifact and version (SNAPSHOT) level = metadata.
-- Proxy: upstream `https://repo.maven.apache.org/maven2/` (Central) or others; validate against upstream `.sha1`/
-  `.sha256` when present; generate missing checksum files from stored digests.
-- Hosted: `PUT` deploy (mvn deploy, gradle publish), version policy `release`/`snapshot`/`mixed`, layout policy
-  strict/permissive, regenerate `maven-metadata.xml` on deploy (server-side, serialised per GA).
-- Group: merge `maven-metadata.xml` (versions union, latest/release recomputed).
-- Clients: mvn 3.9/4, gradle 8/9, sbt (smoke).
+  `.md5 .sha1 .sha256 .sha512` and `.asc`. `maven-metadata.xml` at artifact and version (SNAPSHOT) level = metadata,
+  and at groupId level (plugin prefixes). SNAPSHOT versions hold files named with the base version or, as `mvn
+  deploy` and Gradle write them, a timestamped version (`a-1.0-20261108.123456-3.jar`).
+- Options (`MavenOptions`): `version_policy` `release` (default) / `snapshot` / `mixed` (proxies and hosted; groups
+  skip members whose policy excludes a path's version), `layout_policy` `strict` (default: only layout paths; others
+  404 on a proxy, 400 on deploy) / `permissive`.
+- Proxy (T-P5-MAVEN): upstream `https://repo.maven.apache.org/maven2/` (Central) or others, paths 1:1.
+  `maven-metadata.xml` is metadata (revalidated; refused with 502 unless it parses: defusedxml, no DTD/entities,
+  4 MiB, ≤ 100k entries). Artifacts are content verified while streaming against the upstream `.sha1`, else `.sha256`
+  (fetched first and cached as small metadata assets, validated as hex digests); neither = unverified, computed
+  SHA-256 recorded. A non-timestamped SNAPSHOT file is revalidated after the metadata max age. Checksum files of a
+  cached file are generated from its stored digests (other algorithms hashed from the blob in a thread, cached in
+  process), so they always match the served bytes; for metadata the stored document is cached first; a checksum of
+  an uncached file is proxied (cached). `.asc` passes through. Components (`components`, `format: maven`, one per
+  GAV, `version_sort` from Maven's ComparableVersion) are recorded in the background when an artifact is cached.
+- Hosted: `PUT` deploy (mvn deploy, gradle publish, curl), streamed as live uploads after the hard-quota check;
+  version and layout policies (400), write policy (`disable_redeploy` refuses replacing a release file; SNAPSHOTs
+  always redeploy; `read_only` 403). Uploaded checksums are compared with the stored file (400 on mismatch) and not
+  stored; uploaded artifact/version-level `maven-metadata.xml` is validated and discarded: the server regenerates
+  the artifact document (all versions of the repository in Maven order, `latest`, `release`, `lastUpdated`) and the
+  SNAPSHOT version document (newest timestamped build per classifier/extension) after every deploy and delete,
+  serialised per groupId:artifactId by a Valkey lease (`lock:maven:<repo_id>:<sha1(g:a)>`; regeneration reads the
+  complete state, so concurrent deploys lose nothing). A groupId-level document (plugin prefixes) is stored, its
+  plugins merged with the stored ones. `DELETE` a file or a version folder (`<g>/<a>/<v>/`). Audited
+  `content.upload`/`content.delete` per file.
+- Group: members in order (proxy and hosted, no nesting); files from the first member that has them (404 and failing
+  members skipped, first failure reported when none answers); `maven-metadata.xml` merged per request from every
+  member's document (versions union, `latest`/`release` recomputed in Maven order, newest snapshot build, plugins
+  union; deterministic, ETag, checksums from the same bytes). Read-only (405).
+- Browse: `GET /api/v1/repositories/{name}/maven/artifacts` (groupId, artifactId, latest, version count; `q`
+  substring) and `/maven/versions?group_id=&artifact_id=` (highest first by `version_sort`, file count and bytes of
+  the version folder, deployer); a version's files are the generic folder listing of its `path`.
+- Clients: mvn 3.9 (harness: resolve via proxy and group with `--strict-checksums`, deploy release + SNAPSHOT,
+  redeploy/policy/anonymous refusals); gradle 8/9 and sbt not yet in the harness; mvn 4 later.
 
 ## Go modules — Phase 5
 Spec: GOPROXY protocol (`go help goproxy`), checksum database (`sum.golang.org`).
