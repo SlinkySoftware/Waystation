@@ -15,6 +15,10 @@
         <template v-if="health">
           <dt>{{ t('detail.upstream.health') }}</dt>
           <dd class="facts__inline"><StatusPill :status="health.status" /> {{ t('detail.upstream.healthLine', { err: formatPercent(health.error_rate), p95: formatLatency(health.p95_latency_ms) }) }}</dd>
+          <template v-if="health.status === 'blocked' && health.blocked_until">
+            <dt>{{ t('detail.upstream.autoBlocked') }}</dt>
+            <dd class="facts__blocked">{{ t('dashboard.upstreams.blocked', { time: clock(Math.max(0, (Date.parse(health.blocked_until) - now) / 1000)) }) }}</dd>
+          </template>
           <template v-if="health.rate_limit">
             <dt>{{ t('detail.upstream.rateLimit') }}</dt>
             <dd>{{ t('dashboard.upstreams.pullsLeft', { remaining: health.rate_limit.remaining, limit: health.rate_limit.limit }) }}</dd>
@@ -42,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 
 import { api, call } from '@/api/client'
 import type { DockerOptions, Repository, StatsRange } from '@/api/types'
@@ -73,9 +77,27 @@ const authLabel = computed(() => {
   return `${kind}${a.username ? ` (${a.username})` : ''} · ${a.secret_set ? t('detail.upstream.secretStored') : t('detail.upstream.secretMissing')}`
 })
 
+// 1 s clock for the auto-block countdown.
+const now = ref(Date.now())
+const timer = setInterval(() => (now.value = Date.now()), 1000)
+onBeforeUnmount(() => clearInterval(timer))
+
+function clock(seconds: number): string {
+  const s = Math.round(seconds)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
 const behaviour = computed(() => {
   const p = props.repo.proxy
-  const parts = [p?.stale_on_error ? t('detail.upstream.stale') : null, p?.offline ? t('detail.upstream.offlineMode') : null, p?.allow_private_upstream ? t('detail.upstream.private') : null]
+  const block = p?.auto_block
+  const parts = [
+    p?.stale_on_error ? t('detail.upstream.stale') : null,
+    p?.offline ? t('detail.upstream.offlineMode') : null,
+    p?.allow_private_upstream ? t('detail.upstream.private') : null,
+    block?.enabled !== false ? t('detail.upstream.autoBlock', { n: block?.failures ?? 5 }) : null,
+    p?.http_proxy ? t('detail.upstream.viaProxy') : null,
+    p?.ca_pem ? t('detail.upstream.customCa') : null,
+  ]
   return parts.filter(Boolean).join(' · ') || '–'
 })
 </script>
@@ -125,6 +147,12 @@ const behaviour = computed(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.facts__blocked {
+  color: var(--status-blocked);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .facts__tag {

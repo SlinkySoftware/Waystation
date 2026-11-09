@@ -31,10 +31,12 @@ from waystation_server.db import groups as groups_db
 from waystation_server.db import repositories as repos_db
 from waystation_server.formats.registry import FormatRegistry
 from waystation_server.metrics import Metrics
+from waystation_server.proxy import probe as probe_mod
+from waystation_server.proxy.breaker import blocking_status
 from waystation_server.proxy.engine import ProxyEngine
-from waystation_server.proxy.http import UpstreamClients
+from waystation_server.proxy.http import UpstreamClients, network_of
 from waystation_server.repos.catalog import RepoCatalog
-from waystation_server.repos.model import RepoConfig
+from waystation_server.repos.model import AuthKind, RepoConfig, secret_aad
 from waystation_server.security.groups import GroupDirectory
 from waystation_server.security.ldap import LdapAuthenticator
 from waystation_server.security.oidc import OidcClient, UpstreamHttp
@@ -164,6 +166,39 @@ class Services:
     def base_url(self) -> str:
         return self.settings.base_url
 
+    async def probe_upstream(self, repo: RepoConfig) -> tuple[bool, str | None]:
+        """Probe a proxy repository's upstream (auto-block prober): the format's probe path with the repository's
+        credentials and network options. True when it answered with anything but 5xx/429."""
+        proxy = repo.proxy
+        descriptor = self.formats.descriptor(repo.format)
+        if proxy is None or descriptor is None:
+            return False, 'not a proxy repository'
+        try:
+            path = descriptor.probe_path(descriptor.parse_options(repo.format_options))
+        except ValueError:
+            path = ''
+        secret: str | None = None
+        if proxy.auth.kind is not AuthKind.NONE and proxy.auth.secret_enc and self.keyring is not None:
+            secret = self.keyring.decrypt_str(proxy.auth.secret_enc, aad=secret_aad(repo.id))
+        result = await probe_mod.probe(
+            self.upstream,
+            upstream_url=proxy.upstream_url,
+            probe_path=path,
+            network=network_of(proxy),
+            headers=probe_mod.auth_headers(proxy.auth.kind.value, proxy.auth.username, secret),
+            timeout=self.upstream.timeouts.connect + self.upstream.timeouts.read,
+        )
+        status = result.http_status
+        ok = result.reachable and status is not None and not blocking_status(status)
+        error = None
+        if not ok:
+            failed = next((c for c in result.checks if not c.ok), None)
+            error = f'probe: {failed.message}' if failed else f'probe: upstream answered {status}'
+        self.emitter.upstream(
+            repo_id=repo.id, format=repo.format, ok=ok, error=error, latency_ms=result.latency_ms if ok else None
+        )
+        return ok, error
+
     async def start(self) -> None:
         if self._started:
             return
@@ -176,6 +211,7 @@ class Services:
         await self.proxy.coalescer.start()
         self.tokens.start()
         self.metrics.start()
+        self.proxy.breaker.start_prober(self.catalog.all, self.probe_upstream)
         self._started = True
 
     async def stop(self) -> None:
@@ -183,6 +219,7 @@ class Services:
             return
         self._started = False
         await self.metrics.stop()
+        await self.proxy.breaker.stop()
         await self.hub.stop()
         await self.proxy.coalescer.aclose()
         await self.tokens.stop()

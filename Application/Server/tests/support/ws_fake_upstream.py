@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ssl
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from types import TracebackType
@@ -45,8 +46,12 @@ REASONS = {200: 'OK', 304: 'Not Modified', 302: 'Found', 401: 'Unauthorized', 40
 
 
 class FakeUpstream:
-    def __init__(self, routes: dict[str, Route] | None = None) -> None:
+    def __init__(
+        self, routes: dict[str, Route] | None = None, *, tls: ssl.SSLContext | None = None, host: str = '127.0.0.1'
+    ) -> None:
+        self.host = host
         self.routes: dict[str, Route] = dict(routes or {})
+        self.tls = tls  # serve HTTPS with this server context
         self.seen: list[Seen] = []
         self._server: asyncio.Server | None = None
         self.port = 0
@@ -54,13 +59,13 @@ class FakeUpstream:
 
     @property
     def url(self) -> str:
-        return f'http://127.0.0.1:{self.port}/'
+        return f'{"https" if self.tls else "http"}://{self.host}:{self.port}/'
 
     def hits(self, path: str) -> int:
         return sum(1 for s in self.seen if s.path == path)
 
     async def __aenter__(self) -> Self:
-        self._server = await asyncio.start_server(self._handle, '127.0.0.1', 0)
+        self._server = await asyncio.start_server(self._handle, self.host, 0, ssl=self.tls)
         self.port = self._server.sockets[0].getsockname()[1]
         return self
 
@@ -92,7 +97,7 @@ class FakeUpstream:
             while True:
                 try:
                     head = await reader.readuntil(b'\r\n\r\n')
-                except asyncio.IncompleteReadError, ConnectionError:
+                except asyncio.IncompleteReadError, ConnectionError, ssl.SSLError:
                     return
                 lines = head.decode('latin-1').split('\r\n')
                 method, target, _ = lines[0].split(' ', 2)

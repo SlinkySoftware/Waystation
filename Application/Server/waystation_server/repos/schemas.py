@@ -11,7 +11,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from waystation_server.repos.model import DEFAULT_METADATA_MAX_AGE_S, DEFAULT_NEGATIVE_TTL_S, AuthKind, RepoType
+from waystation_server.repos.model import (
+    DEFAULT_AUTO_BLOCK_FAILURES,
+    DEFAULT_AUTO_BLOCK_INITIAL_S,
+    DEFAULT_AUTO_BLOCK_MAX_S,
+    DEFAULT_METADATA_MAX_AGE_S,
+    DEFAULT_NEGATIVE_TTL_S,
+    AuthKind,
+    RepoType,
+)
 
 NAME_PATTERN = r'^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$'
 
@@ -56,6 +64,26 @@ class UpstreamAuth(BaseModel):
     secret_set: bool = Field(default=False, json_schema_extra={'readOnly': True})
 
 
+class AutoBlockConfig(BaseModel):
+    """Stop calling a failing upstream for a while (SPECIFICATION §4.1)."""
+
+    model_config = ConfigDict(extra='forbid', json_schema_serialization_defaults_required=True)
+
+    enabled: bool = True
+    failures: int = Field(
+        default=DEFAULT_AUTO_BLOCK_FAILURES, ge=1, le=1000, description='Consecutive upstream failures that block it'
+    )
+    initial_s: int = Field(
+        default=DEFAULT_AUTO_BLOCK_INITIAL_S, ge=1, le=86400, description='First block period (seconds)'
+    )
+    max_s: int = Field(
+        default=DEFAULT_AUTO_BLOCK_MAX_S,
+        ge=1,
+        le=604800,
+        description='Longest block period (seconds); the period doubles after every failed probe',
+    )
+
+
 class ProxyConfig(BaseModel):
     model_config = ConfigDict(extra='forbid', json_schema_serialization_defaults_required=True)
 
@@ -67,6 +95,17 @@ class ProxyConfig(BaseModel):
     stale_on_error: bool = True
     offline: bool = False
     allow_private_upstream: bool = False
+    ca_pem: str | None = Field(
+        default=None,
+        max_length=262144,
+        description='Extra CA certificates (PEM) trusted for this upstream, in addition to the system ones',
+    )
+    http_proxy: str | None = Field(
+        default=None,
+        max_length=2048,
+        description='Outbound HTTP proxy for this upstream (`http://host:port`); null = the server-wide proxy',
+    )
+    auto_block: AutoBlockConfig = Field(default_factory=AutoBlockConfig)
 
 
 class RepositoryWrite(BaseModel):
