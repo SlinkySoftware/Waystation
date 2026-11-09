@@ -81,7 +81,7 @@ class PypiBrowse:
 
     async def _page(self, ctx: BrowseContext, project: str, held: list[dict[str, Any]]) -> simple.Page:
         if ctx.repo.type is RepoType.HOSTED:
-            page = page_from_assets(held, project)
+            page = await asyncio.to_thread(page_from_assets, held, project)
             if not page.files:
                 raise NotFound('project not found')
             return page

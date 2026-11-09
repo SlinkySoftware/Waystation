@@ -115,7 +115,7 @@ class PypiHosted:
     async def page(self, req: FormatRequest, repo: RepoConfig, project: str) -> simple.Page | None:
         """A hosted repository's page of ``project`` (None when it has no files)."""
         docs = await pypi_db.project_files(req.hosted.db, repo.id, project)
-        page = page_from_assets(docs, project)
+        page = await asyncio.to_thread(page_from_assets, docs, project)
         return page if page.files else None
 
     # ------------------------------------------------------------------ uploading
@@ -282,7 +282,7 @@ class PypiHosted:
     ) -> None:
         """Refresh the project's ``pypi_packages`` summary from its stored files."""
         docs = await pypi_db.project_files(req.hosted.db, repo.id, project)
-        page = page_from_assets(docs, project)
+        page = await asyncio.to_thread(page_from_assets, docs, project)
         versions = simple.versions_of(page)
         fields = summary_fields(display_name or page.name, versions)
         if summary:
