@@ -3,6 +3,20 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-O04: Tasks and workers. REST `/api/v1/tasks/*` (all `admin`): `GET /tasks/scheduled` (job definitions with
+  schedule, enabled, last run, next run, owning cleanup policy), `PATCH /tasks/scheduled/{id}` (schedule validated by
+  `jobs.schedule.validate_schedule`: cron, macro or `@every` ≥ 10 s; a changed schedule restarts the timer; a cleanup
+  policy's schedule answers 409), `POST /tasks/scheduled/{id}/run`, `GET /tasks/runs` (status/kind/queue/task/job
+  filters, keyset cursor, routine jobs hidden unless `include_routine`), `GET /tasks/runs/{id}` (with the log),
+  `GET /tasks/workers` (heartbeat health, running jobs, leader, queue figures, dead-letter count),
+  `GET /tasks/dead-letters`, `POST /tasks/dead-letters/{id}/retry` (one Lua step: queue a fresh job, delete the dead
+  letter, remember it in `jobs:dead:retried` so a repeat answers with the same job) and `DELETE` (idempotent). Audit
+  actions `task.update|run|retry|discard`. Job envelopes and runs carry `trigger` (schedule/manual/retry); worker
+  presence lists run ids and concurrency; `job_runs` index `status_started`. Live: the worker publishes progress and
+  log lines on `live:jobs`; the SSE topic `tasks` (admin only, 403 otherwise) carries `job.progress`, `job.log`,
+  `job.update` and `worker.update`. UI: the Tasks page replaces the placeholder (summary strip; Scheduled, Runs,
+  Workers and Dead letters tabs; schedule dialog; run drawer with a live log viewer), MSW mock job system with live
+  events, screenshot-tour entries, Vitest; integration tests for the API, dead letters, RBAC, audit and the topic.
 - T-S07: upstream auto-block, per-repository CA bundle and outbound HTTP proxy. Auto-block (`proxy.breaker`): after
   `auto_block.failures` (default 5) consecutive connection/DNS failures, timeouts, mid-body resets, 5xx or 429
   answers the upstream is blocked for `initial_s` (30 s), doubling after each failed probe up to `max_s` (30 min);
