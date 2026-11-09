@@ -3,6 +3,23 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-09
+- T-P2-DOCKERH: docker hosted repositories. Push side of the registry API (`formats/docker/hosted.py`): monolithic,
+  chunked and resumable blob uploads (`upload_sessions`, append lease, `Range`/`416`, upload status and cancel) into
+  resumable uploads of the blob store (`BlobStore.start_upload`/`resume_writer`, sha256 continued across requests or
+  re-hashed in a thread), cross-repository mounts (`?mount=&from=`, RBAC `read` on the source, proxy caches included),
+  manifest validation (media types, referenced blobs with sizes, index children, 4 MiB, digest), write policy
+  (`allow_redeploy`/`disable_redeploy`/`read_only`) and immutable tag patterns, deletes (tag, manifest, unreferenced
+  blob), the referrers API (`artifactType` filter, `OCI-Subject`), `tags/list` paging and `/v2/_catalog` (proxy and
+  hosted, filtered by RBAC; every caller may ask for `registry:catalog:*`). Registry `push`/`delete` grants also carry
+  `browse`; tags that cannot exist answer `404 MANIFEST_UNKNOWN` (read) / `400 TAG_INVALID` (push). New
+  `waystation_server.hosted.store` (`req.hosted`: receive as a live upload transfer, record, link with a GC claim,
+  serve by X-Accel, remove). Repositories: `hosted{write_policy, immutable_tag_patterns}` in the model, REST and
+  contract, descriptor `check_options` (docker aliases/Docker Hub only on proxies); UI create flow "Hosted" tile and
+  settings, live "UPLOAD" badge, MSW mocks. Audit `content.upload`/`content.delete` (no longer pending), activity
+  entries for pushes and deletes, upload transfers counted as `bytes_in_upload` (neither hits nor misses). "Set me up"
+  for docker, buildx, podman, crane, skopeo, oras and cosign. Client harness: `tests/clients/docker/hosted.sh` (docker
+  push, buildx multi-platform, crane, skopeo, oras, cosign 3 offline) and the OCI distribution-spec conformance suite
+  v1.1.1 (`client-conformance`), all passing in replay; client-docker image adds crane, oras and cosign (pinned).
 - T-V02: M0 feedback build tagged `v0.1.0-m0` (images build on Gitea; GitHub Actions run only for major releases).
 - CI: GitHub Actions run only for major releases (`vX.0.0` tags) or by hand (ci, release); the live-client run is
   manual only (no nightly schedule). Gitea keeps building images on every push to `main`.
