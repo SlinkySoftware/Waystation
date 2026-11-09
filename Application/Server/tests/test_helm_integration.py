@@ -302,3 +302,10 @@ async def test_group_merges_and_uploads(
     changed = await client.get('/repository/all/index.yaml', auth=auth)
     assert changed.headers['etag'] != got.headers['etag']
     assert [v['version'] for v in json.loads(served(services, changed))['entries']['demo']] == ['0.2.0', '0.1.0']
+
+    # a chart file removed behind the index's back (cleanup policy): the next rebuild drops its record
+    await services.db[ASSETS].delete_one({'path': 'demo-0.2.0.tgz'})
+    await run_index_job(services, 'mine')
+    index = json.loads(served(services, await client.get('/repository/mine/index.yaml', auth=auth)))
+    assert [v['version'] for v in index['entries']['demo']] == ['0.1.0']
+    assert await services.db[HELM_CHARTS].count_documents({'version': '0.2.0'}) == 0

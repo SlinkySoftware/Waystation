@@ -38,6 +38,19 @@ async def hosted_entries(db: Database, repo_id: str) -> list[Document]:
     return [doc async for doc in cursor]
 
 
+async def drop_missing(db: Database, repo_id: str, docs: list[Document]) -> list[Document]:
+    """``docs`` whose chart file is still stored; records of removed files (cleanup policies) are deleted."""
+    paths = [str(d['path']) for d in docs]
+    stored: set[str] = set()
+    for start in range(0, len(paths), 1000):
+        cursor = db[ASSETS].find({'repo_id': repo_id, 'path': {'$in': paths[start : start + 1000]}}, {'path': 1})
+        stored.update([str(a['path']) async for a in cursor])
+    gone = [d for d in docs if d['path'] not in stored]
+    for doc in gone:
+        await db[HELM_CHARTS].delete_one({'repo_id': repo_id, 'name': doc['name'], 'version': doc['version']})
+    return [d for d in docs if d['path'] in stored]
+
+
 async def publish_index(db: Database, repo_id: str, *, sha256: str, size: int, now: datetime) -> None:
     """Make the committed blob ``sha256`` the repository's ``index.yaml`` (one atomic document replace; clients see
     the old or the new index, never a mix). The repository's usage follows the size change."""

@@ -5,11 +5,20 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from waystation_common.db import jobs as jobs_db
 from waystation_common.db.blobs import MongoBlobGuard
 from waystation_common.db.jobs import Definition
 from waystation_common.events import keys
 from waystation_common.events.schema import ActivityEvent, EventType
-from waystation_common.jobs.model import BlobGc, CleanupRun, HelmIndex, QuotaReconcile, StatsRollup, StorageCheck
+from waystation_common.jobs.model import (
+    BlobGc,
+    CleanupRun,
+    HelmIndex,
+    JobEnvelope,
+    QuotaReconcile,
+    StatsRollup,
+    StorageCheck,
+)
 from waystation_common.storage import BlobStore
 from waystation_worker import cleanup, gc, helm, quota, rollup
 from waystation_worker.jobs.context import JobContext
@@ -45,6 +54,10 @@ async def cleanup_run(job: CleanupRun, ctx: JobContext) -> dict[str, Any]:
     if policy is None:
         return {'policy_id': job.policy_id, 'skipped': 'the policy was deleted', 'removed': 0, 'bytes': 0}
     await cleanup.record(ctx.valkey, ctx.emitter, policy, outcomes, now)
+    for outcome in outcomes:  # hosted Helm charts removed: their index must drop them (waystation_worker.helm)
+        if outcome.format == 'helm' and outcome.removed.items and outcome.repo_id:
+            envelope = JobEnvelope.for_payload(HelmIndex(repo_id=outcome.repo_id), now=now)
+            await jobs_db.outbox_add(ctx.db, envelope, now=now)
     return cleanup.summarise(policy, outcomes)
 
 
