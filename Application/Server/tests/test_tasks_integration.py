@@ -425,9 +425,11 @@ async def test_tasks_topic_streams_job_progress(vera: httpx.AsyncClient, service
         for task in tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-    assert [event for event, _ in frames] == ['job.progress', 'job.update']
-    assert (frames[0][1]['run_id'], frames[0][1]['done'], frames[0][1]['total']) == ('r1', 4, 8)
-    assert (frames[1][1]['event'], frames[1][1]['status']) == ('finished', 'succeeded')
+    by_type = dict(frames)  # pub/sub and the activity stream are separate loops: either may arrive first
+    assert sorted(by_type) == ['job.progress', 'job.update']
+    progress, update = by_type['job.progress'], by_type['job.update']
+    assert (progress['run_id'], progress['done'], progress['total']) == ('r1', 4, 8)
+    assert (update['event'], update['status']) == ('finished', 'succeeded')
     for _, data in frames:
         EVENTS.validate_python(data)
     assert hidden == []  # a viewer's subscription never carries job events
