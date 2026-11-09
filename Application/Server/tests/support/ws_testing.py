@@ -43,6 +43,21 @@ def asgi_client(services: Services, *, client: tuple[str, int] = ('127.0.0.1', 5
     return httpx.AsyncClient(transport=transport, base_url=BASE_URL)
 
 
+def iter_routes(app: Any) -> list[tuple[str, frozenset[str], object]]:
+    """Every route of ``app`` as ``(full path, methods, endpoint)``. FastAPI (>= 0.16x) keeps included routers as
+    ``_IncludedRouter`` entries in ``app.routes``; their routes are reached through ``effective_route_contexts``.
+    Plain Starlette routes come back with their endpoint too (the caller decides what is allowed)."""
+    out: list[tuple[str, frozenset[str], object]] = []
+    for route in app.routes:
+        contexts = getattr(route, 'effective_route_contexts', None)
+        if contexts is not None:
+            for ctx in contexts():
+                out.append((ctx.path, frozenset(ctx.methods or ()), ctx.endpoint))
+        else:
+            out.append((route.path, frozenset(getattr(route, 'methods', None) or ()), getattr(route, 'endpoint', None)))
+    return out
+
+
 def make_repo(name: str, fmt: str = 'raw', **fields: Any) -> RepoConfig:
     doc: dict[str, Any] = {
         '_id': f'id-{name}',

@@ -1,15 +1,14 @@
 """RBAC decision point (ARCHITECTURE §7): decisions, the route-enumeration test and an HTTP matrix."""
 
+import re
 from collections.abc import AsyncIterator
 
 import httpx
 import pytest
-from fastapi.routing import APIRoute
 from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
-from starlette.routing import Route
-from ws_testing import asgi_client, make_repo, static_catalog
+from ws_testing import asgi_client, iter_routes, make_repo, static_catalog
 
 from waystation_server.app import create_app
 from waystation_server.formats.base import FormatDescriptor, FormatRequest, UiHints
@@ -80,6 +79,8 @@ def test_capabilities() -> None:
         'repositories.manage',
         'stats.read',
         'audit.read',
+        'users.admin',
+        'settings.admin',
     ]
     assert access.capabilities(VIEWER) == ['stats.read']
     assert access.capabilities(ANONYMOUS) == []
@@ -92,15 +93,14 @@ def test_requires_rejects_repo_actions() -> None:
 
 def test_every_route_declares_its_access_rule() -> None:
     """ARCHITECTURE §7: a route without a declared action is a bug."""
-    app = create_app()
+    routes = iter_routes(create_app())
+    assert len(routes) > 80, 'the enumeration must see the included routers'
     missing = []
-    for route in app.routes:
-        if isinstance(route, APIRoute):
-            if access.route_rule(route.endpoint) is None:
-                missing.append(f'{sorted(route.methods)} {route.path}')
-        elif isinstance(route, Route):
-            # Framework routes outside the dependency system: only the public OpenAPI document is allowed.
-            assert route.path == '/api/v1/openapi.json', route.path
+    for path, methods, endpoint in routes:
+        if path == '/api/v1/openapi.json':
+            continue  # framework route outside the dependency system: the public OpenAPI document
+        if access.route_rule(endpoint) is None:
+            missing.append(f'{sorted(methods)} {path}')
     assert not missing, f'routes without an access rule: {missing}'
 
 
@@ -157,3 +157,29 @@ async def test_format_route_matrix(
 async def test_api_route_rules(matrix_client: httpx.AsyncClient) -> None:
     assert (await matrix_client.get('/api/v1/auth/me')).status_code == 401
     assert (await matrix_client.get('/api/v1/config')).status_code == 200
+
+
+def _api_routes(rule_kinds: set[str]) -> list[tuple[str, str, access.RouteAccess]]:
+    out = []
+    for path, methods, endpoint in iter_routes(create_app()):
+        rule = access.route_rule(endpoint)
+        if path.startswith('/api/v1/') and rule is not None and rule.kind in rule_kinds:
+            out.extend((method, re.sub(r'\{[^}]+\}', 'x', path), rule) for method in sorted(methods))
+    assert len(out) > 40
+    return out
+
+
+@pytest.mark.parametrize(('method', 'path', 'rule'), _api_routes({'global', 'authenticated'}))
+async def test_every_protected_api_route_refuses_anonymous_and_unprivileged(
+    matrix_client: httpx.AsyncClient, method: str, path: str, rule: access.RouteAccess
+) -> None:
+    """Route x principal matrix for the REST API: anonymous gets 401 wherever a principal is needed, and a reader and
+    a deployer (no global actions) get 403 on every route that needs one (decided by ``enforce`` before the handler
+    runs). The administrator column is ``test_identity_integration.test_admin_passes_every_access_rule``."""
+    body = {} if method in ('POST', 'PUT', 'PATCH') else None
+    anonymous = await matrix_client.request(method, path, json=body)
+    assert anonymous.status_code == 401, f'{method} {path}: {anonymous.status_code}'
+    if rule.kind == 'global':
+        for who in ('reader', 'deployer'):
+            denied = await matrix_client.request(method, path, json=body, headers={'Authorization': f'Bearer {who}'})
+            assert denied.status_code == 403, f'{who} {method} {path}: {denied.status_code}'
