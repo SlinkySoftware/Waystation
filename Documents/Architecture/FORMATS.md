@@ -76,7 +76,67 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
   - Mirror mode: Docker daemon `registry-mirrors` sends Hub names (`library/nginx`) to `/v2/` → default repo.
 - Hosted: tag immutability patterns, overwrite policy, manifest validation (all referenced blobs/manifests exist
   in the repo or are mountable), size limit, `subject` field for referrers (cosign/notation signatures, SBOMs).
+  Built (T-P2-DOCKERH, `formats/docker/hosted.py` on `waystation_server.hosted.store`):
+  - Layout: blobs are assets `blobs/<digest>` per repository (as in a proxy cache, so browse and cleanup work
+    unchanged); manifests `<image>/manifests/<digest>` plus a `docker_manifests` record (references, `subject`,
+    effective `artifactType` = `artifactType` else the config media type, size, annotations); tags in `docker_tags`
+    (`pushed_by`). Tags resolve through `docker_tags`; there are no tag assets.
+  - Uploads: `POST` starts a session (`upload_sessions`, a resumable file `uploads/<id>` in the blob store, 12 h
+    idle expiry); `PATCH` appends (with `Content-Range` it must start at the current offset, else `416` with the
+    current `Range`; without it the chunk is appended); `PUT ?digest=` appends the rest and commits after the sha256
+    matches; `GET` answers `204` + `Range`; `DELETE` cancels. One request appends at a time (session lease);
+    bytes a crashed request wrote past the acknowledged offset are cut off by the next one. `POST ?digest=` with the
+    body is a monolithic upload. Only sha256 uploads (`DIGEST_INVALID` otherwise). The sha256 continues
+    incrementally across requests in one process; another process re-hashes the file in a thread at commit.
+  - Mounts: `POST ?mount=<digest>&from=<name>`: `from` is resolved like any `/v2/` name (repository prefix, alias,
+    default), must be a docker repository the principal may `read` (the registry token must carry its `pull`
+    scope), and must hold the blob; the blob is then linked (claimed against GC), `201`. Otherwise an upload session
+    starts (`202`). A blob already in the target repository mounts without `from`.
+  - Manifest `PUT`: `Content-Type` (or the document's `mediaType` when the header is generic) must be a manifest or
+    index type and agree with `mediaType`; `schemaVersion` 2; descriptors well-formed; ≤ 4 MiB (`413`); by digest the
+    bytes must match it (sha256 or sha512). Blobs referenced by a manifest (config, layers; not
+    non-distributable/foreign layers) must be in the repository with the stated size (`MANIFEST_BLOB_UNKNOWN`,
+    `MANIFEST_INVALID`); manifests referenced by an index must be in the image (`MANIFEST_UNKNOWN`). The OCI empty
+    JSON blob (`{}`) is created when a manifest uses it. `201` with `Location`, `Docker-Content-Digest` and
+    `OCI-Subject` when the manifest has a subject (which need not exist yet).
+  - Write policy: `read_only` → `403 DENIED` for every push and delete; `disable_redeploy` → no existing tag moves
+    or is deleted; tags fully matching an `immutable_tag_patterns` regex never move or go away (`403 DENIED`).
+    Re-pushing the same digest to an immutable tag is fine.
+  - `DELETE /manifests/<tag>` removes the tag; `/manifests/<digest>` removes the manifest and its tags (not while an
+    immutable tag points at it); `/blobs/<digest>` removes a blob unless a manifest of the repository uses it (`405`,
+    so registries and the conformance suite treat blob delete as unsupported for referenced blobs). `202`.
+  - `GET /v2/<name>/referrers/<digest>`: an OCI index of the image's manifests whose subject is `<digest>` (always
+    `200`; ≤ 1000 entries), `artifactType` filter with `OCI-Filters-Applied: artifactType`.
+  - `tags/list`: lexical order, `n`/`last` with `Link`; no `n` = every tag (≤ 10 000); `404 NAME_UNKNOWN` when the
+    image has no tags. `GET /v2/_catalog` (any registry token carries `registry:catalog:*`): `<repo>/<image>` for every
+    tagged image of the docker repositories (proxy and hosted) the principal can see, by name, `n`/`last`/`Link`.
+  - A tag that cannot exist (fails the tag grammar, e.g. `.INVALID`) is `404 MANIFEST_UNKNOWN` when read or deleted
+    and `400 TAG_INVALID` when pushed (proxies too).
+  - Registry tokens: `push` and `delete` grants also carry `browse`, so a token with only `delete` (as conformance
+    clients request) sees the repository instead of getting the hidden-repository 404.
+  - Audit `content.upload` per pushed manifest and `content.delete` per delete (tag, manifest, blob); activity
+    `asset.created`/`asset.deleted`; blob uploads are live transfers with `direction: upload` (counted as
+    `bytes_in_upload`, neither hits nor misses).
+  - Tested: unit + integration (`Application/Server/tests/test_docker_hosted_*.py`), real clients in
+    `tests/clients/docker/hosted.sh` (docker push, buildx multi-platform with attestations, pulls per platform,
+    immutability, crane copy with mounts from the proxy, skopeo copy --all, oras push/pull/attach/discover, cosign 3
+    sign/verify offline via the referrers API, crane delete, browse and audit) and the OCI distribution-spec
+    conformance suite v1.1.1 (pull, push, content discovery, content management: all specs pass).
 - Group: read through members; tag lists merged; push goes to `writable_member`.
+  Built (T-P2-DOCKERG, `formats/docker/group.py`): members are docker proxy or hosted repositories by name, in order
+  (offline or missing ones skipped). Manifests (tag or digest): the first member that answers; a 404 moves on, an
+  upstream failure (5xx, 401/403/429) moves on and is returned only when no member answers. Blobs: every member's
+  stored/cached `blobs/<digest>` first (served by X-Accel, no upstream), then a `GET` asks members in order; a `HEAD`
+  never goes upstream (it is how pushes check for existing layers, and pushed names must not reach public
+  registries). `tags/list`: union of hosted members' tags and proxy members' upstream first page (cached as their
+  `tags/list`), sorted, `n`/`last`/`Link`; `404 NAME_UNKNOWN` when no member knows the name. Referrers: union over hosted
+  members. Writes (manifest `PUT`/`DELETE`, uploads incl. status and cancel, blob `DELETE`) go to the writable member
+  with the request otherwise unchanged (so `Location` keeps the group's name and a push continues through the group);
+  the principal needs the action on the group (router) and on the member (`req.allows_member`, RBAC without the
+  registry token's per-repository grants); none configured → `405 UNSUPPORTED`. Answers from a member carry
+  `X-Ws-Group-Member`. A mount `from` a group looks at its members' copies. Statistics count on the member that
+  served. Note: a manifest `HEAD`/`GET` for a name only a hosted member has still asks the proxy members' upstreams
+  when it misses there (as Nexus groups do); put hosted members first.
 - Clients to test: docker (BuildKit), podman, containerd/nerdctl (`hosts.toml` mirror with and without
   `override_path`), skopeo, crane, oras (artifacts), helm (OCI charts), cosign (signatures via referrers).
 - Browse (T-S09 min): every cached manifest is parsed in the background (thread, bounded) into `docker_manifests`

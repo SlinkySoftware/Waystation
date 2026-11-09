@@ -2307,6 +2307,24 @@ export interface components {
              */
             max_s: number;
         };
+        /**
+         * @description `allow_redeploy`: versions/tags may be overwritten; `disable_redeploy`: never; `read_only`: no uploads at all
+         * @enum {string}
+         */
+        WritePolicy: "allow_redeploy" | "disable_redeploy" | "read_only";
+        /** @description Hosted repositories only (defaults when omitted) */
+        HostedConfig: {
+            write_policy?: components["schemas"]["WritePolicy"];
+            /** @description Docker: regular expressions (full match); a matching tag never moves once pushed, e.g. `v[0-9]+\.[0-9]+\.[0-9]+` */
+            immutable_tag_patterns?: string[];
+        };
+        /** @description Group repositories only (required for them) */
+        GroupConfig: {
+            /** @description Member repository names in resolution order (same format; proxy or hosted) */
+            members: string[];
+            /** @description Docker: the hosted member that receives pushes sent to the group; null = the group is read-only */
+            writable_member?: string | null;
+        };
         DockerOptions: {
             /** @description Upstream aliases routed to this repo, e.g. `docker.io`, `ghcr.io` (SPEC §4.4) */
             aliases?: string[];
@@ -2365,6 +2383,8 @@ export interface components {
             online: boolean;
             description?: string;
             proxy?: components["schemas"]["ProxyConfig"];
+            hosted?: components["schemas"]["HostedConfig"];
+            group?: components["schemas"]["GroupConfig"];
             format_options?: components["schemas"]["FormatOptions"];
         };
         RepositorySummaryStats: {
@@ -2393,6 +2413,8 @@ export interface components {
              */
             url: string;
             proxy?: components["schemas"]["ProxyConfig"];
+            hosted?: components["schemas"]["HostedConfig"];
+            group?: components["schemas"]["GroupConfig"];
             format_options?: components["schemas"]["FormatOptions"];
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];

@@ -35,6 +35,7 @@ APT_POOL_INDEX = 'apt_pool_index'
 APT_PACKAGES = 'apt_packages'
 NPM_PACKAGES = 'npm_packages'
 YUM_PACKAGES = 'yum_packages'
+UPLOAD_SESSIONS = 'upload_sessions'
 # --- operations, stats, audit
 AUDIT = 'audit'
 STATS_MINUTE = 'stats_minute'
@@ -184,6 +185,17 @@ SPECS: tuple[CollectionSpec, ...] = (
                 unique=True,
             ),
             _ix('repo_subject_digest', [('repo_id', ASCENDING), ('subject_digest', ASCENDING)]),
+            # Hosted: is a blob still referenced by a manifest of the repository (blob delete)?
+            _ix('repo_config_digest', [('repo_id', ASCENDING), ('config_digest', ASCENDING)]),
+            _ix('repo_layer_digest', [('repo_id', ASCENDING), ('layers.digest', ASCENDING)]),
+        ),
+    ),
+    # Resumable hosted uploads (OCI chunked blob uploads); expire after the idle timeout.
+    CollectionSpec(
+        UPLOAD_SESSIONS,
+        (
+            _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
+            _ix('repo_id', [('repo_id', ASCENDING)]),
         ),
     ),
     CollectionSpec(

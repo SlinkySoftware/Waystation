@@ -11,21 +11,24 @@ hands it to the format plugin. Unknown repositories answer the format's native 4
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from waystation_common.errors import NotFound, PathRejected
 from waystation_common.paths import normalise
 from waystation_server import registry_auth
+from waystation_server.db import docker as docker_db
 from waystation_server.formats.base import FormatRequest, Root
 from waystation_server.problems import native_error, oci_error
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security import access
 from waystation_server.security.actions import Action
 from waystation_server.security.authn import authenticate
-from waystation_server.security.principal import AuthMethod
+from waystation_server.security.principal import AuthMethod, Principal
 from waystation_server.services import Services
 
 FORMAT_METHODS = ['GET', 'HEAD', 'PUT', 'POST', 'PATCH', 'DELETE']
@@ -61,10 +64,17 @@ async def resolve_docker(services: Services, name_path: str) -> DockerRoute | No
     return None
 
 
-async def _dispatch(request: Request, repo: RepoConfig, root: Root, path: str) -> Response:
+async def _resolve_name(services: Services, name: str) -> tuple[RepoConfig, str] | None:
+    route = await resolve_docker(services, name)
+    return (route.repo, route.path) if route is not None else None
+
+
+async def _dispatch(
+    request: Request, repo: RepoConfig, root: Root, path: str, *, action: Action | None = None
+) -> Response:
     services = services_of(request)
     request.state.log.update(repo=repo.name, format=repo.format)
-    action = access.method_action(request.method)
+    action = action or access.method_action(request.method)
     descriptor = services.formats.descriptor(repo.format)
     if request.method == 'POST' and descriptor is not None and path in descriptor.read_posts:
         action = Action.READ  # a query sent as POST (npm audit), declared by the format
@@ -83,8 +93,15 @@ async def _dispatch(request: Request, repo: RepoConfig, root: Root, path: str) -
         path=path,
         principal=principal,
         proxy=services.proxy,
+        hosted=services.hosted,
         base_url=services.base_url,
         _require=lambda action: access.require_repo(principal, action, repo),
+        _allows=lambda action, other: access.check(principal, action, other),
+        _resolve=lambda name: _resolve_name(services, name),
+        _repository=services.catalog.get,
+        _allows_member=lambda action, member: access.check(
+            dataclasses.replace(principal, token_access=None), action, member
+        ),
     )
     return await plugin.handle(req)
 
@@ -102,6 +119,43 @@ async def repository(request: Request, repo_name: str, path: str = '') -> Respon
     except PathRejected as exc:
         return native_error(400, exc.detail)
     return await _dispatch(request, repo, 'repository', clean)
+
+
+CATALOG_DEFAULT_N = 1000
+CATALOG_MAX_N = 10_000
+
+
+async def catalog(request: Request, services: Services, principal: Principal) -> Response:
+    """``GET /v2/_catalog`` (``n``/``last``, ``Link``): ``<repository>/<image>`` for every tagged image of the docker
+    repositories the principal can see (RBAC with its API token limits; the registry token's per-repository grants do
+    not apply here), by name."""
+    n_raw, last = request.query_params.get('n'), request.query_params.get('last') or None
+    if n_raw is not None and (not n_raw.isdigit() or int(n_raw) > CATALOG_MAX_N):
+        return oci_error(
+            400, 'invalid number of results requested', code='PAGINATION_NUMBER_INVALID', headers=DOCKER_API_VERSION
+        )
+    limit = int(n_raw) if n_raw is not None else CATALOG_DEFAULT_N
+    viewer = dataclasses.replace(principal, token_access=None)
+    repos = sorted(
+        (r for r in await services.catalog.all() if r.format == 'docker' and access.can_see(viewer, r)),
+        key=lambda r: r.name,
+    )
+    last_repo, _, last_image = (last or '').partition('/')
+    names: list[str] = []
+    for repo in repos:
+        if len(names) > limit:
+            break
+        if last and repo.name < last_repo:
+            continue
+        after = last_image if last and repo.name == last_repo else None
+        images = await docker_db.image_names(services.db, repo.id, after=after, limit=limit + 1 - len(names))
+        names.extend(f'{repo.name}/{image}' for image in images)
+    headers = dict(DOCKER_API_VERSION)
+    if len(names) > limit:
+        names = names[:limit]
+        if names:
+            headers['Link'] = f'</v2/_catalog?{urlencode({"n": limit, "last": names[-1]})}>; rel="next"'
+    return JSONResponse({'repositories': names}, headers=headers)
 
 
 async def v2_base(request: Request) -> Response:
@@ -127,10 +181,13 @@ async def docker_v2(request: Request, name_path: str = '') -> Response:
     if clean == '':
         return await v2_base(request)
     if clean == '_catalog':
-        return oci_error(404, 'catalog is not available yet', code='UNSUPPORTED', headers=DOCKER_API_VERSION)
+        if not registry_auth.token_allows(principal, registry_auth.CATALOG, Action.BROWSE):
+            return registry_auth.challenge(services, scope=scope, error='insufficient_scope')
+        return await catalog(request, services, principal)
     route = await resolve_docker(services, clean)
     if route is None:
         return oci_error(404, 'repository name not known to registry', headers=DOCKER_API_VERSION)
-    if not registry_auth.token_allows(principal, route.repo.name, access.method_action(request.method)):
+    action = registry_auth.request_action(clean, request.method)
+    if not registry_auth.token_allows(principal, route.repo.name, action):
         return registry_auth.challenge(services, scope=scope, error='insufficient_scope')
-    return await _dispatch(request, route.repo, 'v2', route.path)
+    return await _dispatch(request, route.repo, 'v2', route.path, action=action)

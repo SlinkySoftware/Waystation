@@ -52,6 +52,41 @@ describe('repository form model', () => {
     expect(w.proxy?.metadata_max_age_s).toBe(3600)
   })
 
+  it('builds a hosted docker repository (no upstream, write policy and immutable tags)', () => {
+    const m = { ...emptyModel('docker', 'hosted'), name: 'docker-hosted', immutableTags: [' v[0-9]+ ', ''], writePolicy: 'disable_redeploy' as const, aliases: ['ignored'] }
+    const w = toWrite(m)
+    expect(w).toEqual({
+      name: 'docker-hosted',
+      format: 'docker',
+      type: 'hosted',
+      online: true,
+      description: '',
+      hosted: { write_policy: 'disable_redeploy', immutable_tag_patterns: ['v[0-9]+'] },
+      format_options: { aliases: [], docker_hub: false, default_repo: false },
+    })
+    expect(w.proxy).toBeUndefined()
+    const back = modelFromRepository({ ...w, status: 'ok', url: '', created_at: '', updated_at: '', stats: {} } as unknown as Repository)
+    expect(back.type).toBe('hosted')
+    expect(back.writePolicy).toBe('disable_redeploy')
+    expect(back.immutableTags).toEqual(['v[0-9]+'])
+  })
+
+  it('builds a docker group (members in order, writable member only when it is a member)', () => {
+    const m = { ...emptyModel('docker', 'group'), name: 'docker-all', members: ['docker-hosted', 'docker-hub'], writableMember: 'docker-hosted' }
+    expect(toWrite(m)).toEqual({
+      name: 'docker-all',
+      format: 'docker',
+      type: 'group',
+      online: true,
+      description: '',
+      group: { members: ['docker-hosted', 'docker-hub'], writable_member: 'docker-hosted' },
+      format_options: { aliases: [], docker_hub: false, default_repo: false },
+    })
+    expect(toWrite({ ...m, writableMember: 'gone' }).group?.writable_member).toBeNull()
+    const back = modelFromRepository({ ...toWrite(m), status: 'ok' } as unknown as Repository)
+    expect(back).toMatchObject({ type: 'group', members: ['docker-hosted', 'docker-hub'], writableMember: 'docker-hosted' })
+  })
+
   it('maps the network and auto-block options', () => {
     const m = { ...emptyModel('raw'), name: 'files', upstreamUrl: 'https://files.example.com' }
     expect(toWrite(m).proxy).toMatchObject({ ca_pem: null, http_proxy: null, auto_block: { enabled: true, failures: 5, initial_s: 30, max_s: 1800 } })

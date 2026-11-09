@@ -5,7 +5,35 @@ import type { AptOptions, DockerOptions, Repository, SetupClient, SetupGuide } f
 
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 
+function dockerHosted(repo: Repository): SetupClient[] {
+  const image = `${REGISTRY_HOST}/${repo.name}/myapp`
+  const snippet = (id: string, title: string, content: string): SetupClient['snippets'][number] => ({ id, title, language: 'shell', filename: null, os: null, content })
+  return [
+    {
+      id: 'docker',
+      label: 'Docker',
+      snippets: [
+        { ...snippet('docker-login', 'Sign in (an API token as the password)', `echo "{{TOKEN}}" | docker login ${REGISTRY_HOST} --username {{USERNAME}} --password-stdin`), description: 'Pushing needs write permission on this repository; use an API token with the write scope.' },
+        snippet('docker-push', 'Tag and push an image', `docker tag myapp:1.0 ${image}:1.0\ndocker push ${image}:1.0`),
+        snippet('docker-buildx', 'Build and push a multi-platform image', `docker buildx build --platform linux/amd64,linux/arm64 -t ${image}:1.0 --push .`),
+        snippet('docker-pull', 'Pull', `docker pull ${image}:1.0`),
+      ],
+    },
+    { id: 'podman', label: 'Podman', snippets: [snippet('podman-push', 'Push and pull with podman', `podman login ${REGISTRY_HOST}\npodman push myapp:1.0 ${image}:1.0\npodman pull ${image}:1.0`)] },
+    {
+      id: 'oci-tools',
+      label: 'crane, skopeo, oras, cosign',
+      snippets: [
+        snippet('crane-copy', 'Copy an image from another registry (crane, skopeo)', `crane copy registry.example.com/team/app:1.0 ${image}:1.0\nskopeo copy --all docker://registry.example.com/team/app:1.0 docker://${image}:1.0`),
+        snippet('oras-push', 'Push and pull an OCI artifact (oras)', `oras push ${image}-docs:1.0 README.md:text/markdown\noras pull ${image}-docs:1.0`),
+        snippet('cosign-sign', 'Sign and verify an image (cosign; signatures are stored next to the image)', `cosign sign --key cosign.key ${image}@sha256:<digest>\ncosign verify --key cosign.pub ${image}:1.0`),
+      ],
+    },
+  ]
+}
+
 function docker(repo: Repository): SetupClient[] {
+  if (repo.type === 'hosted' || repo.type === 'group') return dockerHosted(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const alias = opts.aliases?.[0]
   const hub = Boolean(repo.proxy?.upstream_url.includes('docker.io'))

@@ -19,8 +19,10 @@ Browse (``browser``, ``formats.docker.browse``): every cached manifest is record
 cached tag manifest in ``docker_tags``, in the background after the fill (parsed in a thread). A tag resolved by an
 upstream ``HEAD`` (how the Docker daemon pulls) is recorded in ``docker_tags`` from its ``Docker-Content-Digest``.
 
-Not yet (later tasks): hosted/group repositories, ``_catalog`` and the referrers API (404 makes clients fall back to
-the tag schema).
+Hosted repositories (push, delete, referrers API) are served by ``formats.docker.hosted.DockerHosted``, group
+repositories (members in order, merged tag lists, pushes to the writable member) by
+``formats.docker.group.DockerGroup``. Not yet: the referrers API for proxies (404 makes clients fall back to the tag
+schema).
 """
 
 from __future__ import annotations
@@ -40,6 +42,8 @@ from waystation_server.formats.common.background import Background
 from waystation_server.formats.docker import protocol as p
 from waystation_server.formats.docker.browse import DockerBrowse, parse_manifest
 from waystation_server.formats.docker.descriptor import DESCRIPTOR, DockerOptions
+from waystation_server.formats.docker.group import DockerGroup
+from waystation_server.formats.docker.hosted import DockerHosted
 from waystation_server.formats.docker.upstream_auth import RegistryAuth, TokenCache
 from waystation_server.problems import oci_error
 from waystation_server.proxy.engine import (
@@ -52,7 +56,7 @@ from waystation_server.proxy.engine import (
     UpstreamInfo,
 )
 from waystation_server.proxy.http import network_of
-from waystation_server.repos.model import AuthKind, secret_aad
+from waystation_server.repos.model import AuthKind, RepoType, secret_aad
 
 API_VERSION = 'Docker-Distribution-API-Version'
 API_HEADERS = {API_VERSION: 'registry/2.0'}
@@ -100,6 +104,8 @@ class DockerPlugin:
     def __init__(self) -> None:
         self.tokens = TokenCache()
         self.browser = DockerBrowse()
+        self.hosted = DockerHosted()
+        self.group = DockerGroup(serve=self.serve, proxy_tags=self.proxy_tags)
         self._indexing = Background('docker-manifests')
 
     async def drain(self) -> None:
@@ -115,7 +121,19 @@ class DockerPlugin:
         try:
             op = p.parse(path)
         except p.RequestRejected as exc:
+            if exc.code == 'MANIFEST_INVALID':  # a tag that cannot exist: unknown when read, invalid when pushed
+                if req.method == 'PUT':
+                    return _error(400, 'invalid tag', 'TAG_INVALID')
+                return _error(404, 'manifest unknown to registry', 'MANIFEST_UNKNOWN')
             return _error(exc.status, exc.message, exc.code)
+        if req.repo.type is RepoType.GROUP:
+            return await self.group.handle(req, op)
+        return await self.serve(req, op)
+
+    async def serve(self, req: FormatRequest, op: p.Operation) -> Response:
+        """Answer ``op`` from a proxy or hosted repository (``req.repo``; also a group's member)."""
+        if req.repo.type is RepoType.HOSTED:
+            return await self.hosted.handle(req, op)
         if req.method not in ('GET', 'HEAD'):
             return _error(405, 'this repository is a read-only proxy', 'UNSUPPORTED')
         if op.op == 'base':
@@ -143,9 +161,30 @@ class DockerPlugin:
             self._record_head_tag(req, op, name, response)
         return self._finish(req, response, op)
 
+    async def proxy_tags(self, req: FormatRequest, image: str) -> list[str]:
+        """The tags a proxy repository's upstream lists for ``image`` (first page, cached like ``tags/list``), for a
+        group's merged list. Raises ``WaystationError`` (``NotFound``...) when the upstream has none."""
+        if req.repo.proxy is None:
+            return []
+        options = DockerOptions.model_validate(req.repo.format_options)
+        name = p.upstream_name(image, docker_hub=options.docker_hub)
+        op = p.Operation('tags', image)
+        spec = self._spec(req, op, name, _Upstream(req), query={})
+        asset = await req.proxy.ensure(req, spec)
+        data = await req.proxy.read(asset, max_bytes=p.TAGS_MAX_BYTES)
+        return p.tag_names(data)
+
     # -------------------------------------------------------------- specs
-    def _spec(self, req: FormatRequest, op: p.Operation, name: str, upstream: _Upstream) -> AssetSpec:
-        spec = self._asset(req, op, name)
+    def _spec(
+        self,
+        req: FormatRequest,
+        op: p.Operation,
+        name: str,
+        upstream: _Upstream,
+        *,
+        query: dict[str, str] | None = None,
+    ) -> AssetSpec:
+        spec = self._asset(req, op, name, query)
         return dataclasses.replace(
             spec,
             authenticator=self._auth(req, name),
@@ -196,7 +235,7 @@ class DockerPlugin:
         self._indexing.spawn((repo_id, 'head', name, tag), index)
 
     @staticmethod
-    def _asset(req: FormatRequest, op: p.Operation, name: str) -> AssetSpec:
+    def _asset(req: FormatRequest, op: p.Operation, name: str, query: dict[str, str] | None = None) -> AssetSpec:
         if op.op == 'blob':
             return AssetSpec(
                 path=f'blobs/{op.reference}',
@@ -232,7 +271,8 @@ class DockerPlugin:
                 revalidate_head=_same_digest,
                 artifact=f'{name}:{op.reference}',
             )
-        query = p.tags_query(req.request.query_params)
+        if query is None:
+            query = p.tags_query(req.request.query_params)
         encoded = urlencode(query)
         return AssetSpec(
             path=f'{name}/tags/list' + (f';{encoded}' if encoded else ''),
