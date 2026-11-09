@@ -16,10 +16,13 @@ from waystation_server.api.auth import registry_host
 from waystation_server.api.deps import ServicesDep
 from waystation_server.audit import AuditAction
 from waystation_server.formats.base import SetupClient, SetupContext
+from waystation_server.problems import FieldErrors
 from waystation_server.proxy import probe as probe_mod
+from waystation_server.proxy.http import Network
 from waystation_server.repos import service
 from waystation_server.repos.model import RepoConfig, RepoType
 from waystation_server.repos.schemas import (
+    AutoBlockConfig,
     Format,
     ProxyConfig,
     RepositoryStatus,
@@ -114,6 +117,9 @@ def _proxy_view(repo: RepoConfig) -> ProxyConfig | None:
         stale_on_error=p.stale_on_error,
         offline=p.offline,
         allow_private_upstream=p.allow_private_upstream,
+        ca_pem=p.ca_pem,
+        http_proxy=p.http_proxy,
+        auto_block=AutoBlockConfig(**p.auto_block.model_dump()),
     )
 
 
@@ -234,6 +240,8 @@ async def test_upstream(body: UpstreamTestRequest, request: Request, svc: Servic
         options = descriptor.parse_options(body.format_options)
     except ValueError as exc:
         raise ValidationFailed(f'invalid format_options: {exc}') from None
+    if errors := await service.check_network(body.proxy):
+        raise FieldErrors(errors)
     auth = body.proxy.auth
     secret = auth.secret
     if secret is None and existing is not None and existing.proxy is not None and existing.proxy.auth.kind is auth.kind:
@@ -242,7 +250,11 @@ async def test_upstream(body: UpstreamTestRequest, request: Request, svc: Servic
         svc.upstream,
         upstream_url=body.proxy.upstream_url,
         probe_path=descriptor.probe_path(options),
-        allow_private=body.proxy.allow_private_upstream,
+        network=Network(
+            allow_private=body.proxy.allow_private_upstream,
+            ca_pem=(body.proxy.ca_pem or '').strip() or None,
+            http_proxy=(body.proxy.http_proxy or '').strip() or None,
+        ),
         headers=probe_mod.auth_headers(auth.kind.value, auth.username, secret),
     )
     outcome = UpstreamTestResult(
