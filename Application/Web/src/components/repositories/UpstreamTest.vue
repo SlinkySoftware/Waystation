@@ -39,7 +39,7 @@ const result = ref<UpstreamTestResult | null>(null)
 const error = ref<string | null>(null)
 
 watch(
-  () => [props.model.upstreamUrl, props.model.authKind],
+  () => [props.model.upstreamUrl, props.model.authKind, props.model.caPem, props.model.httpProxy],
   () => {
     result.value = null
     error.value = null

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from waystation_common.events import keys
+from waystation_server.proxy.breaker import BlockState
 from waystation_server.repos.model import RepoConfig, RepoType
 from waystation_server.services import Services
 from waystation_server.stats import series
@@ -35,6 +36,7 @@ class Health:
     consecutive_failures: int = 0
     last_latency_ms: float | None = None
     rate_limit: dict[str, str] = field(default_factory=dict)
+    block: BlockState = field(default_factory=BlockState)
 
 
 def _when(value: str | None) -> datetime | None:
@@ -74,6 +76,7 @@ def parse_health(raw: dict[str, str], rate: dict[str, str]) -> Health:
         consecutive_failures=int(raw.get('consecutive_failures') or 0),
         last_latency_ms=float(latency) if latency else None,
         rate_limit=dict(rate),
+        block=BlockState.parse(raw),
     )
 
 
@@ -81,6 +84,8 @@ def status_of(repo: RepoConfig, h: Health | None, *, now: datetime | None = None
     if not repo.online or (repo.proxy is not None and repo.proxy.offline):
         return 'offline'
     now = now or datetime.now(UTC)
+    if h is not None and h.block.blocked and repo.proxy is not None and repo.proxy.auto_block.enabled:
+        return 'blocked'  # including an ended period whose probe is still due or running
     if h is not None and h.consecutive_failures > 0 and h.last_error_at and now - h.last_error_at < DEGRADED_WINDOW:
         return 'degraded'
     return 'ok'

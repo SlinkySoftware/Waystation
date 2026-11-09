@@ -77,7 +77,10 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
   pill, URL (copy button), size, artifacts, hit ratio (24 h), requests (24 h) sparkline, last activity.
   Filters: format, type, status; search box.
 - "Create repository" → format picker (large icon tiles) → type → form (FormDialog, sectioned, inline validation,
-  "Test upstream" button showing reachability, auth result and sample latency).
+  "Test upstream" button showing reachability, auth result and sample latency). Advanced sections collapse and
+  open by themselves when they hold a setting or a field error: **Caching and resilience** (max ages, stale on error,
+  offline, private upstream, auto-block threshold and periods) and **Network and TLS** (outbound HTTP proxy, extra
+  CA certificates as PEM). The overview's upstream card shows "Auto-blocked: next probe in m:ss" while blocked.
 - Repository detail page: header (icon, name, type, status, URL copy, **Set me up** button), KPI strip, tabs:
   **Overview** (charts for this repo, upstream health, top artifacts), **Browse**, **Packages**, **Activity**,
   **Settings**, **Cleanup** (attached policies + last runs + preview), **Members** (groups).

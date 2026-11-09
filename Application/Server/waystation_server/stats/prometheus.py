@@ -141,6 +141,11 @@ class ClusterMetrics:
         failures = _gauge(
             'waystation_upstream_consecutive_failures', 'Upstream failures since its last success.', ['repo']
         )
+        blocked = _gauge(
+            'waystation_upstream_blocked_until_timestamp_seconds',
+            'When the auto-block of the upstream ends (Unix time; only while it is blocked).',
+            ['repo'],
+        )
         limit = _gauge('waystation_upstream_ratelimit_limit', 'Latest rate limit reported by the upstream.', ['repo'])
         remaining = _gauge(
             'waystation_upstream_ratelimit_remaining', 'Latest remaining requests reported by the upstream.', ['repo']
@@ -156,6 +161,8 @@ class ClusterMetrics:
             health = repo_stats.parse_health(results[2 * i], results[2 * i + 1])
             state.add_metric([repo.name], STATE_CODES[repo_stats.status_of(repo, health, now=now)])
             failures.add_metric([repo.name], health.consecutive_failures)
+            if health.block.blocked_until is not None and repo.proxy is not None and repo.proxy.auto_block.enabled:
+                blocked.add_metric([repo.name], health.block.blocked_until.timestamp())
             rate = health.rate_limit
             lim, rem = _int(rate.get('limit')), _int(rate.get('remaining'))
             if lim is None or rem is None:
@@ -166,7 +173,7 @@ class ClusterMetrics:
                 window.add_metric([repo.name], win)
             if (at := _when(rate.get('seen_at'))) is not None:
                 seen.add_metric([repo.name], at.timestamp())
-        return [state, failures, limit, remaining, window, seen]
+        return [state, failures, blocked, limit, remaining, window, seen]
 
     async def _jobs(self) -> Families:
         queue = JobQueue(self._svc.valkey)

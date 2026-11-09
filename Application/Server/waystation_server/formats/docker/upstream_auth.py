@@ -31,7 +31,7 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 
 from waystation_common.errors import UpstreamError
-from waystation_server.proxy.http import UpstreamClients
+from waystation_server.proxy.http import Network, UpstreamClients
 
 log = logging.getLogger('waystation.formats.docker')
 
@@ -122,6 +122,7 @@ class RegistryAuth:
     upstream_url: str
     scope: str
     allow_private: bool = False
+    network: Network | None = None  # the repository's network options (CA bundle, outbound proxy); wins
     credentials: Callable[[], tuple[str, str] | None] = lambda: None  # (username, password) for token/basic
     bearer: Callable[[], str | None] = lambda: None  # a static bearer secret (no negotiation)
     _basic_sent: bool = False  # this request already offered the Basic credentials
@@ -175,9 +176,7 @@ class RegistryAuth:
         base = self.upstream_url
         url = (base if base.endswith('/') else base + '/') + 'v2/'
         try:
-            client = self.clients.client_for(url, allow_private=self.allow_private)
-            if self.clients.proxy:
-                await self.clients.precheck(url, allow_private=self.allow_private)
+            client = await self.clients.client(url, self.network or Network(allow_private=self.allow_private))
             async with client.stream('GET', url, headers={'Accept': 'application/json'}) as response:
                 header = response.headers.get('www-authenticate', '') if response.status_code == 401 else ''
         except (httpx.HTTPError, UpstreamError, ValueError) as exc:
@@ -208,9 +207,7 @@ class RegistryAuth:
         headers: dict[str, str] = {'Accept': 'application/json'}
         headers.update(self._basic_header())
         try:
-            client = self.clients.client_for(url, allow_private=self.allow_private)
-            if self.clients.proxy:
-                await self.clients.precheck(url, allow_private=self.allow_private)
+            client = await self.clients.client(url, self.network or Network(allow_private=self.allow_private))
             async with client.stream('GET', url, headers=headers) as response:
                 if response.status_code != 200:
                     log.warning('upstream token request failed', extra={'status': response.status_code})

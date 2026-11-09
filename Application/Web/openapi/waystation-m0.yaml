@@ -2740,6 +2740,17 @@ components:
         stale_on_error: { type: boolean, default: true }
         offline: { type: boolean, default: false }
         allow_private_upstream: { type: boolean, default: false }
+        ca_pem: { type: [string, 'null'], maxLength: 262144, description: 'Extra CA certificates (PEM) trusted for this upstream, in addition to the system ones' }
+        http_proxy: { type: [string, 'null'], maxLength: 2048, description: 'Outbound HTTP proxy for this upstream (`http://host:port`, no credentials); null = the server-wide proxy' }
+        auto_block: { $ref: '#/components/schemas/AutoBlockConfig' }
+    AutoBlockConfig:
+      type: object
+      description: 'Stop calling a failing upstream for a while (SPEC §4.1): after `failures` consecutive failures (connection, timeout, 5xx, 429) block it for `initial_s`, doubling after every failed probe up to `max_s`'
+      properties:
+        enabled: { type: boolean, default: true }
+        failures: { type: integer, minimum: 1, maximum: 1000, default: 5, description: Consecutive upstream failures that block it }
+        initial_s: { type: integer, minimum: 1, maximum: 86400, default: 30, description: First block period (seconds) }
+        max_s: { type: integer, minimum: 1, maximum: 604800, default: 1800, description: 'Longest block period (seconds); the period doubles after every failed probe' }
     DockerOptions:
       type: object
       properties:

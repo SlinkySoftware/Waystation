@@ -66,10 +66,19 @@ Windows containers support for the server.
 - **Negative cache** of 404s (default 10 min, per repo).
 - **Serve stale on error**: if the upstream errors or times out and a cached copy exists, serve it and flag the
   repo "degraded" (default on). **Offline mode** per repo: never contact the upstream.
-- **Auto-block**: after N consecutive upstream failures, stop calling it for an exponential backoff period
-  (visible in the UI); probes resume automatically.
+- **Auto-block** (per repo `auto_block`: on by default, 5 failures, 30 s doubling to 30 min): after N consecutive
+  upstream failures (connection or DNS failure, timeout, reset mid-body, 5xx, 429; 4xx, digest mismatches and SSRF
+  refusals do not count) stop calling it for an exponential backoff period: requests are answered from the cache
+  (stale-on-error) or with 503 + `Retry-After`. When the period ends, one request (or the server's background prober,
+  using the format's probe path) probes the upstream: success lifts the block, failure doubles the period up to the
+  maximum. Shown in upstream health (status `blocked` with `blocked_until`, a countdown in the UI), `upstream.state`
+  events, activity and metrics; saving the repository clears a block.
 - Upstream credentials per repo (basic, bearer, Docker Hub token login, GHCR PAT), stored encrypted.
-- Upstream TLS: verify by default; per-repo custom CA bundle; optional HTTP proxy per repo or global.
+- Upstream TLS: verify by default; per-repo custom CA bundle (`ca_pem`, added to the system CAs and
+  `WAYSTATION_EXTRA_CA_FILE` for that repo only); optional HTTP proxy per repo (`http_proxy`, no credentials) or
+  global (`WAYSTATION_HTTP_PROXY` / `WAYSTATION_NO_PROXY`, credentials allowed). Through a proxy the SSRF guard
+  checks every hop's target before the request; a repo with `allow_private_upstream` may use names only the proxy
+  resolves.
 - Respect and surface upstream rate limits (Docker Hub `ratelimit-remaining`, `Retry-After`); HEAD where the
   protocol allows to avoid consuming quota.
 - Content validation: verify digests/checksums the protocol provides (OCI digests, npm `integrity`, PyPI
@@ -688,7 +697,7 @@ Waystation/
 | Browse UI (T-U05 min) | M0 slice 2026-11-08 (built on mocks, now on the real API, T-S09 min): docker images/tags/manifest, npm packages/versions, apt suites/packages, raw folder listing. Screenshot tour of the real server (both themes, desktop + mobile): `Documents/Notes/UI_TOUR_M0.md` |
 | Browse API (T-S09 min) | M0 slice 2026-11-08: generic folder listing of cached assets for every format, npm packages/versions, apt suites/packages, docker images/tags/manifest, to the M0 contract; indexing in the background after cache fills (`npm_packages`, `apt_packages`, `docker_tags`/`docker_manifests`); every browse query index-backed (explain test); the raw, npm, apt and docker real-client harness runs check it. Components, `version_sort`, download counters and "where used" pending
 | Data plane (T-S06) | Implemented 2026-11-08: cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (10 GiB at line rate) pending T-P2-PERF |
-| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. Auto-block and per-repo CA/proxy pending; used by the raw plugin (T-P2-RAW) |
+| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. 2026-11-09: auto-block with exponential backoff, probes and automatic resume (shared across replicas), per-repo CA bundle and HTTP proxy (SSRF guard still applied through the proxy), all exposed in the repository form and upstream health. Pending: pass-through when the free-space guard trips, continuing a fill after its client disconnects; used by every proxy format |
 | Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Lease renewal independent of `fdatasync` (2026-11-09 fix for a second fetch under disk load). Followers on a second host against NFS not covered by CI yet |
 | Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Hour/day series, top-N and latency percentiles pending |
 | Activity and Storage pages (T-U07) | 2026-11-09: Activity page (live tail with pause and scroll-hold, filters in the URL incl. user, cache state, outcome and time window, history paging, detail drawer, CSV export through the new streaming `/activity/export`); Storage page (stored/free/de-duplication/blob KPIs, data volume bar, by-format donut, largest repositories, sortable repository table). Storage growth, largest artifacts, per-repository de-duplication and GC status pending |

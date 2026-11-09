@@ -111,6 +111,13 @@ One shared `httpx.AsyncClient` per upstream host (HTTP/2, connection pooling, li
 plug-ins (basic, bearer, docker token negotiation with cached scoped tokens, GHCR), SSRF-checked resolver,
 timeouts (connect 10 s, read 60 s idle), retries only on idempotent requests and only before first byte.
 
+As implemented (T-S07): clients are keyed by origin, SSRF mode, the repository's CA bundle and its outbound proxy
+(`proxy.http.Network`), so a repository's CA or proxy never applies to another. Through an outbound proxy the proxy
+connects, so the guard resolves and checks every hop's target just before the request instead of at connect time
+(a DNS-rebinding window remains between the two lookups; the proxy itself is administrator-configured). Every
+upstream request first passes the repository's auto-block breaker (`proxy.breaker`, state in the Valkey health hash,
+one probe per ended period across replicas) and reports its outcome to it; Valkey down = no auto-block.
+
 ### 6.2 Freshness
 Each cached asset stores `fetched_at`, `etag`, `last_modified`, `upstream_status`. Metadata older than
 `metadata_max_age` is revalidated (conditional request); on 304 only timestamps change. Content assets are
