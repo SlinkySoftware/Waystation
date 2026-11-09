@@ -105,6 +105,14 @@ blob. Code that makes a new reference to an existing blob without a commit must 
 a blob GC unlinks: the open file stays readable on POSIX, and a blob served moments ago was referenced, so it is not
 deleted before the grace period ends.
 
+As implemented (T-P2-DOCKERH): uploads that span several requests (OCI chunked blob uploads) are **resumable
+uploads** of the same store: `start_upload()` creates `uploads/<id>`, `resume_writer(id, offset=n)` appends to it
+(refusing a wrong offset; `repair` cuts unacknowledged bytes off), `BlobWriter.suspend()` keeps the file for the next
+request, `rollback()` undoes one request's part, `commit` verifies and moves it into place as for any writer. The
+sha256 continues incrementally across requests handled by one process (a bounded in-process cache of hash states);
+otherwise `commit` hashes the file in a thread. Which upload belongs to whom, and its acknowledged offset, is the
+format's record (`upload_sessions`).
+
 ## 6. Proxy engine
 ### 6.1 Upstream client
 One shared `httpx.AsyncClient` per upstream host (HTTP/2, connection pooling, limits per host), per-repo auth
@@ -258,6 +266,10 @@ fire is enqueued once even if two leaders overlap) and promotes delayed jobs. Va
 `jobs:epoch` token. Handlers (`@handles(Payload)`) get a `JobContext` (`progress`, `log`, db, valkey). The stats
 rollup (§8) runs as the scheduled job `stats.rollup` (`@every 10s`, queue `stats`). Graceful stop lets running jobs
 finish for 8 s; abandoned jobs are reclaimed. Liveness: the heartbeat file is withheld when the consumer loop stalls.
+Operators see and steer this through `/api/v1/tasks/*` (T-O04, `admin`): definitions (schedule/enabled edits reset
+`next_run_at`), runs, workers, and dead letters (retry = one Lua step that queues a fresh envelope and deletes the
+entry). `JobContext` progress and log lines are also published on `live:jobs`; the SSE hub relays them, plus job and
+worker activity, on the admin-only topic `tasks`.
 
 ## 11. Format plugin contract
 `waystation_server.formats.base.Format` (protocol) with: `name`, `routes()` (mounted under `/repository/<repo>/`
@@ -272,6 +284,14 @@ probe path, "Set me up" snippets, UI hints) plus a plugin with `handle(req: Form
 `waystation_server.plugins`. The router has already resolved the repository, normalised the path and authorised the
 request. Proxy formats describe each file as a `proxy.engine.AssetSpec` and return `await req.proxy.serve(req, spec)`
 (`ensure`/`read` give them cached metadata to parse); the engine implements §5, §6.1, §6.2 and §6.4 for them.
+Hosted repositories use `req.hosted` (`waystation_server.hosted.store.HostedStore`, T-P2-DOCKERH): stream a request
+body into a `BlobWriter` as a live upload transfer, record committed blobs as assets, link a blob already in the store
+(claimed against GC first), serve stored assets by X-Accel (the same data plane as cache hits) and remove assets.
+`req.allows(action, other_repo)` asks the decision point about another repository (cross-repository mounts) and
+`req.resolve_name(name)` resolves a `/v2/` name to its repository. Group repositories (T-P2-DOCKERG) answer by
+handing the request to a member (`dataclasses.replace(req, repo=member)`); `req.repository(name)` finds members and
+`req.allows_member(action, member)` asks the decision point about a member (RBAC with API-token limits, not the
+registry token's grants, which named the group).
 
 ## 12. Errors and logging
 Format endpoints return the format's native error shape (OCI JSON errors, npm JSON errors, plain 404 for file

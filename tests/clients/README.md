@@ -49,15 +49,16 @@ Create `tests/clients/<format>/`:
 
 | File | Purpose |
 |---|---|
-| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `debian`, `ubuntu`, `rocky`, `alma`, `skopeo`, `docker`, or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `ORIGINS`, `RECORD_SERVICES`, `DROP_JSON_KEYS` (JSON keys removed from recorded JSON bodies at any depth, e.g. npm readmes and maintainer e-mails), `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
+| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `debian`, `ubuntu`, `rocky`, `alma`, `skopeo`, `docker`, `conformance` (the OCI distribution-spec conformance suite), or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `ORIGINS`, `RECORD_SERVICES`, `DROP_JSON_KEYS` (JSON keys removed from recorded JSON bodies at any depth, e.g. npm readmes and maintainer e-mails), `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
 | `setup.sh` | optional, runs first in the client container: create the repos the test needs through `$WAYSTATION_URL/api/v1/...` as the per-run bootstrap admin: `ws_login`, then `ws_api <METHOD> <path> [json]` from `lib.sh` (curl, or bash `/dev/tcp` in images without curl, e.g. debian/ubuntu; `_ws_http` is the bash request primitive and also leaves the response headers in `/tmp/ws-api.headers`). With several clients it runs once per client: keep it idempotent |
 | `test.sh` | POSIX sh in the client container: configure the client to use `$WAYSTATION_URL/repository/<repo>/` (or `/v2/`), run real installs/pulls, assert, `exit 1` on failure. Source `/harness/lib.sh` for `step`, `fail`, `pass`, `wait_for`, `trust_harness_ca` |
 | `allowed_hosts.txt` | optional: extra public hosts that legitimately appear in this format's upstream content |
 
 The client container sees `tests/clients` at `/harness` (read-only), the CA at `/harness-ca/ca.crt`, and
 `HARNESS_MODE`, `HARNESS_FORMAT`, `HARNESS_STACK`, `WAYSTATION_URL=http://waystation-web:8080`. The `docker` client
-image is `docker:*-dind` plus curl and skopeo, with the entrypoint cleared: start `dockerd` in `setup.sh`
-(with the stack in `insecure-registries`/`registry-mirrors`). Scripts must behave the same in every mode; assert only
+image is `docker:*-dind` plus curl, skopeo, crane, oras and cosign, with the entrypoint cleared: start `dockerd` in
+`setup.sh` (with the stack in `insecure-registries`/`registry-mirrors`). The `conformance` client runs the OCI
+distribution-spec conformance suite (`conformance.test`, built from the spec's release source) and curl. Scripts must behave the same in every mode; assert only
 on things that survive scrubbing. Then `make clients-test FORMAT=<f> MODE=record`, `make clients-test FORMAT=<f>`, commit
 `tests/fixtures/upstreams/<f>/`.
 

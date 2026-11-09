@@ -78,6 +78,12 @@ export {
   symOutlinedSavings as iconSavings,
   symOutlinedFilterAltOff as iconFilterOff,
   symOutlinedTrendingUp as iconTrend,
+  symOutlinedMemory as iconWorker,
+  symOutlinedReplay as iconRetry,
+  symOutlinedFlag as iconLeader,
+  symOutlinedArticle as iconLog,
+  symOutlinedInbox as iconDeadLetters,
+  symOutlinedPending as iconWaiting,
 } from '@quasar/extras/material-symbols-outlined'
 
 // Administration (T-U08).

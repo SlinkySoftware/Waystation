@@ -29,6 +29,7 @@ from waystation_common.valkey import create_valkey
 from waystation_server.db import auth_providers as auth_providers_db
 from waystation_server.db import repositories as repos_db
 from waystation_server.formats.registry import FormatRegistry
+from waystation_server.hosted.store import HostedStore
 from waystation_server.instance import InstanceSettings
 from waystation_server.metrics import Metrics
 from waystation_server.proxy import probe as probe_mod
@@ -68,6 +69,7 @@ class Services:
     tokens: TokenService
     upstream: UpstreamClients
     proxy: ProxyEngine
+    hosted: HostedStore  # hosted repositories' uploads and stored content (waystation_server.hosted)
     storage: StorageStats
     hub: Hub
     registry_signer: SignerHolder
@@ -164,6 +166,7 @@ class Services:
                 metrics=metrics,
                 keyring=keyring,
             ),
+            hosted=HostedStore(db=db, blobs=blobs, emitter=emitter, metrics=metrics),
             keyring=keyring,
             mongo_client=client,
             check_schema_on_start=check_schema_on_start,

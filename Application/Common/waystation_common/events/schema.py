@@ -38,6 +38,8 @@ class EventType(StrEnum):
     JOB_STARTED = 'job.started'
     JOB_FINISHED = 'job.finished'
     JOB_FAILED = 'job.failed'
+    JOB_PROGRESS = 'job.progress'  # live only (JobLiveMessage), never in the activity stream
+    JOB_LOG = 'job.log'  # live only
     WORKER_ONLINE = 'worker.online'
     WORKER_OFFLINE = 'worker.offline'
 
@@ -101,3 +103,25 @@ class LiveMessage(_Model):
 
     type: EventType
     transfer: Transfer
+
+
+class JobProgress(_Model):
+    done: int = 0
+    total: int | None = None
+    message: str | None = None
+
+
+class JobLiveMessage(_Model):
+    """A message on the ``live:jobs`` pub/sub channel: a running job's progress or new log lines (the Tasks page).
+
+    Published by the worker when it records them in ``job_runs`` (progress at most once a second per run); a client
+    that (re)connects reads the run from the API, never a replay."""
+
+    type: EventType  # JOB_PROGRESS or JOB_LOG
+    ts: datetime
+    run_id: str
+    job_id: str
+    kind: str
+    queue: str
+    progress: JobProgress | None = None
+    lines: list[str] = Field(default_factory=list)

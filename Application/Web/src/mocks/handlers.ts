@@ -18,6 +18,7 @@ import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
+import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
@@ -98,8 +99,39 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!NAME_RE.test(body.name ?? '')) errors.push({ field: 'name', message: 'Use 2-63 letters, digits, dots, dashes or underscores, starting with a letter or digit.', code: 'pattern' })
     else if (world.repos.some((r) => r.name.toLowerCase() === body.name.toLowerCase())) errors.push({ field: 'name', message: 'A repository with this name already exists.', code: 'taken' })
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
-    if (body.type !== 'proxy') errors.push({ field: 'type', message: 'Only proxy repositories are available in this build.', code: 'unsupported' })
+    if (body.type !== 'proxy' && body.format !== 'docker') {
+      errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
+    }
   }
+  if (body.type === 'group') {
+    const members = body.group?.members ?? []
+    if (!members.length) errors.push({ field: 'group.members', message: 'Pick at least one member.', code: 'required' })
+    members.forEach((name, i) => {
+      const member = findRepo(name)
+      if (!member) errors.push({ field: `group.members.${i}`, message: `there is no repository '${name}'`, code: 'not_found' })
+      else if (member.format !== body.format) errors.push({ field: `group.members.${i}`, message: `${name} is a ${member.format} repository`, code: 'format' })
+      else if (member.type === 'group') errors.push({ field: `group.members.${i}`, message: 'groups cannot contain groups', code: 'invalid' })
+    })
+    const writable = body.group?.writable_member
+    if (writable && (!members.includes(writable) || findRepo(writable)?.type !== 'hosted')) {
+      errors.push({ field: 'group.writable_member', message: 'must be a hosted member', code: 'invalid' })
+    }
+    return errors
+  }
+  if (body.type === 'hosted') {
+    if (body.proxy) errors.push({ field: 'proxy', message: 'only proxy repositories have an upstream', code: 'invalid' })
+    ;(body.hosted?.immutable_tag_patterns ?? []).forEach((pattern, i) => {
+      try {
+        new RegExp(pattern)
+      } catch {
+        errors.push({ field: `hosted.immutable_tag_patterns.${i}`, message: `not a regular expression: ${pattern}`, code: 'format' })
+      }
+    })
+    const opts = (body.format_options ?? {}) as { aliases?: string[]; docker_hub?: boolean }
+    if (opts.aliases?.length) errors.push({ field: 'format_options.aliases', message: 'upstream aliases are for proxy repositories', code: 'invalid' })
+    return errors
+  }
+  if (body.hosted) errors.push({ field: 'hosted', message: 'only hosted repositories have a write policy', code: 'invalid' })
   const url = body.proxy?.upstream_url?.trim() ?? ''
   if (!url) errors.push({ field: 'proxy.upstream_url', message: 'Enter the upstream URL.', code: 'required' })
   else {
@@ -152,6 +184,8 @@ function toRepository(body: RepositoryWrite, existing?: Repository): Repository 
     status: !body.online || body.proxy?.offline ? 'offline' : existing?.status === 'offline' ? 'ok' : (existing?.status ?? 'ok'),
     url: `${BASE_URL}/repository/${existing?.name ?? body.name}/`,
     proxy,
+    hosted: (existing?.type ?? body.type) === 'hosted' ? { write_policy: body.hosted?.write_policy ?? 'allow_redeploy', immutable_tag_patterns: body.hosted?.immutable_tag_patterns ?? [] } : undefined,
+    group: (existing?.type ?? body.type) === 'group' && body.group ? { members: body.group.members, writable_member: body.group.writable_member ?? null } : undefined,
     format_options: body.format_options,
     created_at: existing?.created_at ?? now,
     updated_at: now,
@@ -234,6 +268,9 @@ export const handlers = [
 
   // ---------------------------------------------------------------- users, groups, roles, settings, system (T-U08)
   ...adminHandlers({ guard, problem, notFound, latency, currentUser: signedInUser, storage: () => ({ total: world.storageTotal, used: world.storageUsed + 312 * 1024 ** 3 }) }, admin),
+
+  // ---------------------------------------------------------------- tasks and workers (T-O04)
+  ...tasksHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
   // ---------------------------------------------------------------- audit log (T-S10)
   ...auditHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),

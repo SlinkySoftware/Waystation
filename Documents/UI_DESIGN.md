@@ -137,6 +137,18 @@ and what they would remove from this repository.
 ### 4.9 Tasks and workers
 Scheduled tasks table (kind, schedule, last result, next run, run now), job runs with progress bars and log
 viewer (live), workers list (host, version, queues, current jobs, heartbeat), dead-letter jobs with retry.
+As built (T-O04, admin only): a **summary strip** (workers online, jobs running, jobs waiting with the oldest wait,
+dead letters tinted when non-zero; each tile opens its tab), then tabs in the URL (`?tab=`): **Scheduled** (task
+named after its kind or owning policy, schedule in words plus the raw cron, last run with progress or error, next
+run, enabled toggle (pausing the stats rollup asks first); run now, its runs, edit schedule in a dialog with presets
+and a live reading, or "open the policy" for cleanup tasks); **Runs** (status, job, trigger and attempt, started,
+duration, progress bar or a one-line result, worker; filters status/job/task/attempts/routine in the URL; "Load
+more"; rows update live, new runs slide in); **Workers** (a card per worker: leader badge, health pill, version,
+concurrency, heartbeat age counting up, queues, running jobs that open their run; a queue table with waiting,
+running, delayed, oldest waiting and the consuming workers, warning when none); **Dead letters** (job, last error,
+attempts, when it gave up, payload on expand, Retry and a confirmed Discard; malformed entries can only be
+discarded). A run opens a **side drawer** (`?run=`) with status, trigger, facts, result figures, the error and a
+monospace log viewer (Live badge, Follow toggle, copy). Phones get cards instead of tables.
 
 ### 4.10 Administration
 Users (source badge local/LDAP/OIDC, roles, last login, disable, reset password for local), Groups (source,

@@ -15,7 +15,8 @@ A format is two things:
 
    The plugin answers with a Starlette ``Response``. Cached content is served by ``req.proxy.serve(req, spec)``
    (``waystation_server.proxy``): fetch, tee, validate, commit, X-Accel; plugins never stream cached bytes
-   themselves.
+   themselves. Hosted repositories receive, store, serve and delete through ``req.hosted``
+   (``waystation_server.hosted.store``).
 
 Repository-level access (``read`` for GET/HEAD and for POST to the descriptor's ``read_posts``) is checked before
 ``handle`` is called; a plugin that performs other actions (``write`` on PUT...) checks them with
@@ -24,7 +25,7 @@ Repository-level access (``read`` for GET/HEAD and for POST to the descriptor's 
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
@@ -36,6 +37,7 @@ from waystation_server.repos.model import RepoConfig, RepoType
 from waystation_server.security.principal import Principal
 
 if TYPE_CHECKING:
+    from waystation_server.hosted.store import HostedStore
     from waystation_server.proxy.engine import ProxyEngine
     from waystation_server.security.actions import Action
 
@@ -89,6 +91,10 @@ def _root_probe(options: BaseModel) -> str:
     return ''
 
 
+def _any_options(options: BaseModel, repo_type: RepoType) -> list[tuple[str, str]]:
+    return []
+
+
 @dataclass(frozen=True)
 class FormatDescriptor:
     name: str
@@ -102,6 +108,10 @@ class FormatDescriptor:
     notes: tuple[str, ...] = ()
     # Repository-relative paths where POST only queries (npm audit): the router authorises them as ``read``.
     read_posts: frozenset[str] = frozenset()
+    # Group repositories may name a hosted writable member that receives uploads sent to the group (docker).
+    writable_group_member: bool = False
+    # Per-type option rules: ``(field, message)`` for options that make no sense for the repository type.
+    check_options: Callable[[BaseModel, RepoType], list[tuple[str, str]]] = _any_options
 
     def parse_options(self, raw: Mapping[str, Any] | None) -> BaseModel:
         """Validate format options (raises pydantic ``ValidationError``)."""
@@ -109,6 +119,18 @@ class FormatDescriptor:
 
 
 # ---------------------------------------------------------------------------- serving
+async def _no_resolve(name: str) -> tuple[RepoConfig, str] | None:
+    return None
+
+
+async def _no_repository(name: str) -> RepoConfig | None:
+    return None
+
+
+def _nothing_allowed(action: Action, repo: RepoConfig) -> bool:
+    return False
+
+
 @dataclass
 class FormatRequest:
     request: Request
@@ -117,8 +139,18 @@ class FormatRequest:
     path: str
     principal: Principal
     proxy: ProxyEngine
+    hosted: HostedStore  # hosted repositories: receive uploads, serve and delete stored content
     base_url: str
     _require: Callable[[Action], None] = field(repr=False)
+    # Another repository's access (cross-repository blob mounts): is ``action`` allowed on it?
+    _allows: Callable[[Action, RepoConfig], bool] = field(repr=False, default=_nothing_allowed)
+    # Registry names (docker ``/v2/`` routing: prefix, alias, default repository) → (repository, name within it).
+    _resolve: Callable[[str], Awaitable[tuple[RepoConfig, str] | None]] = field(repr=False, default=_no_resolve)
+    # Repositories by exact name (group members).
+    _repository: Callable[[str], Awaitable[RepoConfig | None]] = field(repr=False, default=_no_repository)
+    # Group members: RBAC on a member for this request's principal (with its API token limits), without the
+    # per-repository grants of a docker registry token, which named the group.
+    _allows_member: Callable[[Action, RepoConfig], bool] = field(repr=False, default=_nothing_allowed)
 
     @property
     def method(self) -> str:
@@ -139,6 +171,23 @@ class FormatRequest:
     def require(self, action: Action) -> None:
         """Authorise an extra action on this repository (raises: 404 when hidden, 401/403 otherwise)."""
         self._require(action)
+
+    def allows(self, action: Action, repo: RepoConfig) -> bool:
+        """May this request's principal ``action`` on another repository (decided by ``security.access``)?"""
+        return self._allows(action, repo)
+
+    async def resolve_name(self, name: str) -> tuple[RepoConfig, str] | None:
+        """Where a registry name (``other-repo/image``, ``docker.io/library/alpine``...) points."""
+        return await self._resolve(name)
+
+    async def repository(self, name: str) -> RepoConfig | None:
+        """A repository by its exact name (group members)."""
+        return await self._repository(name)
+
+    def allows_member(self, action: Action, member: RepoConfig) -> bool:
+        """May this request's principal ``action`` on ``member`` of the group it addressed (decided by
+        ``security.access``; a registry token's grants for the group do not cover the member)?"""
+        return self._allows_member(action, member)
 
     def log(self, **fields: Any) -> None:
         """Add fields to this request's access-log line."""

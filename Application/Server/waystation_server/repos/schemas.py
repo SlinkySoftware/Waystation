@@ -7,9 +7,9 @@ models by ``api.openapi``).
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from waystation_server.repos.model import (
     DEFAULT_AUTO_BLOCK_FAILURES,
@@ -19,6 +19,7 @@ from waystation_server.repos.model import (
     DEFAULT_NEGATIVE_TTL_S,
     AuthKind,
     RepoType,
+    WritePolicy,
 )
 
 NAME_PATTERN = r'^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$'
@@ -108,6 +109,40 @@ class ProxyConfig(BaseModel):
     auto_block: AutoBlockConfig = Field(default_factory=AutoBlockConfig)
 
 
+class HostedConfig(BaseModel):
+    """Hosted repositories: what clients may overwrite (SPECIFICATION §4.2)."""
+
+    model_config = ConfigDict(extra='forbid', json_schema_serialization_defaults_required=True)
+
+    write_policy: WritePolicy = Field(
+        default=WritePolicy.ALLOW_REDEPLOY,
+        description='`allow_redeploy`: versions/tags may be overwritten; `disable_redeploy`: never; `read_only`: '
+        'no uploads at all',
+    )
+    immutable_tag_patterns: list[Annotated[str, StringConstraints(min_length=1, max_length=256)]] = Field(
+        default_factory=list,
+        max_length=50,
+        description='Docker: regular expressions (full match); a matching tag never moves once pushed, e.g. '
+        '`v[0-9]+\\.[0-9]+\\.[0-9]+`',
+    )
+
+
+class GroupConfig(BaseModel):
+    """Group repositories: ordered members (SPECIFICATION §4.3)."""
+
+    model_config = ConfigDict(extra='forbid', json_schema_serialization_defaults_required=True)
+
+    members: list[Annotated[str, StringConstraints(pattern=NAME_PATTERN)]] = Field(
+        min_length=1,
+        max_length=50,
+        description='Member repository names in resolution order (same format; proxy or hosted)',
+    )
+    writable_member: str | None = Field(
+        default=None,
+        description='Docker: the hosted member that receives pushes sent to the group; null = the group is read-only',
+    )
+
+
 class RepositoryWrite(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -117,6 +152,8 @@ class RepositoryWrite(BaseModel):
     online: bool = Field(description='Accepts requests')
     description: str = Field(default='', max_length=500)
     proxy: ProxyConfig | None = None
+    hosted: HostedConfig | None = Field(default=None, description='Hosted repositories only (defaults when omitted)')
+    group: GroupConfig | None = Field(default=None, description='Group repositories only (required for them)')
     format_options: dict[str, Any] | None = Field(
         default=None, description="Format-specific options; the shape follows the repository's `format`"
     )
