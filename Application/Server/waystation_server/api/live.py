@@ -1,5 +1,6 @@
 """``/api/v1/transfers``, ``/api/v1/activity`` and the event stream ``/api/v1/events/stream`` (OpenAPI contract,
-SPECIFICATION §7, ARCHITECTURE §8). All need ``stats-read`` and only show repositories the principal may see."""
+SPECIFICATION §7, ARCHITECTURE §8). All need ``stats-read`` and only show repositories the principal may see; the
+event stream's ``tasks`` topic (jobs and workers, the Tasks page) also needs ``admin``."""
 
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from waystation_server.repos.schemas import Format
 from waystation_server.security import access
 from waystation_server.security.access import Action
 from waystation_server.security.authn import authenticate
+from waystation_server.security.principal import Principal
 from waystation_server.services import Services
 from waystation_server.sse.hub import Subscriber, UpstreamHealthSource
 from waystation_server.sse.stream import event_stream, parse_topics, valid_event_id
@@ -152,6 +154,55 @@ class ActivityStreamEvent(BaseModel):
     event: ActivityEvent
 
 
+class JobUpdateEvent(BaseModel):
+    """Topic ``tasks``: a job attempt started, finished or failed (``status`` ``failed`` = will retry, ``dead``)."""
+
+    type: Literal['job.update']
+    ts: datetime
+    event: Literal['started', 'finished', 'failed']
+    run_id: str
+    job_id: str
+    kind: str
+    queue: str
+    attempt: int
+    status: Literal['running', 'succeeded', 'failed', 'dead', 'interrupted']
+    worker_id: str | None = None
+    error: str | None = None
+
+
+class JobProgressEvent(BaseModel):
+    """Topic ``tasks``: a running job's progress (at most once a second per run)."""
+
+    type: Literal['job.progress']
+    ts: datetime
+    run_id: str
+    job_id: str
+    kind: str
+    done: int
+    total: int | None = None
+    message: str | None = None
+
+
+class JobLogEvent(BaseModel):
+    """Topic ``tasks``: new log lines of a running job."""
+
+    type: Literal['job.log']
+    ts: datetime
+    run_id: str
+    job_id: str
+    kind: str
+    lines: list[str]
+
+
+class WorkerUpdateEvent(BaseModel):
+    """Topic ``tasks``: a worker came online or stopped."""
+
+    type: Literal['worker.update']
+    ts: datetime
+    worker_id: str
+    state: Literal['online', 'offline']
+
+
 LiveEvent = Annotated[
     TransfersSnapshotEvent
     | TransferStartedEvent
@@ -160,7 +211,11 @@ LiveEvent = Annotated[
     | TransferFailedEvent
     | StatsTickEvent
     | UpstreamStateEvent
-    | ActivityStreamEvent,
+    | ActivityStreamEvent
+    | JobUpdateEvent
+    | JobProgressEvent
+    | JobLogEvent
+    | WorkerUpdateEvent,
     Field(discriminator='type'),
 ]
 LIVE_EVENT_MODELS: tuple[type[BaseModel], ...] = (
@@ -172,6 +227,10 @@ LIVE_EVENT_MODELS: tuple[type[BaseModel], ...] = (
     StatsTickEvent,
     UpstreamStateEvent,
     ActivityStreamEvent,
+    JobUpdateEvent,
+    JobProgressEvent,
+    JobLogEvent,
+    WorkerUpdateEvent,
 )
 
 
@@ -281,21 +340,30 @@ def upstream_health_source(svc: Services) -> UpstreamHealthSource:
     return health
 
 
+def _may_follow_tasks(principal: Principal) -> bool:
+    return access.check(principal, Action.ADMIN)
+
+
 @router.get('/events/stream', operation_id='streamEvents', response_class=StreamingResponse)
 @access.requires(Action.STATS_READ)
 async def stream_events(
     request: Request,
     svc: ServicesDep,
-    topics: Annotated[str, Query(description='Comma-separated: transfers, stats, activity, repo:<name>')],
+    topics: Annotated[str, Query(description='Comma-separated: transfers, stats, activity, tasks, repo:<name>')],
     last_event_id: Annotated[str | None, Query(max_length=64)] = None,
     last_event_id_header: Annotated[str | None, Header(alias='Last-Event-ID')] = None,
 ) -> StreamingResponse:
     wanted = parse_topics(topics)
     if wanted is None:
-        raise ValidationFailed('topics must be a comma-separated list of transfers, stats, activity, repo:<name>')
+        raise ValidationFailed(
+            'topics must be a comma-separated list of transfers, stats, activity, tasks, repo:<name>'
+        )
     principal = await authenticate(request)
+    if 'tasks' in wanted:
+        access.require(principal, Action.ADMIN)  # jobs and workers are admin-only (Tasks page)
     if svc.hub.upstream_health is None:
         svc.hub.upstream_health = upstream_health_source(svc)
+    svc.hub.tasks_access = _may_follow_tasks
     sub = Subscriber(principal=principal, topics=wanted)
     resume = valid_event_id(last_event_id_header) or valid_event_id(last_event_id)
     return StreamingResponse(

@@ -73,6 +73,26 @@ redis.call('PEXPIRE', KEYS[1], ARGV[5])
 return {'enqueued', ARGV[2]}
 """
 
+# Retry a dead letter: KEYS[1..3] and ARGV[1..5] as for enqueue, KEYS[4] = jobs:dead, KEYS[5] = jobs:dead:retried,
+# ARGV[6] = the dead entry id, ARGV[7] = TTL (s) of the retried record. Enqueue + delete + record in one step.
+_RETRY_DEAD_LUA = (
+    """
+local previous = redis.call('HGET', KEYS[5], ARGV[6])
+if previous then return {'gone', previous} end
+if #redis.call('XRANGE', KEYS[4], ARGV[6], ARGV[6]) == 0 then return {'gone', ''} end
+local function enqueue()
+"""
+    + _ENQUEUE_LUA
+    + """
+end
+local result = enqueue()
+redis.call('XDEL', KEYS[4], ARGV[6])
+redis.call('HSET', KEYS[5], ARGV[6], result[2])
+redis.call('EXPIRE', KEYS[5], ARGV[7])
+return result
+"""
+)
+
 _START_LUA = """
 local state = redis.call('HGET', KEYS[1], 'state')
 if not state then
@@ -174,6 +194,33 @@ class QueueStats:
     running: int = 0  # delivered, not acknowledged (running, or held by a worker that died until reclaimed)
     delayed: int = 0  # retry backoff and ``run_after`` jobs not due yet
     oldest_waiting_age_s: float = 0.0  # age of the oldest waiting entry (0 when none)
+
+
+@dataclass(frozen=True)
+class DeadLetter:
+    """An entry of ``jobs:dead``. ``envelope`` is None for a malformed entry (``raw`` holds what was there)."""
+
+    id: str
+    raw: str
+    envelope: JobEnvelope | None
+    error: str
+    dead_at: datetime
+
+    @classmethod
+    def from_entry(cls, entry_id: Any, fields: Any) -> DeadLetter:
+        fields = fields or {}
+        raw = _str(fields.get('job', ''))
+        ts = fields.get('ts')
+        dead_at: datetime | None
+        try:
+            dead_at = datetime.fromisoformat(_str(ts)) if ts else None
+        except ValueError:
+            dead_at = None
+        if dead_at is None:
+            dead_at = datetime.fromtimestamp(_stream_ms(entry_id) / 1000, UTC)
+        return cls(
+            id=_str(entry_id), raw=raw, envelope=_envelope(raw), error=_str(fields.get('error', '')), dead_at=dead_at
+        )
 
 
 def _stream_ms(entry_id: Any) -> int:
@@ -416,6 +463,50 @@ class JobQueue:
 
     async def dead_count(self) -> int:
         return int(await self.redis.xlen(keys.DEAD))
+
+    async def dead_page(self, *, before: str | None, count: int) -> list[DeadLetter]:
+        """Dead letters newest first, starting after (older than) the entry ``before``; up to ``count``."""
+        entries: Any = await self.redis.xrevrange(keys.DEAD, max=f'({before}' if before else '+', min='-', count=count)
+        return [DeadLetter.from_entry(entry_id, fields) for entry_id, fields in entries or []]
+
+    async def dead_get(self, entry_id: str) -> DeadLetter | None:
+        entries: Any = await self.redis.xrange(keys.DEAD, min=entry_id, max=entry_id, count=1)
+        return DeadLetter.from_entry(*entries[0]) if entries else None
+
+    async def retry_dead(self, entry_id: str, envelope: JobEnvelope) -> EnqueueResult | None:
+        """Queue ``envelope`` (a fresh request for the dead letter's work) and remove the dead letter, atomically.
+
+        The usual dedupe applies (a pending job with the same key absorbs it: ``merged``). Idempotent: a dead letter
+        is retried once: None when the entry is gone (retried before: ``retried_job`` names that job; or discarded or
+        trimmed)."""
+        status, job_id = await self.redis.eval(
+            _RETRY_DEAD_LUA,
+            5,
+            keys.dedupe(envelope.dedupe_key),
+            keys.stream(envelope.queue),
+            keys.delayed(envelope.queue),
+            keys.DEAD,
+            keys.DEAD_RETRIED,
+            envelope.to_json(),
+            envelope.id,
+            '',
+            '',
+            self._ttl,
+            entry_id,
+            str(keys.DEAD_RETRIED_TTL_S),
+        )
+        if _str(status) == 'gone':  # retried before (see retried_job), discarded or trimmed
+            return None
+        return EnqueueResult(status=_str(status), job_id=_str(job_id))  # type: ignore[arg-type]
+
+    async def retried_job(self, entry_id: str) -> str | None:
+        """The job a retry of this dead letter joined (remembered for ``DEAD_RETRIED_TTL_S``)."""
+        value = await self.redis.hget(keys.DEAD_RETRIED, entry_id)
+        return _str(value) if value else None
+
+    async def discard_dead(self, entry_id: str) -> bool:
+        """Delete a dead letter; False when it was already gone (discarding twice is harmless)."""
+        return bool(int(await self.redis.xdel(keys.DEAD, entry_id)))
 
     async def dead_letters(self, count: int = 100) -> list[dict[str, Any]]:
         """Most recent dead-lettered jobs, newest first: ``{'id', 'job', 'error', 'ts'}``."""
