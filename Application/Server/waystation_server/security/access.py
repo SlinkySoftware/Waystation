@@ -421,6 +421,20 @@ class PasswordChangeRequired(Forbidden):
     code = 'password_change_required'
 
 
+PENDING_TOTP_ATTR = '__ws_totp_setup_allowed__'
+
+
+def totp_setup_allowed[T: Callable[..., object]](fn: T) -> T:
+    """The route stays usable by a session whose user must enrol a second factor first (``/auth/me``, the TOTP
+    enrolment routes). Every other route answers 403 for such a session (SPECIFICATION §4.9)."""
+    setattr(fn, PENDING_TOTP_ATTR, True)
+    return fn
+
+
+class TotpSetupRequired(Forbidden):
+    code = 'totp_setup_required'
+
+
 def route_rule(endpoint: object) -> RouteAccess | None:
     rule = getattr(endpoint, ATTR, None)
     return rule if isinstance(rule, RouteAccess) else None
@@ -451,6 +465,12 @@ async def enforce(request: Request) -> None:
         and not getattr(getattr(route, 'endpoint', None), PENDING_PASSWORD_ATTR, False)
     ):
         raise PasswordChangeRequired('change your one-time password first')
+    if (
+        principal.totp_setup_required
+        and principal.method is AuthMethod.SESSION
+        and not getattr(getattr(route, 'endpoint', None), PENDING_TOTP_ATTR, False)
+    ):
+        raise TotpSetupRequired('set up two-factor sign-in first')
     match rule.kind:
         case 'authenticated':
             if principal.is_anonymous:

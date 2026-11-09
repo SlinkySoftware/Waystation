@@ -52,6 +52,14 @@ class UserRecord(BaseModel):
     identities: list[LinkedIdentity] = Field(default_factory=list)
     preferences: Preferences = Field(default_factory=Preferences)
     must_change_password: bool = False
+    # Two-factor sign-in (TOTP, local accounts; ``security.second_factor``). The secret is AES-GCM encrypted (aad
+    # ``user-totp:<id>``); recovery codes are keyed hashes; ``totp_last_step`` is the last accepted time step.
+    totp_enc: str | None = None
+    totp_enabled_at: datetime | None = None
+    totp_last_step: int | None = None
+    totp_recovery: list[str] = Field(default_factory=list)
+    totp_pending_enc: str | None = None  # enrolment started, not yet confirmed with a code
+    totp_pending_expires_at: datetime | None = None
     failed_logins: int = 0
     locked_until: datetime | None = None
     last_login: datetime | None = None

@@ -213,3 +213,80 @@ async def get_many(db: Database, user_ids: list[str]) -> list[UserRecord]:
     if not user_ids:
         return []
     return [UserRecord.model_validate(doc) async for doc in db[USERS].find({'_id': {'$in': user_ids}})]
+
+
+# ---------------------------------------------------------------------------- two-factor sign-in (TOTP)
+_TOTP_CLEARED: dict[str, Any] = {
+    'totp_enc': None,
+    'totp_enabled_at': None,
+    'totp_last_step': None,
+    'totp_recovery': [],
+    'totp_pending_enc': None,
+    'totp_pending_expires_at': None,
+}
+
+
+async def set_totp_pending(db: Database, user_id: str, secret_enc: str, expires_at: datetime) -> bool:
+    """Start (or restart) enrolment: a local account with a password and no second factor yet."""
+    result = await db[USERS].update_one(
+        {'_id': user_id, 'source': 'local', 'password_hash': {'$ne': None}, 'totp_enc': None},
+        {'$set': {'totp_pending_enc': secret_enc, 'totp_pending_expires_at': expires_at}},
+    )
+    return result.matched_count == 1
+
+
+async def enable_totp(
+    db: Database, user_id: str, *, pending_enc: str, recovery: list[str], step: int, now: datetime
+) -> UserRecord | None:
+    """Turn the pending secret ``pending_enc`` into the user's second factor (only that one, only once)."""
+    doc = await db[USERS].find_one_and_update(
+        {'_id': user_id, 'totp_enc': None, 'totp_pending_enc': pending_enc},
+        {
+            '$set': {
+                'totp_enc': pending_enc,
+                'totp_enabled_at': now,
+                'totp_last_step': step,
+                'totp_recovery': recovery,
+                'totp_pending_enc': None,
+                'totp_pending_expires_at': None,
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    return UserRecord.model_validate(doc) if doc else None
+
+
+async def claim_totp_step(db: Database, user_id: str, step: int) -> bool:
+    """Record ``step`` as used; False when it (or a later step) already was: a code works once (replay)."""
+    result = await db[USERS].update_one(
+        {
+            '_id': user_id,
+            'totp_enc': {'$ne': None},
+            '$or': [{'totp_last_step': None}, {'totp_last_step': {'$lt': step}}],
+        },
+        {'$set': {'totp_last_step': step}},
+    )
+    return result.modified_count == 1
+
+
+async def use_recovery_code(db: Database, user_id: str, candidates: list[str]) -> int | None:
+    """Consume the recovery code whose hash is one of ``candidates``; the codes left, or None (unknown or used)."""
+    doc = await db[USERS].find_one_and_update(
+        {'_id': user_id, 'totp_enc': {'$ne': None}, 'totp_recovery': {'$in': candidates}},
+        {'$pull': {'totp_recovery': {'$in': candidates}}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return len(doc.get('totp_recovery') or []) if doc else None
+
+
+async def set_recovery_codes(db: Database, user_id: str, recovery: list[str]) -> bool:
+    result = await db[USERS].update_one(
+        {'_id': user_id, 'totp_enc': {'$ne': None}}, {'$set': {'totp_recovery': recovery}}
+    )
+    return result.matched_count == 1
+
+
+async def clear_totp(db: Database, user_id: str) -> bool:
+    """Remove the second factor (and any enrolment in progress); True when there was one."""
+    doc = await db[USERS].find_one_and_update({'_id': user_id}, {'$set': _TOTP_CLEARED})
+    return bool(doc and doc.get('totp_enc'))
