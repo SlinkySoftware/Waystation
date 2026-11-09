@@ -9,6 +9,7 @@
   <MavenBrowser v-else-if="repo.format === 'maven'" :repo="repo" />
   <PypiBrowser v-else-if="repo.format === 'pypi'" :repo="repo" />
   <GoBrowser v-else-if="repo.format === 'go'" :repo="repo" />
+  <TerraformBrowser v-else-if="repo.format === 'terraform'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
@@ -23,6 +24,7 @@ import GoBrowser from './GoBrowser.vue'
 import MavenBrowser from './MavenBrowser.vue'
 import NpmBrowser from './NpmBrowser.vue'
 import PypiBrowser from './PypiBrowser.vue'
+import TerraformBrowser from './TerraformBrowser.vue'
 
 defineProps<{ repo: Repository }>()
 </script>

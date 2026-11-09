@@ -111,6 +111,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/pypi/yank', 'post'),
     ('/repositories/{name}/go/modules', 'get'),
     ('/repositories/{name}/go/versions', 'get'),
+    ('/repositories/{name}/terraform/providers', 'get'),
+    ('/repositories/{name}/terraform/versions', 'get'),
     ('/repositories/{name}/apt/suites', 'get'),
     ('/repositories/{name}/apt/packages', 'get'),
     ('/repositories/{name}/docker/images', 'get'),

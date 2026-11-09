@@ -180,4 +180,22 @@ describe('repository form model', () => {
     expect(HOSTED_FORMATS).not.toContain('go')
     expect(WRITABLE_GROUP_FORMATS).not.toContain('go')
   })
+
+  it('maps Terraform mirror options and offers proxy only', () => {
+    const proxy = toWrite({ ...emptyModel('terraform'), ...PRESETS.terraform[0]!.apply })
+    expect(proxy).toMatchObject({
+      name: 'terraform-mirror',
+      format: 'terraform',
+      type: 'proxy',
+      proxy: { upstream_url: 'https://registry.terraform.io' },
+      format_options: { origins: ['registry.terraform.io', 'registry.opentofu.org'], verify_signatures: true },
+    })
+    const custom = toWrite({ ...emptyModel('terraform'), tfOrigins: [' Registry.Example.com ', ''], verifySignatures: false })
+    expect(custom.format_options).toEqual({ origins: ['registry.example.com'], verify_signatures: false })
+    const repo = { name: 'tf', format: 'terraform', type: 'proxy', online: true, format_options: { origins: ['tf.example.com'], verify_signatures: false } } as unknown as Repository
+    expect(modelFromRepository(repo)).toMatchObject({ tfOrigins: ['tf.example.com'], verifySignatures: false })
+    expect(modelFromRepository({ ...repo, format_options: {} } as unknown as Repository)).toMatchObject({ tfOrigins: ['registry.terraform.io', 'registry.opentofu.org'], verifySignatures: true })
+    expect(GROUP_FORMATS).not.toContain('terraform')
+    expect(HOSTED_FORMATS).not.toContain('terraform')
+  })
 })
