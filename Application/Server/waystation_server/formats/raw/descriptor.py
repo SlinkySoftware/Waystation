@@ -94,7 +94,7 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
     wget = [snippet('wget-get', 'Download a file', f'wget {url}path/to/file')]
     if repo.type is not RepoType.PROXY:
         wget.append(
-            snippet('wget-auth', 'With credentials', f'wget --user {USERNAME} --password {TOKEN} {url}path/to/file')
+            snippet('wget-auth', 'With credentials', f'wget --header "Authorization: Bearer {TOKEN}" {url}path/to/file')
         )
     return [SetupClient(id='curl', label='curl', snippets=curl), SetupClient(id='wget', label='wget', snippets=wget)]
 

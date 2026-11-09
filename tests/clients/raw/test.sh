@@ -1,5 +1,6 @@
 #!/bin/sh
-# Raw proxy with real clients (client-curl container: curl + BusyBox wget), the commands of the "Set me up" snippets.
+# Raw proxy, hosted and group with real clients (client-curl container: curl + BusyBox wget), the commands of the
+# "Set me up" snippets.
 # Runs identically in record, replay and live mode; assertions use only what survives fixture scrubbing.
 set -eu
 . /harness/lib.sh
@@ -62,9 +63,13 @@ for _ in 1 2; do
   [ "$code" = 404 ] || fail "missing file returned $code"
 done
 
-step 'directories are not listed (later task) and writes are refused'
-code=$(curl -sS -o /dev/null -w '%{http_code}' "$repo/")
-[ "$code" = 404 ] || fail "repository root returned $code"
+step 'directory listings of the cache (HTML and JSON); writes to a proxy are refused'
+curl -fsS -H 'Accept: application/json' "$repo/" > list.json || fail 'listing of the repository root'
+grep -q '"name":"README.mirrors.txt","path":"README.mirrors.txt","kind":"file"' list.json \
+  || fail "root listing: $(cat list.json)"
+curl -fsS "$repo/project/trace/" | grep -q 'href="./master"' || fail 'HTML listing of project/trace/'
+code=$(curl -sS -o /dev/null -w '%{http_code}' "$repo/no-such-folder/")
+[ "$code" = 404 ] || fail "missing folder returned $code"
 code=$(curl -sS -o /dev/null -w '%{http_code}' -T README "$repo/upload.txt")
 [ "$code" = 401 ] || fail "anonymous PUT returned $code"
 
@@ -103,5 +108,49 @@ ws_revoke "$read_id"
 curl -sS -o /dev/null -D h4 -u "ci-bot:$read_token" "$repo/README.mirrors.txt"
 head -1 h4 | grep -q ' 401' || fail "revoked token: $(head -1 h4)"
 header www-authenticate h4 | grep -q '^Basic realm="Waystation"' || fail 'no Basic challenge'
+
+step 'hosted: curl uploads with a verified checksum (write token), anonymous does not see the repository'
+ws_login
+ws_token '["read", "write", "delete"]'
+writer=$WS_TOKEN
+hosted="$WAYSTATION_URL/repository/raw-uploads"
+printf 'release notes for the harness\n' > notes.txt
+sum=$(sha256sum notes.txt | cut -d' ' -f1)
+curl -fsS -u "ci-bot:$writer" -H "X-Checksum-Sha256: $sum" -D u1 --upload-file notes.txt \
+  "$hosted/releases/1.0/notes.txt" || fail 'upload'
+[ "$(header etag u1)" = "\"sha256:$sum\"" ] || fail "upload ETag: $(header etag u1)"
+code=$(status -u "ci-bot:$writer" -H "X-Checksum-Sha256: $(printf '%064d' 0)" --upload-file notes.txt \
+  "$hosted/releases/1.0/bad.txt")
+[ "$code" = 400 ] || fail "checksum mismatch returned $code"
+[ "$(status "$hosted/releases/1.0/notes.txt")" = 404 ] || fail 'anonymous sees the hosted repository'
+
+step 'hosted: curl and wget download what was uploaded; the folder is listed'
+curl -fsS -u "ci-bot:$writer" -D d1 -o notes.down "$hosted/releases/1.0/notes.txt"
+cmp -s notes.txt notes.down || fail 'downloaded file differs'
+case "$(header content-type d1)" in text/plain*) ;; *) fail "content type: $(header content-type d1)" ;; esac
+wget -q --header "Authorization: Bearer $writer" -O notes.wget "$hosted/releases/1.0/notes.txt" \
+  || fail 'wget with credentials'
+cmp -s notes.txt notes.wget || fail 'wget copy differs'
+[ "$(status -u "ci-bot:$writer" "$hosted/releases/1.0/notes.txt" -H "If-None-Match: \"sha256:$sum\"")" = 304 ] \
+  || fail 'conditional request on the uploaded file'
+curl -fsS -u "ci-bot:$writer" -H 'Accept: application/json' "$hosted/releases/1.0/" \
+  | grep -q "\"path\":\"releases/1.0/notes.txt\",\"kind\":\"file\",\"size\":$(wc -c < notes.txt | tr -d ' ')" \
+  || fail 'JSON listing of releases/1.0/'
+
+step 'group: reads the hosted member first and the proxy member next; uploads land in the writable member'
+group="$WAYSTATION_URL/repository/raw-all"
+curl -fsS -u "ci-bot:$writer" -D g1 -o group.notes "$group/releases/1.0/notes.txt"
+cmp -s notes.txt group.notes || fail 'group read of the hosted file'
+[ "$(header x-ws-group-member g1)" = raw-uploads ] || fail "served by $(header x-ws-group-member g1)"
+curl -fsS -u "ci-bot:$writer" -D g2 -o group.readme "$group/README.mirrors.txt"
+cmp -s README.mirrors.txt group.readme || fail 'group read of the cached proxy file'
+[ "$(header x-ws-group-member g2)" = debian-files ] || fail "served by $(header x-ws-group-member g2)"
+curl -fsS -u "ci-bot:$writer" --upload-file notes.txt "$group/via-group/notes.txt" || fail 'upload through the group'
+[ "$(status -u "ci-bot:$writer" "$hosted/via-group/notes.txt")" = 200 ] || fail 'group upload not in raw-uploads'
+
+step 'hosted: delete with curl, then the file is gone'
+[ "$(status -u "ci-bot:$writer" -X DELETE "$hosted/releases/1.0/notes.txt")" = 204 ] || fail 'delete'
+[ "$(status -u "ci-bot:$writer" "$hosted/releases/1.0/notes.txt")" = 404 ] || fail 'deleted file still served'
+[ "$(status -u "ci-bot:$writer" -X DELETE "$hosted/releases/1.0/notes.txt")" = 404 ] || fail 'second delete'
 
 pass
