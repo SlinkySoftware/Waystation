@@ -52,6 +52,25 @@ describe('repository form model', () => {
     expect(w.proxy?.metadata_max_age_s).toBe(3600)
   })
 
+  it('builds a hosted docker repository (no upstream, write policy and immutable tags)', () => {
+    const m = { ...emptyModel('docker', 'hosted'), name: 'docker-hosted', immutableTags: [' v[0-9]+ ', ''], writePolicy: 'disable_redeploy' as const, aliases: ['ignored'] }
+    const w = toWrite(m)
+    expect(w).toEqual({
+      name: 'docker-hosted',
+      format: 'docker',
+      type: 'hosted',
+      online: true,
+      description: '',
+      hosted: { write_policy: 'disable_redeploy', immutable_tag_patterns: ['v[0-9]+'] },
+      format_options: { aliases: [], docker_hub: false, default_repo: false },
+    })
+    expect(w.proxy).toBeUndefined()
+    const back = modelFromRepository({ ...w, status: 'ok', url: '', created_at: '', updated_at: '', stats: {} } as unknown as Repository)
+    expect(back.type).toBe('hosted')
+    expect(back.writePolicy).toBe('disable_redeploy')
+    expect(back.immutableTags).toEqual(['v[0-9]+'])
+  })
+
   it('validates names like the server', () => {
     expect(NAME_PATTERN.test('docker-hub')).toBe(true)
     expect(NAME_PATTERN.test('-bad')).toBe(false)
