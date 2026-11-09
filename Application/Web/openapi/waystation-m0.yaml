@@ -1348,6 +1348,48 @@ paths:
               schema: { $ref: '#/components/schemas/NpmVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/helm/charts:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listHelmCharts
+      summary: Charts of a Helm repository (hosted uploads, a proxy's cached index, a group's members)
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 250 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Charts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HelmChartPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/helm/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listHelmVersions
+      summary: One chart and its versions (newest first)
+      parameters:
+        - name: chart
+          in: query
+          required: true
+          description: Chart name
+          schema: { type: string, maxLength: 250 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HelmVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/apt/suites:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -3231,6 +3273,10 @@ components:
       properties:
         repo_path: { type: string, maxLength: 200, default: '', description: 'Path of the yum repository (the directory holding `repodata/`) below the upstream URL, e.g. `$releasever/BaseOS/$basearch/os/`. Empty: derived for well-known upstreams, else the repository root. Only used by "Set me up" and "test upstream"' }
         gpg_key: { type: [string, 'null'], maxLength: 500, description: '`gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams' }
+    HelmOptions:
+      type: object
+      description: 'Helm (classic chart repositories): no options yet'
+      properties: {}
     FormatOptions:
       description: Format-specific options; the shape follows the repository's `format`
       oneOf:
@@ -3239,6 +3285,7 @@ components:
         - $ref: '#/components/schemas/AptOptions'
         - $ref: '#/components/schemas/RawOptions'
         - $ref: '#/components/schemas/YumOptions'
+        - $ref: '#/components/schemas/HelmOptions'
     QuotaMode:
       type: string
       enum: [soft, hard]
@@ -3701,6 +3748,48 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/NpmVersion' }
+        next_cursor: { type: [string, 'null'] }
+    HelmChart:
+      type: object
+      required: [name, latest_version, version_count]
+      properties:
+        name: { type: string }
+        latest_version: { type: string }
+        app_version: { type: [string, 'null'] }
+        description: { type: [string, 'null'] }
+        icon: { type: [string, 'null'], description: "The chart's icon URL (http/https), as its metadata gives it" }
+        deprecated: { type: boolean, default: false }
+        version_count: { type: integer }
+    HelmChartPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/HelmChart' }
+        next_cursor: { type: [string, 'null'] }
+    HelmVersion:
+      type: object
+      required: [version, cached, path, download_url]
+      properties:
+        version: { type: string }
+        app_version: { type: [string, 'null'] }
+        description: { type: [string, 'null'] }
+        created_at: { type: [string, 'null'], format: date-time }
+        digest: { type: [string, 'null'], description: 'sha256 of the chart package (hex), when known' }
+        size_bytes: { type: [integer, 'null'] }
+        cached: { type: boolean, description: 'The chart package is stored (always true in hosted repositories)' }
+        deprecated: { type: boolean, default: false }
+        path: { type: string, description: Path of the chart package in the repository }
+        download_url: { type: string }
+    HelmVersionPage:
+      type: object
+      required: [chart, items, next_cursor]
+      properties:
+        chart: { $ref: '#/components/schemas/HelmChart' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/HelmVersion' }
         next_cursor: { type: [string, 'null'] }
     AptSuite:
       type: object
