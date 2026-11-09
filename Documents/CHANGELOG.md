@@ -21,7 +21,8 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   build plugins pre-seeded in the client image; 128 KiB of fixtures). Harness fix: fixture file names keep the request
   key for names with dots (`x.pom` and `x.jar` no longer share a file); older names are still read when their
   recorded request matches. Draft ADR 0005 (401 challenge instead of 404 for anonymous requests to hidden
-  repositories on format routes; proposed, not implemented). `Documents/Operations/clients/maven.md`.
+  repositories on format routes; proposed, not implemented). The Nexus import now creates `maven2` repositories
+  (`maven.versionPolicy`/`layoutPolicy` mapped). `Documents/Operations/clients/maven.md`.
 - T-M02: Nexus migration. `Documents/Operations/MIGRATING_FROM_NEXUS.md`, step by step: inventory, import,
   re-entering upstream credentials and access (roles, sign-in, API tokens), copying hosted content (skopeo/crane for
   docker, a Nexus assets API + curl loop with checksum for raw), warming the cache, side-by-side validation with the
