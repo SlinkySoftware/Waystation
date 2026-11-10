@@ -2,6 +2,19 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-11
+- T-S03: signed-in principals also receive the anonymous grants (owner decision), so signing in never reduces access.
+  Every authenticated principal (users of any source, service accounts; by session, API token, basic, `docker login`
+  or a registry token) holds its own grants plus the anonymous principal's (`Principal.anonymous_grants`, attached by
+  `security.rbac`; `access.check` decides from both). A user without roles now sees exactly what anonymous may
+  (capability `repositories.browse`, the "Your repositories" landing) instead of nothing; Docker registry tokens of
+  such users carry the anonymous pulls; a token can carry the `read` scope when anonymous reads are allowed. API token
+  scopes and repository patterns and registry token grants remain an upper bound on everything, the anonymous grants
+  included. Delegation (`may_assign`/`may_manage`) counts only the principal's own grants. Anonymous grants never
+  carry a global action (also when a role they use was edited to hold one). Changing `/anonymous-access` bumps
+  `grant_version` as before, so sessions and cached tokens follow at once. Effective permissions list the anonymous
+  roles with `via: anonymous` and include their permissions; hidden-404 and ADR 0005 are unchanged.
+
 ## 2026-11-10
 - T-P5-YUMH: hosted yum repositories. RPMs are uploaded with `PUT <path>.rpm` or `POST` to a directory (streamed,
   quota-checked; the header is read safely in a thread and the package's repodata entries rendered then), with
