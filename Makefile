@@ -83,7 +83,7 @@ TEST_AUTHENTIK_URL ?=
 # Runs from every checkout and worktree on one machine queue on this lock. TEST_LOCK= turns it off.
 TEST_LOCK    ?= /tmp/waystation-test-integration.lock
 .PHONY: test-integration test-integration-authentik
-test-integration: DEV_ENV = --network $(TEST_PROJECT)_default \
+test-integration: private DEV_ENV = --network $(TEST_PROJECT)_default \
   -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
   -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0' \
   -v $(TEST_PROJECT)_ldap-tls:/ldap-tls:ro -e WAYSTATION_TEST_LDAP_CA=/ldap-tls/ca.crt \

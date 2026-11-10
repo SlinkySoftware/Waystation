@@ -1,6 +1,6 @@
 [project]
 name = "waystation-server"
-version = "0.1.0"
+version = "0.2.0"
 description = "Waystation server: format protocols, REST API, SSE, data plane."
 requires-python = ">=3.14"
 license = "GPL-3.0-or-later"

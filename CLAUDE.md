@@ -6,6 +6,10 @@ private registry for the owner's own builds. It is a Nexus Repository / Artifact
 Components: a Python async **server**, Python async **workers**, an nginx **web** tier serving the Vue/Quasar
 UI and cached files, **MongoDB** for metadata and stats, **Valkey** for hot-path coordination.
 
+**Asked to deploy, install or operate Waystation (not to develop it)?** Follow
+`Documents/Operations/AGENT_DEPLOYMENT.md` instead of this file: it is the runbook for agents deploying Waystation into
+someone's environment. Everything below is for working on the code.
+
 ## Read before doing anything
 1. `Documents/SPECIFICATION.md`: what the app does, requirements, deployment, build status (living document).
 2. `Documents/Architecture/ARCHITECTURE.md`: **enforced** rules. Violating them is a bug.

@@ -7,13 +7,14 @@ Every CI step is a `make` target, so anything CI runs can be reproduced locally 
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `.github/workflows/ci.yml` | major release tag `vX.0.0`, manual | `make check`; the generated API client is current (`make gen-api` then `git diff --exit-code`); the budget report in the job summary; in a parallel job, `make clients-test FORMAT=all MODE=replay` |
-| `.github/workflows/release.yml` | major release tag `vX.0.0` | server, worker and web images for linux/amd64 and linux/arm64 pushed to GHCR, with SBOM and SLSA provenance attestations |
+| `.github/workflows/release.yml` | every release tag `vX.Y.Z` (and `vX.Y.Z-<pre>`) | server, worker and web images for linux/amd64 and linux/arm64 pushed to GHCR as `X.Y.Z`, `X.Y`, `sha-<commit>` and (stable releases) `latest`, with SBOM and SLSA provenance attestations |
 | `.github/workflows/clients-live.yml` | manual | the real-client harness against the live upstreams (`MODE=live`) |
 | `.gitea/workflows/check.yml` | push to `main` and pull requests (Gitea), manual | `make check` without `test-integration`, step by step (`forbidden-strings`, `workflow-lint`, `fmt-check`, `lint`, `typecheck`, `test`, `clients-check`, `frontend-check`), the generated API client diff and the budget report; then, only on push to `main` and manual runs, `make test-integration` in a second job |
 | `.gitea/workflows/images.yml` | push to `main` (Gitea), manual | server, worker and web images pushed to the Gitea container registry |
 | `.gitea/workflows/perf.yml` | push to `main` (Gitea), nightly, manual | `make perf`: the k6 suite, CI profile on push (manual: either profile), full profile nightly; results uploaded as the `perf-results` artifact |
 
-GitHub Actions cost money, so GitHub runs only for major releases (`vX.0.0` tags) or when started by hand. Gitea
+GitHub runs the full check only for major releases (`vX.0.0` tags) or when started by hand, and the release images
+for every release tag. Gitea
 runs on local runners at no cost: it checks every pull request and every push to `main`, and builds images on every
 push to `main`. Run `make check` locally before pushing.
 
