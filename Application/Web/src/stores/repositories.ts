@@ -10,6 +10,8 @@ import { formatMark, repoMark } from '@/utils/domain'
 
 export const useRepositoriesStore = defineStore('repositories', () => {
   const items = shallowRef<Repository[]>([])
+  /** True once a load completed: an empty list then means "none visible", not "still loading". */
+  const loaded = shallowRef(false)
   let loading: Promise<void> | null = null
 
   const byName = computed(() => new Map(items.value.map((r) => [r.name, r])))
@@ -26,6 +28,7 @@ export const useRepositoriesStore = defineStore('repositories', () => {
         cursor = page.next_cursor ?? undefined
       } while (cursor)
       items.value = out
+      loaded.value = true
     })().catch((error) => {
       loading = null
       throw error
@@ -47,7 +50,7 @@ export const useRepositoriesStore = defineStore('repositories', () => {
     items.value = items.value.filter((r) => r.name !== name)
   }
 
-  return { items, byName, load, markFor, upsert, remove }
+  return { items, loaded, byName, load, markFor, upsert, remove }
 })
 
 if (import.meta.hot) import.meta.hot.accept(acceptHMRUpdate(useRepositoriesStore, import.meta.hot))

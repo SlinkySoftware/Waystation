@@ -68,7 +68,21 @@ export const CUSTOM_ROLES: Role[] = [
       { action: 'read', scope: 'format:docker' },
     ],
   },
+  {
+    id: 'proxy-readers',
+    name: 'Proxy readers',
+    description: 'What anonymous access allows: browse and download from the proxy repositories.',
+    builtin: false,
+    permissions: [
+      { action: 'browse', scope: 'type:proxy' },
+      { action: 'read', scope: 'type:proxy' },
+    ],
+  },
 ]
+
+/** Minimal-permission mock sessions (sign in with any password): no role at all (an LDAP user who is only in the
+ * provider's required group), a reader, and the anonymous-access grants only. */
+export const MINIMAL_USERS = { noRoles: 'nina', reader: 'reed', proxyOnly: 'gus' } as const
 
 export function seedLocalGroups(now = Date.now()): LocalGroupSeed[] {
   const at = (days: number) => new Date(now - days * DAY).toISOString()
@@ -141,6 +155,14 @@ export function seedUsers(now = Date.now()): UserDetail[] {
     base('01JC0000000000000000000U07', 'helpdesk', 'Help desk', 'local', now - 50 * DAY, { roles: ['user-manager'], last_login: iso(now - 4 * HOUR) }),
     base('01JC0000000000000000000U08', 'ivy', 'Ivy Chen', 'local', now - 1 * DAY, { must_change_password: true, groups: ['01JC00000000000000000GRP04'] }),
     base('01JC0000000000000000000U09', 'sam', 'Sam Reyes', 'local', now - 70 * DAY, { groups: ['01JC00000000000000000GRP03'], last_login: iso(now - 30 * MIN), totp_enabled: true }),
+    base('01JC0000000000000000000U10', 'nina', 'Nina Brandt', LDAP, now - 1 * DAY, {
+      has_password: false,
+      last_login: iso(now - 20 * MIN),
+      external_groups: [{ provider: LDAP, id: `cn=waystation-users,${SUFFIX}`, name: 'waystation-users' }],
+      identities: [{ provider: LDAP, subject: 'uid=nina,cn=users,cn=accounts,dc=example,dc=com', linked_at: iso(now - 1 * DAY), last_login: iso(now - 20 * MIN) }],
+    }),
+    base('01JC0000000000000000000U11', 'reed', 'Reed Okoye', 'local', now - 40 * DAY, { roles: ['reader'], last_login: iso(now - 6 * HOUR) }),
+    base('01JC0000000000000000000U12', 'gus', 'Gus Moreau', 'local', now - 12 * DAY, { roles: ['proxy-readers'], last_login: iso(now - 2 * DAY) }),
   ]
   let i = 0
   for (const first of FIRST) {

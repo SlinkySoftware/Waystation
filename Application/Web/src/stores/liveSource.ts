@@ -8,6 +8,9 @@ export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'reconnecting'
 export interface LiveHandlers {
   onEvent(event: LiveEvent, id: string | null): void
   onStatus(status: ConnectionStatus): void
+  /** The stream failed before it ever opened (EventSource hides the status: 401/403, or the server is away). The
+   * live store re-checks the session then, so a user who lost `stats-read` stops asking. */
+  onRefused?(): void
 }
 
 export interface LiveSource {
@@ -51,13 +54,16 @@ export class EventSourceLiveSource implements LiveSource {
     handlers.onStatus('connecting')
     const source = new EventSource(`${API_BASE}/events/stream?${params.toString()}`, { withCredentials: true })
     this.source = source
+    let opened = false
     source.onopen = () => {
+      opened = true
       this.retryMs = RETRY_MIN_MS
       handlers.onStatus('open')
     }
     source.onerror = () => {
       if (source.readyState === EventSource.CLOSED) {
         handlers.onStatus('reconnecting')
+        if (!opened) handlers.onRefused?.()
         this.timer = setTimeout(() => this.open(topics, this.lastId, handlers), this.retryMs)
         this.retryMs = Math.min(RETRY_MAX_MS, this.retryMs * 2)
       } else {
