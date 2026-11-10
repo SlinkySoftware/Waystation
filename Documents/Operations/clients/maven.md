@@ -67,8 +67,8 @@ The profile matters only when SNAPSHOTs come through the mirror (a group with a 
 repository): the mirror replaces Maven Central, whose definition in Maven's super POM has SNAPSHOTs disabled, so
 without it Maven never asks for a SNAPSHOT (`Could not find artifact ...-SNAPSHOT` within a fraction of a second).
 
-The `<server>` id must match the mirror id. When anonymous users cannot read the repository, also send the
-credentials up front (see "Authentication"): `-Daether.connector.http.preemptiveAuth=true` in `.mvn/maven.config`.
+The `<server>` id must match the mirror id. Maven sends its credentials after Waystation's `401` challenge (see
+"Authentication"); sending them up front is optional.
 Use `--strict-checksums` (`-C`) in CI: Waystation serves checksum files for everything it holds, so a checksum
 failure is a real problem, not a missing file.
 
@@ -114,7 +114,7 @@ repositories {
             username = providers.gradleProperty("wsUser").get()
             password = providers.gradleProperty("wsToken").get()
         }
-        authentication { create<BasicAuthentication>("basic") }  // send the credentials up front
+        authentication { create<BasicAuthentication>("basic") }  // optional: send the credentials up front
     }
 }
 ```
@@ -161,19 +161,23 @@ API tokens; deploying needs the `write` scope, deleting `delete`). Any username 
 decides. Proxy repositories are usually readable anonymously; hosted and group repositories follow your RBAC
 settings.
 
-**Send the credentials up front.** Maven, Gradle and sbt send credentials for a `GET` only after a `401` challenge,
-but Waystation answers `404` to an anonymous request for a repository anonymous users cannot see (hidden
-repositories never reveal that they exist). So for hosted and group repositories that anonymous users cannot read,
-turn on preemptive authentication:
+**Plain credentials are enough.** Maven, Gradle and sbt send credentials for a `GET` only after a `401` challenge.
+Waystation answers a request that carries no credentials with `401` and `WWW-Authenticate: Basic realm="Waystation"`
+when anonymous users cannot see the repository (ADR 0005, as Nexus does), so the client retries with the
+`settings.xml` (or Gradle `credentials`) username and token. A repository that does not exist answers the same
+challenge, so anonymous callers cannot tell the two apart. A request *with* credentials that may not see the
+repository gets `404`.
+
+Optional: send the credentials up front to save the extra round trip per request:
 
 - Maven 3.9: `-Daether.connector.http.preemptiveAuth=true`, best in the project's `.mvn/maven.config` (one
   argument per line) or in `MAVEN_OPTS`/`MAVEN_ARGS`. Deploys (`PUT`) already send credentials up front.
 - Gradle: `authentication { create<BasicAuthentication>("basic") }` inside the `maven { }` block, next to
   `credentials`.
 
-Symptoms without it: `Could not find artifact`, `No versions available for ... within specified range`, or a `404`
-for `maven-metadata.xml`, although the credentials in `settings.xml` are right. (Answering such requests with a
-`401` challenge instead, as Nexus does, is proposed in ADR 0005.)
+A `401 Unauthorized` that persists means the client has no credentials for this repository (check that the
+`<server>` id matches the mirror or repository id); a `404` with credentials means your token or account cannot read
+the repository, or the path does not exist.
 
 ## What Waystation verifies (proxies)
 

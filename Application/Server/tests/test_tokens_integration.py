@@ -200,8 +200,11 @@ async def test_basic_and_bearer_on_format_routes(admin: httpx.AsyncClient, anon:
     assert put.status_code == 200
     npm = await anon.get('/repository/npm-proxy/left-pad', headers={'Authorization': f'Token {secret}'})
     assert npm.text.endswith('as admin')
-    # anonymous cannot see the hosted repository at all
-    assert (await anon.get('/repository/raw-private/a/b.txt')).status_code == 404
+    # anonymous cannot see the hosted repository at all: the challenge, as for a missing one (ADR 0005)
+    hidden = await anon.get('/repository/raw-private/a/b.txt')
+    missing = await anon.get('/repository/raw-missing/a/b.txt')
+    assert hidden.status_code == missing.status_code == 401 and hidden.content == missing.content
+    assert hidden.headers['www-authenticate'] == missing.headers['www-authenticate']
 
 
 async def test_bad_credentials_are_refused_not_downgraded(anon: httpx.AsyncClient, services: Services) -> None:

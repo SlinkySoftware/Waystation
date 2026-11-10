@@ -75,7 +75,7 @@ modules you fetch directly from version control.
 ## Authentication
 
 Proxy repositories are read anonymously when the deployment allows anonymous reads (the default for proxies). Groups
-and restricted repositories need an API token: create one on your profile page (avatar menu → Profile → API tokens;
+and restricted repositories need an API token (without credentials they answer the `401` Basic challenge): create one on your profile page (avatar menu → Profile → API tokens;
 shown once) or, for CI, on a service account. The go command sends credentials from `~/.netrc` (`%USERPROFILE%\_netrc`
 on Windows; `NETRC` names another file), **over HTTPS only**:
 

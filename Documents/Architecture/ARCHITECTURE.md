@@ -180,6 +180,12 @@ Formats without upstream checksums record the computed sha256 and serve consiste
 ## 7. Security model
 - One decision point: `waystation_server.security.access` exposes `check`, `filter_repos`, `filter_query`
   (a MongoDB filter on a repository-id field).
+- Hidden objects answer 404, never 403 (a repository the principal can neither browse nor read). One exception
+  (ADR 0005), decided only by `access.hidden_repo`: on the format routes (`/repository/<repo>/...`) a request with no
+  credentials at all (anonymous principal, no `Authorization` header) gets `401` + `WWW-Authenticate: Basic` for a
+  hidden repository **and the identical answer for a missing one** (so names cannot be enumerated); requests with
+  credentials keep the 404, and `/v2/`, the REST API, search and browse are unchanged. On a hidden repository, a
+  package-client sign-in (npm login) shows the repository only by succeeding: every failure gets the same answer.
   Every route declares its required action (decorator); a test enumerates all routes and fails if one lacks it.
 - Grants are materialised per principal (roles ∪ group roles ∪ anonymous) into a compact table cached in Valkey
   keyed by `grant_version` (incremented on any RBAC change; change stream invalidation across replicas).

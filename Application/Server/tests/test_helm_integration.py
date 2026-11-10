@@ -208,7 +208,7 @@ async def test_hosted_upload_index_delete(
 ) -> None:
     empty = await client.get('/repository/mine/index.yaml', auth=auth)
     assert empty.status_code == 200 and json.loads(empty.content)['entries'] == {}
-    assert (await client.get('/repository/mine/index.yaml')).status_code == 404  # hidden from anonymous
+    assert (await client.get('/repository/mine/index.yaml')).status_code == 401  # hidden from anonymous (ADR 0005)
 
     put = await client.put('/repository/mine/anything.tgz', content=DEMO, auth=auth)
     assert put.status_code == 201, put.text

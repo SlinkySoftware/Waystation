@@ -111,8 +111,10 @@ and no expiry; it is listed as `npm login (<repository>) <time>` on your profile
 - `--auth-type=legacy` is required: npm's default web login is not offered. `npm adduser` cannot create accounts.
 - Accounts with two-factor sign-in, accounts that must change a one-time password and OIDC accounts cannot use
   `npm login`; create a token in the UI instead.
-- You need read access to the repository you log in to. Wrong credentials answer `E401`, or `E404` for a repository
-  that anonymous users cannot see (so a private repository never reveals that it exists).
+- You need read access to the repository you log in to. Wrong credentials answer `E401`. On a repository that
+  anonymous users cannot see, every failure (wrong credentials, no access, a malformed request) answers exactly like a
+  repository that does not exist (`E401` with the Basic challenge, ADR 0005), so a private repository never reveals
+  that it exists.
 - Failed attempts count towards the account lockout and the sign-in rate limit like any other sign-in.
 
 ## Publishing (hosted and group repositories)
@@ -182,5 +184,6 @@ proxy member is still installed from the public registry.
 | `E400` on `npm publish` | The tarball and its metadata disagree (name, version, integrity) or the archive is invalid; the message says which. |
 | `E405` on `npm publish` | The registry is a proxy, or a group without a writable member. |
 | `E403` on `npm unpublish` | Unpublishing needs the `delete` permission (and a token with the `delete` scope). |
-| `npm login` answers `E404` | The repository is not visible to you (or anonymous), the credentials are wrong on a private repository, or your account cannot read it. |
+| `npm login` answers `E401` | Wrong credentials, or on a repository anonymous users cannot see (or that does not exist): any failure, including an account that cannot read it. |
+| `npm login` answers `E404` | The repository is readable anonymously but your account cannot read it. |
 | `npm login` hangs or opens a browser | Add `--auth-type=legacy`. |

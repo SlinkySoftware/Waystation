@@ -111,7 +111,7 @@ netrc() {  # netrc <token>: the go command's credentials for the TLS front (API 
 
 step 'the group needs credentials'
 code=$(curl -sS -o /dev/null -w '%{http_code}' "$group/github.com/google/uuid/@v/list")
-[ "$code" = 404 ] || fail "anonymous group read: $code"
+[ "$code" = 401 ] || fail "anonymous group read (expected the challenge, ADR 0005): $code"
 
 step 'go mod download + go run through the group with an API token in .netrc (served from the cache)'
 ws_login
