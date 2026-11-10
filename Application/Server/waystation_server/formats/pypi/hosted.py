@@ -44,6 +44,7 @@ from waystation_server import audit
 from waystation_server.audit import AuditAction
 from waystation_server.db import pypi as pypi_db
 from waystation_server.formats.base import FormatRequest
+from waystation_server.formats.common.multipart import MultipartReader, boundary_of
 from waystation_server.formats.pypi import simple
 from waystation_server.formats.pypi.common import (
     FILE_TYPE,
@@ -58,7 +59,6 @@ from waystation_server.formats.pypi.common import (
     summary_fields,
 )
 from waystation_server.formats.pypi.distmeta import CoreMetadata, read_distribution
-from waystation_server.formats.common.multipart import MultipartReader, boundary_of
 from waystation_server.hosted.store import UploadInterrupted
 from waystation_server.repos.model import RepoConfig, StoredHosted, WritePolicy
 from waystation_server.repos.quota import QuotaExceeded

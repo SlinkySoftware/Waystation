@@ -30,10 +30,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
 
-from waystation_common.galaxy import parse_artifact_path
-
 from waystation_common.cleanup.model import Candidate, Criteria
 from waystation_common.cleanup.versions import is_prerelease, sort_key
+from waystation_common.galaxy import parse_artifact_path
 
 DAY = timedelta(days=1)
 

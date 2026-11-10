@@ -115,9 +115,7 @@ class GalaxyBrowse:
             raise NotFound('collection not found')
         ids = await repo_ids(ctx)
         found = (
-            await galaxy_db.collections(
-                ctx.db, ids, namespace=namespace, after=None, q=None, limit=1, name_is=name
-            )
+            await galaxy_db.collections(ctx.db, ids, namespace=namespace, after=None, q=None, limit=1, name_is=name)
             if ids
             else []
         )
@@ -152,4 +150,3 @@ class GalaxyBrowse:
             items=items,
             next_cursor=encode_cursor(str(docs[-1]['version_sort'])) if more and docs else None,
         )
-

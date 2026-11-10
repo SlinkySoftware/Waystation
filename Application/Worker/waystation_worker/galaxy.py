@@ -48,7 +48,7 @@ MAX_LIST = 100
 CHUNK = 1024 * 1024
 _CONTROL = re.compile(r'[\x00-\x1f\x7f]')
 _HEX64 = re.compile(r'^[0-9a-f]{64}$')
-_REQUIRES = re.compile(r'''^requires_ansible\s*:\s*['"]?([^'"#\r\n]{1,200}?)['"]?\s*(?:#.*)?$''', re.MULTILINE)
+_REQUIRES = re.compile(r"""^requires_ansible\s*:\s*['"]?([^'"#\r\n]{1,200}?)['"]?\s*(?:#.*)?$""", re.MULTILINE)
 INFO_TEXT = ('description', 'repository', 'documentation', 'homepage', 'issues', 'license_file', 'readme')
 INFO_LISTS = ('authors', 'license', 'tags')
 
@@ -112,7 +112,7 @@ def _hash(handle: IO[bytes]) -> str:
 def _json(data: bytes, what: str) -> dict[str, Any]:
     try:
         value = json.loads(data)
-    except (ValueError, UnicodeDecodeError):
+    except ValueError, UnicodeDecodeError:
         raise ImportFailed('invalid_manifest', f'{what} is not valid JSON') from None
     if not isinstance(value, dict):
         raise ImportFailed('invalid_manifest', f'{what} is not a JSON object')
@@ -145,11 +145,11 @@ def _metadata(info: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def read_collection(path: Path, expected: galaxy.Artifact) -> Collection:  # noqa: C901 - one linear validation
+def read_collection(path: Path, expected: galaxy.Artifact) -> Collection:
     """Validate a collection artifact (blocking: run in a thread). Raises ``ImportFailed``."""
     try:
         tar = tarfile.open(path, mode='r:gz')  # noqa: SIM115 - closed below
-    except (tarfile.TarError, OSError, EOFError):
+    except tarfile.TarError, OSError, EOFError:
         raise ImportFailed('invalid_archive', 'the artifact is not a gzip-compressed tar archive') from None
     regular: dict[str, str] = {}  # name -> sha256
     links: dict[str, str] = {}  # name -> resolved target
@@ -162,39 +162,39 @@ def read_collection(path: Path, expected: galaxy.Artifact) -> Collection:  # noq
                 members += 1
                 if members > MAX_MEMBERS:
                     raise ImportFailed('invalid_archive', f'the archive has more than {MAX_MEMBERS} members')
-                name = clean_name(member.name)
-                if not name:
+                entry = clean_name(member.name)
+                if not entry:
                     if member.isdir():
                         continue
                     raise ImportFailed('invalid_archive', 'an archive member has an empty name')
-                if name in regular or name in links:
-                    raise ImportFailed('invalid_archive', f'{name!r} appears twice in the archive')
+                if entry in regular or entry in links:
+                    raise ImportFailed('invalid_archive', f'{entry!r} appears twice in the archive')
                 if member.isdir():
-                    dirs.add(name)
+                    dirs.add(entry)
                     continue
                 if member.issym():
-                    links[name] = _link_target(name, member.linkname)
+                    links[entry] = _link_target(entry, member.linkname)
                     continue
                 if not member.isfile():
-                    raise ImportFailed('invalid_archive', f'{name!r} is not a regular file, directory or symlink')
+                    raise ImportFailed('invalid_archive', f'{entry!r} is not a regular file, directory or symlink')
                 unpacked += member.size
                 if unpacked > MAX_UNPACKED:
                     raise ImportFailed('invalid_archive', 'the archive unpacks to more than 2 GiB')
                 handle = tar.extractfile(member)
                 if handle is None:
-                    raise ImportFailed('invalid_archive', f'cannot read {name!r}')
+                    raise ImportFailed('invalid_archive', f'cannot read {entry!r}')
                 with handle:
-                    if name == 'MANIFEST.json':
+                    if entry == 'MANIFEST.json':
                         manifest_raw = _read(handle, MAX_MANIFEST, 'MANIFEST.json')
-                        regular[name] = hashlib.sha256(manifest_raw).hexdigest()
-                    elif name == 'FILES.json':
+                        regular[entry] = hashlib.sha256(manifest_raw).hexdigest()
+                    elif entry == 'FILES.json':
                         files_raw = _read(handle, MAX_FILES_JSON, 'FILES.json')
-                        regular[name] = hashlib.sha256(files_raw).hexdigest()
-                    elif name == 'meta/runtime.yml' and member.size <= MAX_RUNTIME:
+                        regular[entry] = hashlib.sha256(files_raw).hexdigest()
+                    elif entry == 'meta/runtime.yml' and member.size <= MAX_RUNTIME:
                         runtime_raw = handle.read(MAX_RUNTIME)
-                        regular[name] = hashlib.sha256(runtime_raw).hexdigest()
+                        regular[entry] = hashlib.sha256(runtime_raw).hexdigest()
                     else:
-                        regular[name] = _hash(handle)
+                        regular[entry] = _hash(handle)
     except (tarfile.TarError, OSError, EOFError, ValueError) as exc:
         raise ImportFailed('invalid_archive', f'the archive is damaged ({type(exc).__name__})') from None
     if manifest_raw is None:
@@ -252,7 +252,7 @@ def read_collection(path: Path, expected: galaxy.Artifact) -> Collection:  # noq
     unlisted = sorted(n for n in (*regular, *links) if n not in listed and n not in ('MANIFEST.json', 'FILES.json'))
     if unlisted:
         raise ImportFailed('unlisted_file', f'{unlisted[0]!r} is in the archive but not listed in FILES.json')
-    requires = None
+    requires: str | None = None
     if runtime_raw is not None:
         found = _REQUIRES.search(runtime_raw.decode('utf-8', errors='replace'))
         requires = found.group(1).strip() if found else None
