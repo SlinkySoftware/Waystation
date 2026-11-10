@@ -616,6 +616,79 @@ async def test_admin_passes_every_access_rule(services: Services, admin: httpx.A
     assert checked > 50
 
 
+SKIP_FOR_MINIMAL = {f'{API}/auth/sessions', f'{API}/auth/sessions/{{session_id}}', f'{API}/events/stream'}
+
+
+@pytest.mark.parametrize(
+    ('username', 'roles', 'visible'),
+    [
+        ('nobody', [], []),  # signed in (e.g. in the provider's required group) with no role at all
+        ('guest', ['anonymous'], ['npm-proxy']),  # only what anonymous access grants
+        ('rita', ['reader'], ['npm-hosted', 'npm-proxy', 'raw-hosted']),
+    ],
+)
+async def test_minimal_principals_get_consistent_answers(
+    services: Services, admin: httpx.AsyncClient, username: str, roles: list[str], visible: list[str]
+) -> None:
+    """Route x principal matrix, the "signed in, minimal permissions" columns against a real session (SPEC §4.10
+    "What a user without roles sees"): never 401 (that would end the UI session); every route needing a global
+    action is 403 ``permission_required``; listings are filtered (an empty page, not an error); hidden repositories
+    are 404 on every repository route; routes for any signed-in user work."""
+    from ws_testing import iter_routes
+
+    from waystation_server.app import create_app
+    from waystation_server.security import access
+
+    if username != 'rita':
+        await add_user(services, username, roles)
+    client = await sign_in(services, username)
+    try:
+        me = (await client.get(f'{API}/auth/me')).json()
+        assert me['capabilities'] == ([] if not visible else ['repositories.browse'])
+        listed = await client.get(f'{API}/repositories')
+        assert listed.status_code == 200, listed.text
+        assert sorted(r['name'] for r in listed.json()['items']) == visible
+        found = await client.get(f'{API}/search', params={'q': ''})
+        assert found.status_code == 200, found.text
+        assert {i['repository'] for i in found.json()['items']} <= set(visible)
+        stream = await client.get(f'{API}/events/stream', params={'topics': 'transfers,stats,activity'})
+        assert stream.status_code == 403
+        assert stream.json()['code'] == 'permission_required'
+        assert (await client.get(f'{API}/cleanup-policies')).json()['code'] == 'permission_required'
+
+        checked = 0
+        for path, methods, endpoint in iter_routes(create_app()):
+            rule = access.route_rule(endpoint)
+            if not path.startswith(API) or rule is None or rule.kind == 'public' or path in SKIP_FOR_MINIMAL:
+                continue  # public routes include sign-out
+            for method in sorted(methods - {'HEAD'}):
+                body = {} if method in ('POST', 'PUT', 'PATCH') else None
+                if rule.kind == 'repo':
+                    for repo in ('npm-proxy', 'npm-hosted', 'raw-hosted'):
+                        url = path.replace('{name}', repo).replace('{', '').replace('}', '-missing')
+                        response = await client.request(method, url, json=body)
+                        assert response.status_code != 401, f'{username} {method} {url}: 401'
+                        if repo not in visible:
+                            assert response.status_code == 404, f'{username} {method} {url}: {response.status_code}'
+                        elif rule.action not in (access.Action.BROWSE, access.Action.READ):
+                            assert response.status_code == 403, f'{username} {method} {url}: {response.status_code}'
+                        checked += 1
+                    continue
+                url = path.replace('{', '').replace('}', '-missing')
+                response = await client.request(method, url, json=body)
+                assert response.status_code != 401, f'{username} {method} {path}: 401 {response.text}'
+                if rule.kind == 'global':
+                    assert response.status_code == 403, f'{username} {method} {path}: {response.status_code}'
+                    assert response.json()['code'] == 'permission_required', f'{method} {path}: {response.text}'
+                elif rule.kind in ('authenticated', 'filtered'):
+                    assert response.status_code != 403, f'{username} {method} {path}: 403 {response.text}'
+                    assert response.status_code < 500, f'{username} {method} {path}: {response.status_code}'
+                checked += 1
+        assert checked > 100
+    finally:
+        await client.aclose()
+
+
 # ---------------------------------------------------------------------------- T-U08: sessions, settings, system
 async def test_admin_lists_and_ends_a_users_sessions(services: Services, admin: httpx.AsyncClient) -> None:
     rita = await sign_in(services, 'rita')
