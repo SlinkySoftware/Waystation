@@ -27,6 +27,10 @@ from waystation_server.browse.models import (
     DockerManifest,
     DockerTagPage,
     FolderListing,
+    GalaxyBrowser,
+    GalaxyCollectionPage,
+    GalaxyNamespacePage,
+    GalaxyVersionPage,
     GoBrowser,
     GoModulePage,
     GoVersionPage,
@@ -278,6 +282,75 @@ async def get_docker_manifest(
     repo: RepoConfig = request.state.repo
     browser = _docker(svc, repo)
     return await browser.manifest(_context(svc, repo), image=image, reference=reference, platform=platform)
+
+
+# ---------------------------------------------------------------------------- galaxy
+def _galaxy(svc: Services, repo: RepoConfig) -> GalaxyBrowser:
+    browser = _browser(svc, repo, 'galaxy')
+    if not isinstance(browser, GalaxyBrowser):
+        raise NotFound('not a galaxy repository')
+    return browser
+
+
+@router.get(
+    '/repositories/{name}/galaxy/namespaces',
+    response_model=GalaxyNamespacePage,
+    operation_id='listGalaxyNamespaces',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_galaxy_namespaces(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=250)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> GalaxyNamespacePage:
+    repo: RepoConfig = request.state.repo
+    return await _galaxy(svc, repo).namespaces(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/galaxy/collections',
+    response_model=GalaxyCollectionPage,
+    operation_id='listGalaxyCollections',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_galaxy_collections(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    namespace: Annotated[str | None, Query(max_length=64, description='Only this namespace')] = None,
+    q: Annotated[str | None, Query(max_length=250)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> GalaxyCollectionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _galaxy(svc, repo)
+    return await browser.collections(_context(svc, repo), namespace=namespace, q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/galaxy/versions',
+    response_model=GalaxyVersionPage,
+    operation_id='listGalaxyVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_galaxy_versions(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    namespace: Annotated[str, Query(max_length=64, description='Collection namespace')],
+    collection: Annotated[str, Query(max_length=64, description='Collection name')],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> GalaxyVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _galaxy(svc, repo)
+    return await browser.versions(_context(svc, repo), namespace=namespace, name=collection, cursor=cursor, limit=limit)
 
 
 # ---------------------------------------------------------------------------- helm

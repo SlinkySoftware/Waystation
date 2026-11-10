@@ -2,8 +2,9 @@
 context a browse view gets, the view protocols format plugins implement, and opaque cursors.
 
 A format plugin that supports format-aware browsing exposes a ``browser`` attribute implementing one of the protocols
-below (``NpmBrowser``, ``AptBrowser``, ``DockerBrowser``, ``MavenBrowser``, ``PypiBrowser``, ``GoBrowser``). The REST
-API finds it through the format registry and never imports the format package (ARCHITECTURE §3).
+below (``NpmBrowser``, ``AptBrowser``, ``DockerBrowser``, ``MavenBrowser``, ``PypiBrowser``, ``GoBrowser``,
+``HelmBrowser``, ``GalaxyBrowser``). The REST API finds it through the format registry and never imports the format
+package (ARCHITECTURE §3).
 
 Download counters (``downloads``, ``pulls``, ``last_downloaded_at``, ``last_pulled_at``) are not recorded yet (T-S09
 full): they answer ``0`` / ``null``.
@@ -223,6 +224,51 @@ class HelmVersion(BaseModel):
 class HelmVersionPage(BaseModel):
     chart: HelmChart
     items: list[HelmVersion]
+    next_cursor: str | None
+
+
+# ---------------------------------------------------------------------------- galaxy
+class GalaxyNamespace(BaseModel):
+    namespace: str
+    collection_count: int
+
+
+class GalaxyNamespacePage(BaseModel):
+    items: list[GalaxyNamespace]
+    next_cursor: str | None
+
+
+class GalaxyCollection(BaseModel):
+    namespace: str
+    name: str
+    latest_version: str
+    description: str | None = None
+    requires_ansible: str | None = None
+    version_count: int
+
+
+class GalaxyCollectionPage(BaseModel):
+    items: list[GalaxyCollection]
+    next_cursor: str | None
+
+
+class GalaxyVersion(BaseModel):
+    version: str
+    prerelease: bool = False
+    created_at: datetime | None = None
+    requires_ansible: str | None = None
+    sha256: str | None = Field(default=None, description='sha256 of the collection artifact (hex), when known')
+    size_bytes: int | None = None
+    cached: bool = Field(description='The artifact is stored (always true in hosted repositories)')
+    dependencies: dict[str, str] = Field(default_factory=dict, description='Collection name -> version range')
+    uploaded_by: str | None = None
+    path: str = Field(description='Path of the artifact in the repository')
+    download_url: str
+
+
+class GalaxyVersionPage(BaseModel):
+    collection: GalaxyCollection
+    items: list[GalaxyVersion]
     next_cursor: str | None
 
 
@@ -447,6 +493,24 @@ class HelmBrowser(Protocol):
 
     async def versions(self, ctx: BrowseContext, *, chart: str, cursor: str | None, limit: int) -> HelmVersionPage:
         """One chart's versions, newest first; raises ``NotFound`` for an unknown chart."""
+
+
+@runtime_checkable
+class GalaxyBrowser(Protocol):
+    async def namespaces(
+        self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int
+    ) -> GalaxyNamespacePage:
+        """Namespaces with their number of collections."""
+
+    async def collections(
+        self, ctx: BrowseContext, *, namespace: str | None, q: str | None, cursor: str | None, limit: int
+    ) -> GalaxyCollectionPage:
+        """Collections by namespace and name (hosted: imported; proxy: version lists cached; group: the members')."""
+
+    async def versions(
+        self, ctx: BrowseContext, *, namespace: str, name: str, cursor: str | None, limit: int
+    ) -> GalaxyVersionPage:
+        """One collection's versions, newest first; raises ``NotFound`` for an unknown collection."""
 
 
 @runtime_checkable

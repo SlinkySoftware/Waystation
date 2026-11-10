@@ -2,7 +2,7 @@
 
 - **Upload** (``POST /repository/<repo>/``, also ``.../legacy/``): the legacy upload API twine and ``uv publish`` use,
   ``multipart/form-data`` with ``:action=file_upload``, the metadata fields and the file in ``content``. The file
-  streams into the blob store (``formats.pypi.multipart``; a live upload transfer), then its core metadata is read
+  streams into the blob store (``formats.common.multipart``; a live upload transfer), then its core metadata is read
   from the archive in a thread (``formats.pypi.distmeta``: bounded, zip/tar-slip checks) and must agree with the file
   name and the form (project and version); ``sha256_digest`` must match. Wheels and sdists (``.tar.gz``, ``.zip``)
   only. The file becomes ``packages/<project>/<file>``; a wheel's ``METADATA`` is also stored as the PEP 658
@@ -58,7 +58,7 @@ from waystation_server.formats.pypi.common import (
     summary_fields,
 )
 from waystation_server.formats.pypi.distmeta import CoreMetadata, read_distribution
-from waystation_server.formats.pypi.multipart import MultipartReader, boundary_of
+from waystation_server.formats.common.multipart import MultipartReader, boundary_of
 from waystation_server.hosted.store import UploadInterrupted
 from waystation_server.repos.model import RepoConfig, StoredHosted, WritePolicy
 from waystation_server.repos.quota import QuotaExceeded
