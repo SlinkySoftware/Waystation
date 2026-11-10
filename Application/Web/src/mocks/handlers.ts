@@ -4,9 +4,10 @@
 // CSRF header on unsafe methods, cursor pagination, realistic latency.
 import { delay, http, HttpResponse } from 'msw'
 
-import type { AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, Problem, PypiYank, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
+import type { Action, AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, Problem, PypiYank, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
+import { accessHandler } from './access'
 import { activityCsv, activityPage, activityQuery } from './activity'
 import { adminHandlers, AdminWorld } from './admin'
 import { auditHandlers, recordAudit } from './audit'
@@ -54,8 +55,24 @@ function signedInUser(): string | null {
   }
 }
 
-/** The mock session: a seeded user (sign in as `helpdesk` to see a user-admin who is not an administrator) or, for
- * any other name, an administrator. */
+/** What the signed-in mock user may do (the live source filters by it, like the server's event hub). */
+export const mockAccess = {
+  may: (action: Action) => admin.check(signedInUser(), action),
+  canSee: (repository: string) => {
+    const repo = world.repos.find((r) => r.name === repository)
+    return repo ? admin.canSee(signedInUser(), repo) : false
+  },
+}
+
+/** Listings are filtered, never just hidden (SPEC §4.10). */
+function visibleRepos(): Repository[] {
+  const user = signedInUser()
+  return world.repos.filter((r) => admin.canSee(user, r))
+}
+
+/** The mock session: a seeded user (sign in as `helpdesk` to see a user-admin who is not an administrator; `nina`
+ * holds no role, `reed` is a reader, `gus` has only the anonymous grants, `grace` is a viewer) or, for any other
+ * name, an administrator. */
 function session(username: string): Session {
   const known = admin.users.find((u) => u.username === username)
   return {
@@ -240,6 +257,9 @@ function repoGuard(name: string | readonly string[] | undefined, format?: Format
 }
 
 export const handlers = [
+  // RBAC first (mocks/access.ts): 403 permission_required for a missing global action, 404 for a hidden repository.
+  accessHandler(admin, signedInUser, () => world.repos),
+
   http.get(`${API}/config`, async () => {
     await latency()
     return HttpResponse.json({ instance_name: admin.instanceName, base_url: BASE_URL, version: '0.1.0-m0 (mock)', docker: { registry_host: REGISTRY_HOST, default_repo: world.repos.find((r) => (r.format_options as { default_repo?: boolean } | undefined)?.default_repo)?.name ?? null } })
@@ -335,7 +355,7 @@ export const handlers = [
     const f = url.searchParams.get('format')
     const t = url.searchParams.get('type')
     const s = url.searchParams.get('status')
-    const items = world.repos
+    const items = visibleRepos()
       .filter((r) => (!f || r.format === f) && (!t || r.type === t) && (!s || r.status === s))
       .filter((r) => !q || r.name.toLowerCase().includes(q) || (r.description ?? '').toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -695,7 +715,7 @@ export const handlers = [
       types: url.searchParams.getAll('type'),
       cached: url.searchParams.get('cached') === 'true',
     }
-    return HttpResponse.json(mockSearch(world.repos, params, offset, limit, url.searchParams.get('facets') !== 'false'))
+    return HttpResponse.json(mockSearch(visibleRepos(), params, offset, limit, url.searchParams.get('facets') !== 'false'))
   }),
 
   // ---------------------------------------------------------------- stats & live

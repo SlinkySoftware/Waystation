@@ -3,11 +3,21 @@
 // Events land in plain (non-reactive) maps and are flushed to reactive state at 4 Hz, so a burst of progress
 // events never causes a re-render storm.
 import { acceptHMRUpdate, defineStore } from 'pinia'
-import { computed, ref, shallowRef } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 
 import type { ActivityEvent, LiveEvent, StatsTickEvent, TaskEvent, Transfer, UpstreamHealth } from '@/api/types'
 
+import { useAuthStore } from './auth'
 import { type ConnectionStatus, createLiveSource, type LiveSource } from './liveSource'
+
+/** The capability a topic needs (the server refuses the whole stream otherwise: `stats-read`, and `admin` for
+ * `tasks`). A hint only: the server filters every event per subscriber. */
+export function topicCapability(topic: string): string {
+  return topic === 'tasks' ? 'admin' : 'stats.read'
+}
+
+/** Re-check the session at most this often when the stream is refused before it opens. */
+export const REFUSED_RECHECK_MS = 30_000
 
 export interface LiveTransfer extends Transfer {
   /** Client clock (ms) when the transfer finished or failed; drives the fade-out. */
@@ -40,6 +50,8 @@ export const useLiveStore = defineStore('live', () => {
   let source: LiveSource | null = null
   let flushTimer: ReturnType<typeof setInterval> | null = null
   let reopenTimer: ReturnType<typeof setTimeout> | null = null
+  /** The topics of the open stream (comma-separated; empty when closed). */
+  let followed = ''
 
   function apply(event: LiveEvent, id: string | null = null): void {
     const now = Date.now()
@@ -127,8 +139,20 @@ export const useLiveStore = defineStore('live', () => {
     transfers.value = [...map.values()].map((t) => ({ ...t })).sort((a, b) => (a.started_at < b.started_at ? 1 : -1))
   }
 
+  const auth = useAuthStore()
+  let lastRecheck = 0
+
+  /** The subscribed topics the session may follow: a user without `stats.read` opens no stream at all. */
   function topics(): string[] {
-    return [...topicRefs.keys()].sort()
+    return [...topicRefs.keys()].filter((topic) => auth.can(topicCapability(topic))).sort()
+  }
+
+  /** Refused before opening: the session may have lost a capability (or ended); reload it, calmly. */
+  function refused(): void {
+    const now = Date.now()
+    if (now - lastRecheck < REFUSED_RECHECK_MS || !auth.signedIn) return
+    lastRecheck = now
+    void auth.refresh().catch(() => undefined)
   }
 
   function reopen(): void {
@@ -137,6 +161,7 @@ export const useLiveStore = defineStore('live', () => {
       reopenTimer = null
       source?.close()
       const list = topics()
+      followed = list.join(',')
       if (!list.length) {
         stop()
         return
@@ -147,10 +172,20 @@ export const useLiveStore = defineStore('live', () => {
         onStatus: (next) => {
           status.value = next
         },
+        onRefused: refused,
       })
       flushTimer ??= setInterval(() => flush(), FLUSH_MS)
     }, 0)
   }
+
+  // Capabilities change (sign-in, a refreshed session after a role change): follow what is allowed now.
+  // (The capabilities are read directly: `topics()` reads none while nothing is subscribed.)
+  watch(
+    () => (auth.session?.capabilities ?? []).join(','),
+    () => {
+      if (topics().join(',') !== followed) reopen()
+    },
+  )
 
   /** Subscribe to a topic (`transfers`, `stats`, `activity`, `tasks`, `repo:<name>`); returns the unsubscribe function. */
   function subscribe(topic: string): () => void {
@@ -185,6 +220,7 @@ export const useLiveStore = defineStore('live', () => {
   function stop(): void {
     source?.close()
     source = null
+    followed = ''
     if (flushTimer) clearInterval(flushTimer)
     flushTimer = null
     status.value = 'idle'

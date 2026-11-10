@@ -41,6 +41,16 @@ and patterns carry over.
 - **Left navigation rail** (collapsible to icons; drawer on mobile): Dashboard, Repositories, Browse, Search,
   Activity, Storage, Cleanup, Tasks, then an Administration group (Users, Groups, Roles, Auth providers,
   API tokens, Audit log, Settings, System). Items hidden when the user lacks permission.
+- **Minimal permissions** (T-U10, SPEC §4.10): every page route names the session capability it needs
+  (`meta.capability`, the same as its rail item: Repositories/Browse/Search `repositories.browse`, Activity/Storage
+  `stats.read`, Cleanup `repositories.manage`, Tasks and the admin pages their admin capability). The rail and the
+  command palette show only what the session holds; a link or typed URL to anything else shows the calm "No access
+  to this page" page (illustration, one sentence, back to the dashboard) without asking the server. A user without
+  `stats.read` gets no live indicator and no event stream; the dashboard becomes a landing: "Your repositories"
+  (tiles linking to each, Browse, Search) or, with no role at all, "You are signed in, but have no access yet" with a
+  link to the profile. Repository pages hide live transfers, activity and upstream health without `stats.read` and
+  the Cleanup/Settings tabs without `repositories.manage`. A load refused with 403 anyway (capabilities changed
+  mid-session) shows "Not available to you" instead of an error with a retry; never an error toast or loop.
 - **Top bar**: product mark + instance name, global search box (opens command palette `Ctrl/⌘ K`), live
   indicator (pulsing dot + active transfer count; click opens the live drawer), theme toggle, help, user menu
   (profile, my API tokens, sign out).
@@ -279,7 +289,11 @@ every progress tick), full keyboard operation, no information by colour alone.
   (mock mode swaps its source for the generator), strings `src/i18n/en.ts`. Run it with `make frontend-mock`
   (http://localhost:9000/ui/, any username/password; password `wrong` shows the error state). A static mock build
   (`make frontend-build-mock`) serves the same tour. Screenshot tour: `scripts/screenshots.mjs` (Playwright image; `REAL=1` tours a running stack instead of mocks, as
-  for the M0 tour in `Documents/Notes/UI_TOUR_M0.md`).
+  for the M0 tour in `Documents/Notes/UI_TOUR_M0.md`). The mocks apply the server's route rules (`mocks/access.ts`:
+  403 `permission_required`, hidden repositories 404, filtered listings, a refused event stream without
+  `stats-read`); sign in as `nina` (no role), `reed` (reader), `gus` (the anonymous-access grants only) or `grace`
+  (viewer) to see minimal-permission sessions. `make ui-smoke` (`scripts/role-smoke.mjs`, Playwright on the mock
+  build) opens every rail page as each of them and fails on any console error or refused request.
 - `<script setup lang="ts">` only, strict TS, ESLint + vue-tsc in CI; components < 300 lines; composables for
   data (`useCrud`, `useLiveStream(topic)`, `useStats(range)`, `useNotify`, `useCopy`).
 - API only through the generated `openapi-fetch` client in `src/api/`; SSE via one shared `EventSource`

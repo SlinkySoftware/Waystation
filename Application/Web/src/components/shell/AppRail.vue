@@ -37,7 +37,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { t } from '@/i18n'
-import { type NavItem, navigation } from '@/layouts/navigation'
+import { type NavItem, visibleNavigation } from '@/layouts/navigation'
 import { useAuthStore } from '@/stores/auth'
 
 defineProps<{ mini: boolean }>()
@@ -45,9 +45,7 @@ defineProps<{ mini: boolean }>()
 const auth = useAuthStore()
 const route = useRoute()
 
-const groups = computed(() =>
-  navigation.map((g) => ({ ...g, items: g.items.filter((i) => !i.capability || auth.can(i.capability)) })).filter((g) => g.items.length),
-)
+const groups = computed(() => visibleNavigation((capability) => auth.can(capability)))
 
 function isActive(item: NavItem): boolean {
   if (item.name === 'repositories') return route.name === 'repositories' || (route.name === 'repository' && route.params.tab !== 'browse')

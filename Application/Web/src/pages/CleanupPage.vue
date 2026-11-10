@@ -11,9 +11,7 @@
 
     <div class="cleanup">
       <PageCard :title="t('cleanup.policies')" :caption="t('cleanup.policiesCaption')" flush>
-        <EmptyState v-if="list.error.value && !list.data.value" illustration="error" :title="t('cleanup.loadFailed')" :text="errorMessage(list.error.value)">
-          <q-btn unelevated no-caps color="primary" :label="t('common.retry')" :loading="list.loading.value" @click="list.reload" />
-        </EmptyState>
+        <LoadFailedState v-if="list.error.value && !list.data.value" :error="list.error.value" :title="t('cleanup.loadFailed')" :loading="list.loading.value" @retry="list.reload" />
         <PolicyTable
           v-else
           :policies="policies"
@@ -46,7 +44,7 @@ import { useQuasar } from 'quasar'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { api, call, errorMessage } from '@/api/client'
+import { api, call } from '@/api/client'
 import type { CleanupPolicy } from '@/api/types'
 import { toWrite } from '@/components/cleanup/cleanup'
 import GcCard from '@/components/cleanup/GcCard.vue'
@@ -54,6 +52,7 @@ import PolicyEditor from '@/components/cleanup/PolicyEditor.vue'
 import PolicyTable from '@/components/cleanup/PolicyTable.vue'
 import RunHistoryDialog from '@/components/cleanup/RunHistoryDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadFailedState from '@/components/LoadFailedState.vue'
 import PageCard from '@/components/PageCard.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAsync } from '@/composables/useAsync'

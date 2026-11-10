@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { seedRepositories } from '@/mocks/fixtures/repositories'
 import { mockSearch } from '@/mocks/search'
 import { useRecentStore } from '@/stores/recent'
+import { CAPS, signInAs } from '@/test/session'
 
 import CommandPalette from './CommandPalette.vue'
 
@@ -57,6 +58,15 @@ describe('CommandPalette', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     localStorage.clear()
+    signInAs(CAPS.reader)
+  })
+
+  it('offers no package search to a user without roles, only pages and actions', async () => {
+    signInAs(CAPS.noRoles)
+    const { options, type } = setup()
+    await flushPromises()
+    await type('deb')
+    expect(options().some((o) => o.textContent?.includes('Search for'))).toBe(false)
   })
   afterEach(() => {
     vi.useRealTimers()

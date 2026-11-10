@@ -247,9 +247,13 @@ verify-blobs: ## Run the blob verify task in a running stack and wait for its re
 .PHONY: e2e clients-test clients-check perf
 e2e: ## Playwright E2E
 	$(call not_yet,T-U09)
-.PHONY: e2e-m0
+.PHONY: e2e-m0 ui-smoke
 e2e-m0: ## M0 end to end with real clients against a RUNNING stack (WAYSTATION_URL, WAYSTATION_ADMIN_PASSWORD[_FILE])
 	tests/e2e/m0/run.sh
+PLAYWRIGHT_IMAGE ?= mcr.microsoft.com/playwright:v1.65.0-noble
+ui-smoke: frontend-build-mock ## Minimal-permission smoke: every rail page as no-role/reader/anonymous-grants users on the mock build, zero console errors (Playwright)
+	docker run --rm -i --init --user $(UID):$(GID) -e HOME=/tmp -v $(CURDIR):/src -w /src/$(WEB_DIR) $(PLAYWRIGHT_IMAGE) \
+	  sh -c 'npm i --no-save --no-audit --no-fund --prefix /tmp/pw playwright@1.65.0 >/dev/null && NODE_PATH=/tmp/pw/node_modules node scripts/role-smoke.mjs'
 FORMAT ?= all
 MODE   ?= replay
 clients-test: dev-image ## Real-client format tests: FORMAT=<name|all> MODE=replay|record|live (tests/clients/README.md)

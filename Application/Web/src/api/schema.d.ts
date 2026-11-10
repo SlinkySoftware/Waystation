@@ -2289,7 +2289,7 @@ export interface components {
             status: number;
             detail?: string;
             instance?: string;
-            /** @description Stable machine code (`password_change_required`, `totp_setup_required`, `second_factor_expired`...) */
+            /** @description Stable machine code (`permission_required`: a signed-in principal lacks the permission; `password_change_required`, `totp_setup_required`, `second_factor_expired`...) */
             code?: string;
             errors?: components["schemas"]["FieldError"][];
         };
@@ -2377,8 +2377,9 @@ export interface components {
             csrf_token: string;
             /**
              * @description Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
-             *     replace server-side checks. Values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
-             *     `users.admin`, `settings.admin`, `admin`.
+             *     replace server-side checks. Values: `repositories.create`, `repositories.manage`, `repositories.browse`
+             *     (browse or read on some repository: Repositories, Browse, Search), `stats.read`, `audit.read`, `users.admin`,
+             *     `settings.admin`, `admin`. Empty for a user without roles (the UI shows its "no access yet" landing).
              */
             capabilities: string[];
             preferences: components["schemas"]["Preferences"];

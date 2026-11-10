@@ -98,7 +98,9 @@ const items = computed<PaletteItem[]>(() => {
   const actions = actionItems(can)
   const repositories = repos.items.map(repositoryItem)
   if (!q) return [...recent.items.slice(0, 5).map(recentItem), ...repositories.slice(0, 5), ...pages, ...actions]
-  return [searchItem(q), ...rank(repositories, q, 6), ...rank(pages, q, 4), ...results.items, ...rank(actions, q, 3)]
+  // Package search needs some visible repository (`repositories.browse`); without it only pages and actions match.
+  const search = can('repositories.browse') ? [searchItem(q)] : []
+  return [...search, ...rank(repositories, q, 6), ...rank(pages, q, 4), ...results.items, ...rank(actions, q, 3)]
 })
 const sections = computed(() => toSections(items.value))
 const flat = computed(() => sections.value.flatMap((s) => s.items))

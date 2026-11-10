@@ -80,6 +80,12 @@ export async function call<T>(promise: Promise<{ data?: T; error?: unknown; resp
   return result.data as T
 }
 
+/** The server refused the request for lack of permission (403, e.g. problem code `permission_required`): show the
+ * calm "not available to you" state, not an error with a retry that would only fail again. */
+export function isRefused(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403
+}
+
 /** A user-facing message for any thrown value. */
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.problem.detail ?? error.problem.title
