@@ -24,7 +24,8 @@ UI and cached files, **MongoDB** for metadata and stats, **Valkey** for hot-path
 - **Only the server and workers talk to MongoDB and Valkey.** The web tier talks only to the server (and reads the
   blob store read-only for `X-Accel-Redirect`). The UI talks only to `/api/v1/*` and the event stream.
 - **Every request is authorised by the RBAC engine** (`waystation_server.security.access`). Never rely on the UI
-  hiding something; never check a role name directly; hidden objects return 404, not 403.
+  hiding something; never check a role name directly; hidden objects return 404, not 403 (one exception, ADR 0005:
+  a request with no credentials on `/repository/<repo>/...` gets the same 401 challenge for hidden and missing repos).
 - **Never trust upstream content.** Verify every digest/checksum you are given, bound every size, normalise every
   path (no `..`, no absolute paths, no NUL), and never follow redirects to private address space unless the repo
   allows it (SSRF guard).
