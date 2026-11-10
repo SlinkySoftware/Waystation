@@ -14,10 +14,11 @@ from pydantic import SecretStr
 from starlette.responses import PlainTextResponse, Response
 from ws_testing import asgi_client
 
-from waystation_common.db.collections import REPOSITORIES
+from waystation_common.db.collections import REPOSITORIES, USERS
 from waystation_common.settings import Settings
 from waystation_server.bootstrap import ensure_bootstrap_admin
 from waystation_server.formats.base import FormatRequest
+from waystation_server.security import passwords
 from waystation_server.services import Services
 
 pytestmark = pytest.mark.integration
@@ -189,6 +190,39 @@ async def test_login_with_password(docker: httpx.AsyncClient) -> None:
     pushed = await docker.put('/v2/private/app/manifests/1', headers=headers)
     assert pushed.status_code == 200
     assert pushed.text.endswith(' admin')
+
+
+async def test_a_signed_in_user_without_roles_gets_the_anonymous_pulls(
+    services: Services, docker: httpx.AsyncClient
+) -> None:
+    """``docker login`` as a user without roles: the registry token includes the anonymous pull grants (SPEC §4.10,
+    signing in never reduces access), never more (no push, nothing on hidden repositories)."""
+    await services.db[USERS].insert_one(
+        {
+            '_id': 'id-nina',
+            'username': 'nina',
+            'display_name': 'Nina',
+            'source': 'local',
+            'password_hash': await passwords.hash_password(PASSWORD),
+            'roles': [],
+            'created_at': datetime.now(UTC),
+        }
+    )
+    issued = await get_token(
+        docker, 'repository:docker-hub/library/nginx:pull,push', 'repository:private/app:pull', auth=('nina', PASSWORD)
+    )
+    assert issued.status_code == 200
+    payload = claims(issued.json()['token'])
+    assert payload['sub'] == 'id-nina'
+    assert payload['access'] == [
+        {'type': 'repository', 'name': 'docker-hub/library/nginx', 'actions': ['pull']},
+        {'type': 'repository', 'name': 'private/app', 'actions': []},
+    ]
+    headers = {'Authorization': f'Bearer {issued.json()["token"]}'}
+    served = await docker.get('/v2/docker-hub/library/nginx/manifests/latest', headers=headers)
+    assert served.status_code == 200
+    assert served.text.endswith(' nina')
+    assert (await docker.put('/v2/docker-hub/library/nginx/manifests/latest', headers=headers)).status_code == 401
 
 
 async def test_tokens_are_checked(docker: httpx.AsyncClient) -> None:
