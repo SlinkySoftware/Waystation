@@ -96,11 +96,12 @@ async def test_usage_is_counted_incrementally(
     assert (await client.get('/repository/files/b.bin')).content == OTHER
     assert (await client.get('/repository/mirror/a.bin')).content == DATA  # same blob, another repository
     usage = await usage_db.get(services.db, repo)
-    assert (usage.bytes, usage.assets) == (len(DATA) + len(OTHER), 2)
+    assert (usage.bytes, usage.assets, usage.artifacts) == (len(DATA) + len(OTHER), 2, 2)
     assert (await usage_db.get(services.db, other)).bytes == len(DATA)  # a shared blob counts in each repository
 
     await services.hosted.remove(await services.catalog.get('files'), 'b.bin')  # type: ignore[arg-type]
-    assert (await usage_db.get(services.db, repo)).bytes == len(DATA)
+    usage = await usage_db.get(services.db, repo)
+    assert (usage.bytes, usage.assets, usage.artifacts) == (len(DATA), 1, 1)
 
 
 async def test_hard_quota_passes_new_content_through_and_still_serves_hits(
@@ -132,6 +133,8 @@ async def test_hard_quota_passes_new_content_through_and_still_serves_hits(
     assert meta.status_code == 200 and 'x-ws-not-stored' not in meta.headers
     assert meta.headers['x-accel-redirect'].endswith(hashlib.sha256(b'{"a": 1}').hexdigest())  # stored, served by nginx
     assert await services.db[ASSETS].find_one({'repo_id': repo, 'path': 'index.json'}) is not None
+    usage = await usage_db.get(services.db, repo)
+    assert (usage.assets, usage.artifacts) == (2, 1)  # metadata is stored but is not an artifact
 
     # Raising the quota lets new content in again.
     await set_quota(services, repo, 10 * len(DATA))

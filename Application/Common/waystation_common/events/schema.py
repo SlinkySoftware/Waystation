@@ -46,6 +46,8 @@ class EventType(StrEnum):
     STORAGE_OK = 'storage.ok'  # free space is back above the guard
     QUOTA_WARNING = 'quota.warning'  # a repository reached 80 % of its quota
     QUOTA_EXCEEDED = 'quota.exceeded'  # a repository reached its quota (hard: new writes refused)
+    # Blob verify found assets without their blob (proxied ones are re-fetched; hosted ones are lost), T-O07
+    BLOBS_MISSING = 'storage.blobs_missing'
 
 
 class Direction(StrEnum):

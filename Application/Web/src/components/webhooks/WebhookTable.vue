@@ -19,7 +19,7 @@
         <div class="hooks__title">
           <div class="hooks__icon"><q-icon :name="iconWebhook" size="18px" /></div>
           <div class="hooks__ident">
-            <div class="hooks__name">{{ row.name }}</div>
+            <div class="hooks__name">{{ row.name }} <ManagedBadge :item="row" /></div>
             <div class="hooks__url mono" :title="row.url">{{ row.url }}</div>
             <div v-if="row.description" class="hooks__desc">{{ row.description }}</div>
           </div>
@@ -41,7 +41,7 @@
     </template>
     <template #body-cell-enabled="{ row }">
       <q-td @click.stop>
-        <q-toggle :model-value="row.enabled" dense :aria-label="t('webhooks.action.enableWhat', { name: row.name })" @update:model-value="(on: boolean) => emit('toggle', row, on)" />
+        <q-toggle :model-value="row.enabled" dense :disable="isManaged(row)" :aria-label="t('webhooks.action.enableWhat', { name: row.name })" @update:model-value="(on: boolean) => emit('toggle', row, on)" />
       </q-td>
     </template>
     <template #body-cell-actions="{ row }">
@@ -55,10 +55,10 @@
         <div class="hooks__title">
           <div class="hooks__icon"><q-icon :name="iconWebhook" size="18px" /></div>
           <div class="hooks__ident col">
-            <div class="hooks__name">{{ row.name }}</div>
+            <div class="hooks__name">{{ row.name }} <ManagedBadge :item="row" /></div>
             <div class="hooks__url mono">{{ row.url }}</div>
           </div>
-          <q-toggle :model-value="row.enabled" dense :aria-label="t('webhooks.action.enableWhat', { name: row.name })" @update:model-value="(on: boolean) => emit('toggle', row, on)" />
+          <q-toggle :model-value="row.enabled" dense :disable="isManaged(row)" :aria-label="t('webhooks.action.enableWhat', { name: row.name })" @update:model-value="(on: boolean) => emit('toggle', row, on)" />
         </div>
         <div class="hooks__desc">{{ describeEvents(row.events) }} · {{ describeScope(row.repositories) }}</div>
         <LastDelivery :delivery="row.last_delivery" />
@@ -77,8 +77,10 @@ import { type QTableColumn, useQuasar } from 'quasar'
 import { computed } from 'vue'
 
 import type { Webhook } from '@/api/types'
+import ManagedBadge from '@/components/ManagedBadge.vue'
 import { t } from '@/i18n'
 import { iconWebhook } from '@/utils/icons'
+import { isManaged } from '@/utils/managed'
 
 import LastDelivery from './LastDelivery.vue'
 import WebhookActions from './WebhookActions.vue'

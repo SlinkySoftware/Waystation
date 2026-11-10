@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/artifacts/community-library_inventory_filtering_v1-1.1.5.tar.gz"
+  },
+  "response": {
+    "body_sha256": null,
+    "body_size": 0,
+    "headers": [
+      [
+        "content-type",
+        "text/html; charset=utf-8"
+      ],
+      [
+        "location",
+        "https://galaxy.ansible.com/api/pulp/content/published/community-library_inventory_filtering_v1-1.1.5.tar.gz?expires=harness-redacted&validate_token=harness-redacted"
+      ],
+      [
+        "vary",
+        "Accept, Accept-Language, Cookie"
+      ]
+    ],
+    "status": 302
+  }
+}

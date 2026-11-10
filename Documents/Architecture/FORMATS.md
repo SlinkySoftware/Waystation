@@ -193,6 +193,67 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
 - Browse (T-S09 min): a stored packument (either representation) is summarised in the background into
   `npm_packages` (latest, dist-tags, version count; description and licence only from the full packument); versions
   are read from the cached packument (full preferred: publish times) and sorted by semver precedence.
+- Built (T-P5-NPMH; `formats/npm/hosted.py`, `group.py`, `publish.py`; client guide `Operations/clients/npm.md`):
+  - **Publish** (`PUT /<pkg>` with `_attachments`, what `npm publish` sends): body ≤ 100 MiB, parsed in a thread;
+    exactly one version and one attachment (named `<name>-<version>.tgz`, scoped: `@scope/name-<version>.tgz` as npm
+    sends it, or the bare name); the version must be strict SemVer and name the URL's package; base64 decoded
+    strictly, `length`, `dist.integrity` (sha512) and `dist.shasum` checked when given; the tarball must be gzip+tar
+    and is read without extraction (≤ 100 000 entries, ≤ 1 GiB unpacked, entry names relative without `..`,
+    backslashes or control characters) for `package.json` (any top-level directory, ≤ 1 MiB) whose name and version
+    must match. Stored as `<pkg>/-/<name without scope>-<version>.tgz` (a live upload transfer, sha256 verified at
+    commit); the version's manifest keeps the published fields except private `_` keys (`_id`, `_nodeVersion`,
+    `_npmVersion`, `_hasShrinkwrap` kept), `readme` moves to the package (≤ 512 KiB), `hasInstallScript` is
+    derived from `scripts`, and `dist` is computed (`integrity`, `shasum`, `fileCount`, `unpackedSize`; ≤ 1 MiB per
+    manifest, ≤ 10 000 versions per package). Tags in the body pointing at the version are applied; `latest` is
+    always present (newest release, else newest version, when nothing names it). Write policy: `read_only` 403,
+    `disable_redeploy` (npm's own rule) 403 "You cannot publish over the previously published versions: x",
+    `allow_redeploy` replaces. Hard quotas 403, low disk 507.
+  - **Packuments** are generated, not stored as published: after every change the full and abbreviated documents
+    are built from `npm_versions` + `npm_packages` in a thread and committed as the repository's metadata assets
+    (`<pkg>/-/packument.json`, `.install-v1.json`, the proxy's keys), served by X-Accel with `ETag`/`304`. Full:
+    `_id`, `_rev` (`<rev>-<hash>`), `name`, `dist-tags`, `versions`, `time` (`created`, `modified`, per version),
+    `readme` and the latest version's `description`, `license`, `homepage`, `repository`, `bugs`, `keywords`,
+    `author`. Abbreviated: `name`, `modified`, `dist-tags`, `versions` with the install fields (dependencies of all
+    kinds, `bin`, `directories`, `dist`, `engines`, `os`, `cpu`, `libc`, `funding`, `license`, `deprecated`,
+    `_hasShrinkwrap`, `hasInstallScript`). Concurrency: package changes move `npm_packages.rev` by compare-and-set;
+    a regeneration that sees `rev` move while it ran runs again, so the newest state always wins. Versions whose
+    tarball a cleanup policy removed are left out at the next regeneration; a request for such a missing tarball
+    (version published more than 10 minutes ago) drops the version and regenerates at once.
+  - **Packument updates** (`PUT /<pkg>` or `/<pkg>/-rev/<rev>` without attachments; `npm deprecate`, `npm unpublish
+    <pkg>@<v>`): `deprecated` of held versions applied (empty = undeprecated), held versions missing from the body
+    unpublished (needs `delete` on the repository), dist-tags taken from the body (tags on held versions only),
+    unknown versions ignored. `_rev` is not checked (last writer wins).
+  - **Unpublish**: `DELETE /<pkg>[/-rev/<rev>]` removes every version; `DELETE` of a tarball removes it and its
+    version (also behind the `repository/<repo>/` prefix that `npm unpublish` sends: it appends the tarball URL's
+    *path* to the registry URL). A tarball already removed by the packument update answers 200.
+  - **dist-tags**: `GET -/package/<pkg>/dist-tags` (also proxies, from the cached packument, and groups, from the
+    merge), `PUT .../dist-tags/<tag>` (body: the version as a JSON string; the version must exist) and `DELETE`
+    (`latest` cannot be removed; authorised as `write`, descriptor `request_action`). Tag names: URL-safe, ≤ 128
+    characters, not a version.
+  - **Login**: `PUT /-/user/org.couchdb.user:<name>` (`npm login --auth-type=legacy`; `npm adduser` cannot create
+    accounts) on any npm repository: the router authenticates but does not authorise (descriptor `client_login`);
+    `waystation_server.client_login` checks the password like `docker login` (rate limit, lockout, LDAP; one-time
+    passwords and two-factor accounts refused), requires `read` on the repository and answers `201 {"token": ...}`
+    with a new API token of the user (scopes `read`/`write`/`delete` as held, no repository pattern, no expiry,
+    named `npm login (<repo>) <time>`, audited `auth.login` via `npm` + `token.create`). On a repository the caller
+    could not see before signing in, every failure answers 404. `npm logout` (`DELETE /-/user/token/<token>`)
+    revokes the token only when it is the one the request carries. `npm` web login is not offered.
+  - **Search** (hosted): `/-/v1/search?text=&size=&from=` over the repository's package names. **Audit**: 404 on
+    hosted repositories; groups relay to their first proxy member that relays audits.
+  - **Group**: packuments merged per representation from the members (proxy: ensured/revalidated; hosted: the
+    generated document): versions union with the first member winning a version, dist-tags from the first member
+    that has the tag, `time` per version from its winner, other fields from the first member, every `dist.tarball`
+    rewritten to the group; committed to the blob store and served by X-Accel until a member's packument changes
+    (in-process pointer per group, package and representation keyed by the members' digests, GC claim renewed
+    hourly). `?write=true` answers the writable member's own packument (so `npm deprecate`/`unpublish` through the
+    group only touch it). Tarballs: members in order (hosted stored file, else the proxy serves it if its packument
+    lists it), so the member that won a version serves its bytes. Writes (publish, updates, unpublish, dist-tags)
+    go to the hosted writable member (RBAC on the member; `dist-tag rm` needs `write`); none = 405. Search: the
+    first proxy member's, else the hosted members'.
+  - Clients verified (harness, recorded registry.npmjs.org fixtures): npm 11 `login --auth-type=legacy`, `whoami`,
+    `publish` (to the group and to the hosted repository, republish refused), install of a hosted and a proxied
+    package through the group, `dist-tag add/ls/rm`, `deprecate`, `unpublish <pkg>@<v>` and `--force`, `logout`.
+    pnpm/Yarn/Bun publish use the same requests and are not in the harness yet.
 
 ## apt (Debian, Ubuntu, Raspberry Pi OS) — Phase 2 (proxy), Phase 5 (hosted)
 - Layout under the upstream base: `dists/<suite>/{InRelease,Release,Release.gpg}`,
@@ -511,6 +572,59 @@ Spec: Galaxy NG / Pulp Ansible v3 API (what `ansible-galaxy` speaks to galaxy.an
 - Roles: legacy v1 API is git-sourced; proxy role metadata read-only, archives from GitHub tag tarballs cached as raw
   content (documented limitation).
 - Clients: ansible-galaxy (ansible-core 2.17+), `ansible-galaxy collection install -s <url>` / `ansible.cfg` server list.
+
+As implemented (T-P5-GALAXY, `waystation_server.formats.galaxy`; client guide `Documents/Operations/clients/galaxy.md`):
+- **Routes** (`plugin.parse_route`, trailing slashes optional): `''` (discovery with `api/` prefixes, so the
+  repository URL is the server URL) and `api/` (`{"available_versions": {"v3": "v3/", "v1": "v1/"}}`, `v1` only when
+  a proxy (member) proxies roles); `api/v3/collections/<ns>/<name>/[versions/[<version>/]]`; the Galaxy NG aliases
+  `api/v3/plugin/ansible/content/<distribution>/collections/index/...` and `.../collections/artifacts/<file>`;
+  artifacts at `collections/<ns>/<name>/<ns>-<name>-<version>.tar.gz`; hosted `POST api/v3/artifacts/collections/`,
+  `GET api/v3/imports/collections/<task>/`, `DELETE` of a version or a collection document; roles
+  `api/v1/roles/?owner__username=&name=`, `api/v1/roles/<id>/versions/`, `roles/<id>/<version>.tar.gz`. Names: Galaxy
+  NG's rule for new collections (`[a-z][a-z0-9_]*`, no `__`, ≤ 64) for uploads, `[A-Za-z0-9_]{1,64}` for lookups;
+  versions strict SemVer ≤ 128 characters (`waystation_common.galaxy`).
+- **Rendered documents** (`api.py`): built per request (`ETag`, `304`, `HEAD`, `Cache-Control: no-cache`); `href`s
+  and pagination `links` are server paths in the addressed repository (ansible-galaxy joins them with the server's
+  scheme and host), `download_url` is absolute. Version lists use Galaxy's `limit` (default 10, ≤ 100)/`offset`.
+- **Proxy**: upstream URLs = upstream root (a trailing `/api/` is dropped) + `collections_path` (option, default
+  `api/v3/plugin/ansible/content/published/collections/index/`; `api/v3/collections/` for plain v3 servers). The
+  collection document, every page of the version list (`?limit=100&offset=N`, at most 200 pages; a page older than
+  the first by more than a minute is fetched again so the pages line up) and each version document are METADATA
+  (≤ 16 MiB, JSON objects naming the asked collection; versions not SemVer are skipped). Version documents are
+  stored slimmed (`files`, `manifest`, `docs_blob`, `metadata.contents` dropped) and must carry a hex sha256 and an
+  http(s) `download_url`. Artifacts are CONTENT fetched from that `download_url` (redirects followed under the SSRF
+  guard) and verified against `artifact.sha256` and `size` while streaming; a cached artifact is served without a
+  document lookup. Version lists are recorded in `galaxy_collections` in the background (generation = digest of the
+  page blobs); version details add `sha256`/`size`.
+- **Hosted**: publish multipart (shared streaming reader `formats.common.multipart`), file part `file` named
+  `<ns>-<name>-<version>.tar.gz` (≤ 256 MiB), text field `sha256` checked at commit; refused with `409` when the
+  version exists or an upload of it is unfinished. The upload becomes a `galaxy_imports` task and an
+  `import.galaxy` job in one transaction (outbox); answer `202 {"task": "<repo path>api/v3/imports/collections/<id>/"}`.
+  The worker (`waystation_worker.galaxy`) reads the tarball in a thread without extracting it: regular files,
+  directories and symlinks resolving inside the collection only; names without absolute paths, `..`, backslashes or
+  control characters, ≤ 64 levels; ≤ 20 000 members, ≤ 2 GiB unpacked; `MANIFEST.json` (≤ 4 MiB) whose
+  `collection_info` names the uploaded namespace, name and SemVer version and whose `file_manifest_file` names
+  `FILES.json` with its sha256; `FILES.json` (≤ 32 MiB): every `file` entry present with that sha256 (links
+  followed), every archive file listed; dependencies a mapping of collection names to strings. Then the
+  `galaxy_collections` record (unique: immutability) and the artifact asset are written and the task completes;
+  failures finish the task with `error{code, description}` and an `ERROR` message. `requires_ansible` comes from
+  `meta/runtime.yml`. Deletes remove records and artifacts (audited per version).
+- **Group**: collection document = members' fields, highest version of the merged list; version list = union,
+  first member wins; version document and artifact from the first member that has the version (`X-Ws-Group-Member`);
+  failing members are skipped while another answers. Publishing goes to the writable member (RBAC on the member);
+  tasks of hosted members are polled through the group.
+- **Roles** (proxy option `roles`, default on): the v1 role search (one result set, non-numeric ids dropped) and a
+  role's version list (`page_size=50`, `next_link` followed on the upstream host only, ≤ 20 pages) are METADATA;
+  each version's `download_url` is rewritten to `roles/<id>/<version>.tar.gz`, cached as CONTENT from the upstream's
+  URL **unverified** (v1 has no checksums); versions without a URL are left without one, so ansible-galaxy falls back
+  to GitHub directly. Groups answer roles from their first proxy member that has them.
+- **Browse**: `galaxy/namespaces`, `galaxy/collections?namespace=&q=`, `galaxy/versions?namespace=&collection=`
+  from `galaxy_collections` (groups: the members' records, first member wins per version). Cleanup: artifacts
+  grouped per collection in SemVer order; hosted records whose artifact a policy removed are dropped after the run.
+- Clients verified (harness, recorded galaxy.ansible.com and GitHub fixtures): ansible-core 2.22 `ansible-galaxy
+  collection install` (proxy, group, `ansible.cfg` with a token), `collection publish` (hosted and through the
+  group, import polled), `role install` (proxy). Not done: Galaxy in the perf suite, global search, collection
+  signature verification (upstream `signatures` are passed through), publishing roles.
 
 ## Swift Package Registry — Phase 5
 Spec: Swift Package Registry Service (SE-0292, `swift package-registry`). `Accept: application/vnd.swift.registry.v1+json`, responses carry `Content-Version: 1`.

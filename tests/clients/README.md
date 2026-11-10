@@ -49,7 +49,7 @@ Create `tests/clients/<format>/`:
 
 | File | Purpose |
 |---|---|
-| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `debian`, `ubuntu`, `rocky`, `alma`, `skopeo`, `docker`, `conformance` (the OCI distribution-spec conformance suite), `maven` (Maven 3.9; its build plugins are pre-seeded from Maven Central into `/opt/m2-seed` at image build, so fixtures hold only what the test resolves), `python` (pip, uv, twine, Poetry, PDM), `go` (the go command and curl), or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `ORIGINS`, `RECORD_SERVICES`, `DROP_JSON_KEYS` (JSON keys removed from recorded JSON bodies at any depth, e.g. npm readmes and maintainer e-mails), `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
+| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `debian`, `ubuntu`, `rocky`, `alma`, `skopeo`, `docker`, `conformance` (the OCI distribution-spec conformance suite), `maven` (Maven 3.9; its build plugins are pre-seeded from Maven Central into `/opt/m2-seed` at image build, so fixtures hold only what the test resolves), `python` (pip, uv, twine, Poetry, PDM), `go` (the go command and curl), `ansible` (ansible-core's ansible-galaxy and curl), or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `ORIGINS`, `RECORD_SERVICES`, `DROP_JSON_KEYS` (JSON keys removed from recorded JSON bodies at any depth, e.g. npm readmes and maintainer e-mails), `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
 | `setup.sh` | optional, runs first in the client container: create the repos the test needs through `$WAYSTATION_URL/api/v1/...` as the per-run bootstrap admin: `ws_login`, then `ws_api <METHOD> <path> [json]` from `lib.sh` (curl, or bash `/dev/tcp` in images without curl, e.g. debian/ubuntu; `_ws_http` is the bash request primitive and also leaves the response headers in `/tmp/ws-api.headers`). With several clients it runs once per client: keep it idempotent |
 | `test.sh` | POSIX sh in the client container: configure the client to use `$WAYSTATION_URL/repository/<repo>/` (or `/v2/`), run real installs/pulls, assert, `exit 1` on failure. Source `/harness/lib.sh` for `step`, `fail`, `pass`, `wait_for`, `trust_harness_ca` |
 | `allowed_hosts.txt` | optional: extra public hosts that legitimately appear in this format's upstream content |
@@ -114,6 +114,11 @@ go: fixtures are the version lists, `.info`/`.mod`/`.zip` files of `github.com/g
 depend on the order of its lookups. The go command sends credentials over HTTPS only, so the group scenario runs
 through `go/tlsfront.go` (a standard-library TLS reverse proxy with a throwaway self-signed certificate, started in the
 client container).
+galaxy: fixtures are `community.library_inventory_filtering_v1` 1.1.5 from galaxy.ansible.com (collection, version
+list and version documents, the artifact through its two redirects to the S3 bucket, whose host is allowlisted in
+`galaxy/allowed_hosts.txt`) and the `geerlingguy.ntp` 4.0.1 role (v1 search, version list, GitHub tag archive),
+about 75 KB; the version documents' `files` lists are dropped (`DROP_JSON_KEYS`). The collection published to the
+hosted repository is built with `ansible-galaxy collection init/build` at run time.
 terraform: fixtures are `hashicorp/null` 3.1.0 for linux_amd64 from both origin registries: service discovery,
 version lists, download documents, `SHA256SUMS`, signatures and the two provider archives (HashiCorp's release site;
 GitHub release assets behind a redirect for OpenTofu). A provider archive is a Go binary of about 4.6 MiB and no

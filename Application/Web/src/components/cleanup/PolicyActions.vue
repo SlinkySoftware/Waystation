@@ -12,11 +12,15 @@
     <q-btn v-if="canEdit" flat round dense :icon="iconMore" :aria-label="t('cleanup.action.moreWhat', { name: policy.name })">
       <q-menu anchor="bottom right" self="top right">
         <q-list dense class="policy-actions__menu">
-          <q-item v-close-popup clickable :aria-label="t('cleanup.action.editWhat', { name: policy.name })" @click="emit('edit')">
+          <q-item v-if="managed" class="text-faint">
+            <q-item-section avatar><q-icon :name="iconLock" size="18px" /></q-item-section>
+            <q-item-section>{{ t('provisioning.managedAction') }}</q-item-section>
+          </q-item>
+          <q-item v-close-popup clickable :disable="managed" :aria-label="t('cleanup.action.editWhat', { name: policy.name })" @click="emit('edit')">
             <q-item-section avatar><q-icon :name="iconEdit" size="18px" /></q-item-section>
             <q-item-section>{{ t('cleanup.action.edit') }}</q-item-section>
           </q-item>
-          <q-item v-close-popup clickable class="text-negative" :aria-label="t('cleanup.action.deleteWhat', { name: policy.name })" @click="emit('delete')">
+          <q-item v-close-popup clickable :disable="managed" class="text-negative" :aria-label="t('cleanup.action.deleteWhat', { name: policy.name })" @click="emit('delete')">
             <q-item-section avatar><q-icon :name="iconDelete" size="18px" /></q-item-section>
             <q-item-section>{{ t('cleanup.action.delete') }}</q-item-section>
           </q-item>
@@ -31,10 +35,12 @@ import { computed } from 'vue'
 
 import type { CleanupPolicy } from '@/api/types'
 import { t } from '@/i18n'
-import { iconDelete, iconEdit, iconHistory, iconMore, iconPlay } from '@/utils/icons'
+import { iconDelete, iconEdit, iconHistory, iconLock, iconMore, iconPlay } from '@/utils/icons'
+import { isManaged } from '@/utils/managed'
 
 const props = defineProps<{ policy: CleanupPolicy; canEdit: boolean }>()
 const emit = defineEmits<{ run: []; history: []; edit: []; delete: [] }>()
+const managed = computed(() => isManaged(props.policy))
 const running = computed(() => props.policy.last_run?.status === 'running')
 </script>
 

@@ -1,5 +1,5 @@
 """Cluster figures on ``/metrics`` (``stats.prometheus``) against real MongoDB/Valkey: upstream state and rate
-limits, job queues and dead letters, workers, blob store, cleanup and GC totals."""
+limits, job queues and dead letters, workers, blob store, cleanup, GC and verify totals, assets missing their blob."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -9,6 +9,7 @@ from prometheus_client.parser import text_string_to_metric_families
 from ws_testing import make_repo, static_catalog
 
 from waystation_common.db import jobs as jobs_db
+from waystation_common.db.collections import ASSETS
 from waystation_common.events import keys as event_keys
 from waystation_common.jobs import JobQueue, StatsRollup, keys
 from waystation_server.services import Services
@@ -45,7 +46,17 @@ async def test_cluster_figures(services: Services, client: httpx.AsyncClient) ->
     await jobs_db.worker_heartbeat(services.db, 'w1', {'leader': True}, now=now)
     await jobs_db.worker_heartbeat(services.db, 'w2', {'leader': False}, now=now)
     await jobs_db.worker_heartbeat(services.db, 'gone', {'leader': False}, now=now - timedelta(minutes=4))
-    await services.valkey.hset(event_keys.MAINTENANCE_TOTALS, mapping={'gc_runs': '2', 'gc_freed_bytes': '4096'})
+    await services.valkey.hset(
+        event_keys.MAINTENANCE_TOTALS, mapping={'gc_runs': '2', 'gc_freed_bytes': '4096', 'verify_hosted_lost': '3'}
+    )
+    await services.db[ASSETS].insert_many(
+        [
+            {'_id': 'a1', 'repo_id': hosted.id, 'path': 'x', 'blob_missing': {'reason': 'missing', 'hosted': True}},
+            {'_id': 'a2', 'repo_id': down.id, 'path': 'y', 'blob_missing': {'reason': 'damaged', 'hosted': False}},
+            {'_id': 'a3', 'repo_id': down.id, 'path': 'z', 'blob_missing': {'reason': 'missing', 'hosted': False}},
+            {'_id': 'a4', 'repo_id': down.id, 'path': 'w'},
+        ]
+    )
 
     response = await client.get('/metrics')
     assert response.status_code == 200
@@ -80,3 +91,7 @@ async def test_cluster_figures(services: Services, client: httpx.AsyncClient) ->
     assert get('waystation_gc_runs_total') == 2
     assert get('waystation_gc_freed_bytes_total') == 4096
     assert get('waystation_cleanup_removed_items_total') == 0
+    assert get('waystation_verify_hosted_lost_total') == 3
+    assert get('waystation_verify_runs_total') == 0
+    assert get('waystation_assets_blob_missing', repository_type='hosted') == 1
+    assert get('waystation_assets_blob_missing', repository_type='proxy') == 2

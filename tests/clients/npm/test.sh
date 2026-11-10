@@ -92,4 +92,86 @@ if (cd "$work/token" && npm view --cache "$work/cache-revoked" is-odd@3.0.1 vers
 fi
 grep -q 'E401' "$work/revoked.log" || fail "revoked token: $(cat "$work/revoked.log")"
 
+# ---------------------------------------------------------------------------- hosted + group (T-P5-NPMH)
+hosted="$WAYSTATION_URL/repository/npm-hosted/"
+group="$WAYSTATION_URL/repository/npm-all/"
+pkg='@ws-harness-test/hello-waystation'  # not on the public registry: the proxy member answers 404 (recorded)
+make_pkg() {  # make_pkg <dir> <version>: a tiny package whose publishConfig names the group
+  mkdir -p "$1"
+  printf '{"name":"%s","version":"%s","main":"index.js","license":"MIT","publishConfig":{"registry":"%s"}}\n' \
+    "$pkg" "$2" "$group" > "$1/package.json"
+  printf 'module.exports = () => "hello %s";\n' "$2" > "$1/index.js"
+}
+npmrc="$work/npmrc-user"  # the user's ~/.npmrc for the steps below
+: > "$npmrc"
+
+step 'npm login --auth-type=legacy against the group (username + password -> an API token in .npmrc)'
+# npm reads each answer with a fresh readline on stdin: feed the password only once the username prompt is done.
+{ printf 'admin\n'; sleep 3; printf '%s\n' "$HARNESS_ADMIN_PASSWORD"; } | \
+  npm login --auth-type=legacy --registry "$group" --userconfig "$npmrc" --loglevel notice > "$work/login.log" 2>&1 \
+  || fail "npm login: $(cat "$work/login.log")"
+login_token=$(sed -n 's/.*_authToken=\(wst_.*\)$/\1/p' "$npmrc")
+[ -n "$login_token" ] || fail 'npm login stored no API token'
+[ "$(npm whoami --registry "$group" --userconfig "$npmrc")" = admin ] || fail 'npm whoami after npm login'
+
+step 'npm publish through the group (lands in the hosted member) and straight to the hosted repository'
+make_pkg "$work/pkg-1.0.0" 1.0.0
+(cd "$work/pkg-1.0.0" && npm publish --userconfig "$npmrc" --cache "$work/cache-pub") || fail 'npm publish via the group'
+ws_token '["read","write","delete"]'
+publisher="$work/npmrc-publisher"
+printf '%s:_authToken=%s\n' "${hosted#http:}" "$WS_TOKEN" > "$publisher"
+make_pkg "$work/pkg-1.1.0" 1.1.0
+(cd "$work/pkg-1.1.0" && npm publish --registry "$hosted" --userconfig "$publisher" --cache "$work/cache-pub") \
+  || fail 'npm publish to the hosted repository'
+if (cd "$work/pkg-1.1.0" && npm publish --registry "$hosted" --userconfig "$publisher" --cache "$work/cache-pub" \
+      > "$work/republish.log" 2>&1); then
+  fail 'republishing 1.1.0 was accepted (disable_redeploy)'
+fi
+grep -qi 'previously published' "$work/republish.log" || fail "republish: $(cat "$work/republish.log")"
+
+step 'install the hosted package and a proxied one through the group'
+mkdir "$work/consumer"
+(cd "$work/consumer" && npm init -y >/dev/null && \
+  npm install --registry "$group" --userconfig "$npmrc" --cache "$work/cache-consumer" "$pkg@^1.0.0" is-number@7.0.0) \
+  || fail 'npm install through the group'
+node -e '
+  const lock = require(process.argv[1]);
+  const bad = Object.entries(lock.packages).filter(([k, p]) => k && !String(p.resolved).startsWith(process.argv[2]));
+  if (bad.length) { console.error("not resolved through the group:", bad); process.exit(1); }
+' "$work/consumer/package-lock.json" "$group" || fail 'lockfile resolved URLs (group)'
+(cd "$work/consumer" && node -e '
+  if (require(process.argv[1])() !== "hello 1.1.0" || !require("is-number")(5)) process.exit(1);
+' "$pkg") || fail 'installed packages do not work'
+
+step 'npm dist-tag add / ls / rm'
+npm dist-tag add "$pkg@1.0.0" stable --registry "$group" --userconfig "$npmrc" >/dev/null || fail 'dist-tag add'
+npm dist-tag ls "$pkg" --registry "$group" --userconfig "$npmrc" > "$work/tags.txt" || fail 'dist-tag ls'
+grep -q '^stable: 1.0.0$' "$work/tags.txt" && grep -q '^latest: 1.1.0$' "$work/tags.txt" \
+  || fail "dist-tags: $(cat "$work/tags.txt")"
+npm dist-tag rm "$pkg" stable --registry "$hosted" --userconfig "$publisher" >/dev/null || fail 'dist-tag rm'
+
+step 'npm deprecate (read with ?write=true through the group, written to the hosted member)'
+npm deprecate "$pkg@1.0.0" 'use 1.1.0' --registry "$group" --userconfig "$npmrc" || fail 'npm deprecate'
+deprecated=$(npm view "$pkg@1.0.0" deprecated --registry "$group" --userconfig "$npmrc" --cache "$work/cache-view")
+[ "$deprecated" = 'use 1.1.0' ] || fail "deprecation message not served: $deprecated"
+
+step 'npm unpublish one version, then the whole package'
+npm unpublish "$pkg@1.0.0" --registry "$hosted" --userconfig "$publisher" || fail 'npm unpublish <pkg>@1.0.0'
+versions=$(npm view "$pkg" versions --json --registry "$hosted" --userconfig "$publisher" --cache "$work/cache-view2" \
+  | tr -d ' \n')
+[ "$versions" = '"1.1.0"' ] || [ "$versions" = '["1.1.0"]' ] || fail "versions after unpublish: $versions"
+npm unpublish "$pkg" --force --registry "$hosted" --userconfig "$publisher" || fail 'npm unpublish --force'
+if npm view "$pkg" --registry "$hosted" --userconfig "$publisher" --cache "$work/cache-view3" > /dev/null 2>&1; then
+  fail 'the package is still there after npm unpublish --force'
+fi
+
+step 'npm logout revokes the token npm login created'
+npm logout --registry "$group" --userconfig "$npmrc" || fail 'npm logout'
+[ ! -f "$npmrc" ] || ! grep -q '_authToken' "$npmrc" || fail 'npm logout left the token in .npmrc'
+printf '%s:_authToken=%s\n' "${group#http:}" "$login_token" > "$work/npmrc-revoked"
+if npm whoami --registry "$group" --userconfig "$work/npmrc-revoked" > "$work/logout.log" 2>&1; then
+  fail 'the token npm login created still works after npm logout'
+fi
+grep -q 'E401' "$work/logout.log" || fail "after logout: $(cat "$work/logout.log")"
+
 pass

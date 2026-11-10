@@ -24,7 +24,7 @@
           <div class="accounts__name">
             <q-icon :name="iconServiceAccount" size="20px" class="accounts__icon" />
             <div class="accounts__text">
-              <div class="accounts__title mono">{{ row.name }}</div>
+              <div class="accounts__title mono">{{ row.name }} <ManagedBadge :item="row" /></div>
               <div class="accounts__desc">{{ row.description }}</div>
             </div>
           </div>
@@ -60,16 +60,16 @@
                   <q-item-section side><q-icon :name="iconShield" size="18px" /></q-item-section>
                   <q-item-section>{{ t('admin.accounts.permissions') }}</q-item-section>
                 </q-item>
-                <q-item clickable @click="edit(row)">
+                <q-item clickable :disable="isManaged(row)" @click="edit(row)">
                   <q-item-section side><q-icon :name="iconEdit" size="18px" /></q-item-section>
                   <q-item-section>{{ t('admin.accounts.edit') }}</q-item-section>
                 </q-item>
-                <q-item clickable @click="toggle(row)">
+                <q-item clickable :disable="isManaged(row)" @click="toggle(row)">
                   <q-item-section side><q-icon :name="row.disabled ? iconPersonOn : iconPersonOff" size="18px" /></q-item-section>
                   <q-item-section>{{ row.disabled ? t('admin.accounts.enable') : t('admin.accounts.disable') }}</q-item-section>
                 </q-item>
                 <q-separator />
-                <q-item clickable class="text-negative" @click="confirmDelete(row)">
+                <q-item clickable :disable="isManaged(row)" class="text-negative" @click="confirmDelete(row)">
                   <q-item-section side><q-icon :name="iconDelete" size="18px" color="negative" /></q-item-section>
                   <q-item-section>{{ t('admin.accounts.delete') }}</q-item-section>
                 </q-item>
@@ -84,7 +84,7 @@
           <div class="accounts__name">
             <q-icon :name="iconServiceAccount" size="20px" class="accounts__icon" />
             <div class="accounts__text col">
-              <div class="accounts__title mono">{{ row.name }}</div>
+              <div class="accounts__title mono">{{ row.name }} <ManagedBadge :item="row" /></div>
               <div class="accounts__desc">{{ row.description }}</div>
             </div>
             <span class="ws-badge" :class="row.disabled ? 'tone-blocked' : 'tone-ok'">{{ row.disabled ? t('admin.status.disabled') : t('admin.status.active') }}</span>
@@ -93,9 +93,11 @@
           <div class="text-muted accounts__meta">{{ t('admin.accounts.col.tokens') }}: {{ row.active_tokens }}</div>
           <div class="accounts__card-actions" @click.stop>
             <q-btn outline dense no-caps :icon="iconShield" :label="t('admin.accounts.permissions')" @click="openPanel(row, 'permissions')" />
-            <q-btn flat dense no-caps :icon="iconEdit" :label="t('admin.accounts.edit')" @click="edit(row)" />
-            <q-btn flat dense no-caps :icon="row.disabled ? iconPersonOn : iconPersonOff" :label="row.disabled ? t('admin.accounts.enable') : t('admin.accounts.disable')" @click="toggle(row)" />
-            <q-btn flat dense no-caps color="negative" :icon="iconDelete" :label="t('admin.accounts.delete')" @click="confirmDelete(row)" />
+            <template v-if="!isManaged(row)">
+              <q-btn flat dense no-caps :icon="iconEdit" :label="t('admin.accounts.edit')" @click="edit(row)" />
+              <q-btn flat dense no-caps :icon="row.disabled ? iconPersonOn : iconPersonOff" :label="row.disabled ? t('admin.accounts.enable') : t('admin.accounts.disable')" @click="toggle(row)" />
+              <q-btn flat dense no-caps color="negative" :icon="iconDelete" :label="t('admin.accounts.delete')" @click="confirmDelete(row)" />
+            </template>
           </div>
         </div>
       </template>
@@ -122,11 +124,13 @@ import { computed, ref } from 'vue'
 import { api, call, errorMessage } from '@/api/client'
 import type { ServiceAccount } from '@/api/types'
 import EmptyState from '@/components/EmptyState.vue'
+import ManagedBadge from '@/components/ManagedBadge.vue'
 import TimeCell from '@/components/TimeCell.vue'
 import { useAsync } from '@/composables/useAsync'
 import { useNotify } from '@/composables/useNotify'
 import { t } from '@/i18n'
 import { iconAdd, iconBlocked, iconDelete, iconEdit, iconMore, iconOk, iconPersonOff, iconPersonOn, iconServiceAccount, iconShield, iconToken } from '@/utils/icons'
+import { isManaged } from '@/utils/managed'
 
 import RoleChips from './RoleChips.vue'
 import ServiceAccountDialog from './ServiceAccountDialog.vue'

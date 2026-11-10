@@ -9,6 +9,7 @@
           {{ repo.name }}
           <span class="detail__type"><q-icon :name="typeMeta(repo.type).icon" size="15px" />{{ typeMeta(repo.type).label }} · {{ formatLabel(repo.format) }}</span>
           <StatusPill :status="repo.status" />
+          <ManagedBadge :item="repo" />
         </template>
         <template #caption>
           <div class="detail__caption">
@@ -72,6 +73,7 @@ import RepoBrowser from '@/components/browse/RepoBrowser.vue'
 import CopyField from '@/components/CopyField.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
+import ManagedBadge from '@/components/ManagedBadge.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import CleanupTab from '@/components/repositories/CleanupTab.vue'
 import OverviewTab from '@/components/repositories/OverviewTab.vue'

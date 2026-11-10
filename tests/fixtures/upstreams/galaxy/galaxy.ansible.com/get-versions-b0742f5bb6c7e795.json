@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index/harness/demo/versions/?limit=100&offset=0"
+  },
+  "response": {
+    "body_sha256": "87a155103e8ffb19ab3b697afc11a1c2f47acc8351008431f15a5cba44407c16",
+    "body_size": 289,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "289"
+      ],
+      [
+        "vary",
+        "Accept, Accept-Language, Cookie"
+      ]
+    ],
+    "status": 200
+  }
+}

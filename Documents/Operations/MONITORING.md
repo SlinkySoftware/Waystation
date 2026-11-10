@@ -86,6 +86,8 @@ never `sum`.
 | `waystation_repository_quota_used_ratio` | `repo` | Stored bytes / quota (1 = quota reached; above 1 is possible for soft quotas and after a quota was lowered) |
 | `waystation_cleanup_removed_items_total`, `waystation_cleanup_removed_bytes_total` | none | Counters: items (assets, docker tags and manifests) and asset bytes removed by cleanup policies (T-O01), all runs |
 | `waystation_gc_runs_total`, `waystation_gc_freed_blobs_total`, `waystation_gc_freed_bytes_total`, `waystation_gc_orphan_uploads_removed_total` | none | Counters: blob GC runs, blobs and bytes it freed, orphan upload files it removed (T-O02). Read from the Valkey hash `maintenance:totals`, so they survive server restarts and need no multi-process merge |
+| `waystation_verify_runs_total`, `waystation_verify_missing_blobs_total`, `waystation_verify_damaged_blobs_total`, `waystation_verify_refetch_marked_total`, `waystation_verify_hosted_lost_total` | none | Counters: blob verify runs, referenced blobs it found missing or damaged, proxied assets it marked for re-fetch, hosted assets it reported lost (counted on every run that still finds them) (T-O07, `maintenance:totals`) |
+| `waystation_assets_blob_missing` | `repository_type` (`hosted`, `proxy`) | Assets currently marked by blob verify as missing their blob: hosted = lost until uploaded again or restored ([BACKUP.md](BACKUP.md)), proxy = re-fetched on the next request (MongoDB, partial index `blob_missing`) |
 | `waystation_webhook_deliveries_total` | `outcome` | Counter of webhook delivery attempts (T-O05, [WEBHOOKS.md](WEBHOOKS.md)): `succeeded` (a 2xx answer), `failed` (will be retried), `dead` (gave up: attempts used up, or a target the SSRF guard refuses). From the Valkey hash `webhooks:totals` |
 | `waystation_webhook_deliveries_pending` | none | Webhook deliveries waiting for an attempt (first attempts and retries) |
 | `waystation_metrics_source_up` | `source` | 1 when `valkey`, `mongodb` or `filesystem` answered while building the cluster figures, else 0 |
@@ -141,7 +143,8 @@ Panels, top to bottom:
   (tiles); jobs by queue; oldest waiting job by queue.
 - **Storage**: free space, free space %, blob store used, blobs, writes refused, metric sources down (tiles); the
   data filesystem (free, guard, used); writes refused per second; bytes freed by cleanup policies and blob GC;
-  cleanup and GC activity (items, blobs, orphan uploads, runs).
+  cleanup and GC activity (items, blobs, orphan uploads, runs); assets missing their blob (hosted, proxy) and blob
+  verify findings (runs, missing and damaged blobs, marked for re-fetch, hosted lost).
 - **Quotas and disk**: low-disk guard (OK / Active), repositories near their quota (80 % or more), over a soft
   quota, at a hard quota, downloads not cached and uploads refused by a quota (tiles); quota used per repository
   (dashed 80 % and 100 % thresholds); downloads not cached by reason and uploads refused per repository; a table of
@@ -183,7 +186,8 @@ items for requests per second (all, from cache, upstream errors), cache hit and 
 second (served from cache, served while fetching, fetched from upstream), transfers in flight, coalesced followers,
 workers, scheduler leaders, jobs waiting and running, oldest waiting job, dead letters, blob store free, size,
 used, guard and blobs, free space %, low-disk guard active (OK / Active), writes refused per second, downloads
-not cached for a quota and for lack of disk space per second, uploads refused by a hard quota per second, blob GC runs, bytes freed by blob GC and removed
+not cached for a quota and for lack of disk space per second, uploads refused by a hard quota per second, blob GC runs, hosted assets without their
+blob, cached assets waiting for a re-fetch, bytes freed by blob GC and removed
 by cleanup policies per second, event-stream clients, HTTP 5xx per second, API
 requests per second and average API latency, and whether all metric sources answered. Cluster figures keep no value
 while their source is down (rather than a misleading 0).
@@ -227,14 +231,15 @@ Triggers:
 | Waystation: `<repo>` is near its quota (used ≥ `{$WAYSTATION.QUOTA.WARN}`% and below 100 %) | Information |
 | Waystation: API slower than `{$WAYSTATION.API.LATENCY.WARN}`s on average for 10 minutes | Warning |
 | Waystation: blob GC has not run for a day (no `blob.gc` run completed in 24 hours, once a day of data exists) | Warning |
+| Waystation: hosted content lost (blob verify found hosted assets without their blob; the run's log lists them) | High |
 
 Checked by importing it into Zabbix 7.0 through the API and linking it to a host polling a stand-in serving sample
 output of the real `Metrics` class plus cluster figures: every item and discovered prototype received values, and
 the liveness, readiness, failing-upstream, rate-limit, job-age, refused-writes, low-disk and blob-store-full
 triggers fired on matching sample values. The blob GC items, the "blob GC has not run for a day" trigger and the two
 cleanup/GC dashboard panels were added afterwards (with the T-O01/T-O02 counters), and so were the quota and
-low-disk items, the "Repository quotas" discovery and its three triggers (T-O03); those have not been through that
-check yet. The quota triggers resolve when the quota figure has had no value for 10 minutes (the quota was removed
+low-disk items, the "Repository quotas" discovery and its three triggers (T-O03), and the blob verify items, the
+"hosted content lost" trigger and the two verify panels (T-O07); those have not been through that check yet. The quota triggers resolve when the quota figure has had no value for 10 minutes (the quota was removed
 or the cluster figures are unavailable). The low-disk guard itself is covered by "blob store full" (free space at
 or below the guard's floor, the same condition as `waystation_storage_low`) and "low disk space".
 

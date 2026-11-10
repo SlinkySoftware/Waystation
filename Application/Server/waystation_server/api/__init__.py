@@ -15,6 +15,7 @@ from waystation_server.api import (
     imports,
     live,
     maintenance,
+    provisioning,
     repositories,
     roles,
     search,
@@ -55,4 +56,5 @@ def build_router() -> APIRouter:
     router.include_router(audit.router)
     router.include_router(settings.router)
     router.include_router(webhooks.router)
+    router.include_router(provisioning.router)
     return router

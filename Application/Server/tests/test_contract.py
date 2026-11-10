@@ -111,6 +111,9 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/pypi/yank', 'post'),
     ('/repositories/{name}/go/modules', 'get'),
     ('/repositories/{name}/go/versions', 'get'),
+    ('/repositories/{name}/galaxy/namespaces', 'get'),
+    ('/repositories/{name}/galaxy/collections', 'get'),
+    ('/repositories/{name}/galaxy/versions', 'get'),
     ('/repositories/{name}/terraform/providers', 'get'),
     ('/repositories/{name}/terraform/versions', 'get'),
     ('/repositories/{name}/apt/suites', 'get'),
@@ -163,6 +166,9 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/events/stream', 'get'),
     ('/audit', 'get'),
     ('/audit/export', 'get'),
+    ('/provisioning', 'get'),
+    ('/provisioning/plan', 'post'),
+    ('/provisioning/apply', 'post'),
 }
 
 # Deliberate, reviewed differences: (path, method, where) -> reason. Keep this short.

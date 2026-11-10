@@ -8,7 +8,8 @@ Components and versions come from asset paths (``coordinates``) until components
 * npm ``<pkg>/-/<name>-<version>.tgz``; apt pool ``<name>_<version>_<arch>.deb`` (grouped per name and arch); yum
   ``<name>-<version>-<release>.<arch>.rpm`` (per name and arch); pypi ``packages/<project>/<wheel or sdist>`` (and
   its ``.metadata`` sidecar; per project, PEP 440, every file of a version shares its rank); go
-  ``<module>/@v/<version>.{zip,mod,info}`` (case-encoding decoded; per module, Go semver); terraform
+  ``<module>/@v/<version>.{zip,mod,info}`` (case-encoding decoded; per module, Go semver); galaxy
+  ``collections/<ns>/<name>/<ns>-<name>-<version>.tar.gz`` (per collection, SemVer); terraform
   ``<hostname>/<namespace>/<type>/<version>/<os>/<arch>/<archive>.zip`` (per provider, semver; every platform of a
   version shares its rank); every other format
   (raw...): the name is the path,
@@ -33,6 +34,7 @@ from urllib.parse import unquote
 
 from waystation_common.cleanup.model import Candidate, Criteria
 from waystation_common.cleanup.versions import is_prerelease, sort_key
+from waystation_common.galaxy import parse_artifact_path
 
 DAY = timedelta(days=1)
 
@@ -120,6 +122,10 @@ def coordinates(fmt: str, path: str) -> Coord:
         if escaped and stem.startswith('v'):
             module = _go_unescape(escaped)
             return Coord(module, _go_unescape(stem), module, True)
+    if fmt == 'galaxy':
+        artifact = parse_artifact_path(path)
+        if artifact is not None:
+            return Coord(artifact.fqcn, artifact.version, artifact.fqcn, True)
     if fmt == 'terraform' and filename.endswith('.zip') and path.count('/') == 6:
         hostname, namespace, kind, version, _ = path.split('/', 4)
         provider = f'{hostname}/{namespace}/{kind}'

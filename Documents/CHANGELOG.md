@@ -22,6 +22,127 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   apply of `hashicorp/null` 3.1.0 from both registries, anonymous and with an API token; a token limited to other
   repositories is refused), recorded (fixture budget raised to 11 MiB / 5 MiB per file: two provider archives) and
   replayed. Client guide `Documents/Operations/clients/terraform.md`.
+- T-O09: declarative provisioning. A YAML file (`WAYSTATION_PROVISION_FILE`, `Documents/Operations/PROVISIONING.md`,
+  full example `provisioning.example.yaml`, JSON Schema `provisioning.schema.json` from the pydantic models) declares
+  repositories (every format, type and option; cleanup attachments; groups whose members the same file creates),
+  cleanup policies, custom roles, local groups, service accounts, LDAP/OIDC providers with their group → role
+  mapping, webhooks and settings (instance name, 2FA policy, anonymous access, default docker repository, low-disk
+  guard). Secrets are only `{file: ...}`/`{env: ...}` references (inline values and Waystation's own settings
+  variables refused, never echoed), stored encrypted and shown as redacted. Plans list create / update (field
+  diffs) / unchanged / prune; a file with any validation error (the API's own rules, run as dry builds) applies
+  nothing; applying an unchanged file changes nothing. `init` applies it at every start and fails when it is
+  invalid (init now also waits for Valkey); Administration → Provisioning and `GET /api/v1/provisioning`,
+  `POST /api/v1/provisioning/plan|apply` (admin) plan and apply the configured file (never an uploaded one);
+  `python -m waystation_server.provisioning schema|check|plan|apply`, `make provision-check|plan|schema`. Managed
+  objects carry `managed_by: provisioning` (new field on repositories, roles, groups, service accounts, providers,
+  cleanup policies and webhooks, and on their API views), existing objects are adopted, left-out ones released or,
+  with `prune` per section, deleted (API guards apply). Every change is audited with `details.source=provisioning`;
+  cleanup policy changes are now audited everywhere (`cleanup_policy.create|update|delete`). UI: "Managed" label
+  and read-only forms on managed objects, the Provisioning page (status, plan diff, apply), MSW mocks.
+- T-S08: `EventEmitter.flush` runs one flush at a time. A flush that started while another was in flight (the
+  background loop and an explicit `flush`) could land first, so an older transfer state written last stayed in
+  `transfers` (a stalled transfer never corrects it), and `flush()` could return before the earlier events were in
+  Valkey. This was the cause of the intermittent `test_owner_gone_mid_transfer_a_follower_takes_over` timeout
+  (followers' live transfers stuck at 0 bytes); reproduced with an injected pipeline delay and fixed. The test's
+  timeout now reports the bytes each follower had sent.
+- T-F08: a job run's `expires_at` is computed from the same clock read as its `started_at` (it read the clock twice,
+  so a run could be kept retention + 1 ms; `test_stats_rollup_runs_as_a_job_exactly_once` failed now and then).
+- T-P5-HELM / T-P5-MAVEN: deleting a repository now also drops its `helm_charts` records and its Maven `components`
+  (they were left behind). A test fails if a `repo_id`-keyed collection is missing from the delete list.
+- T-P5-GALAXY: Ansible Galaxy repositories (`waystation_server.formats.galaxy`, FORMATS.md "Ansible Galaxy").
+  Proxy: discovery (`api/`, v1 only where roles are proxied), collection, version list and version documents cached
+  as metadata (every upstream page, revalidated, validated, bounded; large fields dropped) and served with this
+  repository's URLs (`href`s, pagination `links`, `download_url`); upstream paths in the Galaxy NG layout by default
+  (`collections_path` option), Galaxy NG paths also accepted from clients; artifacts verified against the version's
+  sha256 and size while they stream. Hosted: `ansible-galaxy collection publish` (multipart streamed into the blob
+  store, `sha256` field checked, 256 MiB limit, quota), the import task and the new `import.galaxy` worker job
+  written in one transaction (outbox); the worker reads the archive without extracting it (tar-slip guards,
+  `MANIFEST.json`, `FILES.json` against the manifest checksum, every file's sha256, no unlisted files) and then lists
+  the version; `GET api/v3/imports/collections/<task>/` for polling; versions immutable; delete a version or a whole
+  collection; audited. Group: merged version lists (first member wins), documents and artifacts from the first
+  member that has the version, publishing and task polling through the writable member. Legacy v1 roles proxied
+  read-only (search, versions, archives cached unverified). New collections `galaxy_collections`, `galaxy_imports`
+  (TTL 30 days); repository deletion drops them. Browse `galaxy/namespaces`, `galaxy/collections`, `galaxy/versions`
+  (contract + UI renderer), create flow (galaxy.ansible.com preset, collections path, roles toggle), "Set me up"
+  (`ansible.cfg` server list with a token, install, requirements, publish, delete, roles). Cleanup groups artifacts
+  per collection in SemVer order. `formats.pypi.multipart` moved to `formats.common.multipart` (shared). Real-client
+  harness `tests/clients/galaxy/` (new `client-ansible`: ansible-core 2.22; galaxy.ansible.com, its S3 redirect and a
+  GitHub role archive recorded, 75 KB) and the fixture scrubber now redacts Pulp's `validate_token` query value.
+  `Documents/Operations/clients/galaxy.md`.
+- T-S07, T-S12, T-S05, T-S09: fixes for the k6 suite's findings (full profile, before -> after). 500 concurrent
+  clients: 1-5 failed downloads per run -> 0. The cause was mongod refusing connections past its open-file limit
+  (Docker's default soft limit 1024 leaves about 400 connections; four server processes with 100-connection pools
+  exceeded it), which pymongo reported as `AutoReconnect: Connection is closed`; `compose.yaml` now sets
+  `ulimits: nofile: 64000` on `mongodb` (DEPLOYMENT.md "MongoDB connections"), and hot-path reads (`assets.get`,
+  `assets.sizes`, the repository catalog load) retry once after 20-100 ms on `AutoReconnect`
+  (`waystation_common.db.retry`; writes never). Docker tokens: a server process whose repository catalog predated a
+  new repository issued tokens granting nothing on it (and refused its `/v2/` requests) for up to 5 s; the catalog
+  now follows a change stream on `repositories` and reloads once when a lookup by name misses (at most once a second
+  and once per name and snapshot; Docker resolution and `/repository/<name>/`). Repository list at 1M assets: p95
+  179 ms / p99 1112 ms -> 8 ms / 10 ms: every process recounted `assets` (a 1M-document aggregation) every 30 s on
+  the request path; the storage figures now read `repo_usage` (new `artifacts` counter of content assets, kept by
+  every asset write, reconciled hourly, filled by migration `0003_usage_artifacts`) and an expired snapshot is
+  refreshed in the background. Folder browse: p95 40 ms -> 7 ms: the walk reads several small sub-folders per query
+  (batches grow while they hold several children) and the first page walks the folder once instead of twice.
+- T-P5-NPMH: npm hosted and group repositories. Hosted (`formats/npm/hosted.py`, `publish.py`): `npm publish` bodies
+  (≤ 100 MiB) parsed in a thread, one version and its base64 tarball, `length`/`dist.integrity`/`dist.shasum` checked,
+  the tarball read without extraction (bounded, safe entry names) and its `package.json` matched to the version;
+  stored as a live upload transfer with the manifest's `dist` computed by the server; write policy (`disable_redeploy`
+  answers npm's "cannot publish over"), quotas. Packuments (full and abbreviated) generated from the new
+  `npm_versions` collection and the hosted `npm_packages` document (compare-and-set on `rev`; a regeneration that
+  raced runs again) and stored as metadata assets (X-Accel, `ETag`/`304`). `npm deprecate` and
+  `npm unpublish <pkg>@<v>` (packument updates; removing versions needs `delete`), `unpublish --force`, tarball
+  deletes (also behind the `repository/<repo>/` path npm sends), dist-tags `GET/PUT/DELETE` (`dist-tag rm` = `write`),
+  hosted search; a version whose tarball a cleanup removed is dropped when a client asks for it. `npm login
+  --auth-type=legacy` / `npm logout` on every npm repository: new descriptor hooks `client_login` and
+  `request_action`, `FormatRequest.sign_in`/`sign_out`, `waystation_server.client_login` (password checked like
+  `docker login`, API token with the user's repository scopes, hidden repositories answer 404 for any failure,
+  audited); `verify_login(via=...)`. Groups (`formats/npm/group.py`): packuments merged in a thread (first member wins
+  per version, dist-tags from the first member with the tag, tarball URLs to the group), kept in the blob store per
+  members' digests, tarballs from the members in order, `?write=true` from the writable member, writes to the
+  writable member; proxies answer `dist-tags` too. UI: npm hosted and group in the create flow, hosted browse shows
+  version counts instead of cache state, "Set me up" publish snippets (`.npmrc` `_authToken`, `npm login`,
+  `publishConfig`, publish/dist-tag/deprecate/unpublish, pnpm). Harness `tests/clients/npm/`: npm 11 login, whoami,
+  publish to the group and the hosted repository, republish refused, install of a hosted and a proxied package
+  through the group, dist-tag add/ls/rm, deprecate, unpublish of a version and of the package, logout (fixtures
+  re-recorded). Client guide `Documents/Operations/clients/npm.md` (publishing, groups, `npm login`).
+- T-O07: backup and restore. `Build/Containers/backup/waystation-backup.sh` (bash + Docker only; `make backup`,
+  `make restore`, `make verify-blobs`) works in a throwaway `mongo:8` container that borrows the worker's data mount,
+  networks and MongoDB settings (URI never on a command line). Backup: `mongodump --archive --gzip` first, then the
+  blob files, `keys/` and `manifest.json` (mode, image, MongoDB version, migrations, collection counts, blob
+  files/bytes, archive sha256) into `waystation-<UTC time>/` (`.partial` until complete, `latest` link, lock), blob
+  files hard-linked from the previous backup (incremental snapshots, copies where the target cannot link),
+  `--keep N`, `--hosted-only` (only blobs hosted repositories reference), `--user` for NAS targets that squash root.
+  Restore: archive checked against the manifest, database replaced (renamed if needed), blobs and keys copied back
+  without overwriting, owner and modes set, Valkey emptied. New worker job `blob.verify` (built-in, Sunday 03:30 UTC,
+  `deep`/`repair` parameters): missing or damaged (size, or sha256 when deep) blob files; damaged files moved out of
+  `blobs/`; `assets.blob_missing` marks (partial index): proxied assets re-fetched on the next request (fills clear
+  the mark), hosted assets reported lost in the run's log and result, a `storage.blobs_missing` activity event and
+  `waystation_assets_blob_missing{repository_type}`; `waystation_verify_*_total` counters; Grafana panels and Zabbix
+  items with a "hosted content lost" trigger; Tasks page names the task and summarises its runs.
+  `python -m waystation_worker.run_task <task> --wait` runs any scheduled task from a worker container.
+  `make backup-test`: seeded stack (real uploads and a proxy fill), full and incremental backups, hosted-only backup
+  with retention, wipe, restore into an empty stack, verify (proxied asset marked and re-fetched, hosted files
+  intact), a deleted hosted blob reported lost. `Documents/Operations/BACKUP.md` (procedures, NAS targets, cron and
+  systemd timer); DEPLOYMENT.md §10 points to it.
+- T-P2-PERF: k6 performance suite, `make perf [PROFILE=ci|full] [STRICT=1]` (`tests/perf/README.md`). Each run
+  starts a throwaway stack as its own compose project (production images built from the checkout, CPU and memory
+  limits per profile) with a synthetic nginx upstream generated per profile (raw files, npm, PyPI, Maven, apt, yum,
+  Go, Helm and OCI content whose digests the proxies verify), creates one proxy repository per format, warms the cache,
+  bulk-seeds cached-file records for the API (100 000 in CI, 1 000 000 in the full profile), runs one k6 scenario
+  per SPECIFICATION §5.1 budget (content hits incl. ranges and a large file, metadata hits, docker manifests, miss
+  overhead against the origin, API list/search, 500 concurrent downloads in the full profile) plus a live-event
+  probe on the SSE stream, and always tears the stack down. It holds the machine-wide integration-test lock for the
+  whole run. `tests/perf/collect.py` turns the results into `tests/perf/.results/measured.json`, now the `source` of
+  the k6 budgets in `Build/ci/budgets.json`, and a Markdown report with per-scenario figures and container CPU and
+  memory. `make budgets STRICT=1` / `budgets.py --strict` fail on every budget over its limit (warn-only until M2
+  otherwise). Gitea workflow `perf.yml`: CI profile after every push to `main`, full profile nightly, results as an
+  artifact. First results (dev box): every measured budget within its limit in the CI profile (content hit p95 TTFB
+  4 ms, metadata 3.7 ms, docker manifests 3.8 ms, miss +3.6 ms TTFB and no throughput loss at 100 MiB/s, API p95
+  21 ms at 100 000 assets, live events 245 ms, 0 errors with 100 clients); full profile: API p95 35 ms at 1M assets,
+  1-2 failed downloads per run in about 115 000 with 500 concurrent clients (warning: a cache hit's asset lookup
+  got `pymongo AutoReconnect: Connection is closed` and answered 500 without a retry; to be investigated). A cached 10 GiB file is served at about
+  1.3 GiB/s with the server at 5% of one core, which completes T-S06's perf acceptance.
 - T-O05: signed webhooks. Definitions in `webhooks` (name, URL, events with categories and `*`, repository globs, enabled, secret and custom headers write-only and AES-GCM encrypted, private-target exception, timeout, attempts) through `/api/v1/webhooks` (admin; CRUD, `POST /{id}/test`, `GET /{id}/deliveries[/{delivery}]`, `POST .../redeliver`), audited `webhook.create|update|delete|test|redeliver`. Events are the successful audit records of `content.upload|delete|update` and `repository.create|update|delete`: `audit.record` hands them to a server-side notifier that writes a `webhook.event` job to the durable outbox when an enabled webhook wants it. Worker jobs `webhook.event` (fan-out into `webhook_deliveries`, attempted at once), `webhook.deliver` (test events, redeliveries) and the scheduled `webhook.sweep` (every 15 s): at-least-once with leases, HMAC-SHA256 `Waystation-Signature: t=<unix>,v1=<hex>` over `<t>.` + body, `Idempotency-Key`, exponential retries to a dead delivery, 1 KiB answer snippets, 30-day log. The SSRF guard moved to `waystation_common.ssrf` (re-exported by `waystation_server.proxy.ssrf`) so worker deliveries use it; common now depends on `httpcore`, the worker on `httpx`. Metrics `waystation_webhook_deliveries_total{outcome}` (Valkey `webhooks:totals`) and `waystation_webhook_deliveries_pending`. UI Administration → Webhooks (table, editor with a browser-generated secret, delivery drawer with attempts, request and redeliver), MSW mocks, screenshot tour entries. `Documents/Operations/WEBHOOKS.md` with Python and Node verification snippets. Test helper `FakeUpstream` now records request bodies.
 - T-P5-HELM: Helm classic chart repositories (`formats/helm/`). Proxy: `index.yaml` cached as metadata (revalidated),
   parsed with a safe, bounded YAML loader in a thread (only `null` resolved implicitly, no tags or aliases), chart

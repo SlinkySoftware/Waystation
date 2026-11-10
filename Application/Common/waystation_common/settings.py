@@ -154,6 +154,13 @@ class Settings(BaseSettings):
         description='First admin password (prefer the _FILE form); unset = a one-time password is printed by init.',
         json_schema_extra=_SECRET,
     )
+    provision_file: Path | None = Field(
+        None,
+        description=(
+            'Declarative provisioning file (YAML, Documents/Operations/PROVISIONING.md): applied by init at every '
+            'start and on demand from the Provisioning page. Unset = no provisioning.'
+        ),
+    )
 
     # --- sign-in and sessions (SPECIFICATION §4.9)
     session_idle_minutes: int = Field(480, ge=5, description='Sign out a UI session after this long without use.')
