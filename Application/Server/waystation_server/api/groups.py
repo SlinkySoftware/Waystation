@@ -26,6 +26,7 @@ from waystation_common.ids import new_id
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
 from waystation_server.api.rbac import PROBLEM, check_roles, require_manageable
+from waystation_server.api.repositories import managed
 from waystation_server.api.users import (
     UserPage,
     decode_cursor,
@@ -50,7 +51,7 @@ router = APIRouter(tags=['admin'])
 
 GroupId = Annotated[str, Path(min_length=1, max_length=64)]
 UserId = Annotated[str, Path(min_length=1, max_length=64)]
-_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$')
+NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$')
 MAX_MEMBERS_PER_CALL = 500
 
 
@@ -70,6 +71,9 @@ class Group(BaseModel):
     member_count: int | None = Field(description='Local groups; null for mapped groups (membership is per sign-in)')
     created_at: datetime
     updated_at: datetime
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class GroupCreate(BaseModel):
@@ -114,6 +118,7 @@ async def _bodies(svc: Services, groups: list[GroupRecord]) -> list[Group]:
                 member_count=counts.get(g.id, 0) if local else None,
                 created_at=g.created_at,
                 updated_at=g.updated_at,
+                managed_by=managed(g.managed_by),
             )
         )
     return out
@@ -137,7 +142,7 @@ async def _manageable(svc: Services, caller: Principal, group: GroupRecord) -> N
 
 def _check_name(name: str) -> str:
     name = name.strip()
-    if not _NAME.fullmatch(name):
+    if not NAME.fullmatch(name):
         raise FieldErrors(
             [FieldError(field='name', message='letters, digits, spaces, ".", "_" and "-" (up to 64)', code='pattern')]
         )
@@ -151,7 +156,7 @@ def _target(group: GroupRecord) -> audit.AuditTarget:
 AUDIT_FIELDS = {'name', 'description', 'roles'}
 
 
-def _without_group(group_id: str, user_ids: set[str] | None = None) -> Any:
+def without_group(group_id: str, user_ids: set[str] | None = None) -> Any:
     def change(user: UserRecord) -> UserRecord | None:
         if group_id in user.groups and (user_ids is None or user.id in user_ids):
             return user.model_copy(update={'groups': [g for g in user.groups if g != group_id]})
@@ -254,7 +259,7 @@ async def delete_group(group_id: GroupId, request: Request, svc: ServicesDep) ->
     group = await _group(svc, group_id)
     _local(group)
     await _manageable(svc, principal, group)
-    await ensure_admin_remains(svc, _without_group(group.id))
+    await ensure_admin_remains(svc, without_group(group.id))
     if not await groups_db.delete(svc.db, group.id):
         raise NotFound('group not found')
     removed = await users_db.remove_group(svc.db, group.id)
@@ -330,7 +335,7 @@ async def remove_member(group_id: GroupId, user_id: UserId, request: Request, sv
     group = await _group(svc, group_id)
     _local(group)
     await _manageable(svc, principal, group)
-    await ensure_admin_remains(svc, _without_group(group.id, {user_id}))
+    await ensure_admin_remains(svc, without_group(group.id, {user_id}))
     if not await users_db.remove_group(svc.db, group.id, [user_id]):
         raise NotFound('not a member of this group')
     await svc.rbac.changed()

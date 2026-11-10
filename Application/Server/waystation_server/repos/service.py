@@ -32,6 +32,7 @@ import ipaddress
 import logging
 import re
 from datetime import UTC, datetime
+from types import EllipsisType
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -270,7 +271,11 @@ def _stored_proxy(
 
 
 async def _build(
-    services: Services, body: RepositoryWrite, principal: Principal, existing: RepoConfig | None
+    services: Services,
+    body: RepositoryWrite,
+    principal: Principal,
+    existing: RepoConfig | None,
+    managed_by: str | EllipsisType | None = ...,
 ) -> RepoConfig:
     errors: list[FieldError] = []
     if existing is not None:
@@ -335,6 +340,7 @@ async def _build(
         storage=storage,
         format_options=options,
         cleanup_policy_ids=existing.cleanup_policy_ids if existing else (),
+        managed_by=(existing.managed_by if existing else None) if isinstance(managed_by, EllipsisType) else managed_by,
         created_at=existing.created_at if existing else now,
         updated_at=now,
         created_by=existing.created_by if existing else principal.id,
@@ -358,18 +364,39 @@ async def check(services: Services, body: RepositoryWrite, principal: Principal)
     return []
 
 
-async def create(services: Services, body: RepositoryWrite, principal: Principal) -> RepoConfig:
+async def preview(
+    services: Services, body: RepositoryWrite, principal: Principal, existing: RepoConfig | None
+) -> RepoConfig:
+    """The configuration saving ``body`` would store (a dry run: nothing is written; raises ``FieldErrors``)."""
+    return await _build(services, body, principal, existing)
+
+
+async def create(
+    services: Services,
+    body: RepositoryWrite,
+    principal: Principal,
+    *,
+    managed_by: str | None = None,
+) -> RepoConfig:
     if await services.catalog.get_ci(body.name) is not None:
         raise Conflict('A repository with this name already exists.', field='name')
-    repo = await _build(services, body, principal, None)
+    repo = await _build(services, body, principal, None, managed_by)
     await repos_db.insert(services.db, repo)
     await _after_write(services, repo)
     log.info('repository created', extra={'repo': repo.name, 'format': repo.format, 'type': repo.type.value})
     return repo
 
 
-async def update(services: Services, existing: RepoConfig, body: RepositoryWrite, principal: Principal) -> RepoConfig:
-    repo = await _build(services, body, principal, existing)
+async def update(
+    services: Services,
+    existing: RepoConfig,
+    body: RepositoryWrite,
+    principal: Principal,
+    *,
+    managed_by: str | EllipsisType | None = ...,
+) -> RepoConfig:
+    """Replace ``existing`` with ``body`` (``managed_by``: set the provisioning tag; omitted: keep it)."""
+    repo = await _build(services, body, principal, existing, managed_by)
     if not await repos_db.replace(services.db, repo, expected_version=existing.config_version):
         services.catalog.invalidate()
         raise Conflict('the repository was changed by someone else; reload and try again')

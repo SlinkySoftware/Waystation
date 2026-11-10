@@ -31,7 +31,10 @@ from waystation_common.errors import NotFound, ValidationFailed
 from waystation_common.ids import new_id
 from waystation_common.jobs import CleanupRun
 from waystation_common.jobs.schedule import parse_schedule
+from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.repositories import managed
+from waystation_server.audit import AuditAction
 from waystation_server.problems import FieldError, FieldErrors
 from waystation_server.repos.model import RepoConfig
 from waystation_server.repos.schemas import NAME_PATTERN, Format
@@ -131,6 +134,9 @@ class CleanupPolicy(BaseModel):
     updated_at: datetime
     next_run_at: datetime | None
     last_run: CleanupRunSummary | None
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class CleanupPolicyList(BaseModel):
@@ -271,16 +277,29 @@ async def _views(svc: Services, principal: Principal, policies: list[Document]) 
                 updated_at=policy['updated_at'],
                 next_run_at=_next_run(policy, definitions.get(policy_id), now),
                 last_run=run_view(last[0]) if last else None,
+                managed_by=managed(policy.get('managed_by')),
             )
         )
     return out
+
+
+AUDIT_FIELDS = ('name', 'description', 'format', 'criteria', 'schedule', 'enabled')
+
+
+def audit_view(policy: Document) -> dict[str, Any]:
+    """What the audit trail compares for a policy."""
+    return {key: policy.get(key) for key in AUDIT_FIELDS}
+
+
+def policy_target(policy: Document) -> audit.AuditTarget:
+    return audit.target('cleanup_policy', str(policy['_id']), policy.get('name'))
 
 
 def _may_read(principal: Principal) -> bool:
     return access.check(principal, Action.ADMIN) or access.check(principal, Action.MANAGE)
 
 
-def _check_criteria(fmt: str, criteria: Criteria, prefix: str = 'criteria') -> None:
+def check_criteria(fmt: str, criteria: Criteria, prefix: str = 'criteria') -> None:
     errors: list[FieldError] = []
     if not criteria.selects_anything:
         errors.append(
@@ -375,7 +394,7 @@ async def create_policy(
     body: CleanupPolicyWrite, request: Request, response: Response, svc: ServicesDep
 ) -> CleanupPolicy:
     principal = await authenticate(request)
-    _check_criteria(body.format, body.criteria)
+    check_criteria(body.format, body.criteria)
     now = datetime.now(UTC)
     doc: Document = {
         '_id': new_id(),
@@ -388,6 +407,9 @@ async def create_policy(
     }
     await cleanup_db.insert_policy(svc.db, doc)
     await cleanup_db.sync_schedule(svc.db, doc)
+    audit.record(
+        AuditAction.CLEANUP_POLICY_CREATE, target=policy_target(doc), changes=audit.diff(None, audit_view(doc))
+    )
     response.headers['Location'] = f'/api/v1/cleanup-policies/{doc["_id"]}'
     return (await _views(svc, principal, [doc]))[0]
 
@@ -412,7 +434,7 @@ async def update_policy(
 ) -> CleanupPolicy:
     principal = await authenticate(request)
     existing = await _policy_or_404(svc, principal, policy_id)
-    _check_criteria(body.format, body.criteria)
+    check_criteria(body.format, body.criteria)
     if body.format != existing['format'] and body.format != '*':
         clash = [
             r.name for r in await svc.catalog.all() if policy_id in r.cleanup_policy_ids and r.format != body.format
@@ -431,15 +453,23 @@ async def update_policy(
     if policy is None:
         raise NotFound('Not Found')
     await cleanup_db.sync_schedule(svc.db, policy)
+    if changes := audit.diff(audit_view(existing), audit_view(policy)):
+        audit.record(AuditAction.CLEANUP_POLICY_UPDATE, target=policy_target(policy), changes=changes)
     return (await _views(svc, principal, [policy]))[0]
 
 
 @router.delete('/cleanup-policies/{policy_id}', status_code=204, operation_id='deleteCleanupPolicy')
 @access.requires(Action.ADMIN)
 async def delete_policy(policy_id: PolicyId, request: Request, svc: ServicesDep) -> Response:
-    if not await cleanup_db.delete_policy(svc.db, policy_id):
+    existing = await cleanup_db.get_policy(svc.db, policy_id)
+    if existing is None or not await cleanup_db.delete_policy(svc.db, policy_id):
         raise NotFound('Not Found')
     svc.catalog.invalidate()
+    audit.record(
+        AuditAction.CLEANUP_POLICY_DELETE,
+        target=policy_target(existing),
+        changes=audit.diff(audit_view(existing), None),
+    )
     return Response(status_code=204)
 
 
@@ -473,7 +503,7 @@ async def list_runs(policy_id: PolicyId, request: Request, svc: ServicesDep) -> 
 async def preview(body: CleanupPreviewRequest, request: Request, svc: ServicesDep) -> CleanupPreview:
     principal = await authenticate(request)
     repos = await _preview_repos(svc, principal, body)
-    _check_criteria(body.format, body.criteria)
+    check_criteria(body.format, body.criteria)
     offset = _decode_cursor(body.cursor)
     now = datetime.now(UTC)
     repos.sort(key=lambda r: r.name.lower())

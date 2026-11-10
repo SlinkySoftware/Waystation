@@ -35,6 +35,7 @@ x-app-env: &app-env
   WAYSTATION_SESSION_SECRET_FILE:
   WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD:
   WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE:
+  WAYSTATION_PROVISION_FILE:
   WAYSTATION_SESSION_IDLE_MINUTES:
   WAYSTATION_SESSION_MAX_HOURS:
   WAYSTATION_LOGIN_RATE_LIMIT:
@@ -165,6 +166,8 @@ services:
       disable: true
     depends_on:
       mongodb:
+        condition: service_healthy
+      valkey:  # applying a provisioning file resets upstream state and revokes cached tokens on every replica
         condition: service_healthy
 
   mongodb:

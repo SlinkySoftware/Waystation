@@ -106,8 +106,10 @@ def record(
     details: Mapping[str, Any] | None = None,
     changes: list[AuditChange] | None = None,
     writer: AuditWriter | None = None,
+    notifier: WebhookNotifier | None = None,
 ) -> None:
-    """Queue one audit record for ``action`` (never raises, never blocks)."""
+    """Queue one audit record for ``action`` (never raises, never blocks). Outside a request, ``writer`` and
+    ``notifier`` (webhook events) say where it goes."""
     try:
         ctx = _current.get()
         sink = writer or _writer(ctx)
@@ -130,7 +132,7 @@ def record(
             changes=changes or [],
         )
         sink.record(event)
-        notifier = _notifier(ctx)
+        notifier = notifier or _notifier(ctx)
         if notifier is not None:  # content and repository changes are webhook events too (SPEC §4.12)
             notifier.offer(event)
     except Exception:  # never fail the request because of the audit trail

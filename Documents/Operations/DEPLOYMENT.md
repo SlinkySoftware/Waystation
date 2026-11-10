@@ -183,6 +183,7 @@ The authoritative list of application settings, with defaults and descriptions, 
 | `WAYSTATION_SECRET_KEYS` [secret] | none (required) | Comma list of base64 AES-256 keys |
 | `WAYSTATION_SESSION_SECRET` [secret] | none (required) | Session signing secret |
 | `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD` [secret] | unset | First admin password; unset = `init` prints a one-time password |
+| `WAYSTATION_PROVISION_FILE` | unset | Declarative provisioning file (YAML) applied by `init` at every start; mount it (and the secret files it references) into `init` and `server` at the same path ([PROVISIONING.md](PROVISIONING.md)) |
 | `WAYSTATION_SESSION_IDLE_MINUTES` / `SESSION_MAX_HOURS` | `480` / `168` | UI session lifetimes |
 | `WAYSTATION_LOGIN_RATE_LIMIT`, `LOGIN_LOCKOUT_FAILURES`, `LOGIN_LOCKOUT_MINUTES` | `20`, `10`, `15` | Sign-in throttling and lockout |
 | `WAYSTATION_TOKEN_FAILURE_LIMIT` | `60` | Rejected API tokens allowed per client address per 5 minutes (then 429) |
@@ -233,6 +234,9 @@ Open `https://registry.example.com/ui/` (or `http://<host>:8080/ui/` before TLS 
 and create repositories (Repositories → Create). Changing a password in the UI is not built yet (T-S02), so set
 `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE` before the first start if you want to choose the password. Each repository's "Set me up" panel shows client configuration;
 the per-format guides are in [clients/](clients/) (Docker, npm, apt, raw today).
+
+To keep the configuration in version control instead, declare repositories, roles, providers, policies, webhooks and
+settings in a provisioning file ([PROVISIONING.md](PROVISIONING.md)); `init` applies it at every start.
 
 ## 7. Health checks
 

@@ -2,21 +2,21 @@
 <!-- Create / edit a sign-in provider (LDAP directory or OpenID Connect): sectioned form, tests, group mapping
      (UI_DESIGN §4.10). The kind is picked on create and cannot change afterwards. -->
 <template>
-  <FormDialog v-model="open" :title="title" :caption="isOidc ? t('oidcForm.caption') : t('ldapForm.caption')" :saving="saving" width="780px" @submit="save">
+  <FormDialog v-model="open" :title="title" :caption="managed ? t('provisioning.managedHelp') : isOidc ? t('oidcForm.caption') : t('ldapForm.caption')" :readonly="managed" :saving="saving" width="780px" @submit="save">
     <div v-if="formError" class="pdialog__error" role="alert">{{ formError }}</div>
     <div class="pdialog">
       <div v-if="!provider" class="pdialog__kind">
         <span class="text-caption">{{ t('oidcForm.kind') }}</span>
         <q-btn-toggle v-model="model.write.kind" no-caps unelevated dense toggle-color="primary" class="pdialog__kind-toggle" :options="kindOptions" />
       </div>
-      <div v-if="isOidc" class="pdialog__presets">
+      <div v-if="isOidc && !managed" class="pdialog__presets">
         <span class="text-caption">{{ t('oidcForm.presets') }}</span>
         <q-chip v-for="p in OIDC_PRESET_IDS" :key="p" clickable outline :label="t(`oidcForm.preset.${p}`)" class="pdialog__preset" @click="applyOidcPreset(model, p)" />
         <q-icon :name="iconInfo" size="16px" class="text-muted">
           <q-tooltip>{{ t('oidcForm.presetHint') }}</q-tooltip>
         </q-icon>
       </div>
-      <div v-else class="pdialog__presets">
+      <div v-else-if="!managed" class="pdialog__presets">
         <span class="text-caption">{{ t('ldapForm.presets') }}</span>
         <q-chip v-for="p in PRESET_IDS" :key="p" clickable outline :label="t(`ldapForm.preset.${p}`)" class="pdialog__preset" @click="applyPreset(model, p)" />
         <q-icon :name="iconInfo" size="16px" class="text-muted">
@@ -77,6 +77,7 @@ import FormDialog from '@/components/FormDialog.vue'
 import { useNotify } from '@/composables/useNotify'
 import { t } from '@/i18n'
 import { iconInfo } from '@/utils/icons'
+import { isManaged } from '@/utils/managed'
 
 import GroupMappingTable from './GroupMappingTable.vue'
 import LdapConnectionSection from './LdapConnectionSection.vue'
@@ -88,7 +89,7 @@ import { applyOidcPreset, applyPreset, emptyProvider, fromConfig, OIDC_PRESET_ID
 const props = defineProps<{ provider: AuthProviderConfig | null }>()
 const open = defineModel<boolean>({ required: true })
 const emit = defineEmits<{ saved: [provider: AuthProviderConfig] }>()
-
+const managed = computed(() => isManaged(props.provider))
 const notify = useNotify()
 const model = ref<ProviderFormModel>(emptyProvider())
 const saving = ref(false)

@@ -1,0 +1,140 @@
+# Waystation provisioning file: a complete example (Documents/Operations/PROVISIONING.md).
+# Point WAYSTATION_PROVISION_FILE at your copy; init applies it at every start, the Provisioning page on demand.
+# JSON Schema for editors: Documents/Operations/provisioning.schema.json (make provision-schema).
+# Secrets are never written here: {file: <absolute path>} or {env: <VARIABLE>} references only.
+version: 1
+
+# Delete objects this file manages but no longer declares, per section (default: never delete, only release them).
+prune:
+  repositories: false
+  cleanup_policies: true
+  roles: false
+  groups: false
+  service_accounts: false
+  auth_providers: false
+  webhooks: true
+
+roles:
+  - id: docker-pull
+    name: Docker pull
+    description: Pull from every docker repository
+    permissions:
+      - {action: browse, scope: 'format:docker'}
+      - {action: read, scope: 'format:docker'}
+  - id: release-publisher
+    name: Release publisher
+    permissions:
+      - {action: browse, scope: 'releases-*'}
+      - {action: read, scope: 'releases-*'}
+      - {action: write, scope: 'releases-*'}
+
+cleanup_policies:
+  - name: stale-proxy-cache
+    description: Cached content nobody downloaded for 90 days
+    format: '*'
+    criteria: {last_downloaded_older_than_days: 90}
+    schedule: '0 3 * * *'
+  - name: untagged-images
+    format: docker
+    criteria: {untagged_older_than_days: 14}
+    schedule: '@daily'
+
+repositories:
+  - name: docker-hub
+    format: docker
+    type: proxy
+    description: Docker Hub (authenticated pulls)
+    proxy:
+      upstream_url: https://registry-1.docker.io
+      auth:
+        kind: basic
+        username: puller
+        secret: {file: /run/secrets/docker_hub_token}
+    format_options: {docker_hub: true, aliases: [docker.io]}
+    cleanup_policies: [stale-proxy-cache, untagged-images]
+  - name: ghcr
+    format: docker
+    type: proxy
+    proxy: {upstream_url: https://ghcr.io}
+    format_options: {aliases: [ghcr.io]}
+    cleanup_policies: [stale-proxy-cache]
+  - name: docker-internal
+    format: docker
+    type: hosted
+    hosted:
+      write_policy: disable_redeploy
+      immutable_tag_patterns: ['v[0-9]+\.[0-9]+\.[0-9]+']
+    storage: {quota_bytes: 536870912000, quota_mode: soft}
+  - name: docker
+    format: docker
+    type: group
+    description: Everything docker behind one name
+    group:
+      members: [docker-internal, docker-hub, ghcr]
+      writable_member: docker-internal
+  - name: npmjs
+    format: npm
+    type: proxy
+    proxy:
+      upstream_url: https://registry.npmjs.org
+      metadata_max_age_s: 600
+  - name: releases-raw
+    format: raw
+    type: hosted
+    online: true
+
+groups:
+  - name: Release engineers
+    description: Publish release artifacts
+    roles: [release-publisher, reader]
+
+service_accounts:
+  - name: ci-builder
+    description: CI pipelines (tokens are created on the Service accounts page)
+    roles: [deployer]
+  - name: k8s-nodes
+    roles: [docker-pull]
+
+auth_providers:
+  - kind: ldap
+    name: Corporate directory
+    order: 10
+    ldap:
+      connection:
+        servers: [ldaps://ldap.example.com]
+        security: ldaps
+        bind_dn: cn=waystation,ou=services,dc=example,dc=com
+        bind_password: {file: /run/secrets/ldap_bind_password}
+      users:
+        base_dn: ou=people,dc=example,dc=com
+        filter: (objectClass=inetOrgPerson)
+      groups:
+        mode: member_of
+    group_mapping:
+      - {external_group: 'cn=registry-admins,ou=groups,dc=example,dc=com', roles: [admin]}
+      - {external_group: 'cn=developers,ou=groups,dc=example,dc=com', roles: [deployer]}
+  - kind: oidc
+    name: Example SSO
+    order: 20
+    oidc:
+      issuer: https://sso.example.com/realms/example
+      client_id: waystation
+      client_secret: {env: OIDC_CLIENT_SECRET}
+    group_mapping:
+      - {external_group: registry-readers, roles: [reader]}
+
+webhooks:
+  - name: chat-notify
+    url: https://hooks.example.com/waystation
+    events: [repository.*, content.upload]
+    repositories: ['releases-*']
+    secret: {file: /run/secrets/webhook_signing_key}
+    headers:
+      Authorization: {env: CHAT_HOOK_AUTHORIZATION}
+
+settings:
+  instance_name: Example registry
+  require_totp_for_admins: true
+  anonymous_access: [anonymous]
+  default_docker_repository: docker-hub
+  storage_guard: {min_free_bytes: 21474836480, min_free_percent: 5}
