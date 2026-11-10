@@ -108,7 +108,7 @@ class ProxySpec(ProxyConfig):
 
 class RepositorySpec(RepositoryWrite):
     online: bool = Field(default=True, description='Accepts requests')
-    proxy: ProxySpec | None = None  # type: ignore[assignment]
+    proxy: ProxySpec | None = None
     cleanup_policies: list[Annotated[str, StringConstraints(min_length=1, max_length=64)]] = Field(
         default_factory=list, max_length=20, description='Names of cleanup policies to attach, in run order'
     )

@@ -64,9 +64,9 @@ from waystation_server.db import roles as roles_db
 from waystation_server.db import service_accounts as accounts_db
 from waystation_server.db import settings as settings_db
 from waystation_server.db import users as users_db
-from waystation_server.problems import FieldError, FieldErrors
+from waystation_server.problems import FieldErrors
 from waystation_server.provisioning import loader
-from waystation_server.provisioning.loader import Loaded, Problem, SecretUnavailable
+from waystation_server.provisioning.loader import Loaded, Problem, SecretError
 from waystation_server.provisioning.model import (
     MANAGED_BY,
     AuthProviderSpec,
@@ -91,8 +91,8 @@ from waystation_server.provisioning.report import (
     ProvisioningSummary,
 )
 from waystation_server.repos import service as repos_service
-from waystation_server.repos.model import AuthKind, RepoConfig, RepoType, secret_aad
-from waystation_server.repos.schemas import RepositoryWrite
+from waystation_server.repos.model import AuthKind, RepoConfig, RepoType
+from waystation_server.repos.schemas import RepositoryWrite, StorageConfig
 from waystation_server.security import access
 from waystation_server.security.actions import Action, Permission
 from waystation_server.security.groups import GroupRecord
@@ -215,12 +215,16 @@ def _change_step(
 def _release_step(kind: ObjectKind, name: str, run: Run, action: AuditAction, target: AuditTarget) -> Step:
     """A managed object no longer in the file, without prune: drop the tag."""
     changes = audit.diff({'managed_by': MANAGED_BY}, {'managed_by': None})
-    step = _item(kind, name, 'update', changes, f'no longer in the file: released (set prune.{_SECTIONS[kind]} to delete)')
+    step = _item(
+        kind, name, 'update', changes, f'no longer in the file: released (set prune.{_SECTIONS[kind]} to delete)'
+    )
     step.run, step.action, step.target = run, action, target
     return step
 
 
-def _prune_step(kind: ObjectKind, name: str, before: dict[str, Any], run: Run, action: AuditAction, target: AuditTarget) -> Step:
+def _prune_step(
+    kind: ObjectKind, name: str, before: dict[str, Any], run: Run, action: AuditAction, target: AuditTarget
+) -> Step:
     changes = audit.diff(before, None)
     step = _item(kind, name, 'prune', changes, 'managed by the file and no longer declared')
     step.run, step.action, step.target = run, action, target
@@ -262,7 +266,7 @@ async def _resolve_all(planner: _Planner) -> None:
     for path, ref in refs:
         try:
             planner.secrets[path] = await loader.resolve(ref)
-        except SecretUnavailable as exc:
+        except SecretError as exc:
             planner.errors.append(Problem(path, str(exc)))
     if refs and planner.svc.keyring is None:
         planner.errors.append(Problem('file', 'WAYSTATION_SECRET_KEYS is not set: secrets cannot be stored'))
@@ -296,7 +300,9 @@ async def _plan_roles(p: _Planner, specs: list[RoleSpec], prune: bool) -> None:
                 'managed_by': existing.managed_by,
             }
 
-        async def run(spec: RoleSpec = spec, stored: list[dict[str, str]] = stored, new: bool = existing is None) -> AuditTarget:
+        async def run(
+            spec: RoleSpec = spec, stored: list[dict[str, str]] = stored, new: bool = existing is None
+        ) -> AuditTarget:
             now = datetime.now(UTC)
             if new:
                 record = RoleRecord(
@@ -455,7 +461,12 @@ async def _plan_policies(p: _Planner, specs: list[CleanupPolicySpec], prune: boo
 
             p.prunes.append(
                 _prune_step(
-                    'cleanup_policy', doc['name'], cleanup_api.audit_view(doc), delete, AuditAction.CLEANUP_POLICY_DELETE, target
+                    'cleanup_policy',
+                    doc['name'],
+                    cleanup_api.audit_view(doc),
+                    delete,
+                    AuditAction.CLEANUP_POLICY_DELETE,
+                    target,
                 )
             )
         else:
@@ -464,7 +475,9 @@ async def _plan_policies(p: _Planner, specs: list[CleanupPolicySpec], prune: boo
                 await cleanup_db.update_policy(db, str(doc['_id']), {'managed_by': None})
                 return cleanup_api.policy_target(doc)
 
-            p.steps.append(_release_step('cleanup_policy', doc['name'], release, AuditAction.CLEANUP_POLICY_UPDATE, target))
+            p.steps.append(
+                _release_step('cleanup_policy', doc['name'], release, AuditAction.CLEANUP_POLICY_UPDATE, target)
+            )
 
 
 # ---------------------------------------------------------------------------- repositories
@@ -511,7 +524,9 @@ async def _plan_repositories(
     for repo in current:
         policy_names[repo.id] = [id_to_name.get(i, i) for i in repo.cleanup_policy_ids]
     indexed = list(enumerate(specs))
-    ordered = [x for x in indexed if x[1].type is not RepoType.GROUP] + [x for x in indexed if x[1].type is RepoType.GROUP]
+    ordered = [x for x in indexed if x[1].type is not RepoType.GROUP] + [
+        x for x in indexed if x[1].type is RepoType.GROUP
+    ]
     for i, spec in ordered:
         prefix = f'repositories.{i}'
         existing = by_name.get(spec.name.lower())
@@ -541,7 +556,7 @@ async def _plan_repositories(
             after_view = _repo_view(built, wanted_secret)
         if after_view is None:
             continue
-        cleanup_names = [policies_name for policies_name in spec.cleanup_policies]
+        cleanup_names = list(spec.cleanup_policies)
         after = {**after_view, 'cleanup_policies': cleanup_names, 'managed_by': MANAGED_BY}
         before = None
         if existing is not None:
@@ -766,7 +781,9 @@ async def _plan_accounts(p: _Planner, specs: list[ServiceAccountSpec], prune: bo
             }
 
         async def run(
-            spec: ServiceAccountSpec = spec, after: dict[str, Any] = after, existing: ServiceAccountRecord | None = existing
+            spec: ServiceAccountSpec = spec,
+            after: dict[str, Any] = after,
+            existing: ServiceAccountRecord | None = existing,
         ) -> AuditTarget:
             now = datetime.now(UTC)
             if existing is None:
@@ -836,7 +853,9 @@ def _provider_write(spec: AuthProviderSpec, bind_password: str | None, client_se
 
 
 def _provider_current(svc: Services, record: ProviderRecord, groups: list[GroupRecord]) -> dict[str, Any]:
-    view = providers_api.provider_view(svc, record, groups).model_dump(mode='json', exclude={'id', 'created_at', 'updated_at'})
+    view = providers_api.provider_view(svc, record, groups).model_dump(
+        mode='json', exclude={'id', 'created_at', 'updated_at'}
+    )
     if view.get('ldap'):
         view['ldap']['connection'].pop('bind_password_set', None)
         bind = _decrypted(lambda: decrypt_bind_password(svc.keyring, record))
@@ -889,14 +908,20 @@ async def _plan_providers(p: _Planner, specs: list[AuthProviderSpec], prune: boo
         problems = providers_api.check_config(body, existing, keyring_set=svc.keyring is not None)
         for i_row, row in enumerate(body.group_mapping):
             _check_roles(p, row.roles, f'{prefix}.group_mapping.{i_row}.roles')
-        problems += [e for e in providers_api.check_mapping(body.group_mapping, p.table) if not e.field.endswith('.roles')]
+        problems += [
+            e for e in providers_api.check_mapping(body.group_mapping, p.table) if not e.field.endswith('.roles')
+        ]
         p.errors.extend(Problem(f'{prefix}.{e.field}', e.message) for e in problems)
         if problems:
             continue
         before = _provider_current(svc, existing, groups) if existing is not None else None
         after = _provider_wanted(body, before)
-        bind_changed = bind is not None and (before is None or _digest(bind) != _get(before, 'ldap', 'connection', 'bind_password'))
-        client_changed = client is not None and (before is None or _digest(client) != _get(before, 'oidc', 'client_secret'))
+        bind_changed = bind is not None and (
+            before is None or _digest(bind) != _get(before, 'ldap', 'connection', 'bind_password')
+        )
+        client_changed = client is not None and (
+            before is None or _digest(client) != _get(before, 'oidc', 'client_secret')
+        )
 
         async def run(
             spec: AuthProviderSpec = spec,
@@ -943,7 +968,9 @@ async def _plan_providers(p: _Planner, specs: list[AuthProviderSpec], prune: boo
                 svc.auth_providers.invalidate()
                 return audit.target('auth_provider', record.id, record.name)
 
-            p.steps.append(_release_step('auth_provider', record.name, release, AuditAction.AUTH_PROVIDER_UPDATE, target))
+            p.steps.append(
+                _release_step('auth_provider', record.name, release, AuditAction.AUTH_PROVIDER_UPDATE, target)
+            )
 
 
 def _get(doc: dict[str, Any] | None, *path: str) -> Any:
@@ -1000,7 +1027,11 @@ async def _plan_webhooks(p: _Planner, specs: list[WebhookSpec], prune: bool) -> 
     for i, spec in enumerate(specs):
         prefix = f'webhooks.{i}'
         secret = p.secrets.get(f'{prefix}.secret')
-        headers = {name: p.secrets[f'{prefix}.headers.{name}'] for name in spec.headers if f'{prefix}.headers.{name}' in p.secrets}
+        headers = {
+            name: p.secrets[f'{prefix}.headers.{name}']
+            for name in spec.headers
+            if f'{prefix}.headers.{name}' in p.secrets
+        }
         if secret is None or len(headers) != len(spec.headers):
             continue  # an unresolved reference, already reported
         data = {**spec.model_dump(mode='python', exclude={'secret', 'headers'}), 'secret': secret, 'headers': headers}
@@ -1100,7 +1131,9 @@ async def _plan_webhooks(p: _Planner, specs: list[WebhookSpec], prune: bool) -> 
                 return audit.target('webhook', str(doc['_id']), str(doc['name']))
 
             before = webhooks_api.audit_view(doc)
-            p.prunes.append(_prune_step('webhook', str(doc['name']), before, delete, AuditAction.WEBHOOK_DELETE, target))
+            p.prunes.append(
+                _prune_step('webhook', str(doc['name']), before, delete, AuditAction.WEBHOOK_DELETE, target)
+            )
         else:
 
             async def release(doc: Document = doc) -> AuditTarget:
@@ -1187,7 +1220,9 @@ async def _plan_settings(p: _Planner, spec: SettingsSpec, declared_repos: list[R
     if spec.storage_guard is not None:
         guard = spec.storage_guard
         now_guard = await storage_guard.load(db, default_min_free_bytes=svc.settings.min_free_bytes)
-        saved = storage_guard.GuardSettings(min_free_bytes=guard.min_free_bytes, min_free_percent=guard.min_free_percent)
+        saved = storage_guard.GuardSettings(
+            min_free_bytes=guard.min_free_bytes, min_free_percent=guard.min_free_percent
+        )
 
         async def save_guard(saved: storage_guard.GuardSettings = saved) -> AuditTarget:
             svc.guard.apply(await storage_guard.save(db, saved, by=p.ctx.principal.id))
@@ -1246,16 +1281,16 @@ def existing_write(repo: RepoConfig, format_options: dict[str, Any]) -> Reposito
     proxy = repos_api.proxy_view(repo)
     return RepositoryWrite(
         name=repo.name,
-        format=repo.format,  # type: ignore[arg-type]
+        format=repo.format,
         type=repo.type,
         online=repo.online,
         description=repo.description,
         proxy=proxy,
-        hosted=repos_api._hosted_view(repo),  # noqa: SLF001
-        group=repos_api._group_view(repo),  # noqa: SLF001
-        storage=None if repo.type is RepoType.GROUP else repos_api.StorageConfig(
-            quota_bytes=repo.storage.quota_bytes, quota_mode=repo.storage.quota_mode
-        ),
+        hosted=repos_api.hosted_view(repo),
+        group=repos_api.group_view(repo),
+        storage=None
+        if repo.type is RepoType.GROUP
+        else StorageConfig(quota_bytes=repo.storage.quota_bytes, quota_mode=repo.storage.quota_mode),
         format_options=format_options,
     )
 
@@ -1272,7 +1307,9 @@ def _default_docker(p: _Planner, doc: ProvisioningFile) -> list[RepositorySpec] 
         options = dict(spec.format_options or {})
         if spec.name.lower() == wanted.lower():
             if spec.format != 'docker':
-                p.errors.append(Problem('settings.default_docker_repository', f'{spec.name} is not a docker repository'))
+                p.errors.append(
+                    Problem('settings.default_docker_repository', f'{spec.name} is not a docker repository')
+                )
             options['default_repo'] = True
             spec = spec.model_copy(update={'format_options': options})
         elif options.get('default_repo'):
@@ -1362,7 +1399,9 @@ async def apply(ctx: Context, loaded: Loaded) -> ProvisioningPlan:
                     target = await step.run()
                 except Exception as exc:
                     if not isinstance(exc, WaystationError):
-                        log.exception('provisioning step failed', extra={'kind': step.item.kind, 'item': step.item.name})
+                        log.exception(
+                            'provisioning step failed', extra={'kind': step.item.kind, 'item': step.item.name}
+                        )
                     step.item.outcome, step.item.error = 'failed', _error_text(exc)
                     _record(ctx, step, step.target, details, Outcome.FAILURE, step.item.error)
                     continue
@@ -1411,6 +1450,8 @@ async def last_apply(svc: Services) -> ProvisioningLastApply | None:
     if not doc or not isinstance(doc.get('updated_at'), datetime):
         return None
     try:
-        return ProvisioningLastApply.model_validate({**doc, 'at': doc['updated_at'], 'by': doc.get('updated_by') or '?'})
+        return ProvisioningLastApply.model_validate(
+            {**doc, 'at': doc['updated_at'], 'by': doc.get('updated_by') or '?'}
+        )
     except ValidationError:
         return None

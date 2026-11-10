@@ -32,9 +32,7 @@ async def run(
     svc.audit.start()
     svc.webhooks.start()
     try:
-        ctx = engine.Context(
-            svc=svc, principal=PRINCIPAL, by=by, actor=SYSTEM, writer=svc.audit, notifier=svc.webhooks
-        )
+        ctx = engine.Context(svc=svc, principal=PRINCIPAL, by=by, actor=SYSTEM, writer=svc.audit, notifier=svc.webhooks)
         loaded = await loader.load(path)
         return await (engine.apply if apply else engine.plan)(ctx, loaded)
     finally:
@@ -64,7 +62,6 @@ def render(result: ProvisioningPlan) -> str:
     s = result.summary
     state = 'applied' if result.applied else 'invalid: nothing applied' if not result.valid else 'plan only'
     lines.append(
-        f'  {state}: {s.create} create, {s.update} update, {s.unchanged} unchanged, {s.prune} prune, '
-        f'{s.failed} failed'
+        f'  {state}: {s.create} create, {s.update} update, {s.unchanged} unchanged, {s.prune} prune, {s.failed} failed'
     )
     return '\n'.join(lines) + '\n'

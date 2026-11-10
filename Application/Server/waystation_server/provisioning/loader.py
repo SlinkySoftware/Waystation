@@ -47,34 +47,27 @@ class Loaded:
         return self.document is not None and not self.errors
 
 
-class ProvisioningError(Exception):
-    """The file cannot be used (unreadable, not YAML, schema errors); ``problems`` says why."""
-
-    def __init__(self, problems: list[Problem]) -> None:
-        super().__init__('; '.join(f'{p.field}: {p.message}' for p in problems[:5]))
-        self.problems = problems
-
-
 class _Loader(yaml.SafeLoader):
     """Safe YAML without aliases or duplicate keys, bounded nesting."""
 
-    def compose_node(self, parent: yaml.Node | None, index: object) -> yaml.Node | None:  # type: ignore[override]
+    def compose_node(self, parent: yaml.Node | None, index: int) -> yaml.Node | None:
         if self.check_event(yaml.AliasEvent):
-            event = self.peek_event()
+            event = self.peek_event()  # type: ignore[no-untyped-call]
             raise yaml.MarkedYAMLError(None, None, 'aliases are not allowed', event.start_mark)
         depth = getattr(self, '_depth', 0)
         if depth > MAX_DEPTH:
-            raise yaml.MarkedYAMLError(None, None, 'nested too deeply', self.peek_event().start_mark)
+            mark = self.peek_event().start_mark  # type: ignore[no-untyped-call]
+            raise yaml.MarkedYAMLError(None, None, 'nested too deeply', mark)
         self._depth = depth + 1
         try:
-            return super().compose_node(parent, index)  # type: ignore[no-any-return]
+            return super().compose_node(parent, index)
         finally:
             self._depth = depth
 
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
         seen: set[Any] = set()
         for key_node, _ in node.value:
-            key = self.construct_object(key_node, deep=deep)  # type: ignore[no-untyped-call]
+            key = self.construct_object(key_node, deep=deep)
             if key in seen:
                 raise yaml.MarkedYAMLError(None, None, f'duplicate key {key!r}', key_node.start_mark)
             seen.add(key)
@@ -141,32 +134,32 @@ def _forbidden_env() -> frozenset[str]:
 FORBIDDEN_ENV = _forbidden_env()
 
 
-class SecretUnavailable(Exception):
+class SecretError(Exception):
     """A secret reference cannot be resolved; the message names the reference, never a value."""
 
 
 def _resolve(ref: SecretRef) -> str:
     if ref.env is not None:
         if ref.env.upper() in FORBIDDEN_ENV:
-            raise SecretUnavailable(f'env {ref.env} is a Waystation setting and cannot be referenced')
+            raise SecretError(f'env {ref.env} is a Waystation setting and cannot be referenced')
         value = os.environ.get(ref.env)
         if not value:
-            raise SecretUnavailable(f'env {ref.env} is not set')
+            raise SecretError(f'env {ref.env} is not set')
         return value
     assert ref.file is not None
     try:
         with open(ref.file, 'rb') as handle:  # noqa: PTH123
             raw = handle.read(SECRET_MAX_BYTES + 1)
     except OSError as exc:
-        raise SecretUnavailable(f'file {ref.file}: cannot read it ({exc.strerror or type(exc).__name__})') from None
+        raise SecretError(f'file {ref.file}: cannot read it ({exc.strerror or type(exc).__name__})') from None
     if len(raw) > SECRET_MAX_BYTES:
-        raise SecretUnavailable(f'file {ref.file} is larger than {SECRET_MAX_BYTES} bytes')
+        raise SecretError(f'file {ref.file} is larger than {SECRET_MAX_BYTES} bytes')
     try:
         value = raw.decode('utf-8').rstrip('\r\n')
     except UnicodeDecodeError:
-        raise SecretUnavailable(f'file {ref.file} is not UTF-8 text') from None
+        raise SecretError(f'file {ref.file} is not UTF-8 text') from None
     if not value:
-        raise SecretUnavailable(f'file {ref.file} is empty')
+        raise SecretError(f'file {ref.file} is empty')
     return value
 
 

@@ -275,7 +275,7 @@ async def _build(
     body: RepositoryWrite,
     principal: Principal,
     existing: RepoConfig | None,
-    managed_by: str | None | EllipsisType = ...,
+    managed_by: str | EllipsisType | None = ...,
 ) -> RepoConfig:
     errors: list[FieldError] = []
     if existing is not None:
@@ -393,7 +393,7 @@ async def update(
     body: RepositoryWrite,
     principal: Principal,
     *,
-    managed_by: str | None | EllipsisType = ...,
+    managed_by: str | EllipsisType | None = ...,
 ) -> RepoConfig:
     """Replace ``existing`` with ``body`` (``managed_by``: set the provisioning tag; omitted: keep it)."""
     repo = await _build(services, body, principal, existing, managed_by)

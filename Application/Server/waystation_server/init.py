@@ -29,8 +29,10 @@ from waystation_common.settings import Settings, get_settings
 from waystation_server.bootstrap import banner, ensure_bootstrap_admin
 from waystation_server.provisioning import runner as provisioning
 
-class ProvisioningFailed(Exception):
+
+class ProvisioningError(Exception):
     """The provisioning file is invalid or a change failed (details logged)."""
+
 
 log = logging.getLogger('waystation.init')
 
@@ -79,14 +81,14 @@ async def _provision(settings: Settings, client: Client) -> None:
     if not result.valid:
         for problem in result.errors:
             log.error('provisioning file invalid', extra={'field': problem.field, 'problem': problem.message})
-        raise ProvisioningFailed('the provisioning file is invalid: nothing was applied')
+        raise ProvisioningError('the provisioning file is invalid: nothing was applied')
     for item in result.items:
         if item.outcome == 'failed':
             log.error('provisioning change failed', extra={'kind': item.kind, 'item': item.name, 'error': item.error})
         elif item.outcome == 'applied':
             log.info('provisioning change applied', extra={'kind': item.kind, 'item': item.name, 'action': item.action})
     if result.summary.failed:
-        raise ProvisioningFailed(f'{result.summary.failed} provisioning change(s) failed')
+        raise ProvisioningError(f'{result.summary.failed} provisioning change(s) failed')
     log.info('provisioning file applied', extra={'sha256': result.sha256, **summary})
 
 
@@ -96,7 +98,7 @@ def main(argv: list[str]) -> int:  # pragma: no cover - process entry point
     configure_logging(settings.log_level, settings.log_format)
     try:
         asyncio.run(run(settings, recursive_perms='--recursive-perms' in argv))
-    except ProvisioningFailed as exc:
+    except ProvisioningError as exc:
         log.error('init failed', extra={'error': str(exc)})
         return 1
     log.info('init complete')
