@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Mock RBAC: the server's route rules (`security.access`, SPEC §4.10) for the routes the UI calls, so mock mode shows
-// what a user with few or no permissions sees (sign in as `nina`: no role; `reed`: reader; `gus`: the anonymous
-// grants only). One MSW handler in front of all the others answers 403 `permission_required` for a missing global
+// what a user with few or no permissions sees (sign in as `nina`: no role, so only what anonymous access allows, which
+// every signed-in user also gets (turn anonymous access off to see the "no access yet" state); `reed`: reader; `gus`:
+// a role with the anonymous grants only). One MSW handler in front of all the others answers 403 `permission_required` for a missing global
 // action and 404 for a hidden repository; everything else falls through to the real mock handlers.
 import { http, HttpResponse } from 'msw'
 
