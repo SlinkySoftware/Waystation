@@ -68,11 +68,13 @@ Waystation host. A read that meets a transient connection error is retried once 
 Images are named `${WAYSTATION_IMAGE_PREFIX}/waystation-{web,server,worker}:${WAYSTATION_IMAGE_TAG}`. Both variables
 are required; there is no `:latest`.
 
+- **Release images** (recommended) are public on GHCR: `ghcr.io/slinkysoftware/waystation-{server,worker,web}:X.Y.Z`,
+  multi-arch (linux/amd64, linux/arm64) with an SBOM and SLSA provenance, published by
+  `.github/workflows/release.yml` for every `vX.Y.Z` tag (`Documents/Operations/CI.md`). Set
+  `WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware` and pin an exact release; `latest` exists but upgrades should be
+  deliberate.
 - **Build them yourself** from a checkout (Docker only, no host toolchain): `make images IMAGE_PREFIX=waystation
-  IMAGE_TAG=0.1.0`. To run them on another host, push them to your own registry or `docker save | docker load`.
-- **Release images** are published by `.github/workflows/release.yml` to GHCR as
-  `ghcr.io/<owner>/waystation-{server,worker,web}:X.Y.Z` (multi-arch, with SBOM and provenance) when a `vX.Y.Z` tag
-  is pushed (`Documents/Operations/CI.md`). Set `WAYSTATION_IMAGE_PREFIX=ghcr.io/<owner>` and the tag you want.
+  IMAGE_TAG=dev`. To run them on another host, push them to your own registry or `docker save | docker load`.
 
 ## 4. Prepare the host
 
@@ -118,8 +120,8 @@ Minimal `/srv/waystation/waystation.env`:
 
 ```bash
 # Compose
-WAYSTATION_IMAGE_PREFIX=waystation
-WAYSTATION_IMAGE_TAG=0.1.0
+WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware
+WAYSTATION_IMAGE_TAG=0.2.0
 WAYSTATION_HTTP_BIND=0.0.0.0
 WAYSTATION_HTTP_PORT=8080
 
@@ -231,9 +233,9 @@ docker logs waystation-init 2>&1 | grep -A4 'first administrator'
 ```
 
 Open `https://registry.example.com/ui/` (or `http://<host>:8080/ui/` before TLS is in place), sign in as `admin`,
-and create repositories (Repositories → Create). Changing a password in the UI is not built yet (T-S02), so set
-`WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE` before the first start if you want to choose the password. Each repository's "Set me up" panel shows client configuration;
-the per-format guides are in [clients/](clients/) (Docker, npm, apt, raw today).
+and create repositories (Repositories → Create). Change the password on your profile (avatar menu → Profile), or set
+`WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE` before the first start to choose it. Each repository's "Set me up" panel
+shows client configuration; the per-format guides are in [clients/](clients/).
 
 To keep the configuration in version control instead, declare repositories, roles, providers, policies, webhooks and
 settings in a provisioning file ([PROVISIONING.md](PROVISIONING.md)); `init` applies it at every start.
