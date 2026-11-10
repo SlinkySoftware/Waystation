@@ -11,8 +11,10 @@ loaded at, and learns about a new version
 Grants are materialised per principal from its effective roles (own plus group roles) and cached under
 ``(grant_version, roles)`` in-process and in Valkey (``grants:<principal>:<grant_version>``, an hour), so a new
 version makes every cached table unreachable at once. Decisions stay in ``security.access``; this module only
-computes what ``Principal.grants`` holds. ``on_change`` callbacks run when the version moves (the API token cache
-drops resolved principals, whose grants are baked in).
+computes what ``Principal.grants`` holds, and what every authenticated principal also receives from anonymous access
+(``Principal.anonymous_grants``, ``with_anonymous``; the anonymous roles are part of the snapshot, and changing them
+bumps ``grant_version`` like every RBAC change). ``on_change`` callbacks run when the version moves (the API token
+cache drops resolved principals, whose grants are baked in).
 """
 
 from __future__ import annotations
@@ -182,7 +184,21 @@ class RbacState:
         roles = await self.anonymous_roles()
         if self._fixed:
             return dataclasses.replace(ANONYMOUS, method=method)
-        return dataclasses.replace(ANONYMOUS, roles=roles, method=method, grants=await self.grants(ANONYMOUS.id, roles))
+        return dataclasses.replace(ANONYMOUS, roles=roles, method=method, grants=await self.anonymous_grants())
+
+    async def anonymous_grants(self) -> Grants:
+        """The anonymous principal's grants (repository permissions only), which every authenticated principal
+        receives as well."""
+        from waystation_server.security import access
+
+        return access.repository_only(await self.grants(ANONYMOUS.id, await self.anonymous_roles()))
+
+    async def with_anonymous(self, principal: Principal) -> Principal:
+        """``principal`` also holding the current anonymous grants (SPECIFICATION §4.10: signing in never reduces
+        access). The anonymous principal, and a principal that already carries them, are returned unchanged."""
+        if principal.is_anonymous or principal.anonymous_grants is not None:
+            return principal
+        return dataclasses.replace(principal, anonymous_grants=await self.anonymous_grants())
 
     async def roles_for(self, user: UserRecord) -> tuple[str, ...]:
         """The user's effective roles: its own plus its local and mapped groups' (``GroupDirectory``)."""

@@ -22,6 +22,11 @@ Decisions
   Custom roles live in MongoDB (``roles``); ``security.rbac`` materialises a principal's roles into ``Grants`` with
   ``materialise`` (cached per ``grant_version``) and puts them on ``Principal.grants``. A principal without
   materialised grants (anonymous, unit tests) gets its built-in roles' permissions.
+- Signing in never reduces access: every authenticated principal (users of any source, service accounts) also
+  receives the anonymous principal's grants (``Principal.anonymous_grants``, repository permissions only), so
+  ``check`` decides from own ∪ anonymous. Those grants are not the principal's own: delegation (``may_assign``,
+  ``may_manage``) ignores them, and the narrowing of the credential used (API token scopes and repository patterns,
+  Docker registry token grants) bounds them like everything else.
 - Giving away power is bounded by what the giver holds (``may_assign``): global actions only by someone holding
   them, ``admin`` only by administrators; the same rule decides who may manage a user or edit a role
   (``may_manage``).
@@ -124,7 +129,34 @@ def grants_for(roles: tuple[str, ...]) -> Grants:
 
 
 def grants_of(principal: Principal) -> Grants:
+    """The principal's **own** grants (its roles and group roles), without the anonymous grants a signed-in
+    principal also receives (``effective_grants``)."""
     return principal.grants if principal.grants is not None else grants_for(principal.roles)
+
+
+def repository_only(grants: Grants) -> Grants:
+    """``grants`` without any global action: what anonymous access may hold (SPECIFICATION §4.9), also when a
+    custom role it uses was later edited to hold one."""
+    if not grants.is_admin and all(p.action not in GLOBAL_ACTIONS for p in grants.permissions):
+        return grants
+    return Grants(is_admin=False, permissions=tuple(p for p in grants.permissions if p.action not in GLOBAL_ACTIONS))
+
+
+def anonymous_part(principal: Principal) -> Grants | None:
+    """The anonymous grants an authenticated principal receives on top of its own (None: none, or the principal
+    is the anonymous principal itself, whose own grants they are)."""
+    if principal.is_anonymous or principal.anonymous_grants is None:
+        return None
+    return repository_only(principal.anonymous_grants)
+
+
+def effective_grants(principal: Principal) -> Grants:
+    """Own ∪ anonymous grants (what ``check`` decides from, before any credential narrowing)."""
+    own = grants_of(principal)
+    extra = anonymous_part(principal)
+    if extra is None or not extra.permissions:
+        return own
+    return Grants(is_admin=own.is_admin, permissions=tuple(dict.fromkeys(own.permissions + extra.permissions)))
 
 
 def global_actions(grants: Grants) -> frozenset[Action]:
@@ -191,7 +223,8 @@ def token_permits(limits: TokenLimits, action: Action, repo: RepoConfig | None) 
 
 
 def token_scopes_for(principal: Principal) -> list[TokenScope]:
-    """The scopes ``principal`` may put on a new token: only what it holds itself (tokens only narrow)."""
+    """The scopes ``principal`` may put on a new token: only what it may do itself (tokens only narrow; the
+    anonymous grants count, as the token adds no access the principal does not already have)."""
     return [scope for scope in TokenScope if check(principal, TOKEN_SCOPE_REQUIRES[scope])]
 
 
@@ -237,7 +270,8 @@ def may_manage(principal: Principal, target: Grants) -> bool:
 
 def _owner_grants(principal: Principal) -> Grants:
     """What the principal holds itself, ignoring the narrowing of the credential used (decisions about delegation
-    still go through ``check`` for the credential)."""
+    still go through ``check`` for the credential). Never the anonymous grants: they are not the principal's own to
+    hand out (they hold no global action either, ``repository_only``)."""
     grants = grants_of(principal)
     if principal.token is None and principal.token_access is None:
         return grants
@@ -264,7 +298,8 @@ def check(principal: Principal, action: Action, repo: RepoConfig | None = None) 
     """May ``principal`` perform ``action`` (on ``repo``; without a repo: on at least one repository)?
 
     A principal authenticated by a Docker registry token is also limited to what the token grants, and one
-    authenticated by an API token to the token's scopes and repository patterns (ARCH §7): tokens only narrow."""
+    authenticated by an API token to the token's scopes and repository patterns (ARCH §7): tokens only narrow, and
+    the narrowing is an upper bound on everything, the anonymous grants of a signed-in principal included."""
     if principal.token is not None and not token_permits(principal.token, action, repo):
         return False
     if principal.token_access is not None:
@@ -274,8 +309,13 @@ def check(principal: Principal, action: Action, repo: RepoConfig | None = None) 
         if action not in granted:
             return False
     grants = grants_of(principal)
-    if grants.is_admin:
+    if grants.is_admin or _allows(grants, action, repo):
         return True
+    extra = anonymous_part(principal)
+    return extra is not None and action not in GLOBAL_ACTIONS and _allows(extra, action, repo)
+
+
+def _allows(grants: Grants, action: Action, repo: RepoConfig | None) -> bool:
     if action in GLOBAL_ACTIONS:
         return any(p.action is action and p.scope == '*' for p in grants.permissions)
     if repo is None:
