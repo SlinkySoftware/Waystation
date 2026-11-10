@@ -13,6 +13,10 @@ Decisions
 - ``write``/``delete``/``manage`` imply ``browse`` and ``read`` on the same repositories.
 - A repository the principal can neither browse nor read is **hidden**: every route answers 404 for it, never 403.
   Visible but not allowed: 401 for anonymous (so clients send credentials), 403 otherwise.
+  One exception (ADR 0005, ``hidden_repo``): on the format routes (``/repository/<repo>/...``) a request that sent
+  no credentials at all gets the 401 Basic challenge for a hidden repository **and for a missing one**, so package
+  clients that only send credentials after a challenge (Maven, Gradle, pip...) work and anonymous callers still
+  cannot tell a hidden repository from a missing one. Authenticated callers keep the 404.
 - Built-in roles (read-only): ``admin``, ``reader`` (browse + read all), ``deployer`` (browse + read + write all),
   ``viewer`` (browse all + stats), ``anonymous`` (browse + read on proxy repositories, SPECIFICATION §4.9 default).
   Custom roles live in MongoDB (``roles``); ``security.rbac`` materialises a principal's roles into ``Grants`` with
@@ -47,7 +51,7 @@ from typing import Any, Literal, TypeVar
 
 from starlette.requests import Request
 
-from waystation_common.errors import Forbidden, NotFound, Unauthorized
+from waystation_common.errors import Forbidden, NotFound, Unauthorized, WaystationError
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security.actions import GLOBAL_ACTIONS, Action, Grants, Permission, TokenScope
 from waystation_server.security.authn import authenticate, current_session
@@ -352,9 +356,33 @@ def method_action(method: str) -> Action:
     return Action.WRITE
 
 
-async def authorize_repo(request: Request, repo: RepoConfig, action: Action) -> Principal:
-    """Authenticate and authorise ``action`` on ``repo`` (format routes)."""
+FORMAT_ROUTE_PREFIX = '/repository/'
+
+
+def hidden_repo(request: Request, principal: Principal) -> WaystationError:
+    """The answer for a repository that is hidden from ``principal`` or does not exist (ADR 0005).
+
+    On the format routes (``/repository/<repo>/...``) a request with no credentials at all (anonymous principal, no
+    ``Authorization`` header) gets ``401`` (the error handler adds ``WWW-Authenticate: Basic``), so clients that
+    only send credentials after a challenge retry with them. Everything else, including authenticated principals
+    and requests whose credentials were not accepted as a principal, gets ``404``. Missing and hidden repositories
+    get the same answer, so repository names cannot be enumerated.
+    """
+    if (
+        principal.is_anonymous
+        and 'authorization' not in request.headers
+        and request.url.path.startswith(FORMAT_ROUTE_PREFIX)
+    ):
+        return Unauthorized('authentication required')
+    return NotFound('Not Found')
+
+
+async def authorize_repo(request: Request, repo: RepoConfig | None, action: Action) -> Principal:
+    """Authenticate and authorise ``action`` on ``repo`` (format routes); ``repo`` is None when the requested
+    repository does not exist (answered exactly like a hidden one, ``hidden_repo``)."""
     principal = await authenticate(request)
+    if repo is None or not can_see(principal, repo):
+        raise hidden_repo(request, principal)
     require_repo(principal, action, repo)
     return principal
 

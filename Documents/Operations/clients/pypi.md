@@ -143,7 +143,9 @@ tokens; shown once) or, for CI, on a service account. PyPI clients send it with 
 example `__token__`) and the token as the password, for example in the index URL
 `https://__token__:<api-token>@waystation.example.com/repository/pypi/simple/`, uv's
 `UV_INDEX_WAYSTATION_USERNAME` / `UV_INDEX_WAYSTATION_PASSWORD`, Poetry's `http-basic`, or twine's `.pypirc`. Account
-passwords are not accepted by package clients. A repository the token cannot read answers `404`.
+passwords are not accepted by package clients. A repository the token cannot read answers `404`. An index URL without
+credentials gets the `401` Basic challenge from a repository anonymous users cannot see (ADR 0005), so pip can take
+the credentials from a keyring (`--keyring-provider`) after the challenge.
 
 ## Troubleshooting
 
