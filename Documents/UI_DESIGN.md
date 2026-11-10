@@ -111,6 +111,8 @@ Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. 
   referrers (signatures, SBOM) list, pull commands by tag and by digest).
 - **npm / PyPI / Maven / NuGet / Helm / Galaxy / Swift**: package → versions table (version, published, size,
   downloads, deprecated/yanked flags), README rendered safely (sanitised markdown, no raw HTML), dependencies.
+  npm (T-P5-NPMH): hosted repositories show "N versions" and a Versions column instead of the cache columns
+  (everything they list is stored); dist-tags and deprecation badges as for proxies.
   Built for Maven (T-P5-MAVEN): artifacts table (artifactId over its groupId, latest, version count, filter by
   groupId or artifactId) → versions table (Maven order, SNAPSHOT badge, files, size, deployed by; a copyable
   `<dependency>` snippet) → the version's files (name, size, modified, copy download URL).
@@ -231,6 +233,20 @@ attempts newest first (status icon, HTTP status, latency, error, the answer's fi
 (headers with secret values masked, the JSON body pretty-printed). Sending a test event opens its delivery; the
 drawer and the table refresh every few seconds while something is queued or retrying. Phones: cards, full-screen
 drawer.
+
+**Provisioning** (T-O09, `/admin/provisioning`, rail item for `admin`): without a configured file, an empty state
+explaining `WAYSTATION_PROVISION_FILE`. With one: two fact tiles (the file path in mono; the last apply as an
+outcome pill, when, by whom and the short sha256), then the plan card: counts (to create / update / delete,
+unchanged, failed) in the header, the validation errors in a red block when the file is invalid ("nothing can be
+applied", each with its dotted path in mono), and one row per object: an action pill (Create green, Update blue,
+Delete red, Unchanged grey), the kind and name, a note (released objects), the apply outcome and error, and the
+field changes in mono (`field: before → after`; secrets only "secret changed"). Unchanged rows are hidden behind a
+"Show unchanged (n)" toggle; "Everything matches the file" when there is nothing to do. Header actions: Plan changes
+and Apply (confirm with the number of changes; disabled when invalid or nothing changes). **Managed objects**: a
+small "Managed" label (lock icon, brand outline, tooltip "Declared in the provisioning file...") next to the name of
+repositories (list, detail header, settings tab), roles, groups, service accounts, sign-in providers, cleanup
+policies and webhooks; their forms open read-only (no Save; the caption repeats the hint), and delete, enable/disable
+and edit actions are disabled or hidden.
 
 ### 4.11 Profile
 Display name, theme, density, password (local accounts; while a one-time password is pending the router keeps

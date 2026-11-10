@@ -10,7 +10,7 @@ GID         := $(shell id -g)
 VERSION     := $(shell cat VERSION)
 TTY         := $(shell [ -t 0 ] && echo -t)
 DEV_RUN      = docker run --rm -i $(TTY) --user $(UID):$(GID) -v $(CURDIR):/src -w /src $(DEV_ENV) $(DEV_IMAGE)
-PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness Build/ci Build/migration
+PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness tests/perf Build/ci Build/migration
 # Modules held to 100% branch coverage (TASKS T-F04 acceptance).
 FULL_COVERAGE := --include="*/waystation_common/paths.py,*/waystation_common/crypto.py"
 
@@ -66,7 +66,7 @@ lint: sync ## ruff + import-linter contracts (ARCHITECTURE §3)
 
 .PHONY: typecheck
 typecheck: sync ## mypy --strict
-	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker tests/clients/harness Build/ci Build/migration
+	$(DEV_RUN) uv run --frozen mypy Application/Common/waystation_common Application/Server/waystation_server Application/Worker/waystation_worker tests/clients/harness tests/perf Build/ci Build/migration
 
 .PHONY: test
 test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 100% branch coverage
@@ -114,12 +114,21 @@ workflow-lint: ## actionlint + shellcheck on the GitHub and Gitea workflows
 forbidden-strings: dev-image ## Fail on non-allowlisted hosts/IPs, keys and tokens anywhere in the repo (Build/ci/allowed_hosts.txt)
 	Build/ci/forbidden_strings.sh
 
-budgets: dev-image ## Report performance budgets (Build/ci/budgets.json); only 'fail' budgets fail, the rest warn until M2
-	@$(DEV_RUN) python Build/ci/budgets.py $(if $(MARKDOWN),--markdown)
+budgets: dev-image ## Report performance budgets (Build/ci/budgets.json); only 'fail' budgets fail, the rest warn until M2 (STRICT=1: all fail)
+	@$(DEV_RUN) python Build/ci/budgets.py $(if $(MARKDOWN),--markdown) $(if $(filter 1,$(STRICT)),--strict)
 
 .PHONY: env-example
 env-example: sync ## Regenerate .env.example from waystation_common.settings (idempotent)
 	$(DEV_RUN) sh -c "uv run --frozen python -m waystation_common.settings env-example > .env.example.tmp && mv .env.example.tmp .env.example"
+
+.PHONY: provision-schema provision-check provision-plan
+provision-schema: sync ## Regenerate Documents/Operations/provisioning.schema.json (the provisioning file's JSON Schema)
+	$(DEV_RUN) sh -c "uv run --frozen python -m waystation_server.provisioning schema > Documents/Operations/provisioning.schema.json.tmp && mv Documents/Operations/provisioning.schema.json.tmp Documents/Operations/provisioning.schema.json"
+provision-check: sync ## Validate a provisioning file offline (syntax + schema; secrets not resolved): FILE=<path>
+	@[ -n "$(FILE)" ] || { echo 'make provision-check: set FILE=<provisioning file>'; exit 2; }
+	$(DEV_RUN) uv run --frozen python -m waystation_server.provisioning check '$(FILE)'
+provision-plan: ## What the configured provisioning file would change, in a RUNNING stack [PREFIX=waystation] [JSON=1]
+	docker exec $(or $(PREFIX),waystation)-server python -m waystation_server.provisioning plan $(if $(JSON),--json)
 
 .PHONY: set-version
 set-version: ## Set the version everywhere: make set-version V=X.Y.Z
@@ -219,8 +228,20 @@ images: ## Build server, worker and web images (IMAGE_PREFIX/waystation-<role>:I
 	docker build -f $(COMPOSE_DIR)/server/Dockerfile -t $(IMAGE_PREFIX)/waystation-server:$(IMAGE_TAG) .
 	docker build -f $(COMPOSE_DIR)/worker/Dockerfile -t $(IMAGE_PREFIX)/waystation-worker:$(IMAGE_TAG) .
 	docker build -f $(COMPOSE_DIR)/web/Dockerfile -t $(IMAGE_PREFIX)/waystation-web:$(IMAGE_TAG) .
-backup: ## mongodump + blob copy
-	$(call not_yet,T-O07)
+# Backup and restore of a running stack (Documents/Operations/BACKUP.md). PREFIX = container name prefix
+# (waystation for Build/Containers/compose.yaml, waystation-dev for `make dev-up`).
+PREFIX ?= waystation
+BACKUP_TOOL := Build/Containers/backup/waystation-backup.sh
+.PHONY: restore verify-blobs backup-test
+backup: ## Back up a stack: TARGET=<dir> [PREFIX=waystation] [HOSTED_ONLY=1] [KEEP=<n>] (BACKUP.md)
+	@[ -n "$(TARGET)" ] || { echo 'make backup: set TARGET=<backup directory>'; exit 2; }
+	$(BACKUP_TOOL) backup --prefix '$(PREFIX)' --target '$(TARGET)' $(if $(HOSTED_ONLY),--hosted-only) \
+	  $(if $(KEEP),--keep '$(KEEP)')
+restore: ## Restore a backup into a stopped stack: FROM=<backup dir> [PREFIX=waystation]; then start it and verify-blobs
+	@[ -n "$(FROM)" ] || { echo 'make restore: set FROM=<backup directory>'; exit 2; }
+	$(BACKUP_TOOL) restore --prefix '$(PREFIX)' --from '$(FROM)'
+verify-blobs: ## Run the blob verify task in a running stack and wait for its result [PREFIX=waystation]
+	$(BACKUP_TOOL) verify --prefix '$(PREFIX)'
 
 ##@ Test suites
 .PHONY: e2e clients-test clients-check perf
@@ -250,5 +271,10 @@ nexus-compare: dev-image ## Compare a Nexus and a Waystation: NEXUS=<url> WAYSTA
 .PHONY: proxies-check
 proxies-check: ## Reverse-proxy examples in containers (REVERSE_PROXIES.md; SIZE_MB=1024, SLOW=1 for 60 s timeouts)
 	Build/Containers/examples/reverse-proxies/check/check.sh
-perf: ## k6 performance budgets
-	$(call not_yet,T-P2-PERF)
+backup-test: ## Backup/restore end to end: seed, back up, wipe, restore, verify (own stack; integration lock)
+	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
+	  flock -n 9 || { echo "backup-test: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
+	tests/backup/run.sh
+PROFILE ?= ci
+perf: dev-image ## k6 perf suite vs the SPEC §5.1 budgets: PROFILE=ci|full [STRICT=1] [PERF_SCENARIOS=...] (tests/perf/README.md)
+	TEST_LOCK='$(TEST_LOCK)' STRICT='$(STRICT)' tests/perf/run.sh $(PROFILE)

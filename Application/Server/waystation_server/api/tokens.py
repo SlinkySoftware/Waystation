@@ -32,6 +32,7 @@ from waystation_server.api.rbac import (
     effective_permissions,
     require_manageable,
 )
+from waystation_server.api.repositories import managed
 from waystation_server.audit import AuditAction
 from waystation_server.db import service_accounts as accounts_db
 from waystation_server.db import tokens as tokens_db
@@ -116,6 +117,9 @@ class ServiceAccount(BaseModel):
     disabled: bool
     active_tokens: int
     created_at: datetime
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class ServiceAccountCreate(BaseModel):
@@ -332,6 +336,7 @@ async def _account_body(svc: Services, account: ServiceAccountRecord) -> Service
         disabled=account.disabled,
         active_tokens=await tokens_db.count_active(svc.db, owner, datetime.now(UTC)),
         created_at=account.created_at,
+        managed_by=managed(account.managed_by),
     )
 
 

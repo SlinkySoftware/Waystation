@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict
 from starlette.requests import Request
 from starlette.responses import Response
 
+from waystation_common.errors import NotFound
 from waystation_server.repos.model import RepoConfig, RepoType
 from waystation_server.security.principal import Principal
 
@@ -95,6 +96,14 @@ def _any_options(options: BaseModel, repo_type: RepoType) -> list[tuple[str, str
     return []
 
 
+def _never(method: str, path: str) -> bool:
+    return False
+
+
+def _by_method(method: str, path: str) -> Action | None:
+    return None
+
+
 @dataclass(frozen=True)
 class FormatDescriptor:
     name: str
@@ -112,6 +121,13 @@ class FormatDescriptor:
     writable_group_member: bool = False
     # Per-type option rules: ``(field, message)`` for options that make no sense for the repository type.
     check_options: Callable[[BaseModel, RepoType], list[tuple[str, str]]] = _any_options
+    # ``(method, path)`` -> True for a package client's sign-in or sign-out (npm ``/-/user/...``): the router
+    # authenticates the request but authorises nothing; the plugin answers with ``req.sign_in`` / ``req.sign_out``,
+    # which apply the repository's visibility themselves (``waystation_server.client_login``).
+    client_login: Callable[[str, str], bool] = _never
+    # ``(method, path)`` -> the repository action the router authorises when it is not the method's (npm
+    # ``dist-tag rm`` is a DELETE that changes a tag: ``write``); None = by method.
+    request_action: Callable[[str, str], Action | None] = _by_method
 
     def parse_options(self, raw: Mapping[str, Any] | None) -> BaseModel:
         """Validate format options (raises pydantic ``ValidationError``)."""
@@ -125,6 +141,14 @@ async def _no_resolve(name: str) -> tuple[RepoConfig, str] | None:
 
 async def _no_repository(name: str) -> RepoConfig | None:
     return None
+
+
+async def _no_sign_in(username: str, password: str, client: str) -> str:
+    raise NotFound('Not Found')
+
+
+async def _no_sign_out(secret: str) -> bool:
+    return False
 
 
 def _nothing_allowed(action: Action, repo: RepoConfig) -> bool:
@@ -151,6 +175,10 @@ class FormatRequest:
     # Group members: RBAC on a member for this request's principal (with its API token limits), without the
     # per-repository grants of a docker registry token, which named the group.
     _allows_member: Callable[[Action, RepoConfig], bool] = field(repr=False, default=_nothing_allowed)
+    # Package client sign-in (descriptor ``client_login`` requests only): username, password, client name -> a new
+    # API token's secret; sign-out: revoke the API token this request was authenticated with, when it is that one.
+    _sign_in: Callable[[str, str, str], Awaitable[str]] = field(repr=False, default=_no_sign_in)
+    _sign_out: Callable[[str], Awaitable[bool]] = field(repr=False, default=_no_sign_out)
 
     @property
     def method(self) -> str:
@@ -188,6 +216,16 @@ class FormatRequest:
         """May this request's principal ``action`` on ``member`` of the group it addressed (decided by
         ``security.access``; a registry token's grants for the group do not cover the member)?"""
         return self._allows_member(action, member)
+
+    async def sign_in(self, username: str, password: str, *, client: str) -> str:
+        """Exchange a username and password for a new API token of that user (``npm login``): the secret. Raises
+        ``Unauthorized`` for bad credentials, ``NotFound`` when the repository is hidden from the caller (before or
+        after signing in), so a hidden repository never answers differently from a missing one."""
+        return await self._sign_in(username, password, client)
+
+    async def sign_out(self, secret: str) -> bool:
+        """Revoke the API token ``secret`` when it is the one this request was authenticated with (``npm logout``)."""
+        return await self._sign_out(secret)
 
     def log(self, **fields: Any) -> None:
         """Add fields to this request's access-log line."""

@@ -1,4 +1,4 @@
-"""Read-side aggregations for the stats API: ``stats_minute`` (closed minutes), ``assets`` and ``blobs``.
+"""Read-side aggregations for the stats API: ``stats_minute`` (closed minutes), ``repo_usage`` and ``blobs``.
 
 Bucketing is epoch-aligned (``ts - ts mod step``) so it matches the buckets the API builds in Python.
 """
@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Any
 
 from waystation_common.db.client import Database
-from waystation_common.db.collections import ASSETS, BLOBS, STATS_MINUTE
+from waystation_common.db.collections import BLOBS, REPO_USAGE, STATS_MINUTE
 from waystation_common.events.keys import COUNTERS
 
 
@@ -55,18 +55,13 @@ async def existing_minutes(
     return {(doc['ts'], doc['m']['repo_id']) async for doc in cursor}
 
 
-async def asset_totals(db: Database) -> list[dict[str, Any]]:
-    """Per repository: stored bytes and artifact (content asset) count."""
-    pipeline = [
-        {
-            '$group': {
-                '_id': '$repo_id',
-                'bytes': {'$sum': '$size'},
-                'artifacts': {'$sum': {'$cond': [{'$eq': ['$kind', 'content']}, 1, 0]}},
-            }
-        }
-    ]
-    return [doc async for doc in await db[ASSETS].aggregate(pipeline)]
+async def repo_totals(db: Database) -> dict[str, tuple[int, int]]:
+    """Per repository: stored bytes and artifact (content asset) count, from the ``repo_usage`` counters (one
+    document per repository, ``waystation_common.db.usage``) rather than an aggregation over ``assets``."""
+    out: dict[str, tuple[int, int]] = {}
+    async for doc in db[REPO_USAGE].find({}, {'bytes': 1, 'artifacts': 1}):
+        out[str(doc['_id'])] = (max(0, int(doc.get('bytes') or 0)), max(0, int(doc.get('artifacts') or 0)))
+    return out
 
 
 async def blob_totals(db: Database) -> tuple[int, int]:

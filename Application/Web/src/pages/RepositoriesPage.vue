@@ -38,6 +38,7 @@
               <FormatIcon :mark="repoMark(row)" :size="20" brand />
               <div class="repos__name-text">
                 <router-link :to="{ name: 'repository', params: { name: row.name } }" class="repos__link" @click.stop>{{ row.name }}</router-link>
+                <ManagedBadge :item="row" class="q-ml-xs" />
                 <div class="repos__desc">{{ row.description }}</div>
               </div>
             </div>
@@ -82,7 +83,7 @@
             <div class="repos__name">
               <FormatIcon :mark="repoMark(row)" :size="22" brand />
               <div class="repos__name-text">
-                <div class="repos__link">{{ row.name }}</div>
+                <div class="repos__link">{{ row.name }} <ManagedBadge :item="row" /></div>
                 <div class="repos__desc">{{ row.description }}</div>
               </div>
               <StatusPill :status="row.status" :tooltip="false" />
@@ -120,6 +121,7 @@ import type { Format, Repository, RepositoryStatus, RepositoryType } from '@/api
 import Sparkline from '@/components/charts/Sparkline.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
+import ManagedBadge from '@/components/ManagedBadge.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import CreateRepositoryDialog from '@/components/repositories/CreateRepositoryDialog.vue'
 import QuotaMeter from '@/components/repositories/QuotaMeter.vue'

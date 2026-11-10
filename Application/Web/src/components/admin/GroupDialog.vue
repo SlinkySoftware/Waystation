@@ -5,7 +5,8 @@
   <FormDialog
     v-model="open"
     :title="title"
-    :caption="mapped ? t('admin.groupForm.mappedCaption') : undefined"
+    :caption="managed ? t('provisioning.managedHelp') : mapped ? t('admin.groupForm.mappedCaption') : undefined"
+    :readonly="managed"
     :saving="saving"
     :submit-label="group ? t('common.save') : t('admin.groups.create')"
     @submit="save"
@@ -24,6 +25,7 @@
           outlined
           dense
           autofocus
+          :readonly="managed"
           maxlength="64"
           :label="t('admin.groupForm.name')"
           :hint="t('admin.groupForm.nameHint')"
@@ -31,9 +33,9 @@
           :error="Boolean(fieldErrors.name)"
           :error-message="fieldErrors.name"
         />
-        <q-input v-model="model.description" outlined dense autogrow maxlength="500" :label="t('admin.groupForm.description')" />
+        <q-input v-model="model.description" outlined dense autogrow maxlength="500" :readonly="managed" :label="t('admin.groupForm.description')" />
       </template>
-      <RoleSelect v-model="model.roles" :label="t('admin.groupForm.roles')" :hint="t('admin.groupForm.rolesHint')" :keep="group?.roles ?? []" :error="rolesError" />
+      <RoleSelect v-model="model.roles" :readonly="managed" :label="t('admin.groupForm.roles')" :hint="t('admin.groupForm.rolesHint')" :keep="group?.roles ?? []" :error="rolesError" />
     </div>
   </FormDialog>
 </template>
@@ -45,6 +47,7 @@ import { api, ApiError, call } from '@/api/client'
 import type { Group } from '@/api/types'
 import FormDialog from '@/components/FormDialog.vue'
 import { t } from '@/i18n'
+import { isManaged } from '@/utils/managed'
 
 import { type GroupFormModel, toGroupCreate, toGroupUpdate } from './forms'
 import ProblemBanner from './ProblemBanner.vue'
@@ -61,6 +64,7 @@ const saving = ref(false)
 const problem = ref<unknown>(null)
 const fieldErrors = ref<Record<string, string>>({})
 const mapped = computed(() => Boolean(props.group && props.group.source !== 'local'))
+const managed = computed(() => isManaged(props.group))
 const title = computed(() => (mapped.value ? t('admin.groupForm.mappedTitle') : props.group ? t('admin.groupForm.editTitle', { name: props.group.name }) : t('admin.groupForm.createTitle')))
 const rolesError = computed(() => Object.entries(fieldErrors.value).find(([k]) => k.startsWith('roles'))?.[1] ?? null)
 

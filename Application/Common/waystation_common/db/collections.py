@@ -36,11 +36,14 @@ DOCKER_MANIFESTS = 'docker_manifests'
 APT_POOL_INDEX = 'apt_pool_index'
 APT_PACKAGES = 'apt_packages'
 NPM_PACKAGES = 'npm_packages'
+NPM_VERSIONS = 'npm_versions'
 PYPI_PACKAGES = 'pypi_packages'
 GO_MODULES = 'go_modules'
 TERRAFORM_PROVIDERS = 'terraform_providers'
 YUM_PACKAGES = 'yum_packages'
 HELM_CHARTS = 'helm_charts'
+GALAXY_COLLECTIONS = 'galaxy_collections'
+GALAXY_IMPORTS = 'galaxy_imports'  # hosted collection uploads waiting for (or done with) the import job
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -179,6 +182,12 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('blob_sha256', [('blob_sha256', ASCENDING)]),
             _ix('component_id', [('component_id', ASCENDING)]),
             _ix('repo_last_downloaded_at', [('repo_id', ASCENDING), ('last_downloaded_at', ASCENDING)]),
+            # Blob verify marks (T-O07): only marked assets are indexed, so /metrics counts them cheaply.
+            _ix(
+                'blob_missing',
+                [('blob_missing.hosted', ASCENDING)],
+                partialFilterExpression={'blob_missing': {'$exists': True}},
+            ),
             *_search_indexes(base=False),
         ),
     ),
@@ -270,6 +279,17 @@ SPECS: tuple[CollectionSpec, ...] = (
         ),
     ),
     CollectionSpec(
+        NPM_VERSIONS,
+        (
+            # One published version per hosted npm repository (T-P5-NPMH): packuments are generated from these.
+            _ix(
+                'repo_name_version_unique',
+                [('repo_id', ASCENDING), ('name', ASCENDING), ('version', ASCENDING)],
+                unique=True,
+            ),
+        ),
+    ),
+    CollectionSpec(
         PYPI_PACKAGES,
         (
             # One summary per project (normalised name) a repository has: cached page (proxy) or uploads (hosted).
@@ -320,6 +340,39 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('repo_path', [('repo_id', ASCENDING), ('path', ASCENDING)]),
             # A proxy listing's generation (sha256 of the index blob it came from): replaced on re-index.
             _ix('repo_gen', [('repo_id', ASCENDING), ('gen', ASCENDING)]),
+        ),
+    ),
+    CollectionSpec(
+        GALAXY_COLLECTIONS,
+        (
+            # One collection version per repository: a hosted import, or a version a proxy's cached list names.
+            _ix(
+                'repo_coll_version_unique',
+                [('repo_id', ASCENDING), ('namespace', ASCENDING), ('name', ASCENDING), ('version', ASCENDING)],
+                unique=True,
+            ),
+            # Browse and the served version lists: a collection's versions newest first.
+            _ix(
+                'repo_coll_sort',
+                [('repo_id', ASCENDING), ('namespace', ASCENDING), ('name', ASCENDING), ('version_sort', DESCENDING)],
+            ),
+        ),
+    ),
+    CollectionSpec(
+        GALAXY_IMPORTS,
+        (
+            # Uploads of one collection version still waiting for the import job (version immutability).
+            _ix(
+                'repo_coll_version_state',
+                [
+                    ('repo_id', ASCENDING),
+                    ('namespace', ASCENDING),
+                    ('name', ASCENDING),
+                    ('version', ASCENDING),
+                    ('state', ASCENDING),
+                ],
+            ),
+            _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
         ),
     ),
     CollectionSpec(

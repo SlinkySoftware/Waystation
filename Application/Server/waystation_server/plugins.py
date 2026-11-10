@@ -4,7 +4,8 @@ Lives outside ``waystation_server.formats`` so the format packages never import 
 format package exposes ``DESCRIPTOR`` (``<format>.descriptor``) and, once implemented, a plugin; register both here
 (``registry.register(DESCRIPTOR, plugin)``). Built in: docker, npm, apt, raw and yum
 (T-P2-YUM) proxy repositories; helm (T-P5-HELM), maven (T-P5-MAVEN) and pypi (T-P5-PYPI) proxy, hosted and group
-repositories; go (T-P5-GO) proxy and group repositories; terraform (T-P5-TFP) provider network mirrors (proxy).
+repositories; go (T-P5-GO) proxy and group repositories; galaxy (T-P5-GALAXY) proxy, hosted and group
+repositories; terraform (T-P5-TFP) provider network mirrors (proxy).
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from waystation_server.formats.apt.descriptor import DESCRIPTOR as APT
 from waystation_server.formats.apt.plugin import AptPlugin
 from waystation_server.formats.docker.descriptor import DESCRIPTOR as DOCKER
 from waystation_server.formats.docker.plugin import DockerPlugin
+from waystation_server.formats.galaxy.descriptor import DESCRIPTOR as GALAXY
+from waystation_server.formats.galaxy.plugin import GalaxyPlugin
 from waystation_server.formats.go.descriptor import DESCRIPTOR as GO
 from waystation_server.formats.go.plugin import GoPlugin
 from waystation_server.formats.helm.descriptor import DESCRIPTOR as HELM
@@ -34,7 +37,7 @@ from waystation_server.formats.yum.plugin import YumPlugin
 
 def default_registry() -> FormatRegistry:
     registry = FormatRegistry()
-    for descriptor in (DOCKER, NPM, APT, RAW, YUM, MAVEN, PYPI, GO, HELM, TERRAFORM):
+    for descriptor in (DOCKER, NPM, APT, RAW, YUM, MAVEN, PYPI, GO, HELM, GALAXY, TERRAFORM):
         registry.register(descriptor)
     registry.set_plugin(HelmPlugin())  # T-P5-HELM
     registry.set_plugin(RawPlugin())  # T-P2-RAW
@@ -45,5 +48,6 @@ def default_registry() -> FormatRegistry:
     registry.set_plugin(MavenPlugin())  # T-P5-MAVEN
     registry.set_plugin(PypiPlugin())  # T-P5-PYPI: proxy, hosted, group
     registry.set_plugin(GoPlugin())  # T-P5-GO: proxy (+ checksum database), group
+    registry.set_plugin(GalaxyPlugin())  # T-P5-GALAXY: collections proxy, hosted, group; roles proxy
     registry.set_plugin(TerraformPlugin())  # T-P5-TFP: provider network mirror (proxy)
     return registry

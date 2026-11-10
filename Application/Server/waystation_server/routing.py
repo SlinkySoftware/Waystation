@@ -20,7 +20,7 @@ from starlette.responses import JSONResponse, Response
 
 from waystation_common.errors import NotFound, PathRejected
 from waystation_common.paths import normalise
-from waystation_server import registry_auth
+from waystation_server import client_login, registry_auth
 from waystation_server.db import docker as docker_db
 from waystation_server.formats.base import FormatRequest, Root
 from waystation_server.problems import native_error, oci_error
@@ -52,7 +52,7 @@ async def resolve_docker(services: Services, name_path: str) -> DockerRoute | No
     """Resolve ``/v2/<name_path>`` to a docker repository (SPECIFICATION §4.4)."""
     first, _, rest = name_path.partition('/')
     if rest:
-        repo = await services.catalog.get(first)
+        repo = await services.catalog.get(first, reload_on_miss=True)  # created a moment ago on another process
         if repo is not None and repo.format == 'docker':
             return DockerRoute(repo, rest)
         repo = await services.catalog.docker_alias(first)
@@ -74,11 +74,19 @@ async def _dispatch(
 ) -> Response:
     services = services_of(request)
     request.state.log.update(repo=repo.name, format=repo.format)
-    action = action or access.method_action(request.method)
     descriptor = services.formats.descriptor(repo.format)
+    if action is None and descriptor is not None:
+        action = descriptor.request_action(request.method, path)
+    action = action or access.method_action(request.method)
     if request.method == 'POST' and descriptor is not None and path in descriptor.read_posts:
         action = Action.READ  # a query sent as POST (npm audit), declared by the format
-    principal = await access.authorize_repo(request, repo, action)
+    login = root == 'repository' and descriptor is not None and descriptor.client_login(request.method, path)
+    if login:
+        # A package client signing in (npm login): nothing to authorise yet; ``client_login`` decides, applying the
+        # repository's visibility so that a hidden repository answers like a missing one.
+        principal = await authenticate(request)
+    else:
+        principal = await access.authorize_repo(request, repo, action)
     if not repo.online:
         if root == 'v2':
             return oci_error(503, 'repository is offline', code='UNAVAILABLE', headers=DOCKER_API_VERSION)
@@ -103,6 +111,11 @@ async def _dispatch(
             dataclasses.replace(principal, token_access=None), action, member
         ),
     )
+    if login:
+        req._sign_in = lambda username, password, client: client_login.sign_in(
+            services, request, repo, principal, username=username, password=password, client=client
+        )
+        req._sign_out = lambda secret: client_login.sign_out(services, repo, principal, secret)
     return await plugin.handle(req)
 
 
@@ -111,7 +124,7 @@ async def _dispatch(
 @access.handler_checked
 async def repository(request: Request, repo_name: str, path: str = '') -> Response:
     services = services_of(request)
-    repo = await services.catalog.get(repo_name)
+    repo = await services.catalog.get(repo_name, reload_on_miss=True)
     if repo is None:
         return native_error(404, 'Not Found')
     try:

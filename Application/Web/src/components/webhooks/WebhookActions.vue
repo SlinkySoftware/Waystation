@@ -12,11 +12,15 @@
     <q-btn flat round dense :icon="iconMore" :aria-label="t('webhooks.action.more', { name: webhook.name })">
       <q-menu anchor="bottom right" self="top right">
         <q-list dense class="hook-actions__menu">
-          <q-item v-close-popup clickable :aria-label="t('webhooks.action.editWhat', { name: webhook.name })" @click="emit('edit')">
+          <q-item v-if="managed" class="text-faint">
+            <q-item-section avatar><q-icon :name="iconLock" size="18px" /></q-item-section>
+            <q-item-section>{{ t('provisioning.managedAction') }}</q-item-section>
+          </q-item>
+          <q-item v-close-popup clickable :disable="managed" :aria-label="t('webhooks.action.editWhat', { name: webhook.name })" @click="emit('edit')">
             <q-item-section avatar><q-icon :name="iconEdit" size="18px" /></q-item-section>
             <q-item-section>{{ t('webhooks.action.edit') }}</q-item-section>
           </q-item>
-          <q-item v-close-popup clickable class="text-negative" :aria-label="t('webhooks.action.deleteWhat', { name: webhook.name })" @click="emit('delete')">
+          <q-item v-close-popup clickable :disable="managed" class="text-negative" :aria-label="t('webhooks.action.deleteWhat', { name: webhook.name })" @click="emit('delete')">
             <q-item-section avatar><q-icon :name="iconDelete" size="18px" /></q-item-section>
             <q-item-section>{{ t('webhooks.action.delete') }}</q-item-section>
           </q-item>
@@ -27,12 +31,16 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import type { Webhook } from '@/api/types'
 import { t } from '@/i18n'
-import { iconDelete, iconEdit, iconHistory, iconMore, iconSend } from '@/utils/icons'
+import { iconDelete, iconEdit, iconHistory, iconLock, iconMore, iconSend } from '@/utils/icons'
+import { isManaged } from '@/utils/managed'
 
-defineProps<{ webhook: Webhook; testing: boolean }>()
+const props = defineProps<{ webhook: Webhook; testing: boolean }>()
 const emit = defineEmits<{ test: []; deliveries: []; edit: []; delete: [] }>()
+const managed = computed(() => isManaged(props.webhook))
 </script>
 
 <style scoped>

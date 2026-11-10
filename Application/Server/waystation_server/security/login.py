@@ -1,5 +1,6 @@
-"""Username/password verification (SPECIFICATION §4.9), shared by the UI sign-in and the Docker token service
-(``docker login``): local accounts and LDAP providers.
+"""Username/password verification (SPECIFICATION §4.9), shared by the UI sign-in, the Docker token service
+(``docker login``) and package-client sign-in (``npm login``, ``waystation_server.client_login``): local accounts and
+LDAP providers.
 
 - Rate limited per client address (``WAYSTATION_LOGIN_RATE_LIMIT`` attempts per 5 minutes, then 429).
 - Local accounts (``source`` ``local`` with a password) are checked with argon2id only, whatever provider the client
@@ -62,9 +63,11 @@ async def verify_login(
     client_ip: str,
     provider: str | None = None,
     interactive: bool = False,
+    via: str | None = None,
 ) -> UserRecord:
     """The user these credentials belong to, or ``Unauthorized``. ``interactive`` (UI sign-in) skips the LDAP
-    bind cache; format clients and ``docker login`` use it."""
+    bind cache; format clients and ``docker login`` use it. ``via`` names the client in failure audit records
+    (default: ``ui`` when interactive, else ``docker``; ``npm`` for ``npm login``)."""
     settings = svc.settings
     await ratelimit.check(svc.valkey, 'login', client_ip, limit=settings.login_rate_limit, window_s=WINDOW_S)
     name = username.strip()
@@ -77,7 +80,11 @@ async def verify_login(
             outcome=Outcome.FAILURE,
             reason=exc.reason,
             target=audit.target('user', user.id if user else None, user.username if user else name[:256]),
-            details={'username': name[:256], 'via': 'ui' if interactive else 'docker', 'provider': exc.provider},
+            details={
+                'username': name[:256],
+                'via': via or ('ui' if interactive else 'docker'),
+                'provider': exc.provider,
+            },
         )
         raise
 

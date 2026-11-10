@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // English catalogue. Plurals: "one|other", chosen by the `count` parameter.
 import { admin } from './admin'
+import { provisioning } from './provisioning'
 import { webhooks } from './webhooks'
 
 export const en = {
@@ -54,6 +55,7 @@ export const en = {
     webhooks: 'Webhooks',
     settings: 'Settings',
     system: 'System',
+    provisioning: 'Provisioning',
     profile: 'Profile',
   },
   shell: {
@@ -297,6 +299,7 @@ export const en = {
       maven: 'Maven Central, Gradle and your own builds',
       pypi: 'pypi.org and private indexes; twine and uv publish',
       go: 'proxy.golang.org modules and the sum.golang.org checksum database',
+      galaxy: 'galaxy.ansible.com collections and roles; publish your own collections',
       terraform: 'Provider network mirror for registry.terraform.io and registry.opentofu.org',
     },
     type: {
@@ -345,6 +348,7 @@ export const en = {
       maven: 'Maven',
       pypi: 'PyPI',
       go: 'Go modules',
+      galaxy: 'Ansible Galaxy',
       terraform: 'Provider mirror',
     },
     aliases: 'Upstream aliases',
@@ -396,6 +400,9 @@ export const en = {
     sumdbUrl: 'Checksum database URL',
     nosumdb: 'Private module patterns (not looked up)',
     nosumdbHint: 'GONOSUMDB syntax, e.g. example.com/private/*. Press Enter to add.',
+    galaxyCollectionsPath: 'Collections path on the upstream',
+    galaxyCollectionsPathHint: 'galaxy.ansible.com and Galaxy NG: api/v3/plugin/ansible/content/published/collections/index/; plain v3 servers: api/v3/collections/',
+    galaxyRoles: 'Proxy roles through the legacy v1 API (read-only; archives are not checksummed upstream)',
     tfOrigins: 'Origin registries',
     tfOriginsHint: 'Registry host names whose providers this mirror serves, e.g. registry.terraform.io. The upstream URL\'s host is always allowed. Press Enter to add.',
     verifySignatures: 'Verify each version\'s SHA256SUMS signature with the keys the registry publishes',
@@ -530,6 +537,8 @@ export const en = {
       latest: 'Latest',
       cached: 'Cached versions',
       cachedOf: '{cached} of {total} versions cached',
+      versions: 'Versions',
+      versionCount: '{count} versions',
       install: 'Install',
       version: 'Version',
       published: 'Published',
@@ -548,6 +557,26 @@ export const en = {
       created: 'Created',
       digest: 'Digest',
       deprecated: 'deprecated',
+    },
+    galaxy: {
+      namespaces: 'Namespaces',
+      namespace: 'Namespace',
+      collections: 'Collections',
+      collection: 'Collection',
+      search: 'Filter namespaces',
+      searchCollections: 'Filter collections',
+      latest: 'Latest',
+      versions: 'Versions',
+      versionCount: '{count} versions',
+      install: 'Install',
+      version: 'Version',
+      created: 'Published',
+      requiresAnsible: 'Requires ansible-core',
+      dependencies: 'Dependencies',
+      noDependencies: 'None',
+      uploadedBy: 'Published by',
+      checksum: 'sha256',
+      prerelease: 'pre-release',
     },
     maven: {
       artifacts: 'Artifacts',
@@ -1260,6 +1289,7 @@ export const en = {
     kind: {
       stats_rollup: 'Stats rollup',
       blob_gc: 'Blob garbage collection',
+      blob_verify: 'Blob verify',
       cleanup_run: 'Cleanup policy',
       quota_reconcile: 'Quota recount',
       storage_check: 'Low-disk check',
@@ -1267,6 +1297,7 @@ export const en = {
     kindHelp: {
       stats_rollup: 'Rolls live counters into the statistics every few seconds',
       blob_gc: 'Deletes blobs no asset has referenced for the grace period, and orphan uploads',
+      blob_verify: 'Finds assets whose blob file is missing or damaged: cached ones are re-fetched, hosted ones are reported as lost',
       cleanup_run: 'Removes what the policy matches from its repositories',
       quota_reconcile: 'Recounts the bytes each repository stores and raises quota alerts',
       storage_check: 'Compares free disk space with the low-disk guard and raises alerts',
@@ -1353,6 +1384,8 @@ export const en = {
       loadMore: 'Load more',
       summary: {
         gc: 'Freed {n} blob · {size}|Freed {n} blobs · {size}',
+        verify: '{assets} assets checked · {n} to re-fetch|{assets} assets checked · {n} to re-fetch',
+        verifyLost: '{n} hosted asset lost|{n} hosted assets lost',
         cleanup: 'Removed {n} item · {size}|Removed {n} items · {size}',
         done: 'Done',
       },
@@ -1850,6 +1883,7 @@ export const en = {
   },
   admin,
   webhooks,
+  provisioning,
   nexusImport: {
     open: 'Import from Nexus',
     title: 'Import from Nexus',

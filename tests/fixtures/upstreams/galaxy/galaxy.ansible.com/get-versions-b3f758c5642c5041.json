@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index/community/library_inventory_filtering_v1/versions/?limit=100&offset=0"
+  },
+  "response": {
+    "body_sha256": "cc34bcde82c34d892c823b85d214e9c94b012858e648281c3b2721c90ea0b11b",
+    "body_size": 3245,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "3245"
+      ],
+      [
+        "vary",
+        "Accept, Accept-Language, Cookie"
+      ]
+    ],
+    "status": 200
+  }
+}

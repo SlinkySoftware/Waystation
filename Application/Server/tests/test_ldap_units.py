@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from waystation_server.api.auth_providers import _check_ldap, _check_mapping
+from waystation_server.api.auth_providers import _check_ldap, check_mapping
 from waystation_server.security.actions import Action, Permission
 from waystation_server.security.external import ExternalGroup, ExternalIdentity
 from waystation_server.security.groups import GroupDirectory, GroupRecord, mapped_roles
@@ -212,7 +212,7 @@ def test_check_mapping() -> None:
         GroupMapping(external_group='cn=ops,dc=example,dc=com', roles=['reader']),
         GroupMapping(external_group='CN=Ops, DC=example,DC=com', roles=['superuser']),
     ]
-    assert [(e.field, e.code) for e in _check_mapping(rows, {})] == [
+    assert [(e.field, e.code) for e in check_mapping(rows, {})] == [
         ('group_mapping.1.external_group', 'duplicate'),
         ('group_mapping.1.roles', 'unknown'),
     ]
@@ -223,11 +223,11 @@ def test_check_mapping() -> None:
         GroupMapping(external_group='cn=ops,dc=example,dc=com', roles=['builders']),
         GroupMapping(external_group='admins', roles=['admin']),
     ]
-    assert [(e.field, e.code) for e in _check_mapping(rows, custom, settings_admin)] == [
+    assert [(e.field, e.code) for e in check_mapping(rows, custom, settings_admin)] == [
         ('group_mapping.1.roles', 'role')
     ]
     existing = [group('g-admins', ['admin'], provider='p1', external='admins')]
-    assert _check_mapping(rows, custom, settings_admin, existing) == []
+    assert check_mapping(rows, custom, settings_admin, existing) == []
 
 
 def test_directory_refuses_empty_passwords_without_network() -> None:

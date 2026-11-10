@@ -6,6 +6,7 @@
   <NpmBrowser v-else-if="repo.format === 'npm'" :repo="repo" />
   <AptBrowser v-else-if="repo.format === 'apt'" :repo="repo" />
   <HelmBrowser v-else-if="repo.format === 'helm'" :repo="repo" />
+  <GalaxyBrowser v-else-if="repo.format === 'galaxy'" :repo="repo" />
   <MavenBrowser v-else-if="repo.format === 'maven'" :repo="repo" />
   <PypiBrowser v-else-if="repo.format === 'pypi'" :repo="repo" />
   <GoBrowser v-else-if="repo.format === 'go'" :repo="repo" />
@@ -19,6 +20,7 @@ import type { Repository } from '@/api/types'
 import AptBrowser from './AptBrowser.vue'
 import DockerBrowser from './DockerBrowser.vue'
 import FolderBrowser from './FolderBrowser.vue'
+import GalaxyBrowser from './GalaxyBrowser.vue'
 import HelmBrowser from './HelmBrowser.vue'
 import GoBrowser from './GoBrowser.vue'
 import MavenBrowser from './MavenBrowser.vue'

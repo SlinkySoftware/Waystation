@@ -1,7 +1,9 @@
 """Docker token service and /v2/ challenge plumbing (T-S12) against real MongoDB/Valkey."""
 
+import asyncio
 import base64
 import json
+import time
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -104,6 +106,61 @@ async def test_anonymous_pull_flow(docker: httpx.AsyncClient) -> None:
     push = await docker.put('/v2/docker-hub/library/nginx/manifests/latest', headers=headers)
     assert push.status_code == 401
     assert 'scope="repository:docker-hub/library/nginx:pull,push"' in push.headers['www-authenticate']
+
+
+async def test_new_repository_is_granted_at_once_on_another_replica(
+    docker: httpx.AsyncClient, services: Services, settings: Settings
+) -> None:
+    """T-P2-PERF finding: a replica whose catalog snapshot predated a repository issued tokens granting nothing on it
+    (and refused its /v2/ requests) until the snapshot expired, up to 5 s. A token request that misses now reloads
+    the catalog; the replica's change stream is off here, so only that reload can find the repository."""
+    replica = Services.create(settings)
+    replica.formats.set_plugin(EchoDocker(replica))  # type: ignore[arg-type]
+    replica.catalog._watcher = None
+    await replica.start()
+    try:
+        async with asgi_client(replica) as other:
+            warm = await get_token(other, 'repository:docker-hub/library/nginx:pull')
+            assert claims(warm.json()['token'])['access'][0]['actions'] == ['pull']  # the snapshot is loaded
+            await _repo(services, 'fresh')  # created by another process: nothing tells this replica
+            token = (await get_token(other, 'repository:fresh/app:pull')).json()['token']
+            assert claims(token)['access'] == [{'type': 'repository', 'name': 'fresh/app', 'actions': ['pull']}]
+            served = await other.get('/v2/fresh/app/manifests/1', headers={'Authorization': f'Bearer {token}'})
+            assert served.status_code == 200
+            assert served.text == 'fresh app/manifests/1 anonymous'
+            # unknown names do not reload the catalog on every request
+            loads = 0
+            loader = replica.catalog._loader
+
+            async def counting() -> list[Any]:
+                nonlocal loads
+                loads += 1
+                return await loader()
+
+            replica.catalog._loader = counting
+            for _ in range(5):
+                denied = (await get_token(other, 'repository:nothing-here/app:pull')).json()['token']
+                assert claims(denied)['access'][0]['actions'] == ['pull']  # the default repository serves it
+            assert loads <= 1
+    finally:
+        await replica.stop()
+
+
+async def test_repository_changes_reach_other_replicas_through_the_change_stream(
+    docker: httpx.AsyncClient, services: Services, settings: Settings
+) -> None:
+    replica = Services.create(settings)
+    await replica.start()
+    try:
+        await asyncio.wait_for(replica.catalog.watching.wait(), timeout=10)
+        assert 'streamed' not in {r.name for r in await replica.catalog.all()}
+        start = time.monotonic()
+        await _repo(services, 'streamed')
+        while 'streamed' not in {r.name for r in await replica.catalog.all()}:
+            assert time.monotonic() - start < 2.0, 'catalog change not applied by the other replica'  # TTL: 5 s
+            await asyncio.sleep(0.02)
+    finally:
+        await replica.stop()
 
 
 async def test_mirror_mode_and_aliases(docker: httpx.AsyncClient) -> None:

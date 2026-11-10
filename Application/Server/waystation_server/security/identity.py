@@ -107,6 +107,7 @@ class ServiceAccountRecord(BaseModel):
     roles: list[str] = Field(default_factory=list)
     disabled: bool = False
     owner_user_id: str | None = None
+    managed_by: str | None = None  # ``provisioning``: declared in the provisioning file
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -147,6 +148,7 @@ class RoleRecord(BaseModel):
     description: str = ''
     builtin: bool = False
     permissions: list[RolePermission] = Field(default_factory=list)
+    managed_by: str | None = None  # ``provisioning``: declared in the provisioning file
     created_at: datetime
     created_by: str | None = None
     updated_at: datetime | None = None
