@@ -3,8 +3,8 @@
 import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
-/** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (options carried through). */
-export type FormFormat = M0Format | 'yum'
+/** Formats the form can hold: the creatable formats. */
+export type FormFormat = M0Format
 
 /** Repository types the form can create or edit: proxies for every format; hosted and group where the format serves them. */
 export type FormType = 'proxy' | 'hosted' | 'group'
@@ -80,9 +80,11 @@ export interface RepoFormModel {
   // maven
   versionPolicy: NonNullable<MavenOptions['version_policy']>
   layoutPolicy: NonNullable<MavenOptions['layout_policy']>
-  // yum: not edited in this form yet; carried through so saving keeps them
+  // yum (proxy)
   repoPath: string
   gpgKey: string | null
+  /** Armored public keys repomd.xml must be signed with; empty = not verified. */
+  repomdKeys: string
 }
 
 export interface Preset {
@@ -119,6 +121,12 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   pypi: [{ id: 'pypi', label: 'pypi.org', apply: { name: 'pypi-proxy', upstreamUrl: 'https://pypi.org' } }],
   go: [{ id: 'goproxy', label: 'proxy.golang.org', apply: { name: 'go-proxy', upstreamUrl: 'https://proxy.golang.org' } }],
   galaxy: [{ id: 'galaxy', label: 'galaxy.ansible.com', apply: { name: 'galaxy-proxy', upstreamUrl: 'https://galaxy.ansible.com/' } }],
+  yum: [
+    { id: 'rocky', label: 'Rocky Linux', apply: { name: 'rocky', upstreamUrl: 'https://dl.rockylinux.org/pub/rocky/' } },
+    { id: 'alma', label: 'AlmaLinux', apply: { name: 'almalinux', upstreamUrl: 'https://repo.almalinux.org/almalinux/' } },
+    { id: 'oracle', label: 'Oracle Linux', apply: { name: 'oracle', upstreamUrl: 'https://yum.oracle.com/repo/OracleLinux/' } },
+    { id: 'epel', label: 'EPEL', apply: { name: 'epel', upstreamUrl: 'https://dl.fedoraproject.org/pub/epel/' } },
+  ],
 }
 
 /** Galaxy NG / galaxy.ansible.com layout of collection documents under the upstream URL (the server default). */
@@ -176,6 +184,7 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     layoutPolicy: 'strict',
     repoPath: '',
     gpgKey: null,
+    repomdKeys: '',
   }
 }
 
@@ -235,6 +244,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     layoutPolicy: o.layout_policy ?? 'strict',
     repoPath: o.repo_path ?? '',
     gpgKey: o.gpg_key ?? null,
+    repomdKeys: o.repomd_keys ?? '',
   }
 }
 
@@ -257,7 +267,7 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
         nosumdb: m.nosumdb.map((p) => p.trim()).filter(Boolean),
       }
     case 'yum':
-      return { repo_path: m.repoPath, gpg_key: m.gpgKey }
+      return m.type === 'proxy' ? { repo_path: m.repoPath.trim(), gpg_key: m.gpgKey?.trim() || null, repomd_keys: m.repomdKeys.trim() || null } : {}
     case 'helm':
       return {}
     case 'galaxy':
