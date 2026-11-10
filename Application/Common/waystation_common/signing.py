@@ -174,7 +174,7 @@ class RepoKey:
     """A repository's signing key, ready to sign."""
 
     repo_id: str
-    private: rsa.RSAPrivateKey
+    signer: rsa.RSAPrivateKey  # the private key
     public: PublicPart
     certificate: str  # armored public key block, served to clients
 
@@ -184,7 +184,7 @@ class RepoKey:
 
     def sign(self, data: bytes, *, created: int | None = None) -> str:
         """An armored detached signature of ``data``."""
-        return sign_detached(self.private, self.public, data, created=created)
+        return sign_detached(self.signer, self.public, data, created=created)
 
 
 def _aad(repo_id: str) -> bytes:
