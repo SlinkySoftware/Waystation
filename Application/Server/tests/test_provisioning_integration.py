@@ -483,3 +483,44 @@ async def test_init_applies_the_file_as_system(
     )
     with pytest.raises(init.ProvisioningError):
         await init.run(init_settings)
+
+
+async def test_default_docker_repository_of_an_undeclared_repository(
+    services: Services, admin: httpx.AsyncClient, provision_file: Path
+) -> None:
+    for name in ('hub', 'quay'):
+        made = await admin.post(
+            f'{API}/repositories',
+            json={
+                'name': name,
+                'format': 'docker',
+                'type': 'proxy',
+                'online': True,
+                'proxy': {'upstream_url': f'https://{name}.example.com'},
+                'format_options': {'default_repo': name == 'hub'},
+            },
+        )
+        assert made.status_code == 201, made.text
+    write(provision_file, {'version': 1, 'settings': {'default_docker_repository': 'quay'}})
+    planned = await plan(admin)
+    assert planned['items'] == [
+        {
+            'kind': 'settings',
+            'name': 'default_docker_repository',
+            'action': 'update',
+            'changes': [{'field': 'repository', 'before': 'hub', 'after': 'quay', 'redacted': False}],
+            'note': None,
+            'outcome': None,
+            'error': None,
+        }
+    ]
+    assert (await apply(admin))['summary']['failed'] == 0
+    assert (await admin.get(f'{API}/repositories/quay')).json()['format_options']['default_repo'] is True
+    assert (await admin.get(f'{API}/repositories/hub')).json()['format_options']['default_repo'] is False
+    assert (await admin.get(f'{API}/repositories/quay')).json()['managed_by'] is None  # a setting, not a declaration
+    assert set(actions(await plan(admin)).values()) == {'unchanged'}
+
+    write(provision_file, {'version': 1, 'settings': {'default_docker_repository': 'missing'}})
+    assert (await plan(admin))['errors'] == [
+        {'field': 'settings.default_docker_repository', 'message': "there is no docker repository 'missing'"}
+    ]
