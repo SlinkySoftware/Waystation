@@ -15,6 +15,9 @@ Entries come from two places:
 
 Lookups use ``repo_path_unique``; listing writes are unordered bulk upserts in batches. Only written on cache fills,
 never per cache hit (ARCHITECTURE §8).
+
+Hosted repositories (T-P5-YUMH): one record per uploaded package (``gen`` = ``hosted``, fields in
+``waystation_common.db.yum``), written in the transaction that also puts the ``index.yum`` job in the outbox.
 """
 
 from __future__ import annotations
@@ -28,12 +31,17 @@ from typing import Any
 from pymongo import DESCENDING, UpdateOne
 from pymongo.errors import DuplicateKeyError
 
-from waystation_common.db.client import Database
+from waystation_common.db.client import Database, Session
 from waystation_common.db.collections import YUM_PACKAGES
+from waystation_common.db.yum import HOSTED_GEN
 from waystation_common.searchkeys import name_keys
 from waystation_server.db import assets as assets_db
 
 BATCH = 1000
+
+
+def now() -> datetime:
+    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -218,3 +226,38 @@ async def package_versions(
         .limit(limit)
     )
     return [doc async for doc in cursor]
+
+
+# ---------------------------------------------------------------------------- hosted repositories
+async def hosted_by_path(db: Database, repo_id: str, path: str) -> dict[str, Any] | None:
+    return await db[YUM_PACKAGES].find_one({'repo_id': repo_id, 'path': path, 'gen': HOSTED_GEN}, {'_id': 0, 'meta': 0})
+
+
+async def hosted_by_nevra(
+    db: Database, repo_id: str, name: str, epoch: str, version: str, release: str, arch: str
+) -> dict[str, Any] | None:
+    """The hosted package with this name, epoch, version, release and architecture, wherever it is stored."""
+    query = {
+        'repo_id': repo_id,
+        'gen': HOSTED_GEN,
+        'name': name,
+        'epoch': epoch,
+        'version': version,
+        'release': release,
+        'arch': arch,
+    }
+    return await db[YUM_PACKAGES].find_one(query, {'_id': 0, 'meta': 0})
+
+
+async def save_hosted(db: Database, repo_id: str, record: dict[str, Any], *, session: Session | None = None) -> None:
+    """Insert or replace an uploaded package's record (``record`` holds every field but ``repo_id``; keyed by path)."""
+    fields = {**record, 'repo_id': repo_id, 'gen': HOSTED_GEN, 'verified': True, 'repo_dir': '', 'updated_at': now()}
+    if record.get('name'):
+        fields.update(name_keys(str(record['name'])))
+    await db[YUM_PACKAGES].update_one(
+        {'repo_id': repo_id, 'path': record['path']}, {'$set': fields}, upsert=True, session=session
+    )
+
+
+async def delete_hosted(db: Database, repo_id: str, path: str, *, session: Session | None = None) -> None:
+    await db[YUM_PACKAGES].delete_one({'repo_id': repo_id, 'path': path, 'gen': HOSTED_GEN}, session=session)

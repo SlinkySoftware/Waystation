@@ -199,6 +199,19 @@ class HelmIndex(JobPayload):
         return f'index.helm:{self.repo_id}'
 
 
+class YumIndex(JobPayload):
+    """Regenerate a hosted yum repository's signed repodata from its ``yum_packages`` records (FORMATS.md "yum / dnf";
+    ``waystation_worker.yum``). Enqueued through the outbox in the transaction that changed the packages."""
+
+    kind: ClassVar[str] = 'index.yum'
+    queue: ClassVar[Queue] = 'index'
+
+    repo_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'index.yum:{self.repo_id}'
+
+
 class GalaxyImport(JobPayload):
     """Import an uploaded Ansible collection into its hosted repository (FORMATS.md "Ansible Galaxy";
     ``waystation_worker.galaxy``): validate the artifact (``MANIFEST.json``, ``FILES.json`` and every file's sha256,

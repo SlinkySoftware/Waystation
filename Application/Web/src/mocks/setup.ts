@@ -162,8 +162,28 @@ function apt(repo: Repository): SetupClient[] {
   ]
 }
 
+/** Hosted yum: a .repo file with Waystation's signing key for repomd.xml, credentials, and curl uploads. */
+function yumHosted(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const content = `[${repo.name}]\nname=${repo.name} (Waystation)\nbaseurl=${url}\nenabled=1\nrepo_gpgcheck=1\ngpgcheck=0\ngpgkey=${url}RPM-GPG-KEY\nusername={{USERNAME}}\npassword={{TOKEN}}`
+  return [
+    {
+      id: 'dnf',
+      label: 'dnf / yum',
+      snippets: [
+        { id: 'repo', title: 'Repository file', description: "Waystation signs repomd.xml with this repository's own key (repo_gpgcheck=1; dnf imports the key from gpgkey on first use). Set gpgcheck=1 when your packages are signed and add your signing key to gpgkey. An API token is the password; keep the file chmod 600.", language: 'ini', filename: `/etc/yum.repos.d/${repo.name}.repo`, os: 'linux', content },
+        { id: 'upload', title: 'Upload a package', description: `Uploads need the write permission. The repodata is rebuilt and signed within seconds; then run dnf makecache --refresh --repo=${repo.name}.`, language: 'shell', filename: null, os: 'linux', content: `curl -fS -u {{USERNAME}}:{{TOKEN}} --upload-file mypackage-1.0-1.el10.x86_64.rpm ${url}` },
+        { id: 'key', title: 'Fingerprint of the signing key', description: 'Compare it with the key dnf shows before importing it.', language: 'shell', filename: null, os: 'linux', content: `curl -fsS ${url}RPM-GPG-KEY | gpg --show-keys` },
+        { id: 'delete', title: 'Delete a package', language: 'shell', filename: null, os: 'linux', content: `curl -fS -u {{USERNAME}}:{{TOKEN}} -X DELETE ${url}mypackage-1.0-1.el10.x86_64.rpm` },
+        { id: 'refresh', title: 'Refresh and install', language: 'shell', filename: null, os: 'linux', content: `sudo dnf makecache --refresh --repo=${repo.name} && sudo dnf install mypackage` },
+      ],
+    },
+  ]
+}
+
 /** yum / dnf: one .repo file per distribution repo id, keeping $releasever/$basearch and the distribution's GPG check. */
 function yum(repo: Repository): SetupClient[] {
+  if (repo.type === 'hosted') return yumHosted(repo)
   const upstream = repo.proxy?.upstream_url ?? ''
   const url = `${BASE_URL}/repository/${repo.name}`
   const oracle = upstream.includes('oracle')

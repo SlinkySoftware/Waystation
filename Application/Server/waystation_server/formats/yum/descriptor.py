@@ -1,4 +1,5 @@
-"""yum repository options, upstream probe and "Set me up" snippets (a ``.repo`` file for dnf/yum).
+"""yum repository options, upstream probe and "Set me up" snippets (a ``.repo`` file for dnf/yum; hosted
+repositories: the ``.repo`` file with the repository's signing key, upload and delete with curl).
 
 The snippets keep the distribution's ``$releasever``/``$basearch`` layout under the repository and its own GPG key
 (``gpgcheck=1``): dnf keeps verifying every package against the distribution's signature. Well-known upstreams
@@ -185,7 +186,65 @@ def repo_file(ctx: SetupContext) -> tuple[str, Layout | None]:
     return '\n'.join(blocks), known
 
 
+KEY_PATH = 'RPM-GPG-KEY'  # the hosted repository's public signing key (waystation_worker.yum)
+
+
+def _hosted_snippets(ctx: SetupContext) -> list[SetupClient]:
+    name, url = ctx.repo.name, ctx.repo_url
+    content = (
+        f'[{name}]\n'
+        f'name={name} (Waystation)\n'
+        f'baseurl={url}\n'
+        'enabled=1\n'
+        'repo_gpgcheck=1\n'
+        'gpgcheck=0\n'
+        f'gpgkey={url}{KEY_PATH}\n'
+        f'username={USERNAME}\n'
+        f'password={TOKEN}\n'
+    )
+    snippets = [
+        snippet(
+            'repo',
+            'Repository file',
+            content,
+            language='ini',
+            filename=f'/etc/yum.repos.d/{name}.repo',
+            description=(
+                "Waystation signs repomd.xml with this repository's own key (repo_gpgcheck=1; dnf imports the key "
+                'from gpgkey on first use). Set gpgcheck=1 when your packages are signed and add your signing key '
+                'to gpgkey. An API token is the password; keep the file chmod 600.'
+            ),
+        ),
+        snippet(
+            'upload',
+            'Upload a package',
+            f'curl -fS -u {USERNAME}:{TOKEN} --upload-file mypackage-1.0-1.el10.x86_64.rpm {url}',
+            description='Uploads need the write permission. The repodata is rebuilt and signed within seconds; then '
+            f'run dnf makecache --refresh --repo={name}.',
+        ),
+        snippet(
+            'key',
+            'Fingerprint of the signing key',
+            f'curl -fsS {url}{KEY_PATH} | gpg --show-keys',
+            description='Compare it with the key dnf shows before importing it.',
+        ),
+        snippet(
+            'delete',
+            'Delete a package',
+            f'curl -fS -u {USERNAME}:{TOKEN} -X DELETE {url}mypackage-1.0-1.el10.x86_64.rpm',
+        ),
+        snippet(
+            'refresh',
+            'Refresh and install',
+            f'sudo dnf makecache --refresh --repo={name} && sudo dnf install mypackage',
+        ),
+    ]
+    return [SetupClient(id='dnf', label='dnf / yum', snippets=snippets)]
+
+
 def _snippets(ctx: SetupContext) -> list[SetupClient]:
+    if ctx.repo.type is RepoType.HOSTED:
+        return _hosted_snippets(ctx)
     content, known = repo_file(ctx)
     description = (
         'Packages stay signed by the distribution: dnf verifies them with its own key (gpgcheck stays on; set '
@@ -219,7 +278,7 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
 DESCRIPTOR = FormatDescriptor(
     name='yum',
     label='yum / dnf (RHEL, Rocky, AlmaLinux, Oracle, EPEL, Fedora)',
-    types=frozenset({RepoType.PROXY}),
+    types=frozenset({RepoType.PROXY, RepoType.HOSTED}),
     options_model=YumOptions,
     ui=UiHints(icon='redhat'),
     probe_path=_probe,
@@ -227,5 +286,7 @@ DESCRIPTOR = FormatDescriptor(
     notes=(
         'Configure a concrete base URL as the upstream: mirrorlist and metalink URLs are not proxied.',
         'dnf keeps verifying package signatures (gpgcheck) with the distribution key; Waystation never re-signs.',
+        'Hosted repositories: upload RPMs; Waystation builds the repodata and signs repomd.xml with the '
+        "repository's own key. Group repositories are not supported for yum.",
     ),
 )

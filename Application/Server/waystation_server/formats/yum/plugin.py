@@ -1,4 +1,4 @@
-"""yum / dnf proxy (FORMATS.md "yum"; ARCHITECTURE §6.4).
+"""yum / dnf proxy (FORMATS.md "yum"; ARCHITECTURE §6.4). Hosted repositories: ``formats.yum.hosted``.
 
 Everything lives under ``/repository/<repo>/`` with the upstream's layout kept (``10/BaseOS/x86_64/os/...``), so one
 repository can proxy every yum repository below its upstream URL. A **repository directory** is the directory that
@@ -48,6 +48,7 @@ from waystation_server.formats.base import FormatRequest
 from waystation_server.formats.yum import evr, repodata
 from waystation_server.formats.yum.browse import YumBrowse
 from waystation_server.formats.yum.descriptor import DESCRIPTOR
+from waystation_server.formats.yum.hosted import YumHosted
 from waystation_server.problems import native_error
 from waystation_server.proxy.engine import (
     AssetKind,
@@ -58,6 +59,7 @@ from waystation_server.proxy.engine import (
     StoredAsset,
     UpstreamInfo,
 )
+from waystation_server.repos.model import RepoType
 
 log = logging.getLogger('waystation.formats.yum')
 
@@ -143,8 +145,11 @@ class YumPlugin:
         self._tasks: set[asyncio.Task[None]] = set()
         self._indexing: dict[tuple[str, str, str], asyncio.Task[None]] = {}
         self.browser = YumBrowse()
+        self.hosted = YumHosted()
 
     async def handle(self, req: FormatRequest) -> Response:
+        if req.repo.type is RepoType.HOSTED:
+            return await self.hosted.handle(req)
         if req.method not in ('GET', 'HEAD'):
             return native_error(405, 'Method Not Allowed', headers={'Allow': 'GET, HEAD'})
         if not req.path:
