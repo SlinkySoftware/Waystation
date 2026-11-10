@@ -156,6 +156,7 @@ Expected differences and what to do:
 | npm packuments, PyPI simple pages: `digest` | Both servers rewrite download URLs to themselves. Compare `json` pointers (`/dist-tags/latest`, `/versions/<v>/dist/integrity`) instead, or add `normalise = ["base_url", "json"]`. |
 | raw `content_type` | Waystation types files by extension (never by the upstream's claim); Nexus may answer otherwise. Leave `content_type` out of raw checks. |
 | apt `InRelease`/`Packages` `digest` | The upstream published a new index between the two requests (mirrors update several times a day). Run the check again; the pool files must always match. |
+| yum `repomd.xml` `size`/`digest` | Nexus rewrites `repomd.xml` without the `*_db` (SQLite) entries; Waystation serves the upstream file byte for byte (signatures over it stay valid). Compare Waystation with the upstream instead, and compare a package file between the two servers. |
 | docker tag `docker_digest` | The tag moved upstream between the two caches' refreshes (`latest`, rolling tags). Compare digests by digest reference, or after both caches refreshed. |
 | `status: nexus 200 != waystation 404` | Missing content in Waystation: a hosted file not copied (step 4), a renamed repository (`waystation_path`), or a repository the import marked unsupported. |
 | `status ... 401/403/404` on Waystation | The token lacks read access to the repository (hidden repositories answer 404). |

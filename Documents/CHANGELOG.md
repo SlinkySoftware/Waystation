@@ -14,6 +14,10 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   carry a global action (also when a role they use was edited to hold one). Changing `/anonymous-access` bumps
   `grant_version` as before, so sessions and cached tokens follow at once. Effective permissions list the anonymous
   roles with `via: anonymous` and include their permissions; hidden-404 and ADR 0005 are unchanged.
+- Operations: first production-style deployment checks. REVERSE_PROXIES.md records the DSM 7.4 reverse proxy as
+  tested (body size, buffering, a 2.2 GB pull, the trusted-proxy address is the `frontend` gateway);
+  MIGRATING_FROM_NEXUS.md lists the yum `repomd.xml` difference (Nexus drops the `*_db` entries); the Nexus import
+  ran against a live Nexus 3 CE (T-M01) and the DSM settings are no longer untested (T-M03).
 - T-F03: Gitea perf workflow uploads its results with upload-artifact v3.2.2 (Gitea's artifact API rejects v4+);
   CI.md names the runner setting the Gitea workflows need (`container.bind_workdir: true`) and the causes of the first
   failed runs (bind mounts empty in volume workspaces, `REGISTRY_HOST` unset, upload-artifact v4).
