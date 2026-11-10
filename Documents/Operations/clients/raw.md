@@ -108,7 +108,7 @@ Prefer a `~/.netrc` entry (`machine registry.example.com login alice password <t
 
 | Symptom | Cause and fix |
 |---|---|
-| `404` for a file that exists upstream | The upstream URL's base path is wrong (check it ends where your paths start; a trailing `/` is implied), or an earlier 404 is still in the negative cache: wait for the negative cache TTL or fix the upstream and retry later. A folder path (ending in `/`) answers 404 when nothing is stored or cached under it. Hosted repositories are hidden from clients without access: a missing token also answers 404. |
+| `404` for a file that exists upstream | The upstream URL's base path is wrong (check it ends where your paths start; a trailing `/` is implied), or an earlier 404 is still in the negative cache: wait for the negative cache TTL or fix the upstream and retry later. A folder path (ending in `/`) answers 404 when nothing is stored or cached under it. Hosted repositories are hidden from clients without access: a token that cannot read the repository gets 404 (a request without any credentials gets the `401` Basic challenge, as for a missing repository). |
 | `502 Bad Gateway` | The upstream answered an error (5xx, 401/403: check upstream credentials in the repository settings), redirected to a private address (allowed only with *allow private upstream*), or sent more than the size limit (`WAYSTATION_MAX_UPLOAD_GB`). The repository's upstream health card shows the last error. |
 | `504 Gateway Timeout` | The upstream did not answer in time. A stale cached copy is served instead when one exists and *stale on error* is on. |
 | Download stops part-way on the first request | The upstream connection broke while the file was streamed through; nothing was cached. Retry. |

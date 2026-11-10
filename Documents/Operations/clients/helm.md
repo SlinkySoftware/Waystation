@@ -86,7 +86,7 @@ upload or delete; run `helm repo update` after that. Uploads to a group with a w
 
 | Symptom | Cause and fix |
 |---|---|
-| `helm repo add` fails with 401 or 404 | The repository is not readable anonymously: add `--username` and `--password` (an API token). A hidden repository answers 404. |
+| `helm repo add` fails with 401 or 404 | The repository is not readable anonymously: add `--username` and `--password` (an API token). Without credentials, a repository you cannot see answers the `401` Basic challenge (a missing one too); with credentials that cannot read it, `404`. |
 | A just-uploaded chart is missing from `helm search` | The index is rebuilt asynchronously: wait a few seconds and run `helm repo update <name>`. If it never appears, check Tasks for failed `index.helm` runs. |
 | Upload answers 400 | The file is not a valid chart package (see "How it behaves"); the message names the problem. |
 | Upload answers 409 | The repository has `disable_redeploy` and the chart version exists; bump the chart version. |

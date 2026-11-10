@@ -447,15 +447,24 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   grants are re-checked against RBAC on every request), npm (`npm login --auth-type=legacy` and `_authToken` = API token;
   now (T-P5-NPMH): the legacy login exchanges the password, checked like `docker login`, for a new API token of the
   user with the repository scopes they hold, no repository pattern and no expiry, listed and revocable on the profile;
-  it needs `read` on the repository and a repository the caller could not see answers 404 for any failure;
+  it needs `read` on the repository and a repository the caller could not see answers any failure like a missing
+  repository (404, or the 401 challenge without credentials);
   `npm logout` revokes it), PyPI/twine
-  (basic: username + token), Maven (basic in `settings.xml`, username + API token; sent preemptively for
-  repositories anonymous cannot see, which answer anonymous requests with 404, not a challenge: proposed ADR 0005),
+  (basic: username + token), Maven (basic in `settings.xml`, username + API token; Maven, Gradle and sbt send it
+  after the 401 challenge, ADR 0005; preemptive authentication is optional),
   Helm classic repos (basic: `helm repo add --username --password`), Terraform/OpenTofu (`credentials` block → `Authorization: Bearer`), Ansible Galaxy
   (`Authorization: Token <api-token>`), Swift (`swift package-registry login`: basic or token), NuGet
   (`X-NuGet-ApiKey` for push, basic for read), apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic;
   the go command sends credentials over HTTPS only).
   Each format's auth is part of its Definition of Done (FORMATS.md).
+- **Challenge on format routes** (ADR 0005): on `/repository/<repo>/...`, a request that carries **no credentials**
+  (no `Authorization` header, no valid session) for a repository anonymous cannot see answers `401` with
+  `WWW-Authenticate: Basic realm="Waystation"` (plain-text body) instead of `404`, so clients that send credentials
+  only after a challenge (Maven, Gradle, sbt, Helm, pip with a keyring) work with plain credentials, like with
+  Nexus. A repository that does not exist answers exactly the same (status, headers, body), so anonymous callers
+  cannot enumerate repository names; a visible repository the anonymous principal may not act on gives the same
+  answer too. A request with credentials keeps `404` for a repository it cannot see. `/v2/` (Bearer challenge), the
+  REST API, search and browse are unchanged.
 - Anonymous access: a configurable `anonymous` principal with its own roles (default: read on proxy repos only).
   Now: `GET/PUT /api/v1/anonymous-access` (`user-admin`) sets its roles: the built-in `anonymous` role and/or roles
   holding repository permissions only (no global action); empty = no anonymous access. Applies to the REST API,
@@ -486,7 +495,9 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   `stats-read`, `settings-admin`.
 - **Scopes**: `*`, a repository name, a repository name glob (`docker-*`), a format (`format:npm`), a repository
   type (`type:proxy`). Global actions are granted only with scope `*`; `write`, `delete` and `manage` imply `browse`
-  and `read` on the same scope. A repository the principal can neither browse nor read is hidden (404 everywhere).
+  and `read` on the same scope. A repository the principal can neither browse nor read is hidden (404 everywhere;
+  one exception, §4.9 "Challenge on format routes": a request without credentials on `/repository/<repo>/...` gets
+  the 401 Basic challenge, for a missing repository too).
 - **Roles** bundle permissions; built-ins: `admin`, `reader` (browse+read all), `deployer` (read+write on scope),
   `viewer` (browse + stats), `anonymous` (browse + read on `type:proxy`). Custom roles via UI/API.
   Now: built-in roles are read-only; custom roles (`/api/v1/roles`, `user-admin`) have a slug id (lower-case letters,
@@ -985,7 +996,7 @@ Waystation/
 | Local authentication (T-S02) | Done 2026-11-09: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`; one-time passwords enforced (only `/auth/me`, the password change and sign-out until changed; `docker login` refused), own password change, profile update, own sessions list/revoke (one, or every other), effective permissions; UI password card on the profile page and a router guard for one-time passwords |
 | Two-factor sign-in (T-O08) | Done 2026-11-10: TOTP (RFC 6238) for local accounts: enrolment with a QR code drawn in the browser, 10 recovery codes, two-step sign-in with replay protection (Valkey + MongoDB), lockout and rate limits, `docker login` with the password refused for such accounts (API tokens instead), turn off, administrator reset, "require for local administrators" setting enforced like one-time passwords; LDAP/OIDC unaffected; audited |
 | Audit (T-S10) | Done 2026-11-09: audit catalog and records (actor, target, outcome/reason, client address, request id, details, redacted before/after changes), non-blocking batched writer, TTL retention (`WAYSTATION_AUDIT_RETENTION_DAYS`), `GET /api/v1/audit` (filters, cursor paging) and streamed CSV/NDJSON export, Audit log page. Actions whose features are pending (cleanup) are emitted by those tasks; password change, session revoke and user/group/role admin since 2026-11-09 (T-S02/T-S03); `content.upload`/`content.delete` since T-P2-DOCKERH (docker hosted); `settings.update` since T-U08 |
-| RBAC (T-S03) | Done 2026-11-09: one decision point (`security.access`: `check`, `filter_repos`, `filter_query`), built-in and custom roles, scopes incl. `type:`, hidden = 404, every route declares its rule, CSRF enforced app-wide for session requests; groups (local and provider-mapped) holding roles; materialised grants cached per `grant_version` (in-process and Valkey) with change-stream invalidation across replicas; configurable anonymous access; delegation bounded by the caller's own powers, last-administrator guard. Admin APIs: users, groups and members, roles, anonymous access, effective permissions (UI: T-U08). Tests: route enumeration over included routers (it had silently seen none since a FastAPI upgrade), route × {anonymous, reader, deployer, admin} matrix for every REST route plus the format-route matrix, cross-replica role change |
+| RBAC (T-S03) | Done 2026-11-09: one decision point (`security.access`: `check`, `filter_repos`, `filter_query`), built-in and custom roles, scopes incl. `type:`, hidden = 404 (2026-11-10, ADR 0005: the 401 Basic challenge instead for requests without credentials on `/repository/<repo>/...`, identical for missing repositories; `access.hidden_repo`), every route declares its rule, CSRF enforced app-wide for session requests; groups (local and provider-mapped) holding roles; materialised grants cached per `grant_version` (in-process and Valkey) with change-stream invalidation across replicas; configurable anonymous access; delegation bounded by the caller's own powers, last-administrator guard. Admin APIs: users, groups and members, roles, anonymous access, effective permissions (UI: T-U08). Tests: route enumeration over included routers (it had silently seen none since a FastAPI upgrade), route × {anonymous, reader, deployer, admin} matrix for every REST route plus the format-route matrix, cross-replica role change |
 | API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audited (T-S10); the service-account admin UI (T-U08) pending |
 | Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Audited since T-S10. Hosted repositories (`hosted{write_policy, immutable_tag_patterns}`, per-type option rules) since T-P2-DOCKERH and group repositories (`group{members, writable_member}`) since T-P2-DOCKERG, for docker. Clone pending |
 | Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Formats: `echo` (self-test), `raw`, `npm` and `apt` (Debian 13 + Ubuntu 26.04 clients in one run: `CLIENT` may list several; `lib.sh` falls back to bash `/dev/tcp` where the image has no curl; apt fixture budget 32 MiB); `setup.sh` creates repositories through the API as a per-run bootstrap admin (`ws_login`/`ws_api` in `lib.sh`); nightly live smoke workflow stub |
