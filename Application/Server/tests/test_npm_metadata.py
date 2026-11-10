@@ -7,6 +7,7 @@ import json
 import pytest
 
 from waystation_common.errors import UpstreamError
+from waystation_server.formats.npm.hosted import version_response
 from waystation_server.formats.npm.metadata import (
     Op,
     Route,
@@ -16,6 +17,7 @@ from waystation_server.formats.npm.metadata import (
     rewrite_packument,
     upstream_packument_path,
     valid_name,
+    version_document,
 )
 from waystation_server.formats.npm.plugin import wants_abbreviated
 
@@ -42,7 +44,18 @@ SHA1 = hashlib.sha1(TGZ, usedforsecurity=False).hexdigest()
         ('-', None),
         ('-/other', None),
         ('@scope', None),
-        ('is-number/1.0.0', None),  # version documents: not yet
+        ('is-number/7.0.0', Route(Op.VERSION, 'is-number', arg='7.0.0')),  # version documents
+        ('is-number/latest', Route(Op.VERSION, 'is-number', arg='latest')),  # dist-tag
+        ('is-number/1.0.0-rc.1+build.5', Route(Op.VERSION, 'is-number', arg='1.0.0-rc.1+build.5')),
+        ('@pnpm/exe.linux-x64/12.18.0', Route(Op.VERSION, '@pnpm/exe.linux-x64', arg='12.18.0')),  # %2f decoded
+        ('@sindresorhus/is/next', Route(Op.VERSION, '@sindresorhus/is', arg='next')),
+        ('repository/latest', Route(Op.VERSION, 'repository', arg='latest')),
+        ('is-number/-rev', None),  # never a version: tarball and revision paths start with "-"
+        ('is-number/.hidden', None),
+        ('is-number/a b', None),
+        ('is-number/' + 'v' * 257, None),
+        ('is-number/7.0.0/extra', None),
+        ('@scope/7.0.0', Route(Op.PACKUMENT, '@scope/7.0.0')),  # a scoped name, not a version of "@scope"
         ('is-number/-/packument.json', None),  # the cache key of a packument is never a request path
         ('is-number/-/is-number-7.0.0.tar', None),
         ('is-number/-/a/b.tgz', None),
@@ -144,3 +157,33 @@ def test_find_dist_refuses_garbage_digests(dist: dict[str, str]) -> None:
 def test_find_dist_refuses_invalid_json() -> None:
     with pytest.raises(UpstreamError):
         find_dist(b'{', 'x.tgz')
+
+
+def test_version_document_by_version_and_tag() -> None:
+    one = {'name': 'pkg', 'version': '1.0.0', 'description': 'café'}
+    doc = json.dumps(
+        {
+            'name': 'pkg',
+            'dist-tags': {'latest': '1.0.0', 'next': '2.0.0-rc.1', 'broken': '9.9.9', 'odd': 7},
+            'versions': {'1.0.0': one, '2.0.0-rc.1': {'name': 'pkg', 'version': '2.0.0-rc.1'}, 'latest': 'x'},
+        }
+    ).encode()
+    assert json.loads(version_document(doc, '1.0.0') or b'') == one
+    assert json.loads(version_document(doc, 'next') or b'')['version'] == '2.0.0-rc.1'
+    assert json.loads(version_document(doc, 'latest') or b'') == one  # not a version object: read as the tag
+    assert version_document(doc, '3.0.0') is None
+    assert version_document(doc, 'broken') is None  # a tag naming a version that is not listed
+    assert version_document(doc, 'odd') is None
+    assert version_document(b'{"name": "pkg"}', '1.0.0') is None
+    assert version_document(b'[]', '1.0.0') is None
+    with pytest.raises(UpstreamError):
+        version_document(b'not json', '1.0.0')
+
+
+async def test_version_response() -> None:
+    doc = json.dumps({'versions': {'1.0.0': {'version': '1.0.0'}}}).encode()
+    response = await version_response(doc, '1.0.0')
+    assert response is not None
+    assert response.media_type == 'application/json'
+    assert json.loads(bytes(response.body)) == {'version': '1.0.0'}
+    assert await version_response(doc, '2.0.0') is None

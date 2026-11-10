@@ -5,6 +5,11 @@
 - ``GET /<pkg>``, ``/@scope%2f<pkg>`` and ``/@scope/<pkg>``: the packument, full (``application/json``) or abbreviated
   (``Accept: application/vnd.npm.install-v1+json``), cached separately as metadata and revalidated after the
   repository's metadata max age. Every ``versions.*.dist.tarball`` is rewritten to this repository (in a thread).
+- ``GET /<pkg>/<version>`` and ``/<pkg>/<dist-tag>`` (scoped: either encoding): one version object of the full
+  packument (``versions[<v>]``, else the version the tag names; corepack fetches these), read from the cached full
+  packument through the same ``ensure`` path (max age, coalescing, stale-on-error, rewritten ``dist.tarball``). An
+  exact version the cache does not list refreshes it once (published since the last fetch); unknown answers 404
+  ``{"error": "version not found: <v>"}``. Hosted: from the generated full packument; group: from the merged one.
 - ``GET /<pkg>/-/<file>.tgz`` and the scoped form: the tarball, cached as content and verified while it streams
   against ``dist.integrity`` (SRI, sha512) and/or ``dist.shasum`` (sha1) from the cached abbreviated packument
   (fetched first when needed; looked up only on a cache miss). A tarball the packument does not list is 404.
@@ -43,7 +48,7 @@ from waystation_server.formats.npm import metadata, publish
 from waystation_server.formats.npm.browse import NpmBrowse, parse_packument
 from waystation_server.formats.npm.descriptor import DESCRIPTOR, NpmOptions
 from waystation_server.formats.npm.group import NpmGroup
-from waystation_server.formats.npm.hosted import NpmHosted, read_body
+from waystation_server.formats.npm.hosted import NpmHosted, read_body, version_not_found, version_response
 from waystation_server.formats.npm.metadata import Op, Route
 from waystation_server.proxy.engine import (
     AssetKind,
@@ -141,6 +146,8 @@ class NpmPlugin:
             case Op.PACKUMENT:
                 abbreviated = self.wants_abbreviated(req)
                 return await req.proxy.serve(req, self.packument_spec(req, route.package, abbreviated=abbreviated))
+            case Op.VERSION:
+                return await self.version(req, route)
             case Op.TARBALL:
                 return await req.proxy.serve(req, self.tarball_spec(req, route))
             case Op.DIST_TAGS:
@@ -224,6 +231,19 @@ class NpmPlugin:
             artifact=route.filename,
             component=route.package,
         )
+
+    async def version(self, req: FormatRequest, route: Route) -> Response:
+        """``<pkg>/<version or dist-tag>`` from the cached full packument (fetched or revalidated like a packument
+        request). An exact version it does not list refreshes it once, as a tarball lookup does."""
+        for max_age_s in (None, 0):
+            spec = self.packument_spec(req, route.package, abbreviated=False, max_age_s=max_age_s)
+            data = await req.proxy.read(await req.proxy.ensure(req, spec))
+            response = await version_response(data, route.arg)
+            if response is not None:
+                return response
+            if not metadata.valid_version(route.arg):
+                break
+        raise version_not_found(route.arg)
 
     async def expected_for(self, req: FormatRequest, package: str, filename: str) -> Expected | None:
         """Digests for a tarball from the cached abbreviated packument; refreshed once when the version is not

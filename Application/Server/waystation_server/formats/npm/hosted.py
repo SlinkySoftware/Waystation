@@ -14,6 +14,8 @@
   ``rev`` by compare-and-set; a regeneration that finds the ``rev`` moved while it ran runs again, so the last
   writer always leaves the newest state. Versions whose tarball a cleanup policy removed are left out (and dropped
   when a client asks for the missing tarball).
+- **Version documents** (``GET /<pkg>/<version or dist-tag>``): the version object of the generated full packument
+  (a dist-tag resolves to the version it names); unknown answers 404 ``version not found: <v>``.
 - **Packument updates** (``PUT /<pkg>`` or ``PUT /<pkg>/-rev/<rev>`` without attachments: ``npm deprecate``,
   ``npm unpublish <pkg>@<version>``): deprecation messages of held versions are applied, held versions missing from
   the body are unpublished (needs ``delete``), dist-tags are taken from the body (only tags on held versions; a
@@ -64,6 +66,7 @@ REGENERATE_ROUNDS = 8
 CHUNK = 256 * 1024
 SEARCH_MAX = 250
 REPAIR_AFTER = timedelta(minutes=10)
+PACKUMENT_MAX_BYTES = 64 * 1024 * 1024  # a stored full packument read to answer a version document or merge
 _KEEP: Any = object()
 
 
@@ -94,6 +97,17 @@ async def read_body(req: FormatRequest, limit: int) -> bytes:
     return b''.join(chunks)
 
 
+async def version_response(packument: bytes, ref: str) -> Response | None:
+    """Answer ``<pkg>/<ref>`` from a full packument (parsed and serialised in a thread). None: it has no such version
+    or dist-tag."""
+    body = await asyncio.to_thread(metadata.version_document, packument, ref)
+    return None if body is None else Response(body, media_type=metadata.JSON_TYPE)
+
+
+def version_not_found(ref: str) -> NotFound:
+    return NotFound(f'version not found: {ref}')
+
+
 async def _chunks(data: bytes) -> AsyncIterator[bytes]:
     view = memoryview(data)
     for start in range(0, len(view), CHUNK):
@@ -115,6 +129,8 @@ class NpmHosted:
                 return await self.put(req, route.package)
             case Op.PACKUMENT | Op.PACKAGE_REV if method == 'DELETE':
                 return await self.unpublish_all(req, route.package)
+            case Op.VERSION if reading:
+                return await self.serve_version(req, req.repo, route)
             case Op.TARBALL if reading:
                 return await self.serve_tarball(req, route)
             case Op.TARBALL if method == 'DELETE':
@@ -147,6 +163,19 @@ class NpmHosted:
             req.hosted.account(req, CacheState.HIT, 404, 0, started)
             raise NotFound('Not found')
         return req.hosted.serve(req, asset)
+
+    async def serve_version(self, req: FormatRequest, repo: RepoConfig, route: Route) -> Response:
+        """``<pkg>/<version or dist-tag>`` from the generated full packument."""
+        started = time.perf_counter()
+        asset = await req.hosted.get(repo, metadata.packument_key(route.package, abbreviated=False))
+        if asset is None:
+            req.hosted.account(req, CacheState.HIT, 404, 0, started)
+            raise NotFound('Not found')
+        data = await req.hosted.read(asset, max_bytes=PACKUMENT_MAX_BYTES)
+        response = await version_response(data, route.arg)
+        if response is None:
+            raise version_not_found(route.arg)
+        return response
 
     async def serve_tarball(self, req: FormatRequest, route: Route) -> Response:
         started = time.perf_counter()
