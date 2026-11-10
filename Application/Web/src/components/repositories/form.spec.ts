@@ -25,6 +25,25 @@ describe('repository form model', () => {
     expect(group.group).toEqual({ members: ['charts'], writable_member: 'charts' })
   })
 
+  it('builds galaxy proxy (upstream layout and roles), hosted and group repositories', () => {
+    expect(HOSTED_FORMATS).toContain('galaxy')
+    expect(GROUP_FORMATS).toContain('galaxy')
+    expect(WRITABLE_GROUP_FORMATS).toContain('galaxy')
+    const proxy = toWrite({ ...emptyModel('galaxy'), ...PRESETS.galaxy[0]!.apply, galaxyRoles: false })
+    expect(proxy).toMatchObject({ format: 'galaxy', type: 'proxy', proxy: { upstream_url: 'https://galaxy.ansible.com/' } })
+    expect(proxy.format_options).toEqual({ collections_path: 'api/v3/plugin/ansible/content/published/collections/index/', roles: false })
+    const plain = toWrite({ ...emptyModel('galaxy'), galaxyCollectionsPath: ' api/v3/collections/ ' })
+    expect(plain.format_options).toEqual({ collections_path: 'api/v3/collections/', roles: true })
+    expect(toWrite({ ...emptyModel('galaxy', 'hosted'), name: 'collections' }).format_options).toEqual({})
+    const group = toWrite({ ...emptyModel('galaxy', 'group'), name: 'all', members: ['collections'], writableMember: 'collections' })
+    expect(group.group).toEqual({ members: ['collections'], writable_member: 'collections' })
+    const back = modelFromRepository({
+      name: 'gal', format: 'galaxy', type: 'proxy', online: true, status: 'online', url: 'https://registry.example.com/repository/gal/',
+      format_options: { collections_path: 'api/v3/collections/', roles: false },
+    } as unknown as Repository)
+    expect([back.galaxyCollectionsPath, back.galaxyRoles]).toEqual(['api/v3/collections/', false])
+  })
+
   it('never sends an empty secret (write-only: omitted keeps the stored one)', () => {
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', authKind: 'bearer' as const }
     expect(toWrite(m).proxy?.auth).toEqual({ kind: 'bearer', username: null })

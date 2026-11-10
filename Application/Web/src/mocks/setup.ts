@@ -116,6 +116,27 @@ function helm(repo: Repository): SetupClient[] {
   return [{ id: 'helm', label: 'Helm', snippets }]
 }
 
+function galaxy(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const snippet = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupSnippet => ({ id, title, description, language, filename, os: null, content })
+  const snippets = [
+    snippet('ansible-cfg', 'Use this repository for every ansible-galaxy command (ansible.cfg)', `[galaxy]\nserver_list = waystation\n\n[galaxy_server.waystation]\nurl = ${url}\n# only when anonymous reads are not allowed (and to publish): an API token\ntoken = {{TOKEN}}\n`, 'ini', 'ansible.cfg', 'In the project directory, ~/.ansible.cfg or the file ANSIBLE_CONFIG names. ansible-galaxy sends the token as "Authorization: Token ...".'),
+    snippet('galaxy-install', 'Install a collection', `ansible-galaxy collection install community.general -s ${url}\n# a version range, or from a requirements file\nansible-galaxy collection install 'community.general:>=9.0.0,<10' -s ${url}\nansible-galaxy collection install -r requirements.yml -s ${url}`),
+    snippet('galaxy-env', 'Or with environment variables (CI)', `export ANSIBLE_GALAXY_SERVER_LIST=waystation\nexport ANSIBLE_GALAXY_SERVER_WAYSTATION_URL=${url}\nexport ANSIBLE_GALAXY_SERVER_WAYSTATION_TOKEN={{TOKEN}}`),
+    snippet('galaxy-requirements', 'Per project (requirements.yml)', `collections:\n  - name: community.general\n    version: ">=9.0.0"\n    source: ${url}\n`, 'yaml', 'requirements.yml'),
+  ]
+  if (repo.type === 'hosted' || (repo.type === 'group' && repo.group?.writable_member)) {
+    const into = repo.type === 'group' ? ` (stored in ${repo.group?.writable_member})` : ''
+    snippets.push(snippet('galaxy-publish', `Build and publish a collection${into}`, `ansible-galaxy collection build\nansible-galaxy collection publish ./my_namespace-my_collection-1.0.0.tar.gz \\\n  -s ${url} --token {{TOKEN}}`, 'shell', null, 'Publishing needs the write permission. The import is checked within seconds (MANIFEST.json, FILES.json and every file checksum); versions cannot be replaced.'))
+  }
+  if (repo.type === 'hosted') {
+    snippets.push(snippet('galaxy-delete', 'Delete a collection version', `curl -fS -H "Authorization: Token {{TOKEN}}" -X DELETE ${url}api/v3/collections/my_namespace/my_collection/versions/1.0.0/`))
+  } else {
+    snippets.push(snippet('galaxy-role-install', 'Install a role (legacy roles API, read-only)', `ansible-galaxy role install geerlingguy.docker -s ${url}`, 'shell', null, 'Role archives are fetched from the source the upstream names (usually GitHub tag archives) and cached unverified: the roles API publishes no checksums.'))
+  }
+  return [{ id: 'ansible-galaxy', label: 'ansible-galaxy', snippets }]
+}
+
 function apt(repo: Repository): SetupClient[] {
   const opts = (repo.format_options ?? {}) as AptOptions
   const upstream = repo.proxy?.upstream_url ?? ''
@@ -299,7 +320,7 @@ function go(repo: Repository): SetupClient[] {
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {
