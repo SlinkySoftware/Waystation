@@ -162,6 +162,7 @@ class Runner:
         handler = self.handlers.get(env.kind)
         run_id = new_id()
         retention = ROUTINE_RUN_DAYS if payload_type is not None and payload_type.routine else RUN_DAYS
+        now = self._now()  # one clock read: expiry is exactly the retention after the start
         await quietly(
             jobs_db.run_start(
                 self.db,
@@ -175,12 +176,12 @@ class Runner:
                     'dedupe_key': env.dedupe_key,
                     'attempt': attempt,
                     'status': 'running',
-                    'started_at': self._now(),
+                    'started_at': now,
                     'finished_at': None,
-                    'expires_at': self._now() + timedelta(days=retention),
+                    'expires_at': now + timedelta(days=retention),
                     'worker_id': self.worker_id,
                 },
-                now=self._now(),
+                now=now,
             )
         )
         if payload_type is None or handler is None:
