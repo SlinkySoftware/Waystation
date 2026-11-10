@@ -3,6 +3,7 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- ADR 0005 (401 challenge for anonymous requests to hidden repositories on format routes) accepted; implementation queued.
 - T-O09: declarative provisioning. A YAML file (`WAYSTATION_PROVISION_FILE`, `Documents/Operations/PROVISIONING.md`,
   full example `provisioning.example.yaml`, JSON Schema `provisioning.schema.json` from the pydantic models) declares
   repositories (every format, type and option; cleanup attachments; groups whose members the same file creates),
