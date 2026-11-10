@@ -54,7 +54,7 @@ class Principal:
     grants: Grants | None = field(default=None, compare=False)
     # The anonymous principal's grants (repository permissions only), which every signed-in principal also receives
     # so that signing in never reduces access (SPECIFICATION §4.10). Set by ``security.rbac`` when the principal is
-    # resolved; ``security.access.check`` decides from own ∪ these, delegation only from ``grants``. None: none.
+    # resolved; ``security.access.check`` decides from own plus these, delegation only from ``grants``. None: none.
     anonymous_grants: Grants | None = field(default=None, compare=False)
     # A local user still holding a one-time password: its sessions may only change it or sign out (SPEC §4.9).
     must_change_password: bool = field(default=False, compare=False)

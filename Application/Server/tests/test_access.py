@@ -1,5 +1,6 @@
 """RBAC decision point (ARCHITECTURE §7): decisions, the route-enumeration test and an HTTP matrix."""
 
+import dataclasses
 import re
 from collections.abc import AsyncIterator
 
@@ -15,7 +16,7 @@ from waystation_server.formats.base import FormatDescriptor, FormatRequest, UiHi
 from waystation_server.repos.model import RepoType
 from waystation_server.security import access
 from waystation_server.security.access import Action, can_see, check, filter_repos, scope_matches
-from waystation_server.security.principal import ANONYMOUS, AuthMethod, Principal, PrincipalKind
+from waystation_server.security.principal import ANONYMOUS, AuthMethod, Principal, PrincipalKind, TokenLimits
 from waystation_server.services import Services
 
 PROXY = make_repo('npm-proxy', 'npm')
@@ -27,7 +28,18 @@ def user(*roles: str) -> Principal:
     return Principal(PrincipalKind.USER, f'id-{"-".join(roles)}', '-'.join(roles) or 'nobody', roles, AuthMethod.BASIC)
 
 
-READER, DEPLOYER, ADMIN, VIEWER, NOBODY = user('reader'), user('deployer'), user('admin'), user('viewer'), user()
+NO_GRANTS = access.Grants(is_admin=False, permissions=())
+ANONYMOUS_GRANTS = access.grants_for(('anonymous',))  # the default anonymous access: browse + read on proxies
+
+
+def signed_in(principal: Principal, anonymous: access.Grants = ANONYMOUS_GRANTS) -> Principal:
+    """``principal`` as authentication resolves it: also holding the anonymous grants (SPEC §4.10)."""
+    return dataclasses.replace(principal, anonymous_grants=anonymous)
+
+
+READER, DEPLOYER, ADMIN, VIEWER = user('reader'), user('deployer'), user('admin'), user('viewer')
+NOBODY = signed_in(user(), NO_GRANTS)  # signed in, no role, anonymous access turned off: nothing at all
+NEWCOMER = signed_in(user())  # signed in, no role, the default anonymous access: exactly what anonymous may do
 GUEST = user('anonymous')  # signed in, holding only what anonymous access grants (browse + read on proxies)
 
 
@@ -59,6 +71,11 @@ def test_scopes() -> None:
         (ADMIN, Action.MANAGE, HOSTED, True),
         (ADMIN, Action.SETTINGS_ADMIN, None, True),
         (NOBODY, Action.READ, PROXY, False),
+        (NEWCOMER, Action.READ, PROXY, True),
+        (NEWCOMER, Action.BROWSE, PROXY, True),
+        (NEWCOMER, Action.READ, HOSTED, False),
+        (NEWCOMER, Action.WRITE, PROXY, False),
+        (NEWCOMER, Action.STATS_READ, None, False),
     ],
 )
 def test_check(principal: Principal, action: Action, repo: object, allowed: bool) -> None:
@@ -88,7 +105,8 @@ def test_capabilities() -> None:
     assert access.capabilities(READER) == ['repositories.browse']
     assert access.capabilities(GUEST) == ['repositories.browse']
     assert access.capabilities(ANONYMOUS) == ['repositories.browse']
-    assert access.capabilities(NOBODY) == []  # signed in, no role: the UI shows the "no access yet" landing
+    assert access.capabilities(NOBODY) == []  # no role, no anonymous access: the "no access yet" landing
+    assert access.capabilities(NEWCOMER) == ['repositories.browse']  # no role: what anonymous access allows
     custom = Principal(
         PrincipalKind.USER,
         'id-custom',
@@ -98,6 +116,84 @@ def test_capabilities() -> None:
         grants=access.Grants(is_admin=False, permissions=(access.Permission(Action.READ, 'docker-*'),)),
     )
     assert access.capabilities(custom) == ['repositories.browse']  # read on a glob: some repository may be visible
+
+
+# ---------------------------------------------------------------------------- own + anonymous grants (SPEC §4.10)
+ACTIONS = [Action.BROWSE, Action.READ, Action.WRITE, Action.DELETE, Action.MANAGE, *access.GLOBAL_ACTIONS]
+
+
+def test_a_signed_in_principal_without_roles_may_do_what_anonymous_may() -> None:
+    for action in ACTIONS:
+        for repo in (PROXY, HOSTED, DOCKER, None):
+            assert check(NEWCOMER, action, repo) is check(ANONYMOUS, action, repo), (action, repo)
+            assert check(NOBODY, action, repo) is False, (action, repo)
+    assert filter_repos(NEWCOMER, Action.BROWSE, [PROXY, HOSTED, DOCKER]) == [PROXY, DOCKER]
+
+
+def test_own_and_anonymous_grants_add_up() -> None:
+    publish = access.Grants(is_admin=False, permissions=(access.Permission(Action.WRITE, 'npm-hosted'),))
+    viewer = signed_in(VIEWER, publish)  # anonymous may publish to npm-hosted (a custom anonymous role)
+    assert check(viewer, Action.STATS_READ)  # own
+    assert check(viewer, Action.WRITE, HOSTED)  # anonymous
+    assert not check(viewer, Action.WRITE, PROXY)
+    reader = signed_in(READER)
+    assert check(reader, Action.READ, HOSTED) and check(reader, Action.READ, PROXY)
+    effective = access.effective_grants(viewer)
+    assert access.Permission(Action.WRITE, 'npm-hosted') in effective.permissions
+    assert access.Permission(Action.STATS_READ, '*') in effective.permissions
+    assert access.grants_of(viewer) == access.grants_for(('viewer',))  # own grants stay own
+    assert access.effective_grants(ANONYMOUS) == access.grants_of(ANONYMOUS)
+
+
+def test_anonymous_grants_never_carry_a_global_action() -> None:
+    """Anonymous access holds repository permissions only (SPEC §4.9), also if a role it uses was later edited to
+    hold a global action: a signed-in principal never gains one from it."""
+    bogus = access.Grants(
+        is_admin=True,
+        permissions=(access.Permission(Action.ADMIN, '*'), access.Permission(Action.USER_ADMIN, '*')),
+    )
+    principal = signed_in(user(), bogus)
+    for action in access.GLOBAL_ACTIONS:
+        assert not check(principal, action)
+    assert not check(principal, Action.MANAGE, HOSTED)
+    assert access.capabilities(principal) == []
+    assert access.repository_only(bogus) == NO_GRANTS
+
+
+def test_delegation_ignores_the_anonymous_grants() -> None:
+    """What a caller may give away is its own: the anonymous grants (and a bogus global action in them) do not
+    count for ``may_assign`` / ``may_manage``."""
+    bogus = access.Grants(is_admin=False, permissions=(access.Permission(Action.USER_ADMIN, '*'),))
+    caller = signed_in(user(), bogus)
+    user_admin = access.materialise(('_',), {'_': (access.Permission(Action.USER_ADMIN, '*'),)})
+    assert not access.may_assign(caller, user_admin)
+    assert not access.may_manage(caller, user_admin)
+    assert access.may_assign(caller, access.grants_for(('reader',)))  # repository actions are not limited
+    assert not access.may_assign_role(signed_in(user('viewer')), 'admin')
+    assert access.may_assign_role(signed_in(user('admin')), 'admin')
+
+
+def test_credential_narrowing_bounds_the_anonymous_grants_too() -> None:
+    """An API token's repository patterns and scopes, and a Docker registry token's grants, are an upper bound on
+    everything the principal may do, the anonymous grants included."""
+    hosted_only = TokenLimits('t1', access.token_actions(['read']), repositories=('npm-hosted',), scopes=('read',))
+    reader = signed_in(dataclasses.replace(READER, token=hosted_only))
+    assert check(reader, Action.READ, HOSTED)
+    assert not check(reader, Action.READ, PROXY)  # anonymous could, the token may not
+    assert not can_see(reader, PROXY)
+    stats_only = TokenLimits('t2', access.token_actions(['stats-read']), scopes=('stats-read',))
+    newcomer = dataclasses.replace(NEWCOMER, token=stats_only)
+    assert not check(newcomer, Action.READ, PROXY)
+    registry = dataclasses.replace(NEWCOMER, token_access=(('npm-hosted', frozenset({Action.READ})),))
+    assert not check(registry, Action.READ, PROXY)  # the registry token grants nothing on the proxy
+    pulled = dataclasses.replace(NEWCOMER, token_access=(('npm-proxy', frozenset({Action.READ, Action.WRITE})),))
+    assert check(pulled, Action.READ, PROXY)
+    assert not check(pulled, Action.WRITE, PROXY)  # the token asks for more than the principal holds
+
+
+def test_token_scopes_follow_what_the_owner_may_do() -> None:
+    assert access.token_scopes_for(NEWCOMER) == [access.TokenScope.READ]  # the anonymous read: a token adds nothing
+    assert access.token_scopes_for(NOBODY) == []
 
 
 def test_requires_rejects_repo_actions() -> None:
@@ -129,7 +225,19 @@ class EchoPlugin:
         return PlainTextResponse(f'{req.method} {req.repo.name}/{req.path} as {req.principal.display}')
 
 
-TOKENS = {'reader': READER, 'deployer': DEPLOYER, 'admin': ADMIN, 'nobody': NOBODY, 'guest': GUEST, 'viewer': VIEWER}
+TOKENS = {
+    'reader': READER,
+    'deployer': DEPLOYER,
+    'admin': ADMIN,
+    'nobody': NOBODY,
+    'guest': GUEST,
+    'viewer': VIEWER,
+    # no anonymous grants attached: authentication attaches the current ones (the default anonymous access)
+    'newcomer': user(),
+    'narrowed': dataclasses.replace(
+        READER, token=TokenLimits('t', access.token_actions(['read']), repositories=('npm-hosted',), scopes=('read',))
+    ),
+}
 
 
 async def _token_auth(request: Request, token: str) -> Principal | None:
@@ -158,7 +266,7 @@ async def matrix_client(unit_services: Services) -> AsyncIterator[httpx.AsyncCli
         ('deployer', 'PUT', 'npm-hosted', 200),
         ('deployer', 'DELETE', 'npm-hosted', 403),
         ('admin', 'DELETE', 'npm-hosted', 200),
-        # signed in, no role: nothing is visible, so everything is 404 (never 403, never 401)
+        # signed in, no role, anonymous access off: nothing is visible, so everything is 404 (never 403, never 401)
         ('nobody', 'GET', 'npm-proxy', 404),
         ('nobody', 'GET', 'npm-hosted', 404),
         ('nobody', 'PUT', 'npm-proxy', 404),
@@ -166,6 +274,16 @@ async def matrix_client(unit_services: Services) -> AsyncIterator[httpx.AsyncCli
         ('guest', 'GET', 'npm-proxy', 200),
         ('guest', 'GET', 'npm-hosted', 404),
         ('guest', 'PUT', 'npm-proxy', 403),
+        # signed in, no role, the default anonymous access: exactly what anonymous may do (403 instead of 401)
+        ('newcomer', 'GET', 'npm-proxy', 200),
+        ('newcomer', 'HEAD', 'npm-proxy', 200),
+        ('newcomer', 'GET', 'npm-hosted', 404),
+        ('newcomer', 'PUT', 'npm-proxy', 403),
+        ('newcomer', 'PUT', 'npm-hosted', 404),
+        # an API token limited to npm-hosted: the anonymous grants on the proxy do not get past it
+        ('narrowed', 'GET', 'npm-hosted', 200),
+        ('narrowed', 'GET', 'npm-proxy', 404),
+        ('narrowed', 'PUT', 'npm-hosted', 403),
     ],
 )
 async def test_format_route_matrix(
@@ -202,7 +320,7 @@ async def test_every_protected_api_route_refuses_anonymous_and_unprivileged(
     anonymous = await matrix_client.request(method, path, json=body)
     assert anonymous.status_code == 401, f'{method} {path}: {anonymous.status_code}'
     if rule.kind == 'global':
-        for who in ('reader', 'deployer', 'nobody', 'guest'):
+        for who in ('reader', 'deployer', 'nobody', 'guest', 'newcomer'):
             denied = await matrix_client.request(method, path, json=body, headers={'Authorization': f'Bearer {who}'})
             assert denied.status_code == 403, f'{who} {method} {path}: {denied.status_code}'
             assert denied.json()['code'] == 'permission_required', f'{who} {method} {path}: {denied.text}'
@@ -212,8 +330,9 @@ async def test_every_protected_api_route_refuses_anonymous_and_unprivileged(
 async def test_every_repository_api_route_hides_repositories_from_a_principal_without_roles(
     matrix_client: httpx.AsyncClient, method: str, path: str, rule: access.RouteAccess
 ) -> None:
-    """The "signed in, no roles" column for repository routes: every repository is hidden (404, never 403), the
-    anonymous-only column sees proxies but nothing hosted. Decided by ``enforce`` before the handler runs."""
+    """The "signed in, no roles, no anonymous access" column for repository routes: every repository is hidden
+    (404, never 403); the anonymous-grants columns (a role, or the grants every signed-in principal receives) see
+    proxies but nothing hosted. Decided by ``enforce`` before the handler runs."""
     assert rule.param is not None
     body = {} if method in ('POST', 'PUT', 'PATCH') else None
     for repo in ('npm-proxy', 'npm-hosted'):
@@ -222,9 +341,10 @@ async def test_every_repository_api_route_hides_repositories_from_a_principal_wi
         assert hidden.status_code == 404, f'nobody {method} {url}: {hidden.status_code}'
         if repo == 'npm-proxy' and rule.action in (Action.BROWSE, Action.READ):
             continue  # allowed: the handler would run (needs MongoDB; the integration tests cover it)
-        as_guest = await matrix_client.request(method, url, json=body, headers={'Authorization': 'Bearer guest'})
         expected = 404 if repo == 'npm-hosted' else 403
-        assert as_guest.status_code == expected, f'guest {method} {url}: {as_guest.status_code}'
+        for who in ('guest', 'newcomer'):  # the anonymous grants, held as a role or received on signing in
+            got = await matrix_client.request(method, url, json=body, headers={'Authorization': f'Bearer {who}'})
+            assert got.status_code == expected, f'{who} {method} {url}: {got.status_code}'
 
 
 async def test_signed_in_principal_without_roles_gets_calm_answers(matrix_client: httpx.AsyncClient) -> None:
