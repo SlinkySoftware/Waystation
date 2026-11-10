@@ -114,6 +114,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/galaxy/namespaces', 'get'),
     ('/repositories/{name}/galaxy/collections', 'get'),
     ('/repositories/{name}/galaxy/versions', 'get'),
+    ('/repositories/{name}/terraform/providers', 'get'),
+    ('/repositories/{name}/terraform/versions', 'get'),
     ('/repositories/{name}/apt/suites', 'get'),
     ('/repositories/{name}/apt/packages', 'get'),
     ('/repositories/{name}/docker/images', 'get'),

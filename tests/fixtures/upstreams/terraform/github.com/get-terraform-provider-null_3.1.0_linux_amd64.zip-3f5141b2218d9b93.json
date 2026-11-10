@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://github.com/opentofu/terraform-provider-null/releases/download/v3.1.0/terraform-provider-null_3.1.0_linux_amd64.zip"
+  },
+  "response": {
+    "body_sha256": null,
+    "body_size": 0,
+    "headers": [
+      [
+        "content-type",
+        "text/html; charset=utf-8"
+      ],
+      [
+        "vary",
+        "X-PJAX, X-PJAX-Container, Turbo-Visit, Turbo-Frame, X-Requested-With, X-GitHub-Client-Version, Sec-Fetch-Site,Accept-Encoding, Accept, X-Requested-With"
+      ],
+      [
+        "location",
+        "https://release-assets.githubusercontent.com/github-production-release-asset/691499464/8f265202-f342-4a71-83dc-d60912b23d2a?sp=harness-redacted&sv=harness-redacted&sr=b&spr=https&se=harness-redacted&rscd=attachment%3B+filename%3Dterraform-provider-null_3.1.0_linux_amd64.zip&rsct=application/octet-stream&skoid=harness-redacted&sktid=harness-redacted&skt=harness-redacted&ske=harness-redacted&sks=harness-redacted&skv=harness-redacted&sig=harness-redacted&jwt=harness-redacted&response-content-disposition=attachment%3B+filename%3Dterraform-provider-null_3.1.0_linux_amd64.zip&response-content-type=application/octet-stream"
+      ],
+      [
+        "cache-control",
+        "no-cache"
+      ],
+      [
+        "content-length",
+        "0"
+      ]
+    ],
+    "status": 302
+  }
+}

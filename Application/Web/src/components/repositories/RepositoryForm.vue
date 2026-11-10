@@ -209,6 +209,23 @@
         />
         <q-toggle v-model="model.galaxyRoles" :label="t('repoForm.galaxyRoles')" />
       </template>
+      <template v-else-if="model.format === 'terraform'">
+        <q-select
+          v-model="model.tfOrigins"
+          outlined
+          dense
+          multiple
+          use-chips
+          use-input
+          new-value-mode="add-unique"
+          hide-dropdown-icon
+          :label="t('repoForm.tfOrigins')"
+          :hint="t('repoForm.tfOriginsHint')"
+          :error="!!errors['format_options.origins']"
+          :error-message="errors['format_options.origins']"
+        />
+        <q-toggle v-model="model.verifySignatures" :label="t('repoForm.verifySignatures')" />
+      </template>
       <template v-else-if="model.format === 'apt'">
         <div class="repo-form__row">
           <q-input

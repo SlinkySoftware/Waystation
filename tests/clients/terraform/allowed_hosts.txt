@@ -1,0 +1,3 @@
+# Public hosts that appear in the terraform format's recorded upstream content (the signing key's source URL in
+# registry.terraform.io download documents).
+www.hashicorp.com
