@@ -461,7 +461,9 @@ async def delete_policy(policy_id: PolicyId, request: Request, svc: ServicesDep)
         raise NotFound('Not Found')
     svc.catalog.invalidate()
     audit.record(
-        AuditAction.CLEANUP_POLICY_DELETE, target=policy_target(existing), changes=audit.diff(audit_view(existing), None)
+        AuditAction.CLEANUP_POLICY_DELETE,
+        target=policy_target(existing),
+        changes=audit.diff(audit_view(existing), None),
     )
     return Response(status_code=204)
 

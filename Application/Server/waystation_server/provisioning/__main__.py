@@ -19,7 +19,10 @@ from waystation_common.settings import get_settings
 from waystation_server.provisioning import loader, runner
 from waystation_server.provisioning.model import json_schema
 
-USAGE = 'usage: python -m waystation_server.provisioning schema | check FILE | plan [FILE] [--json] | apply [FILE] [--json]\n'
+USAGE = (
+    'usage: python -m waystation_server.provisioning '
+    'schema | check FILE | plan [FILE] [--json] | apply [FILE] [--json]\n'
+)
 
 
 def check(path: str) -> int:

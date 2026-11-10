@@ -398,7 +398,7 @@ async def save(
     existing: ProviderRecord | None,
     *,
     by: str,
-    managed_by: str | None | EllipsisType = ...,
+    managed_by: str | EllipsisType | None = ...,
 ) -> ProviderRecord:
     """Store a validated provider (new secrets encrypted, omitted ones kept) and its group mapping.
     ``managed_by``: set the provisioning tag (omitted: keep it)."""
