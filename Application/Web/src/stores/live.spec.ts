@@ -3,8 +3,10 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { LiveEvent, Transfer } from '@/api/types'
+import { CAPS, signInAs } from '@/test/session'
 
-import { FAILED_KEEP_MS, FINISHED_KEEP_MS, useLiveStore } from './live'
+import { useAuthStore } from './auth'
+import { FAILED_KEEP_MS, FINISHED_KEEP_MS, REFUSED_RECHECK_MS, useLiveStore } from './live'
 import { type LiveHandlers, type LiveSource, setLiveSourceFactory } from './liveSource'
 
 const ts = () => new Date().toISOString()
@@ -53,6 +55,8 @@ describe('live store', () => {
     vi.useFakeTimers()
     setActivePinia(createPinia())
     setLiveSourceFactory(() => new FakeSource())
+    FakeSource.last = null
+    signInAs(CAPS.viewer)
   })
 
   afterEach(() => {
@@ -135,5 +139,58 @@ describe('live store', () => {
     offA()
     await vi.advanceTimersByTimeAsync(1)
     expect(live.status).toBe('idle')
+  })
+
+  describe('minimal permissions (SPEC §4.10)', () => {
+    it('opens no stream for a session without stats.read (no role, reader, anonymous grants)', async () => {
+      for (const caps of [CAPS.noRoles, CAPS.reader]) {
+        signInAs(caps)
+        const live = useLiveStore()
+        const offs = ['transfers', 'stats', 'activity', 'repo:debian', 'tasks'].map((topic) => live.subscribe(topic))
+        await vi.advanceTimersByTimeAsync(1000)
+        expect(FakeSource.last).toBeNull()
+        expect(live.status).toBe('idle')
+        offs.forEach((off) => off())
+      }
+    })
+
+    it('leaves out the admin-only tasks topic for a viewer', async () => {
+      const live = useLiveStore()
+      live.subscribe('tasks')
+      live.subscribe('stats')
+      await vi.advanceTimersByTimeAsync(1)
+      expect(FakeSource.last?.topics).toEqual(['stats'])
+    })
+
+    it('follows capability changes of the session: opens when granted, closes when taken away', async () => {
+      signInAs(CAPS.noRoles)
+      const live = useLiveStore()
+      live.subscribe('transfers')
+      await vi.advanceTimersByTimeAsync(1)
+      expect(FakeSource.last).toBeNull()
+
+      signInAs(CAPS.viewer)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(FakeSource.last?.topics).toEqual(['transfers'])
+      expect(live.status).toBe('open')
+
+      signInAs(CAPS.reader)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(FakeSource.last?.closed).toBeGreaterThan(0)
+      expect(live.status).toBe('idle')
+    })
+
+    it('re-checks the session when the stream is refused, at most every 30 s (no reconnect spin)', async () => {
+      const auth = useAuthStore()
+      const refresh = vi.spyOn(auth, 'refresh').mockResolvedValue()
+      const live = useLiveStore()
+      live.subscribe('stats')
+      await vi.advanceTimersByTimeAsync(1)
+      for (let i = 0; i < 5; i++) FakeSource.last?.handlers?.onRefused?.()
+      expect(refresh).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(REFUSED_RECHECK_MS)
+      FakeSource.last?.handlers?.onRefused?.()
+      expect(refresh).toHaveBeenCalledTimes(2)
+    })
   })
 })

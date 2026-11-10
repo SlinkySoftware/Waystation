@@ -20,7 +20,7 @@
     <q-btn flat round dense :icon="iconSearch" :aria-label="t('shell.search')" class="topbar__search-icon" @click="emit('open-palette')" />
     <q-space />
 
-    <LiveIndicator @click="emit('open-live')" />
+    <LiveIndicator v-if="auth.can('stats.read')" @click="emit('open-live')" />
 
     <q-btn flat round dense :icon="themeIcon" :aria-label="themeLabel" @click="theme.cycle()">
       <q-tooltip>{{ themeLabel }}</q-tooltip>
@@ -37,6 +37,7 @@ import { computed } from 'vue'
 
 import BrandMark from '@/components/BrandMark.vue'
 import { t } from '@/i18n'
+import { useAuthStore } from '@/stores/auth'
 import { useConfigStore } from '@/stores/config'
 import { useThemeStore } from '@/stores/theme'
 import { iconDark, iconHelp, iconLight, iconMenu, iconSearch, iconSystemTheme } from '@/utils/icons'
@@ -47,6 +48,7 @@ import UserMenu from './UserMenu.vue'
 defineProps<{ railOpen: boolean }>()
 const emit = defineEmits<{ 'toggle-rail': []; 'open-live': []; 'open-palette': [] }>()
 
+const auth = useAuthStore()
 const config = useConfigStore()
 const theme = useThemeStore()
 const mock = import.meta.env.WAYSTATION_MOCK === '1'
