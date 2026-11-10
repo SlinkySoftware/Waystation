@@ -38,3 +38,9 @@ async def replace(db: Database, provider_id: str, fields: dict[str, Any]) -> Pro
 async def delete(db: Database, provider_id: str) -> bool:
     result = await db[AUTH_PROVIDERS].delete_one({'_id': provider_id})
     return result.deleted_count == 1
+
+
+async def set_fields(db: Database, provider_id: str, fields: dict[str, Any]) -> bool:
+    """Set bookkeeping ``fields`` (the provisioning tag) without bumping ``config_version``."""
+    result = await db[AUTH_PROVIDERS].update_one({'_id': provider_id}, {'$set': fields})
+    return result.matched_count == 1

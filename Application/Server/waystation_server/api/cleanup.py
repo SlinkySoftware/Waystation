@@ -294,7 +294,7 @@ def _may_read(principal: Principal) -> bool:
     return access.check(principal, Action.ADMIN) or access.check(principal, Action.MANAGE)
 
 
-def _check_criteria(fmt: str, criteria: Criteria, prefix: str = 'criteria') -> None:
+def check_criteria(fmt: str, criteria: Criteria, prefix: str = 'criteria') -> None:
     errors: list[FieldError] = []
     if not criteria.selects_anything:
         errors.append(
@@ -389,7 +389,7 @@ async def create_policy(
     body: CleanupPolicyWrite, request: Request, response: Response, svc: ServicesDep
 ) -> CleanupPolicy:
     principal = await authenticate(request)
-    _check_criteria(body.format, body.criteria)
+    check_criteria(body.format, body.criteria)
     now = datetime.now(UTC)
     doc: Document = {
         '_id': new_id(),
@@ -429,7 +429,7 @@ async def update_policy(
 ) -> CleanupPolicy:
     principal = await authenticate(request)
     existing = await _policy_or_404(svc, principal, policy_id)
-    _check_criteria(body.format, body.criteria)
+    check_criteria(body.format, body.criteria)
     if body.format != existing['format'] and body.format != '*':
         clash = [
             r.name for r in await svc.catalog.all() if policy_id in r.cleanup_policy_ids and r.format != body.format
@@ -496,7 +496,7 @@ async def list_runs(policy_id: PolicyId, request: Request, svc: ServicesDep) -> 
 async def preview(body: CleanupPreviewRequest, request: Request, svc: ServicesDep) -> CleanupPreview:
     principal = await authenticate(request)
     repos = await _preview_repos(svc, principal, body)
-    _check_criteria(body.format, body.criteria)
+    check_criteria(body.format, body.criteria)
     offset = _decode_cursor(body.cursor)
     now = datetime.now(UTC)
     repos.sort(key=lambda r: r.name.lower())
