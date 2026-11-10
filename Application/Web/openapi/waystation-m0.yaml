@@ -2997,7 +2997,7 @@ components:
         status: { type: integer }
         detail: { type: string }
         instance: { type: string }
-        code: { type: string, description: 'Stable machine code (`password_change_required`, `totp_setup_required`, `second_factor_expired`...)' }
+        code: { type: string, description: 'Stable machine code (`permission_required`: a signed-in principal lacks the permission; `password_change_required`, `totp_setup_required`, `second_factor_expired`...)' }
         errors:
           type: array
           items: { $ref: '#/components/schemas/FieldError' }
@@ -3092,8 +3092,9 @@ components:
           type: array
           description: |
             Coarse UI hints derived from the principal's grants (which menu items and buttons to show). They never
-            replace server-side checks. Values: `repositories.create`, `repositories.manage`, `stats.read`, `audit.read`,
-            `users.admin`, `settings.admin`, `admin`.
+            replace server-side checks. Values: `repositories.create`, `repositories.manage`, `repositories.browse`
+            (browse or read on some repository: Repositories, Browse, Search), `stats.read`, `audit.read`, `users.admin`,
+            `settings.admin`, `admin`. Empty for a user without roles (the UI shows its "no access yet" landing).
           items: { type: string }
         preferences: { $ref: '#/components/schemas/Preferences' }
         expires_at: { $ref: '#/components/schemas/Timestamp' }
