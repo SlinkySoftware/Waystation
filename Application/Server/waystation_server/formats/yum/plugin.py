@@ -7,7 +7,10 @@ holds ``repodata/``; four kinds of file:
 1. ``<dir>/repodata/repomd.xml``: metadata (revalidated after ``metadata_max_age_s``), bytes passed through untouched
    (dnf verifies ``repomd.xml.asc`` itself when ``repo_gpgcheck`` is on). Refused (502, nothing cached) unless it
    parses: bounded, defused XML (``repodata``). ``repomd.xml.asc`` / ``.key`` are small metadata; a newly stored
-   ``repomd.xml`` drops the cached ``.asc`` so the pair is fetched together again.
+   ``repomd.xml`` drops the cached ``.asc`` so the pair is fetched together again. With the ``repomd_keys`` option
+   (the upstream's public keys) ``repomd.xml.asc`` is fetched fresh right before every ``repomd.xml`` fetch or
+   revalidation and the new ``repomd.xml`` is refused (502; stale-on-error applies) unless the signature verifies
+   (``waystation_common.openpgp``); that ``.asc`` is then served with it.
 2. **Files ``repomd.xml`` lists** (``primary``, ``filelists``, ``other``, ``updateinfo``, ``modules``, ``comps``,
    sqlite variants; ``.gz``/``.xz``/``.zst``/``.bz2``): served only by the checksum and size the currently cached
    ``repomd.xml`` of the directory lists (SHA-1/256/512), so the set always matches the ``repomd.xml`` the client
@@ -30,17 +33,20 @@ Mirrorlist and metalink URLs are not proxied: repositories are configured with a
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass
 
 from starlette.responses import Response
 
+from waystation_common import openpgp
 from waystation_common.errors import DigestMismatch, NotFound, UpstreamError, ValidationFailed, WaystationError
 from waystation_server.db import assets as assets_db
 from waystation_server.db import yum as yum_db
 from waystation_server.formats.base import FormatRequest
-from waystation_server.formats.yum import repodata
+from waystation_server.formats.yum import evr, repodata
+from waystation_server.formats.yum.browse import YumBrowse
 from waystation_server.formats.yum.descriptor import DESCRIPTOR
 from waystation_server.problems import native_error
 from waystation_server.proxy.engine import (
@@ -101,6 +107,27 @@ def expected_of(algorithm: str, digest: str, size: int | None = None) -> Expecte
     return Expected(sha256=digest, size=size)
 
 
+def repomd_keys(req: FormatRequest) -> str | None:
+    """The upstream's armored public keys when ``repomd.xml`` must be verified (option ``repomd_keys``)."""
+    value = req.repo.format_options.get('repomd_keys')
+    return value if isinstance(value, str) and value else None
+
+
+@functools.lru_cache(maxsize=32)
+def parsed_keys(text: str) -> tuple[openpgp.PublicKey, ...]:
+    return tuple(openpgp.read_public_keys(text))
+
+
+def _signature_spec(repo_dir: str, *, max_age_s: int | None) -> AssetSpec:
+    return AssetSpec(
+        path=_join(repo_dir, 'repodata', SIGNATURES[0]),
+        kind=AssetKind.METADATA,
+        upstream_headers=IDENTITY,
+        max_size=SIGNATURE_MAX,
+        max_age_s=max_age_s,
+    )
+
+
 def _validate_repomd(data: bytes, info: UpstreamInfo) -> None:
     try:
         repodata.parse_repomd(data)
@@ -115,6 +142,7 @@ class YumPlugin:
         self._parsed: OrderedDict[str, repodata.Repomd] = OrderedDict()
         self._tasks: set[asyncio.Task[None]] = set()
         self._indexing: dict[tuple[str, str, str], asyncio.Task[None]] = {}
+        self.browser = YumBrowse()
 
     async def handle(self, req: FormatRequest) -> Response:
         if req.method not in ('GET', 'HEAD'):
@@ -126,9 +154,7 @@ class YumPlugin:
             case 'repomd':
                 return await req.proxy.serve(req, self._repomd_spec(req, target.repo_dir))
             case 'signature':
-                return await req.proxy.serve(
-                    req, AssetSpec(path=req.path, kind=AssetKind.METADATA, max_size=SIGNATURE_MAX)
-                )
+                return await self._serve_signature(req, target)
             case 'repodata':
                 return await self._serve_repodata(req, target)
             case 'package':
@@ -142,14 +168,44 @@ class YumPlugin:
 
     # ------------------------------------------------------------------ repomd.xml
     def _repomd_spec(self, req: FormatRequest, repo_dir: str, *, max_age_s: int | None = None) -> AssetSpec:
+        keys = repomd_keys(req)
+        if keys is None:
+            return AssetSpec(
+                path=_join(repo_dir, 'repodata', REPOMD),
+                kind=AssetKind.METADATA,
+                upstream_headers=IDENTITY,
+                max_size=repodata.REPOMD_MAX_BYTES,
+                max_age_s=max_age_s,
+                validate=_validate_repomd,
+                on_stored=self._on_repomd_stored(req, repo_dir),
+            )
+        # Verified mode: just before repomd.xml is fetched (or revalidated) upstream, its repomd.xml.asc is fetched
+        # fresh and cached; the new repomd.xml is refused unless that signature verifies with a configured key.
+        signatures: list[bytes] = []
+
+        async def fetch_signature() -> Expected | None:
+            try:
+                asset = await req.proxy.ensure(req, _signature_spec(repo_dir, max_age_s=0))
+                signatures.append(await req.proxy.read(asset, max_bytes=SIGNATURE_MAX))
+            except NotFound:
+                raise UpstreamError('upstream has no repomd.xml.asc to verify repomd.xml with') from None
+            return None
+
+        def validate(data: bytes, info: UpstreamInfo) -> None:
+            _validate_repomd(data, info)
+            try:
+                openpgp.verify_detached(data, signatures[-1] if signatures else b'', parsed_keys(keys))
+            except ValidationFailed as exc:
+                raise UpstreamError(f'upstream repomd.xml is not signed by a configured key ({exc.detail})') from None
+
         return AssetSpec(
             path=_join(repo_dir, 'repodata', REPOMD),
             kind=AssetKind.METADATA,
             upstream_headers=IDENTITY,
             max_size=repodata.REPOMD_MAX_BYTES,
             max_age_s=max_age_s,
-            validate=_validate_repomd,
-            on_stored=self._on_repomd_stored(req, repo_dir),
+            expect=fetch_signature,
+            validate=validate,
         )
 
     @staticmethod
@@ -161,6 +217,14 @@ class YumPlugin:
             await yum_db.drop_cached(db, repo_id, _join(repo_dir, 'repodata', SIGNATURES[0]))
 
         return stored
+
+    async def _serve_signature(self, req: FormatRequest, target: Target) -> Response:
+        """``repomd.xml.asc`` / ``.key``. Verified mode: ``.asc`` is the one ``repomd.xml`` was verified with (fetched
+        with it, never revalidated on its own), so the repomd.xml is brought up to date first."""
+        if target.name == SIGNATURES[0] and repomd_keys(req) is not None:
+            await self._current_repomd(req, target.repo_dir, refresh_stale=True)
+            return await req.proxy.serve(req, _signature_spec(target.repo_dir, max_age_s=FOREVER))
+        return await req.proxy.serve(req, AssetSpec(path=req.path, kind=AssetKind.METADATA, max_size=SIGNATURE_MAX))
 
     async def _parse(self, engine: ProxyEngine, asset: StoredAsset) -> repodata.Repomd:
         """A cached ``repomd.xml`` parsed (in a thread, bounded; kept in a small cache by digest)."""
@@ -175,10 +239,14 @@ class YumPlugin:
             self._parsed.popitem(last=False)
         return parsed
 
-    async def _current_repomd(self, req: FormatRequest, repo_dir: str, *, refresh: bool = False) -> repodata.Repomd:
+    async def _current_repomd(
+        self, req: FormatRequest, repo_dir: str, *, refresh: bool = False, refresh_stale: bool = False
+    ) -> repodata.Repomd:
         """The ``repomd.xml`` the directory is served with now: the cached one, else fetched. ``refresh``
-        revalidates it upstream first."""
+        revalidates it upstream first; ``refresh_stale`` when it is older than the repository's metadata max age."""
         engine = req.proxy
+        if refresh_stale:
+            return await self._parse(engine, await engine.ensure(req, self._repomd_spec(req, repo_dir)))
         if not refresh:
             asset = await assets_db.get(engine.db, req.repo.id, _join(repo_dir, 'repodata', REPOMD))
             if asset is not None and await engine.blobs.exists(asset.blob_sha256):
@@ -289,6 +357,7 @@ class YumPlugin:
                     version=p.version,
                     release=p.release,
                     arch=p.arch,
+                    version_sort=evr.evr_key(p.epoch, p.version, p.release),
                 )
                 for p in packages
             ]

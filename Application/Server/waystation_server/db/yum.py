@@ -19,11 +19,13 @@ never per cache hit (ARCHITECTURE §8).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
-from pymongo import UpdateOne
+from pymongo import DESCENDING, UpdateOne
 from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db.client import Database
@@ -54,6 +56,7 @@ class Listing:
     version: str = ''
     release: str = ''
     arch: str = ''
+    version_sort: str = ''
 
 
 def _record(doc: dict[str, object]) -> PackageRecord:
@@ -113,6 +116,7 @@ async def record_primary(
                     'version': e.version,
                     'release': e.release,
                     'arch': e.arch,
+                    'version_sort': e.version_sort,
                     'gen': gen,
                     'updated_at': now,
                 },
@@ -151,3 +155,66 @@ async def drop_cached(db: Database, repo_id: str, path: str) -> None:
     asset = await assets_db.get(db, repo_id, path)
     if asset is not None:
         await assets_db.delete(db, asset.id)
+
+
+# ---------------------------------------------------------------------------- browse
+async def package_names(
+    db: Database, repo_id: str, *, after: str | None, q: str | None, limit: int, name_is: str | None = None
+) -> list[dict[str, Any]]:
+    """Up to ``limit`` package names after ``after`` (``q``: case-insensitive substring; ``name_is``: one name),
+    each with its newest entry (``latest``), its architectures and its number of distinct EVRs. Only listed
+    packages (they have a name); unverified fetches show in the folder tree."""
+    name: dict[str, Any] = {'$eq': name_is} if name_is is not None else {'$gt': ''}
+    if after is not None:
+        name['$gt'] = after
+    if q:
+        name['$regex'] = re.escape(q)
+        name['$options'] = 'i'
+    pipeline: list[dict[str, Any]] = [
+        {'$match': {'repo_id': repo_id, 'name': name}},
+        {'$sort': {'name': 1, 'version_sort': DESCENDING}},
+        {
+            '$group': {
+                '_id': '$name',
+                'latest': {'$first': '$$ROOT'},
+                'arches': {'$addToSet': '$arch'},
+                'versions': {'$addToSet': '$version_sort'},
+            }
+        },
+        {'$sort': {'_id': 1}},
+        {'$limit': limit},
+    ]
+    out: list[dict[str, Any]] = []
+    async for doc in await db[YUM_PACKAGES].aggregate(pipeline):
+        latest = doc['latest']
+        latest.pop('_id', None)
+        latest.pop('meta', None)
+        out.append(
+            {
+                'name': doc['_id'],
+                'latest': latest,
+                'arches': sorted(a for a in doc['arches'] if a),
+                'version_count': len(doc['versions']),
+            }
+        )
+    return out
+
+
+async def package_versions(
+    db: Database, repo_id: str, name: str, *, after: tuple[str, str] | None, limit: int
+) -> list[dict[str, Any]]:
+    """Every entry of one package name, newest EVR first, then by path (``after``: the last ``(version_sort,
+    path)`` of the previous page)."""
+    query: dict[str, Any] = {'repo_id': repo_id, 'name': name}
+    if after is not None:
+        query['$or'] = [
+            {'version_sort': {'$lt': after[0]}},
+            {'version_sort': after[0], 'path': {'$gt': after[1]}},
+        ]
+    cursor = (
+        db[YUM_PACKAGES]
+        .find(query, {'_id': 0, 'meta': 0})
+        .sort([('version_sort', DESCENDING), ('path', 1)])
+        .limit(limit)
+    )
+    return [doc async for doc in cursor]

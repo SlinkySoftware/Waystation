@@ -116,6 +116,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/galaxy/versions', 'get'),
     ('/repositories/{name}/apt/suites', 'get'),
     ('/repositories/{name}/apt/packages', 'get'),
+    ('/repositories/{name}/yum/packages', 'get'),
+    ('/repositories/{name}/yum/versions', 'get'),
     ('/repositories/{name}/docker/images', 'get'),
     ('/repositories/{name}/docker/tags', 'get'),
     ('/repositories/{name}/cleanup', 'get'),

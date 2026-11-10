@@ -13,6 +13,8 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from waystation_common import openpgp
+from waystation_common.errors import ValidationFailed
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, UiHints
 from waystation_server.formats.common.setup import TOKEN, USERNAME, snippet
 from waystation_server.repos.model import RepoType
@@ -20,6 +22,7 @@ from waystation_server.repos.model import RepoType
 REPO_PATH = r'^[A-Za-z0-9$_.{}+/-]*$'
 GPG_KEY = r'^(file|https?)://[^\s]+$'
 VENDOR_KEY = 'file:///etc/pki/rpm-gpg/RPM-GPG-KEY-<vendor>'
+REPOMD_KEYS_MAX = 64 * 1024
 
 
 class YumOptions(BaseModel):
@@ -41,6 +44,16 @@ class YumOptions(BaseModel):
         pattern=GPG_KEY,
         description='`gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams',
     )
+    repomd_keys: str | None = Field(
+        default=None,
+        max_length=REPOMD_KEYS_MAX,
+        description=(
+            "Armored OpenPGP public key block(s) of the upstream (e.g. the distribution's `RPM-GPG-KEY-*`). When "
+            'set, a `repomd.xml` is cached only when its `repomd.xml.asc` verifies with one of these keys, and the '
+            'verified `.asc` is served with it. Only for upstreams that sign `repomd.xml` (Rocky Linux, AlmaLinux); '
+            'EPEL and Oracle Linux do not'
+        ),
+    )
 
     @field_validator('repo_path')
     @classmethod
@@ -49,6 +62,18 @@ class YumOptions(BaseModel):
         if '..' in parts:
             raise ValueError('must not contain `..`')
         return '/'.join(parts) + '/' if parts else ''
+
+    @field_validator('repomd_keys')
+    @classmethod
+    def _repomd_keys(cls, value: str | None) -> str | None:
+        text = (value or '').strip()
+        if not text:
+            return None
+        try:
+            openpgp.read_public_keys(text)
+        except ValidationFailed as exc:
+            raise ValueError(exc.detail) from None
+        return text + '\n'
 
 
 @dataclass(frozen=True)

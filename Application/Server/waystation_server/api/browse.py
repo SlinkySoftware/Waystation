@@ -48,6 +48,9 @@ from waystation_server.browse.models import (
     PypiVersionPage,
     PypiYank,
     PypiYankResult,
+    YumBrowser,
+    YumPackagePage,
+    YumVersionPage,
 )
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security import access
@@ -399,6 +402,54 @@ async def list_helm_versions(
     repo: RepoConfig = request.state.repo
     browser = _helm(svc, repo)
     return await browser.versions(_context(svc, repo), chart=chart, cursor=cursor, limit=limit)
+
+
+# ---------------------------------------------------------------------------- yum
+def _yum(svc: Services, repo: RepoConfig) -> YumBrowser:
+    browser = _browser(svc, repo, 'yum')
+    if not isinstance(browser, YumBrowser):
+        raise NotFound('not a yum repository')
+    return browser
+
+
+@router.get(
+    '/repositories/{name}/yum/packages',
+    response_model=YumPackagePage,
+    operation_id='listYumPackages',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_yum_packages(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=250)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> YumPackagePage:
+    repo: RepoConfig = request.state.repo
+    browser = _yum(svc, repo)
+    return await browser.packages(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/yum/versions',
+    response_model=YumVersionPage,
+    operation_id='listYumVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_yum_versions(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    package: Annotated[str, Query(max_length=250, description='Package name')],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> YumVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _yum(svc, repo)
+    return await browser.versions(_context(svc, repo), package=package, cursor=cursor, limit=limit)
 
 
 # ---------------------------------------------------------------------------- maven
