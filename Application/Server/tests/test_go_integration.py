@@ -218,7 +218,7 @@ async def token(admin: httpx.AsyncClient) -> str:
 async def test_group_merges_lists_and_serves_members(
     client: httpx.AsyncClient, admin: httpx.AsyncClient, services: Services, upstream: FakeUpstream
 ) -> None:
-    assert (await client.get(f'/repository/go-all/{ESC}/@v/list')).status_code == 404  # hidden from anonymous
+    assert (await client.get(f'/repository/go-all/{ESC}/@v/list')).status_code == 401  # hidden: challenge (ADR 0005)
     auth = ('go', await token(admin))
     listed = await client.get(f'/repository/go-all/{ESC}/@v/list', auth=auth)
     assert listed.status_code == 200, listed.text

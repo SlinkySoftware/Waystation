@@ -238,7 +238,7 @@ async def test_hosted_upload_pages_metadata_policy_and_yank(
 ) -> None:
     secret = await token(admin, ['read', 'write'])
     filename, content, metadata = make_wheel('ws-demo', '0.1.0')
-    assert (await client.get('/repository/pypi-hosted/simple/ws-demo/')).status_code == 404  # hidden: anonymous
+    assert (await client.get('/repository/pypi-hosted/simple/ws-demo/')).status_code == 401  # hidden: challenge
 
     refused = await upload(client, 'pypi-hosted', secret, filename, content, name='other', version='0.1.0')
     assert refused.status_code == 400 and 'other' in refused.text

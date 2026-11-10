@@ -568,14 +568,14 @@ async def test_one_time_password_must_be_changed_first(services: Services, world
 async def test_anonymous_access_is_configurable(services: Services, admin: httpx.AsyncClient) -> None:
     async with asgi_client(services) as anon:
         assert (await anon.get('/repository/npm-proxy/pkg')).status_code == 200  # default: read proxy repositories
-        assert (await anon.get('/repository/raw-hosted/a')).status_code == 404
+        assert (await anon.get('/repository/raw-hosted/a')).status_code == 401  # hidden (ADR 0005)
         assert (await admin.get(f'{API}/anonymous-access')).json() == {'roles': ['anonymous']}
         role = {'id': 'raw-public', 'name': 'raw public', 'permissions': [{'action': 'read', 'scope': 'raw-*'}]}
         assert (await admin.post(f'{API}/roles', json=role)).status_code == 201
         saved = await admin.put(f'{API}/anonymous-access', json={'roles': ['raw-public']})
         assert saved.status_code == 200 and saved.json() == {'roles': ['raw-public']}
         assert (await anon.get('/repository/raw-hosted/a')).status_code == 200
-        assert (await anon.get('/repository/npm-proxy/pkg')).status_code == 404
+        assert (await anon.get('/repository/npm-proxy/pkg')).status_code == 401  # hidden (ADR 0005)
         refused = await admin.put(f'{API}/anonymous-access', json={'roles': ['viewer', 'admin', 'nope']})
         assert [(e['field'], e['code']) for e in refused.json()['errors']] == [
             ('roles.0', 'global'),
@@ -583,8 +583,8 @@ async def test_anonymous_access_is_configurable(services: Services, admin: httpx
             ('roles.2', 'role'),
         ]
         assert (await admin.put(f'{API}/anonymous-access', json={'roles': []})).status_code == 200
-        assert (await anon.get('/repository/raw-hosted/a')).status_code == 404
-        assert (await anon.get('/repository/npm-proxy/pkg')).status_code == 404
+        assert (await anon.get('/repository/raw-hosted/a')).status_code == 401  # hidden (ADR 0005)
+        assert (await anon.get('/repository/npm-proxy/pkg')).status_code == 401  # hidden (ADR 0005)
         # docker's anonymous registry tokens follow the same roles
         token = await anon.get('/auth/token', params={'scope': 'repository:raw-hosted/x:pull'})
         assert token.status_code == 200

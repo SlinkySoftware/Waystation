@@ -107,7 +107,7 @@ async def test_upload_download_list_delete(
     assert put.headers['etag'] == f'"sha256:{SHA256}"'
 
     got = await client.get(url)
-    assert got.status_code == 404  # hosted repositories are hidden from anonymous (not 403)
+    assert got.status_code == 401  # hosted repositories are hidden from anonymous: challenged (ADR 0005), not 403
     got = await client.get(url, auth=auth)
     assert got.status_code == 200
     assert got.headers['x-accel-redirect'].endswith(SHA256)
