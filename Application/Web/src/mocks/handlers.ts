@@ -70,8 +70,9 @@ function visibleRepos(): Repository[] {
   return world.repos.filter((r) => admin.canSee(user, r))
 }
 
-/** The mock session: a seeded user (sign in as `helpdesk` to see a user-admin who is not an administrator) or, for
- * any other name, an administrator. */
+/** The mock session: a seeded user (sign in as `helpdesk` to see a user-admin who is not an administrator; `nina`
+ * holds no role, `reed` is a reader, `gus` has only the anonymous grants, `grace` is a viewer) or, for any other
+ * name, an administrator. */
 function session(username: string): Session {
   const known = admin.users.find((u) => u.username === username)
   return {
