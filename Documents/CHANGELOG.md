@@ -3,6 +3,19 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-11
+- T-S07: cache fills finish after the client disconnects. A streaming content fill now runs as a background task of
+  the proxy engine (`proxy.fills.FillRegistry`) instead of in the request: when the client that triggered it goes
+  away mid-download (an aborted `docker pull` or `apt` run, a client timeout on a large layer) the fill carries on,
+  the blob is verified, committed and indexed, coalesced followers keep tailing and succeed, the lease is renewed
+  and released with the outcome, and the next request is a cache hit. Before, the disconnect cancelled the fill: the
+  partial upload was discarded, the lease published `aborted` and a follower (if any) fetched the file from the
+  upstream again; with no follower nothing was cached. The client reads the fill through a `Feed` (in memory while it
+  keeps up, at most 8 MiB, then from the upload file), so a slow client no longer slows the fill or its followers.
+  Bounds: upstream timeouts, a stall limit (no upstream bytes for the coalescing stall time: fails as a timeout),
+  size limit and low-disk guard, at most 64 fills per process without a client. Shutdown cancels and awaits running
+  fills (`aborted`, upload removed, a follower elsewhere takes over). Metadata fills and pass-through responses are
+  unchanged (still tied to the request). A tailing follower that has seen the commit now finishes from the blob even
+  after the fill record expired (a fast fill and a slow follower used to cost a second upstream fetch).
 - T-S03: signed-in principals also receive the anonymous grants (owner decision), so signing in never reduces access.
   Every authenticated principal (users of any source, service accounts; by session, API token, basic, `docker login`
   or a registry token) holds its own grants plus the anonymous principal's (`Principal.anonymous_grants`, attached by

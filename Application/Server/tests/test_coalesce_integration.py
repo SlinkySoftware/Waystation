@@ -212,7 +212,7 @@ async def test_owner_gone_mid_transfer_a_follower_takes_over(
         return Respond(200, {}, DATA, chunk=256 * 1024)
 
     upstream.routes['/big.bin'] = route
-    # The first fetch must end by its client going away, not by the 5 s read timeout (on a loaded machine attaching
+    # The first fetch must end by its owner going away, not by the 5 s read timeout (on a loaded machine attaching
     # 15 followers can take longer, and a timed-out fetch rightly fails its followers instead of handing over).
     for s in (services, replica_b):
         s.upstream.timeouts = Timeouts(connect=2.0, read=60.0)
@@ -229,7 +229,11 @@ async def test_owner_gone_mid_transfer_a_follower_takes_over(
         return len(sent) == 15 and all(n >= 2 * MiB for n in sent)
 
     await eventually(all_sending, within=30, what=lambda: f'(bytes sent per follower: {sorted(sent)})')
-    owner.cancel()  # the owner's client goes away: its fill is aborted, a follower takes it over
+    # The owner goes away (as at shutdown: its client leaving alone no longer stops a fill, test_fill_continue): its
+    # fill is aborted, a follower takes it over.
+    assert len(services.proxy.fills.cancel()) == 1
+    with pytest.raises(ResponseAborted):
+        await asyncio.wait_for(owner, 10)
     results = await asyncio.wait_for(asyncio.gather(*followers), 60)
     assert upstream.hits('/big.bin') == 2
     assert all(r.status_code == 200 and r.content == DATA for r in results)
