@@ -380,9 +380,13 @@ async def test_custom_roles(services: Services, admin: httpx.AsyncClient) -> Non
         assert (await rita.request('PUT', '/repository/raw-hosted/a', content=b'x')).status_code == 200
         assert (await rita.request('PUT', '/repository/npm-hosted/pkg', content=b'x')).status_code == 404
         perms = (await rita.get(f'{API}/auth/me/permissions')).json()
-        assert perms['roles'] == [{'id': 'npm-publisher', 'name': 'npm publisher', 'via': ['direct']}]
-        assert perms['repositories'] == [
-            {'name': 'raw-hosted', 'format': 'raw', 'type': 'hosted', 'actions': ['browse', 'read', 'write']}
+        assert perms['roles'] == [
+            {'id': 'npm-publisher', 'name': 'npm publisher', 'via': ['direct']},
+            {'id': 'anonymous', 'name': 'Anonymous', 'via': ['anonymous']},  # every signed-in principal gets it
+        ]
+        assert sorted(perms['repositories'], key=lambda r: r['name']) == [
+            {'name': 'npm-proxy', 'format': 'npm', 'type': 'proxy', 'actions': ['browse', 'read']},
+            {'name': 'raw-hosted', 'format': 'raw', 'type': 'hosted', 'actions': ['browse', 'read', 'write']},
         ]
         assert perms['global_actions'] == [] and perms['narrowed_by_token'] is False
     finally:

@@ -276,7 +276,12 @@ async def test_login_issues_a_token_and_logout_revokes_it(client: httpx.AsyncCli
     assert (await login(client, 'npm-proxy', 'admin', 'wrong')).status_code == 401
     await user(admin, 'norole', [])
     assert (await login(client, 'npm-hosted', 'norole', PASSWORD)).content == missing.content
-    assert (await login(client, 'npm-proxy', 'norole', PASSWORD)).status_code == 404
+    # no role, but every signed-in user also receives the anonymous grants (read on proxies): a read token
+    proxied = await login(client, 'npm-proxy', 'norole', PASSWORD)
+    assert proxied.status_code == 201, proxied.text
+    norole = {'Authorization': f'Bearer {proxied.json()["token"]}'}
+    norole_tokens = (await client.get('/api/v1/auth/me/tokens', headers=norole)).json()['items']
+    assert [t['scopes'] for t in norole_tokens] == [['read']]
     mismatch = await client.put(
         '/repository/npm-hosted/-/user/org.couchdb.user:admin', json={'name': 'other', 'password': PASSWORD}
     )
