@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, DockerOptions, Format, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
+import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
 /** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (options carried through). */
@@ -10,11 +10,11 @@ export type FormFormat = M0Format | 'yum'
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'helm']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'helm', 'galaxy']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'go', 'helm']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
-export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'pypi', 'helm']
+export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'raw', 'pypi', 'helm', 'galaxy']
 
 export interface RepoFormModel {
   name: string
@@ -68,6 +68,9 @@ export interface RepoFormModel {
   sumdbUrl: string
   verifyChecksums: boolean
   nosumdb: string[]
+  // galaxy (proxy)
+  galaxyCollectionsPath: string
+  galaxyRoles: boolean
   // apt
   distribution: string
   flat: boolean
@@ -115,7 +118,11 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   ],
   pypi: [{ id: 'pypi', label: 'pypi.org', apply: { name: 'pypi-proxy', upstreamUrl: 'https://pypi.org' } }],
   go: [{ id: 'goproxy', label: 'proxy.golang.org', apply: { name: 'go-proxy', upstreamUrl: 'https://proxy.golang.org' } }],
+  galaxy: [{ id: 'galaxy', label: 'galaxy.ansible.com', apply: { name: 'galaxy-proxy', upstreamUrl: 'https://galaxy.ansible.com/' } }],
 }
+
+/** Galaxy NG / galaxy.ansible.com layout of collection documents under the upstream URL (the server default). */
+export const GALAXY_COLLECTIONS_PATH = 'api/v3/plugin/ansible/content/published/collections/index/'
 
 export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFormModel {
   return {
@@ -159,6 +166,8 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     sumdbUrl: 'https://sum.golang.org',
     verifyChecksums: true,
     nosumdb: [],
+    galaxyCollectionsPath: GALAXY_COLLECTIONS_PATH,
+    galaxyRoles: true,
     distribution: '',
     flat: false,
     metadataRegex: '',
@@ -176,7 +185,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
   const h = repo.hosted
   const quotaBytes = repo.storage?.quota_bytes ?? null
   const quotaSize = quotaBytes ? fromBytes(quotaBytes) : { size: m.quotaSize, unit: m.quotaUnit }
-  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions
+  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions
   return {
     ...m,
     name: repo.name,
@@ -216,6 +225,8 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     sumdbUrl: o.sumdb_url ?? 'https://sum.golang.org',
     verifyChecksums: o.verify_checksums ?? true,
     nosumdb: o.nosumdb ?? [],
+    galaxyCollectionsPath: o.collections_path ?? GALAXY_COLLECTIONS_PATH,
+    galaxyRoles: o.roles ?? true,
     distribution: o.distribution ?? '',
     flat: o.flat ?? false,
     metadataRegex: o.metadata_path_regex ?? '',
@@ -249,6 +260,9 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       return { repo_path: m.repoPath, gpg_key: m.gpgKey }
     case 'helm':
       return {}
+    case 'galaxy':
+      // The upstream layout is a proxy setting (the server refuses another value on hosted and group repositories).
+      return m.type === 'proxy' ? { collections_path: m.galaxyCollectionsPath.trim() || GALAXY_COLLECTIONS_PATH, roles: m.galaxyRoles } : {}
     case 'maven':
       return { version_policy: m.versionPolicy, layout_policy: m.layoutPolicy }
     case 'raw':

@@ -77,7 +77,7 @@ export function formatColor(format: string): string {
 }
 
 /** Formats offered in list and live filters: the creatable formats plus yum (displayed, not yet creatable). */
-export const LISTED_FORMATS: readonly Format[] = ['docker', 'npm', 'apt', 'yum', 'raw', 'helm']
+export const LISTED_FORMATS: readonly Format[] = ['docker', 'npm', 'apt', 'yum', 'raw', 'helm', 'galaxy']
 
 /** The mark for a format, refined by upstream for apt (Debian / Ubuntu / Raspberry Pi) and yum (Rocky / Alma / Fedora). */
 export function formatMark(format: Format, upstreamUrl?: string | null): BrandMark {

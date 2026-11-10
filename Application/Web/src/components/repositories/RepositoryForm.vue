@@ -124,7 +124,7 @@
     </section>
 
     <section
-      v-if="model.format !== 'yum' && model.format !== 'helm' && !(model.format === 'maven' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go') && model.type !== 'proxy')"
+      v-if="model.format !== 'yum' && model.format !== 'helm' && !(model.format === 'maven' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'galaxy') && model.type !== 'proxy')"
       class="repo-form__section"
     >
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
@@ -194,6 +194,20 @@
           :error="!!errors['format_options.nosumdb']"
           :error-message="errors['format_options.nosumdb']"
         />
+      </template>
+      <template v-else-if="model.format === 'galaxy'">
+        <q-input
+          v-model="model.galaxyCollectionsPath"
+          outlined
+          dense
+          :label="t('repoForm.galaxyCollectionsPath')"
+          :hint="t('repoForm.galaxyCollectionsPathHint')"
+          class="mono-input"
+          spellcheck="false"
+          :error="!!errors['format_options.collections_path']"
+          :error-message="errors['format_options.collections_path']"
+        />
+        <q-toggle v-model="model.galaxyRoles" :label="t('repoForm.galaxyRoles')" />
       </template>
       <template v-else-if="model.format === 'apt'">
         <div class="repo-form__row">
