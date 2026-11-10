@@ -1326,6 +1326,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/galaxy/namespaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Namespaces of an Ansible Galaxy repository with their number of collections */
+        get: operations["listGalaxyNamespaces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/galaxy/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Collections of an Ansible Galaxy repository (hosted imports, a proxy's cached version lists, a group's members) */
+        get: operations["listGalaxyCollections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/galaxy/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One collection and its versions (newest first, SemVer) */
+        get: operations["listGalaxyVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/apt/suites": {
         parameters: {
             query?: never;
@@ -3207,8 +3264,20 @@ export interface components {
         };
         /** @description Helm (classic chart repositories): no options yet */
         HelmOptions: Record<string, never>;
+        GalaxyOptions: {
+            /**
+             * @description Upstream path (relative to the upstream URL) under which `<namespace>/<name>/` collection documents live (proxy repositories). Galaxy NG and galaxy.ansible.com: `api/v3/plugin/ansible/content/published/collections/index/`; servers with the plain v3 layout: `api/v3/collections/`
+             * @default api/v3/plugin/ansible/content/published/collections/index/
+             */
+            collections_path: string;
+            /**
+             * @description Proxy the legacy v1 roles API read-only, role archives cached as content (proxy repositories)
+             * @default true
+             */
+            roles: boolean;
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -3761,6 +3830,53 @@ export interface components {
         HelmVersionPage: {
             chart: components["schemas"]["HelmChart"];
             items: components["schemas"]["HelmVersion"][];
+            next_cursor: string | null;
+        };
+        GalaxyNamespace: {
+            namespace: string;
+            collection_count: number;
+        };
+        GalaxyNamespacePage: {
+            items: components["schemas"]["GalaxyNamespace"][];
+            next_cursor: string | null;
+        };
+        GalaxyCollection: {
+            namespace: string;
+            name: string;
+            latest_version: string;
+            description?: string | null;
+            /** @description ansible-core versions the newest version supports (meta/runtime.yml) */
+            requires_ansible?: string | null;
+            version_count: number;
+        };
+        GalaxyCollectionPage: {
+            items: components["schemas"]["GalaxyCollection"][];
+            next_cursor: string | null;
+        };
+        GalaxyVersion: {
+            version: string;
+            /** @default false */
+            prerelease: boolean;
+            /** Format: date-time */
+            created_at?: string | null;
+            requires_ansible?: string | null;
+            /** @description sha256 of the collection artifact (hex), when known */
+            sha256?: string | null;
+            size_bytes?: number | null;
+            /** @description The artifact is stored (always true in hosted repositories) */
+            cached: boolean;
+            /** @description Collection name -> version range */
+            dependencies?: {
+                [key: string]: string;
+            };
+            uploaded_by?: string | null;
+            /** @description Path of the artifact in the repository */
+            path: string;
+            download_url: string;
+        };
+        GalaxyVersionPage: {
+            collection: components["schemas"]["GalaxyCollection"];
+            items: components["schemas"]["GalaxyVersion"][];
             next_cursor: string | null;
         };
         AptSuite: {
@@ -7230,6 +7346,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HelmVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listGalaxyNamespaces: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Namespaces */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GalaxyNamespacePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listGalaxyCollections: {
+        parameters: {
+            query?: {
+                /** @description Only this namespace */
+                namespace?: string | null;
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Collections */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GalaxyCollectionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listGalaxyVersions: {
+        parameters: {
+            query: {
+                /** @description Collection namespace */
+                namespace: string;
+                /** @description Collection name */
+                collection: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GalaxyVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];

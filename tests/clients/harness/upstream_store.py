@@ -50,10 +50,11 @@ RESPONSE_HEADERS = frozenset(
     }
 )
 
-# Query parameters of signed/expiring URLs (S3, CloudFront, Azure SAS, generic tokens). Values are replaced.
+# Query parameters of signed/expiring URLs (S3, CloudFront, Azure SAS, Pulp content guards, generic tokens). Values
+# are replaced.
 _SECRET_QUERY = re.compile(
     r'^(x-amz-[a-z-]+|x-goog-[a-z-]+|signature|sig|se|sp|sv|st|skoid|sktid|skt|ske|sks|skv|token|access_token|'
-    r'key-pair-id|policy|expires|verify|auth|apikey|api_key|password|secret|jwt)$',
+    r'key-pair-id|policy|expires|verify|validate_token|auth|apikey|api_key|password|secret|jwt)$',
     re.IGNORECASE,
 )
 # JSON object keys whose string values are credentials (Docker token service, OAuth responses, npm login...).

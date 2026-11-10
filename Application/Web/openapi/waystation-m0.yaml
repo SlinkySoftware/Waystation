@@ -1715,6 +1715,65 @@ paths:
               schema: { $ref: '#/components/schemas/HelmVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/galaxy/namespaces:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listGalaxyNamespaces
+      summary: Namespaces of an Ansible Galaxy repository with their number of collections
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 250 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Namespaces
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GalaxyNamespacePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/galaxy/collections:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listGalaxyCollections
+      summary: Collections of an Ansible Galaxy repository (hosted imports, a proxy's cached version lists, a group's members)
+      parameters:
+        - { name: namespace, in: query, description: Only this namespace, schema: { type: [string, 'null'], maxLength: 64 } }
+        - { name: q, in: query, schema: { type: string, maxLength: 250 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Collections
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GalaxyCollectionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/galaxy/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listGalaxyVersions
+      summary: One collection and its versions (newest first, SemVer)
+      parameters:
+        - { name: namespace, in: query, required: true, description: Collection namespace, schema: { type: string, maxLength: 64 } }
+        - { name: collection, in: query, required: true, description: Collection name, schema: { type: string, maxLength: 64 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GalaxyVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/apt/suites:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4035,6 +4094,11 @@ components:
       type: object
       description: 'Helm (classic chart repositories): no options yet'
       properties: {}
+    GalaxyOptions:
+      type: object
+      properties:
+        collections_path: { type: string, maxLength: 200, default: 'api/v3/plugin/ansible/content/published/collections/index/', description: 'Upstream path (relative to the upstream URL) under which `<namespace>/<name>/` collection documents live (proxy repositories). Galaxy NG and galaxy.ansible.com: `api/v3/plugin/ansible/content/published/collections/index/`; servers with the plain v3 layout: `api/v3/collections/`' }
+        roles: { type: boolean, default: true, description: 'Proxy the legacy v1 roles API read-only, role archives cached as content (proxy repositories)' }
     FormatOptions:
       description: Format-specific options; the shape follows the repository's `format`
       oneOf:
@@ -4047,6 +4111,7 @@ components:
         - $ref: '#/components/schemas/PypiOptions'
         - $ref: '#/components/schemas/GoOptions'
         - $ref: '#/components/schemas/HelmOptions'
+        - $ref: '#/components/schemas/GalaxyOptions'
     QuotaMode:
       type: string
       enum: [soft, hard]
@@ -4681,6 +4746,65 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/HelmVersion' }
+        next_cursor: { type: [string, 'null'] }
+    GalaxyNamespace:
+      type: object
+      required: [namespace, collection_count]
+      properties:
+        namespace: { type: string }
+        collection_count: { type: integer }
+    GalaxyNamespacePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/GalaxyNamespace' }
+        next_cursor: { type: [string, 'null'] }
+    GalaxyCollection:
+      type: object
+      required: [namespace, name, latest_version, version_count]
+      properties:
+        namespace: { type: string }
+        name: { type: string }
+        latest_version: { type: string }
+        description: { type: [string, 'null'] }
+        requires_ansible: { type: [string, 'null'], description: 'ansible-core versions the newest version supports (meta/runtime.yml)' }
+        version_count: { type: integer }
+    GalaxyCollectionPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/GalaxyCollection' }
+        next_cursor: { type: [string, 'null'] }
+    GalaxyVersion:
+      type: object
+      required: [version, cached, path, download_url]
+      properties:
+        version: { type: string }
+        prerelease: { type: boolean, default: false }
+        created_at: { type: [string, 'null'], format: date-time }
+        requires_ansible: { type: [string, 'null'] }
+        sha256: { type: [string, 'null'], description: 'sha256 of the collection artifact (hex), when known' }
+        size_bytes: { type: [integer, 'null'] }
+        cached: { type: boolean, description: 'The artifact is stored (always true in hosted repositories)' }
+        dependencies:
+          type: object
+          additionalProperties: { type: string }
+          description: Collection name -> version range
+        uploaded_by: { type: [string, 'null'] }
+        path: { type: string, description: Path of the artifact in the repository }
+        download_url: { type: string }
+    GalaxyVersionPage:
+      type: object
+      required: [collection, items, next_cursor]
+      properties:
+        collection: { $ref: '#/components/schemas/GalaxyCollection' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/GalaxyVersion' }
         next_cursor: { type: [string, 'null'] }
     AptSuite:
       type: object
