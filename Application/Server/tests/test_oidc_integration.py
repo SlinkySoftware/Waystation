@@ -239,7 +239,7 @@ async def test_sign_in_provisions_maps_groups_and_creates_a_session(
         me = (await browser.get('/api/v1/auth/me')).json()
         assert me['user']['username'] == 'alice' and me['user']['source'] == f'oidc:{pid}'
         assert me['user']['display_name'] == 'Alice Example' and me['user']['email'] == 'alice@example.com'
-        assert me['capabilities'] == ['stats.read']  # viewer, mapped from the group claim
+        assert me['capabilities'] == ['repositories.browse', 'stats.read']  # viewer, mapped from the group claim
     user = await services.db[USERS].find_one({'username': 'alice'})
     assert user is not None and user.get('password_hash') is None
     assert [(g['id'], g['name']) for g in user['external_groups']] == [

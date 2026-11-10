@@ -37,9 +37,7 @@
       </transition>
 
       <div v-if="log.error.value && !log.items.value.length" class="q-pa-lg">
-        <EmptyState :icon="iconError" :title="t('activity.loadFailed')" :text="errorMessage(log.error.value)">
-          <q-btn unelevated no-caps color="primary" :label="t('common.retry')" @click="log.reload" />
-        </EmptyState>
+        <LoadFailedState :error="log.error.value" :title="t('activity.loadFailed')" @retry="log.reload" />
       </div>
       <div v-else-if="!log.items.value.length && log.loading.value" class="q-pa-md">
         <q-skeleton v-for="i in 8" :key="i" type="text" height="36px" class="q-mb-xs" />
@@ -91,13 +89,14 @@ import ActivityDetail from '@/components/activity/ActivityDetail.vue'
 import ActivityList from '@/components/activity/ActivityList.vue'
 import ActivityToolbar from '@/components/activity/ActivityToolbar.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadFailedState from '@/components/LoadFailedState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useActivityLog } from '@/composables/useActivityLog'
 import { useNotify } from '@/composables/useNotify'
 import { t } from '@/i18n'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { type ActivityFilters, activeFilterCount, filenameFrom, filtersFromQuery, filtersToQuery, NO_FILTERS, toApiQuery } from '@/utils/activity'
-import { iconActivity, iconArrowUp, iconDownload, iconError, iconPause, iconPlay } from '@/utils/icons'
+import { iconActivity, iconArrowUp, iconDownload, iconPause, iconPlay } from '@/utils/icons'
 
 const $q = useQuasar()
 const route = useRoute()

@@ -304,8 +304,15 @@ def filter_query(
     return {field: {'$in': sorted(r.id for r in allowed)}}
 
 
+class PermissionRequired(Forbidden):
+    """A signed-in principal lacks a permission (problem code ``permission_required``; the UI shows a calm "no
+    access" state for it). CSRF and pending sign-in steps keep their own codes."""
+
+    code = 'permission_required'
+
+
 def _denied(principal: Principal, detail: str) -> Exception:
-    return Unauthorized('authentication required') if principal.is_anonymous else Forbidden(detail)
+    return Unauthorized('authentication required') if principal.is_anonymous else PermissionRequired(detail)
 
 
 def require(principal: Principal, action: Action) -> None:
@@ -328,6 +335,8 @@ def capabilities(principal: Principal) -> list[str]:
         caps += ['admin', 'repositories.create']
     if check(principal, Action.MANAGE):
         caps.append('repositories.manage')
+    if check(principal, Action.BROWSE) or check(principal, Action.READ):
+        caps.append('repositories.browse')  # some repository may be visible: Repositories, Browse, Search
     if check(principal, Action.STATS_READ):
         caps.append('stats.read')
     if check(principal, Action.AUDIT_READ):

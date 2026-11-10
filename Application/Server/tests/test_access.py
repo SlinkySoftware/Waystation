@@ -28,6 +28,7 @@ def user(*roles: str) -> Principal:
 
 
 READER, DEPLOYER, ADMIN, VIEWER, NOBODY = user('reader'), user('deployer'), user('admin'), user('viewer'), user()
+GUEST = user('anonymous')  # signed in, holding only what anonymous access grants (browse + read on proxies)
 
 
 def test_scopes() -> None:
@@ -77,13 +78,26 @@ def test_capabilities() -> None:
         'admin',
         'repositories.create',
         'repositories.manage',
+        'repositories.browse',
         'stats.read',
         'audit.read',
         'users.admin',
         'settings.admin',
     ]
-    assert access.capabilities(VIEWER) == ['stats.read']
-    assert access.capabilities(ANONYMOUS) == []
+    assert access.capabilities(VIEWER) == ['repositories.browse', 'stats.read']
+    assert access.capabilities(READER) == ['repositories.browse']
+    assert access.capabilities(GUEST) == ['repositories.browse']
+    assert access.capabilities(ANONYMOUS) == ['repositories.browse']
+    assert access.capabilities(NOBODY) == []  # signed in, no role: the UI shows the "no access yet" landing
+    custom = Principal(
+        PrincipalKind.USER,
+        'id-custom',
+        'custom',
+        ('docker-readers',),
+        AuthMethod.BASIC,
+        grants=access.Grants(is_admin=False, permissions=(access.Permission(Action.READ, 'docker-*'),)),
+    )
+    assert access.capabilities(custom) == ['repositories.browse']  # read on a glob: some repository may be visible
 
 
 def test_requires_rejects_repo_actions() -> None:
@@ -115,7 +129,7 @@ class EchoPlugin:
         return PlainTextResponse(f'{req.method} {req.repo.name}/{req.path} as {req.principal.display}')
 
 
-TOKENS = {'reader': READER, 'deployer': DEPLOYER, 'admin': ADMIN}
+TOKENS = {'reader': READER, 'deployer': DEPLOYER, 'admin': ADMIN, 'nobody': NOBODY, 'guest': GUEST, 'viewer': VIEWER}
 
 
 async def _token_auth(request: Request, token: str) -> Principal | None:
@@ -144,6 +158,14 @@ async def matrix_client(unit_services: Services) -> AsyncIterator[httpx.AsyncCli
         ('deployer', 'PUT', 'npm-hosted', 200),
         ('deployer', 'DELETE', 'npm-hosted', 403),
         ('admin', 'DELETE', 'npm-hosted', 200),
+        # signed in, no role: nothing is visible, so everything is 404 (never 403, never 401)
+        ('nobody', 'GET', 'npm-proxy', 404),
+        ('nobody', 'GET', 'npm-hosted', 404),
+        ('nobody', 'PUT', 'npm-proxy', 404),
+        # signed in with only the anonymous grants: proxies readable, hosted hidden, no writes
+        ('guest', 'GET', 'npm-proxy', 200),
+        ('guest', 'GET', 'npm-hosted', 404),
+        ('guest', 'PUT', 'npm-proxy', 403),
     ],
 )
 async def test_format_route_matrix(
@@ -159,13 +181,13 @@ async def test_api_route_rules(matrix_client: httpx.AsyncClient) -> None:
     assert (await matrix_client.get('/api/v1/config')).status_code == 200
 
 
-def _api_routes(rule_kinds: set[str]) -> list[tuple[str, str, access.RouteAccess]]:
+def _api_routes(rule_kinds: set[str], at_least: int = 40) -> list[tuple[str, str, access.RouteAccess]]:
     out = []
     for path, methods, endpoint in iter_routes(create_app()):
         rule = access.route_rule(endpoint)
         if path.startswith('/api/v1/') and rule is not None and rule.kind in rule_kinds:
             out.extend((method, re.sub(r'\{[^}]+\}', 'x', path), rule) for method in sorted(methods))
-    assert len(out) > 40
+    assert len(out) > at_least, 'the enumeration must see the included routers'
     return out
 
 
@@ -180,32 +202,55 @@ async def test_every_protected_api_route_refuses_anonymous_and_unprivileged(
     anonymous = await matrix_client.request(method, path, json=body)
     assert anonymous.status_code == 401, f'{method} {path}: {anonymous.status_code}'
     if rule.kind == 'global':
-        for who in ('reader', 'deployer'):
+        for who in ('reader', 'deployer', 'nobody', 'guest'):
             denied = await matrix_client.request(method, path, json=body, headers={'Authorization': f'Bearer {who}'})
             assert denied.status_code == 403, f'{who} {method} {path}: {denied.status_code}'
+            assert denied.json()['code'] == 'permission_required', f'{who} {method} {path}: {denied.text}'
+
+
+@pytest.mark.parametrize(('method', 'path', 'rule'), _api_routes({'repo'}, at_least=20))
+async def test_every_repository_api_route_hides_repositories_from_a_principal_without_roles(
+    matrix_client: httpx.AsyncClient, method: str, path: str, rule: access.RouteAccess
+) -> None:
+    """The "signed in, no roles" column for repository routes: every repository is hidden (404, never 403), the
+    anonymous-only column sees proxies but nothing hosted. Decided by ``enforce`` before the handler runs."""
+    assert rule.param is not None
+    body = {} if method in ('POST', 'PUT', 'PATCH') else None
+    for repo in ('npm-proxy', 'npm-hosted'):
+        url = path.replace('/x', f'/{repo}', 1) if '/repositories/x' in path else path
+        hidden = await matrix_client.request(method, url, json=body, headers={'Authorization': 'Bearer nobody'})
+        assert hidden.status_code == 404, f'nobody {method} {url}: {hidden.status_code}'
+        if repo == 'npm-proxy' and rule.action in (Action.BROWSE, Action.READ):
+            continue  # allowed: the handler would run (needs MongoDB; the integration tests cover it)
+        as_guest = await matrix_client.request(method, url, json=body, headers={'Authorization': 'Bearer guest'})
+        expected = 404 if repo == 'npm-hosted' else 403
+        assert as_guest.status_code == expected, f'guest {method} {url}: {as_guest.status_code}'
+
+
+async def test_signed_in_principal_without_roles_gets_calm_answers(matrix_client: httpx.AsyncClient) -> None:
+    """What the UI shell asks for a user with no grants: no 401 (that would sign the user out), the stats and the
+    event stream are 403 ``permission_required`` (the UI does not ask without ``stats.read``)."""
+    nobody = {'Authorization': 'Bearer nobody'}
+    for path in ('/api/v1/stats/summary', '/api/v1/activity', '/api/v1/events/stream?topics=transfers'):
+        response = await matrix_client.get(path, headers=nobody)
+        assert response.status_code == 403, f'{path}: {response.status_code}'
+        assert response.json()['code'] == 'permission_required'
+    viewer = await matrix_client.get('/api/v1/events/stream?topics=tasks', headers={'Authorization': 'Bearer viewer'})
+    assert viewer.status_code == 403  # the tasks topic is admin-only
+    assert viewer.json()['code'] == 'permission_required'
 
 
 # ---------------------------------------------------------------------------- ADR 0005: the anonymous challenge
-async def _nobody_auth(request: Request, token: str) -> Principal | None:
-    return NOBODY if token == 'nobody' else None
-
-
-@pytest.fixture
-async def challenge_client(matrix_client: httpx.AsyncClient, unit_services: Services) -> httpx.AsyncClient:
-    unit_services.bearer_authenticators.append(_nobody_auth)
-    return matrix_client
-
-
 @pytest.mark.parametrize('method', ['GET', 'HEAD', 'PUT', 'DELETE'])
 @pytest.mark.parametrize('path', ['pkg', '', 'a/%2e%2e/%2e%2e/etc/passwd', 'a%00b'])
 async def test_anonymous_gets_the_same_challenge_for_hidden_and_missing_repositories(
-    challenge_client: httpx.AsyncClient, method: str, path: str
+    matrix_client: httpx.AsyncClient, method: str, path: str
 ) -> None:
     """ADR 0005: no credentials on ``/repository/<repo>/...`` → 401 + Basic challenge for a hidden repository, and
     the very same answer (status, headers, body) for a repository that does not exist, so names are not
     enumerable."""
-    hidden = await challenge_client.request(method, f'/repository/npm-hosted/{path}')
-    missing = await challenge_client.request(method, f'/repository/no-such-repo/{path}')
+    hidden = await matrix_client.request(method, f'/repository/npm-hosted/{path}')
+    missing = await matrix_client.request(method, f'/repository/no-such-repo/{path}')
     assert hidden.status_code == 401, hidden.text
     assert hidden.headers['www-authenticate'].startswith('Basic realm="Waystation"')
     assert missing.status_code == hidden.status_code
@@ -217,29 +262,29 @@ async def test_anonymous_gets_the_same_challenge_for_hidden_and_missing_reposito
 
 @pytest.mark.parametrize('who', ['nobody', 'not-a-known-token'])
 @pytest.mark.parametrize('repo', ['npm-hosted', 'no-such-repo'])
-async def test_requests_with_credentials_keep_the_404(challenge_client: httpx.AsyncClient, who: str, repo: str) -> None:
+async def test_requests_with_credentials_keep_the_404(matrix_client: httpx.AsyncClient, who: str, repo: str) -> None:
     """An authenticated principal that cannot see the repository, or a request whose credentials did not resolve to a
     principal, keeps the 404 (ADR 0005 only changes requests without credentials)."""
-    response = await challenge_client.get(f'/repository/{repo}/pkg', headers={'Authorization': f'Bearer {who}'})
+    response = await matrix_client.get(f'/repository/{repo}/pkg', headers={'Authorization': f'Bearer {who}'})
     assert response.status_code == 404, response.text
     assert 'www-authenticate' not in response.headers
 
 
 async def test_visible_repository_without_permission_still_challenges_and_others_are_unchanged(
-    challenge_client: httpx.AsyncClient,
+    matrix_client: httpx.AsyncClient,
 ) -> None:
-    assert (await challenge_client.get('/repository/npm-proxy/pkg')).status_code == 200
-    denied = await challenge_client.put('/repository/npm-proxy/pkg')
+    assert (await matrix_client.get('/repository/npm-proxy/pkg')).status_code == 200
+    denied = await matrix_client.put('/repository/npm-proxy/pkg')
     assert denied.status_code == 401
     assert denied.headers['www-authenticate'].startswith('Basic realm="Waystation"')
-    hidden = await challenge_client.put('/repository/npm-hosted/pkg')
+    hidden = await matrix_client.put('/repository/npm-hosted/pkg')
     assert hidden.content == denied.content  # visible-but-denied and hidden look the same to anonymous
     # REST API and /v2/ are unchanged: the API hides with 404, /v2/ challenges with Bearer.
-    api = await challenge_client.get('/api/v1/repositories/npm-hosted')
+    api = await matrix_client.get('/api/v1/repositories/npm-hosted')
     assert api.status_code == 404
     assert 'www-authenticate' not in api.headers
-    assert (await challenge_client.get('/api/v1/repositories/no-such-repo')).status_code == 404
-    v2 = await challenge_client.get('/v2/npm-hosted/tags/list')
+    assert (await matrix_client.get('/api/v1/repositories/no-such-repo')).status_code == 404
+    v2 = await matrix_client.get('/v2/npm-hosted/tags/list')
     assert v2.status_code == 401
     assert v2.headers['www-authenticate'].startswith('Bearer ')
 
