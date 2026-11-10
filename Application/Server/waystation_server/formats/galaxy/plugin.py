@@ -304,7 +304,8 @@ class GalaxyPlugin:
 
         async def stored(asset: StoredAsset, data: bytes | None) -> None:
             async def record() -> None:
-                detail = api.parse_detail(await engine.read(asset, max_bytes=api.MAX_DOC), ns, name, version)
+                data = await engine.read(asset, max_bytes=api.MAX_DOC)
+                detail = await asyncio.to_thread(api.parse_detail, data, ns, name, version)
                 fields = {
                     'sha256': detail.sha256,
                     'size': detail.size,
@@ -343,7 +344,7 @@ class GalaxyPlugin:
             asset = await req.proxy.ensure(req, self._collection_spec(req, ns, name))
         except NotFound:
             return None
-        doc = api.load(await self._read_json(req, asset), 'the collection document')
+        doc = await asyncio.to_thread(api.load, await self._read_json(req, asset), 'the collection document')
         top = doc.get('highest_version')
         version = top.get('version') if isinstance(top, dict) else None
         return api.parse_info(doc), version if isinstance(version, str) else None
