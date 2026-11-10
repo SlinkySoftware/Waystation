@@ -1,6 +1,6 @@
 # ADR 0005: Basic challenge instead of 404 for anonymous requests to hidden repositories (format routes)
 
-Status: accepted (2026-11-10, approved by the owner). Raised by T-P5-MAVEN; implementation pending (see TASKS T-S03).
+Status: accepted (2026-11-10, approved by the owner); implemented 2026-11-10 (T-S03). Raised by T-P5-MAVEN.
 
 ## Context
 ARCHITECTURE §7 / CLAUDE.md: a repository the principal may not see answers `404` (hidden objects never leak). The
@@ -32,3 +32,18 @@ format-route path, with a test in the route-enumeration suite.
   names on the format routes, i.e. repository names can be enumerated anonymously. Nexus has the same property;
   repository names are not secret in most deployments, but this weakens §7 for anonymous callers.
 - Alternative: keep §7 and require preemptive authentication on clients (status quo), documented per format.
+
+## Implementation (2026-11-10)
+- `security.access.hidden_repo(request, principal)` is the only place that decides between `404` and the challenge:
+  `401` when the principal is anonymous, the request has no `Authorization` header and the path is under
+  `/repository/`; `404` otherwise (including credentials that did not resolve to a principal). `authorize_repo` and
+  the format router use it for hidden repositories, for repositories that do not exist and for rejected paths on
+  either, so an anonymous caller gets byte-identical answers (status, `WWW-Authenticate`, plain-text body) for a
+  hidden and a missing repository. This removes the enumeration consequence above: anonymous callers cannot tell a
+  hidden repository from a missing one. The body is the plain-text native error for every format, since the format
+  of a missing repository is unknown.
+- Package-client sign-in on a hidden repository (npm login) reveals the repository only by succeeding: every failure
+  is replaced with the `hidden_repo` answer.
+- Tests: `test_access.py` (anonymous vs credentials, hidden vs missing vs visible, REST API and `/v2/` unchanged),
+  the real-client harnesses for Maven (no preemptive auth) and pip (credentials from a keyring, asked only after the
+  challenge), and curl `--anyauth` in the raw harness.

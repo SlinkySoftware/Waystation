@@ -6,7 +6,8 @@
   repository with the whole name (mirror mode).
 
 The router resolves the repository, normalises the path (``waystation_common.paths``), authorises the request and
-hands it to the format plugin. Unknown repositories answer the format's native 404.
+hands it to the format plugin. Unknown repositories answer exactly like hidden ones (``access.hidden_repo``: 404, or
+the 401 Basic challenge for a request without credentials, ADR 0005).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Request
 from starlette.responses import JSONResponse, Response
 
-from waystation_common.errors import NotFound, PathRejected
+from waystation_common.errors import NotFound, PathRejected, WaystationError
 from waystation_common.paths import normalise
 from waystation_server import client_login, registry_auth
 from waystation_server.db import docker as docker_db
@@ -82,18 +83,22 @@ async def _dispatch(
         action = Action.READ  # a query sent as POST (npm audit), declared by the format
     login = root == 'repository' and descriptor is not None and descriptor.client_login(request.method, path)
     if login:
-        # A package client signing in (npm login): nothing to authorise yet; ``client_login`` decides, applying the
-        # repository's visibility so that a hidden repository answers like a missing one.
+        # A package client signing in (npm login): nothing to authorise yet; ``client_login`` decides. Any failure on
+        # a repository the caller cannot see is answered like a missing repository (``access.hidden_repo``).
         principal = await authenticate(request)
+        hidden_login = not access.can_see(principal, repo)
     else:
         principal = await access.authorize_repo(request, repo, action)
+        hidden_login = False
+    if hidden_login and not repo.online:
+        raise access.hidden_repo(request, principal)
     if not repo.online:
         if root == 'v2':
             return oci_error(503, 'repository is offline', code='UNAVAILABLE', headers=DOCKER_API_VERSION)
         return native_error(503, 'Repository is offline')
     plugin = services.formats.plugin(repo.format)
     if plugin is None:
-        raise NotFound('Not Found')
+        raise access.hidden_repo(request, principal) if hidden_login else NotFound('Not Found')
     req = FormatRequest(
         request=request,
         repo=repo,
@@ -116,6 +121,15 @@ async def _dispatch(
             services, request, repo, principal, username=username, password=password, client=client
         )
         req._sign_out = lambda secret: client_login.sign_out(services, repo, principal, secret)
+    if hidden_login:
+        # Only a successful sign-in shows that the repository exists; every failure answers like a missing one.
+        try:
+            response = await plugin.handle(req)
+        except WaystationError:
+            raise access.hidden_repo(request, principal) from None
+        if response.status_code >= 400:
+            raise access.hidden_repo(request, principal)
+        return response
     return await plugin.handle(req)
 
 
@@ -125,12 +139,16 @@ async def _dispatch(
 async def repository(request: Request, repo_name: str, path: str = '') -> Response:
     services = services_of(request)
     repo = await services.catalog.get(repo_name, reload_on_miss=True)
-    if repo is None:
-        return native_error(404, 'Not Found')
     try:
         clean = normalise(path, allow_empty=True)
     except PathRejected as exc:
+        principal = await authenticate(request)
+        if repo is None or not access.can_see(principal, repo):
+            raise access.hidden_repo(request, principal) from None
         return native_error(400, exc.detail)
+    if repo is None:
+        # Answered exactly like a hidden repository (404, or the 401 challenge without credentials: ADR 0005).
+        raise access.hidden_repo(request, await authenticate(request))
     return await _dispatch(request, repo, 'repository', clean)
 
 

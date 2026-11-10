@@ -112,7 +112,7 @@ checksums, so role archives are cached unverified; roles cannot be published to 
 
 | Symptom | Cause and fix |
 |---|---|
-| `ansible-galaxy` answers "Galaxy server ... not found" or 404 | The repository is not readable anonymously: configure a token (see above). A hidden repository answers 404. Check the URL ends with `/repository/<name>/`. |
+| `ansible-galaxy` answers "Galaxy server ... not found" or 404 | The repository is not readable anonymously: configure a token (see above). Without credentials, a repository you cannot see answers `401` (a missing one too); with a token that cannot read it, `404`. Check the URL ends with `/repository/<name>/`. |
 | Publishing answers 401 or 403 | No token, a token without the `write` scope, no write permission on the repository (or on the group's writable member), or a `read_only` repository. Proxies cannot be published to. |
 | Publishing answers 409 | The version exists (versions are immutable: delete it or bump `version` in `galaxy.yml`), or an upload of it is still being imported. |
 | Publishing answers 400 | The file name is not `<namespace>-<name>-<version>.tar.gz`, or the `sha256` does not match the upload; the message says which. |

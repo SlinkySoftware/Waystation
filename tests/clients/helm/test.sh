@@ -69,7 +69,7 @@ mkdir -p pulled via-group
 helm package mychart --version 0.1.0 >/dev/null
 helm package mychart --version 0.2.0 >/dev/null
 helm package mychart --version 0.3.0 >/dev/null
-[ "$(status "$hosted/index.yaml")" = 404 ] || fail 'anonymous sees the hosted repository'
+[ "$(status "$hosted/index.yaml")" = 401 ] || fail 'anonymous not challenged by the hosted repository (ADR 0005)'
 curl -fsS -u "ci-bot:$token" --upload-file mychart-0.1.0.tgz "$hosted/" >/dev/null || fail 'curl upload'
 curl -fsS -u "ci-bot:$token" -F chart=@mychart-0.2.0.tgz "$hosted/api/charts" | grep -q '"saved":true' \
   || fail 'ChartMuseum upload'

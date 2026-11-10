@@ -122,7 +122,11 @@ curl -fsS -u "ci-bot:$writer" -H "X-Checksum-Sha256: $sum" -D u1 --upload-file n
 code=$(status -u "ci-bot:$writer" -H "X-Checksum-Sha256: $(printf '%064d' 0)" --upload-file notes.txt \
   "$hosted/releases/1.0/bad.txt")
 [ "$code" = 400 ] || fail "checksum mismatch returned $code"
-[ "$(status "$hosted/releases/1.0/notes.txt")" = 404 ] || fail 'anonymous sees the hosted repository'
+[ "$(status "$hosted/releases/1.0/notes.txt")" = 401 ] || fail 'anonymous not challenged by the hosted repository'
+# ADR 0005: curl --anyauth sends the credentials only after the 401 Basic challenge; a missing repository answers the
+# same challenge, so anonymous callers cannot tell it from a hidden one.
+[ "$(status --anyauth -u "ci-bot:$writer" "$hosted/releases/1.0/notes.txt")" = 200 ] || fail 'credentials after challenge'
+[ "$(status "$WAYSTATION_URL/repository/no-such-raw-repo/releases/1.0/notes.txt")" = 401 ] || fail 'missing repository'
 
 step 'hosted: curl and wget download what was uploaded; the folder is listed'
 curl -fsS -u "ci-bot:$writer" -D d1 -o notes.down "$hosted/releases/1.0/notes.txt"

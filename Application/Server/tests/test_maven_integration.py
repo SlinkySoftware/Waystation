@@ -306,7 +306,8 @@ async def test_hosted_release_deploy_metadata_and_redeploy(
     bad = await mvn.put(f'/repository/releases/{GA}/1.0/lib-1.0.jar.sha1', content=b'f' * 40)
     assert bad.status_code == 400
     denied = await anon.put(f'/repository/releases/{GA}/9.0/lib-9.0.jar', content=JAR)
-    assert denied.status_code == 404  # hidden from anonymous (ARCHITECTURE §7)
+    assert denied.status_code == 401  # hidden from anonymous: the Basic challenge (ADR 0005)
+    assert denied.headers['www-authenticate'].startswith('Basic realm="Waystation"')
     snapshot = await mvn.put(f'/repository/releases/{GA}/2.0-SNAPSHOT/lib-2.0-SNAPSHOT.jar', content=JAR)
     assert snapshot.status_code == 400 and 'SNAPSHOT' in snapshot.text
     layout = await mvn.put('/repository/releases/files/readme.txt', content=b'x')
