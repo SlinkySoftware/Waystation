@@ -20,6 +20,16 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   with `prune` per section, deleted (API guards apply). Every change is audited with `details.source=provisioning`;
   cleanup policy changes are now audited everywhere (`cleanup_policy.create|update|delete`). UI: "Managed" label
   and read-only forms on managed objects, the Provisioning page (status, plan diff, apply), MSW mocks.
+- T-S08: `EventEmitter.flush` runs one flush at a time. A flush that started while another was in flight (the
+  background loop and an explicit `flush`) could land first, so an older transfer state written last stayed in
+  `transfers` (a stalled transfer never corrects it), and `flush()` could return before the earlier events were in
+  Valkey. This was the cause of the intermittent `test_owner_gone_mid_transfer_a_follower_takes_over` timeout
+  (followers' live transfers stuck at 0 bytes); reproduced with an injected pipeline delay and fixed. The test's
+  timeout now reports the bytes each follower had sent.
+- T-F08: a job run's `expires_at` is computed from the same clock read as its `started_at` (it read the clock twice,
+  so a run could be kept retention + 1 ms; `test_stats_rollup_runs_as_a_job_exactly_once` failed now and then).
+- T-P5-HELM / T-P5-MAVEN: deleting a repository now also drops its `helm_charts` records and its Maven `components`
+  (they were left behind). A test fails if a `repo_id`-keyed collection is missing from the delete list.
 - T-P5-GALAXY: Ansible Galaxy repositories (`waystation_server.formats.galaxy`, FORMATS.md "Ansible Galaxy").
   Proxy: discovery (`api/`, v1 only where roles are proxied), collection, version list and version documents cached
   as metadata (every upstream page, revalidated, validated, bounded; large fields dropped) and served with this

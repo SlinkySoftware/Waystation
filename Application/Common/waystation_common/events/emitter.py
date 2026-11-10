@@ -61,6 +61,7 @@ class EventEmitter:
         self._live: dict[str, _Live] = {}
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
+        self._flushing = asyncio.Lock()  # one flush at a time: pipelines land in the order their state was taken
         self.dropped = 0  # ops dropped because the queue was full
         self.failed_flushes = 0  # pipelines that failed (Valkey down): their ops are lost, never retried
         self._last_error_log = 0.0
@@ -93,7 +94,13 @@ class EventEmitter:
             await self.flush()
 
     async def flush(self) -> None:
-        """Send queued ops and dirty progress in one pipeline (called every ``flush_interval_s``)."""
+        """Send queued ops and dirty progress in one pipeline (called every ``flush_interval_s``). Concurrent calls
+        run one after the other: two pipelines in flight on different connections could land out of order, and an
+        older transfer state written last would stay in ``transfers`` (no later write corrects a stalled one)."""
+        async with self._flushing:
+            await self._flush()
+
+    async def _flush(self) -> None:
         ops: list[Op] = []
         while self._ops:
             ops.append(self._ops.popleft())
