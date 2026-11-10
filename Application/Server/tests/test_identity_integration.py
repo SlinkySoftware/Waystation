@@ -641,7 +641,9 @@ async def test_minimal_principals_get_consistent_answers(
 
     if 'proxy-readers' in roles:  # the anonymous role itself is not grantable: a custom role with the same grants
         permissions = [{'action': 'browse', 'scope': 'type:proxy'}, {'action': 'read', 'scope': 'type:proxy'}]
-        made = await admin.post(f'{API}/roles', json={'id': 'proxy-readers', 'name': 'Proxies', 'permissions': permissions})
+        made = await admin.post(
+            f'{API}/roles', json={'id': 'proxy-readers', 'name': 'Proxies', 'permissions': permissions}
+        )
         assert made.status_code == 201, made.text
     if username != 'rita':
         await add_user(services, username, roles)
