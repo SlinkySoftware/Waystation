@@ -173,14 +173,19 @@ def _problems(exc: FieldErrors, prefix: str) -> list[Problem]:
     return [Problem(f'{prefix}.{e.field}' if e.field else prefix, e.message) for e in exc.errors]
 
 
-def _validated[M: BaseModel](model: type[M], data: Any, prefix: str, errors: list[Problem]) -> M | None:
+def _attempt[T](build: Callable[[], T], prefix: str, errors: list[Problem]) -> T | None:
+    """``build()``, or None with its validation errors (paths under ``prefix``; values never echoed)."""
     try:
-        return model.model_validate(data)
+        return build()
     except ValidationError as exc:
         for err in exc.errors(include_input=False, include_url=False):
             loc = '.'.join(str(p) for p in err['loc'])
             errors.append(Problem(f'{prefix}.{loc}' if loc else prefix, str(err['msg'])))
         return None
+
+
+def _validated[M: BaseModel](model: type[M], data: Any, prefix: str, errors: list[Problem]) -> M | None:
+    return _attempt(lambda: model.model_validate(data), prefix, errors)
 
 
 def _item(kind: ObjectKind, name: str, action: PlanAction, changes: list[AuditChange], note: str | None = None) -> Step:
@@ -538,7 +543,7 @@ async def _plan_repositories(
                 p.errors.append(Problem(f'{prefix}.cleanup_policies.{j}', f'is a {fmt} policy'))
         resolved = p.secrets.get(f'{prefix}.proxy.auth.secret')
         stored_secret = _stored_secret(svc, existing) if existing is not None else None
-        body = _validated(RepositoryWrite, spec.write(resolved).model_dump(mode='python'), prefix, p.errors)
+        body = _attempt(lambda spec=spec, resolved=resolved: spec.write(resolved), prefix, p.errors)
         if body is None:
             continue
         group_pending = [m for m in (spec.group.members if spec.group else []) if m.lower() in pending]
