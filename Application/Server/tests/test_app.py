@@ -62,10 +62,12 @@ async def test_metrics_via_web_tier_uses_real_ip(unit_services: Services) -> Non
     assert allowed.status_code == 200
 
 
-async def test_unknown_repository_is_native_404(unit_client: httpx.AsyncClient) -> None:
+async def test_unknown_repository_is_a_native_error(unit_client: httpx.AsyncClient) -> None:
+    # without credentials: the Basic challenge, as for a hidden repository (ADR 0005)
     response = await unit_client.get('/repository/nope/some/file.txt')
-    assert response.status_code == 404
+    assert response.status_code == 401
     assert response.headers['content-type'].startswith('text/plain')
+    assert response.headers['www-authenticate'].startswith('Basic realm="Waystation"')
 
 
 @pytest.mark.parametrize('unit_repos', [[make_repo('files')]])
@@ -84,7 +86,7 @@ async def test_repository_without_plugin_is_404(unit_client: httpx.AsyncClient) 
 async def test_repository_names_match_case_sensitively(unit_services: Services) -> None:
     unit_services.catalog = static_catalog([make_repo('Files')])
     async with asgi_client(unit_services) as client:
-        assert (await client.get('/repository/files/x')).status_code == 404
+        assert (await client.get('/repository/files/x')).status_code == 401  # unknown: challenged (ADR 0005)
 
 
 @pytest.mark.parametrize('unit_repos', [[make_repo('files', online=False)]])
