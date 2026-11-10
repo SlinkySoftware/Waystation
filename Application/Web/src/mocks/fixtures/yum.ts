@@ -187,7 +187,7 @@ export function yumPackageList(repo: string): YumPackage[] {
 }
 
 /** One package's files (every architecture, newest version first), the newest cached on the first architecture. */
-export function yumVersionsFor(repo: string, name: string): { package: YumPackage; versions: YumVersion[] } | null {
+export function yumVersionsFor(repo: string, name: string, hosted = false): { package: YumPackage; versions: YumVersion[] } | null {
   const { d } = seedsOf(repo)
   const seed = d.pkgs.find((p) => p.name === name)
   const pkg = yumPackageList(repo).find((p) => p.name === name)
@@ -209,8 +209,8 @@ export function yumVersionsFor(repo: string, name: string): { package: YumPackag
         directory: base.replace(/\/$/, ''),
         size_bytes: Math.round(seed.kib * KiB * (arch === 'aarch64' ? 0.96 : 1)),
         checksum: `sha256:${fakeSha256(path)}`,
-        cached: step === 0 && arch === pkg.arches[0],
-        uploaded_at: null,
+        cached: hosted || (step === 0 && arch === pkg.arches[0]),
+        uploaded_at: hosted ? new Date(Date.now() - (step * 9 + (hash(path) % 7)) * 86_400_000).toISOString() : null,
         download_url: `${BASE_URL}/repository/${repo}/${path}`,
       })
     }

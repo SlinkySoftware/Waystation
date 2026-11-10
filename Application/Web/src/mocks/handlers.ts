@@ -113,7 +113,9 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
     if (body.format === 'go' && body.type === 'hosted') {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy'].includes(body.format)) {
+    } else if (body.format === 'yum' && body.type === 'group') {
+      errors.push({ field: 'type', message: 'yum supports: proxy, hosted', code: 'unsupported' })
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -541,7 +543,7 @@ export const handlers = [
     const { repo, error } = repoGuard(params.name, 'yum')
     if (!repo) return error
     const url = new URL(request.url)
-    const found = yumVersionsFor(repo.name, url.searchParams.get('package') ?? '')
+    const found = yumVersionsFor(repo.name, url.searchParams.get('package') ?? '', repo.type === 'hosted')
     if (!found) return notFound()
     return HttpResponse.json({ package: found.package, ...paginate(found.versions, url) })
   }),

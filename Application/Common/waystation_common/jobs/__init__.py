@@ -30,6 +30,7 @@ from waystation_common.jobs.model import (
     WebhookDeliver,
     WebhookEvent,
     WebhookSweep,
+    YumIndex,
 )
 from waystation_common.jobs.queue import Delivery, EnqueueResult, JobQueue
 from waystation_common.jobs.schedule import parse_schedule
@@ -54,5 +55,6 @@ __all__ = [
     'WebhookDeliver',
     'WebhookEvent',
     'WebhookSweep',
+    'YumIndex',
     'parse_schedule',
 ]
