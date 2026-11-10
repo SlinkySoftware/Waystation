@@ -72,7 +72,7 @@ function visibleRepos(): Repository[] {
 }
 
 /** The mock session: a seeded user (sign in as `helpdesk` to see a user-admin who is not an administrator; `nina`
- * holds no role, `reed` is a reader, `gus` has only the anonymous grants, `grace` is a viewer) or, for any other
+ * holds no role (so only the anonymous-access grants every signed-in user gets), `reed` is a reader, `gus` has only the anonymous grants, `grace` is a viewer) or, for any other
  * name, an administrator. */
 function session(username: string): Session {
   const known = admin.users.find((u) => u.username === username)

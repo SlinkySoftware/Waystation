@@ -380,9 +380,13 @@ async def test_custom_roles(services: Services, admin: httpx.AsyncClient) -> Non
         assert (await rita.request('PUT', '/repository/raw-hosted/a', content=b'x')).status_code == 200
         assert (await rita.request('PUT', '/repository/npm-hosted/pkg', content=b'x')).status_code == 404
         perms = (await rita.get(f'{API}/auth/me/permissions')).json()
-        assert perms['roles'] == [{'id': 'npm-publisher', 'name': 'npm publisher', 'via': ['direct']}]
-        assert perms['repositories'] == [
-            {'name': 'raw-hosted', 'format': 'raw', 'type': 'hosted', 'actions': ['browse', 'read', 'write']}
+        assert perms['roles'] == [
+            {'id': 'npm-publisher', 'name': 'npm publisher', 'via': ['direct']},
+            {'id': 'anonymous', 'name': 'Anonymous', 'via': ['anonymous']},  # every signed-in principal gets it
+        ]
+        assert sorted(perms['repositories'], key=lambda r: r['name']) == [
+            {'name': 'npm-proxy', 'format': 'npm', 'type': 'proxy', 'actions': ['browse', 'read']},
+            {'name': 'raw-hosted', 'format': 'raw', 'type': 'hosted', 'actions': ['browse', 'read', 'write']},
         ]
         assert perms['global_actions'] == [] and perms['narrowed_by_token'] is False
     finally:
@@ -472,8 +476,13 @@ async def test_user_permissions_view(services: Services, admin: httpx.AsyncClien
     assert (await admin.post(f'{API}/groups/{group["id"]}/members', json={'user_ids': ['id-rita']})).status_code == 204
     perms = (await admin.get(f'{API}/users/id-rita/permissions')).json()
     assert perms['principal'] == {'kind': 'user', 'id': 'id-rita', 'name': 'rita'}
-    assert {r['id']: r['via'] for r in perms['roles']} == {'reader': ['direct'], 'viewer': ['Viewers']}
+    assert {r['id']: r['via'] for r in perms['roles']} == {
+        'reader': ['direct'],
+        'viewer': ['Viewers'],
+        'anonymous': ['anonymous'],  # every signed-in principal also receives the anonymous grants
+    }
     assert perms['global_actions'] == ['stats-read']
+    assert {'action': 'read', 'scope': 'type:proxy'} in perms['permissions']
     assert len(perms['repositories']) == 3
     detail = (await admin.get(f'{API}/users/id-rita')).json()
     assert detail['effective_roles'] == ['reader', 'viewer']
@@ -592,6 +601,76 @@ async def test_anonymous_access_is_configurable(services: Services, admin: httpx
     assert changed.status_code == 200 and len(changed.json()['items']) == 2
 
 
+async def test_signed_in_principals_follow_anonymous_access(services: Services, admin: httpx.AsyncClient) -> None:
+    """Every signed-in principal also receives the anonymous grants (SPEC §4.10), through every credential (session,
+    API token, service account token), and a change of ``/anonymous-access`` applies to them at once (it bumps
+    ``grant_version``; the grant and token caches follow). Delegation does not count them."""
+    await add_user(services, 'nina', [])
+    nina = await sign_in(services, 'nina')
+    made = await admin.post(f'{API}/service-accounts', json={'name': 'bare', 'roles': []})
+    assert made.status_code == 201, made.text
+    account = made.json()['id']
+    try:
+        assert (await nina.get(f'{API}/auth/me')).json()['capabilities'] == ['repositories.browse']
+        assert (await nina.get('/repository/npm-proxy/pkg')).status_code == 200
+        assert (await nina.get('/repository/npm-hosted/pkg')).status_code == 404
+        assert (await nina.put('/repository/npm-proxy/pkg', content=b'x')).status_code == 403
+        listed = (await nina.get(f'{API}/repositories')).json()['items']
+        assert [r['name'] for r in listed] == ['npm-proxy']
+        # a token may carry what its owner may do, the anonymous read included (it adds no access)
+        scopes = (await nina.get(f'{API}/auth/me/tokens')).json()['available_scopes']
+        assert scopes == ['read']
+        created = await nina.post(f'{API}/auth/me/tokens', json={'name': 'pip', 'scopes': ['read']})
+        assert created.status_code == 201, created.text
+        user_token = {'Authorization': f'Bearer {created.json()["secret"]}'}
+        narrowed = await nina.post(
+            f'{API}/auth/me/tokens', json={'name': 'only', 'scopes': ['read'], 'repositories': ['npm-hosted']}
+        )
+        assert narrowed.status_code == 201, narrowed.text
+        narrowed_token = {'Authorization': f'Bearer {narrowed.json()["secret"]}'}
+        issued = await admin.post(f'{API}/service-accounts/{account}/tokens', json={'name': 't', 'scopes': ['read']})
+        assert issued.status_code == 201, issued.text
+        account_token = {'Authorization': f'Bearer {issued.json()["secret"]}'}
+        async with asgi_client(services) as script:
+            assert (await script.get('/repository/npm-proxy/pkg', headers=user_token)).status_code == 200
+            assert (await script.get('/repository/npm-proxy/pkg', headers=account_token)).status_code == 200
+            # the token's repository patterns bound everything, the anonymous grants too
+            assert (await script.get('/repository/npm-proxy/pkg', headers=narrowed_token)).status_code == 404
+            perms = (await script.get(f'{API}/auth/me/permissions', headers=user_token)).json()
+            assert [r['name'] for r in perms['repositories']] == ['npm-proxy']
+            assert {r['id']: r['via'] for r in perms['roles']} == {'anonymous': ['anonymous']}
+
+            # delegation: the anonymous grants are not nina's to hand out (repository actions are not limited, but
+            # nina holds no user-admin, so she cannot give roles at all)
+            assert (await nina.post(f'{API}/users', json={'username': 'x', 'roles': ['reader']})).status_code == 403
+
+            # anonymous access turned off: every credential loses the grants at once
+            assert (await admin.put(f'{API}/anonymous-access', json={'roles': []})).status_code == 200
+            assert (await nina.get(f'{API}/auth/me')).json()['capabilities'] == []
+            assert (await nina.get('/repository/npm-proxy/pkg')).status_code == 404
+            assert (await nina.get(f'{API}/repositories')).json()['items'] == []
+            assert (await script.get('/repository/npm-proxy/pkg', headers=user_token)).status_code == 404
+            assert (await script.get('/repository/npm-proxy/pkg', headers=account_token)).status_code == 404
+
+            # other anonymous roles: signed-in principals receive them as well
+            role = {'id': 'raw-public', 'name': 'raw public', 'permissions': [{'action': 'read', 'scope': 'raw-*'}]}
+            assert (await admin.post(f'{API}/roles', json=role)).status_code == 201
+            assert (await admin.put(f'{API}/anonymous-access', json={'roles': ['raw-public']})).status_code == 200
+            assert (await nina.get('/repository/raw-hosted/a')).status_code == 200
+            assert (await nina.get('/repository/npm-proxy/pkg')).status_code == 404
+            assert (await script.get('/repository/raw-hosted/a', headers=account_token)).status_code == 200
+            # ...and a role change reaches them too (the role edit bumps grant_version)
+            changed = await admin.put(
+                f'{API}/roles/raw-public',
+                json={'name': 'raw public', 'permissions': [{'action': 'read', 'scope': 'npm-*'}]},
+            )
+            assert changed.status_code == 200
+            assert (await nina.get('/repository/raw-hosted/a')).status_code == 404
+            assert (await nina.get('/repository/npm-hosted/pkg')).status_code == 200
+    finally:
+        await nina.aclose()
+
+
 # ---------------------------------------------------------------------------- matrix
 async def test_admin_passes_every_access_rule(services: Services, admin: httpx.AsyncClient) -> None:
     """Route x principal matrix, the administrator column: no REST route answers 401/403 to an administrator's
@@ -620,15 +699,23 @@ SKIP_FOR_MINIMAL = {f'{API}/auth/sessions', f'{API}/auth/sessions/{{session_id}}
 
 
 @pytest.mark.parametrize(
-    ('username', 'roles', 'visible'),
+    ('username', 'roles', 'anonymous', 'visible'),
     [
-        ('nobody', [], []),  # signed in (e.g. in the provider's required group) with no role at all
-        ('guest', ['proxy-readers'], ['npm-proxy']),  # the anonymous role's grants (browse + read on proxies)
-        ('rita', ['reader'], ['npm-hosted', 'npm-proxy', 'raw-hosted']),
+        # signed in (e.g. in the provider's required group) with no role at all, anonymous access turned off
+        ('nobody', [], [], []),
+        # no role, the default anonymous access: signing in never reduces access, so exactly what anonymous sees
+        ('newcomer', [], None, ['npm-proxy']),
+        ('guest', ['proxy-readers'], [], ['npm-proxy']),  # the anonymous role's grants (browse + read on proxies)
+        ('rita', ['reader'], None, ['npm-hosted', 'npm-proxy', 'raw-hosted']),
     ],
 )
 async def test_minimal_principals_get_consistent_answers(
-    services: Services, admin: httpx.AsyncClient, username: str, roles: list[str], visible: list[str]
+    services: Services,
+    admin: httpx.AsyncClient,
+    username: str,
+    roles: list[str],
+    anonymous: list[str] | None,
+    visible: list[str],
 ) -> None:
     """Route x principal matrix, the "signed in, minimal permissions" columns against a real session (SPEC §4.10
     "What a user without roles sees"): never 401 (that would end the UI session); every route needing a global
@@ -645,6 +732,8 @@ async def test_minimal_principals_get_consistent_answers(
             f'{API}/roles', json={'id': 'proxy-readers', 'name': 'Proxies', 'permissions': permissions}
         )
         assert made.status_code == 201, made.text
+    if anonymous is not None:
+        assert (await admin.put(f'{API}/anonymous-access', json={'roles': anonymous})).status_code == 200
     if username != 'rita':
         await add_user(services, username, roles)
     client = await sign_in(services, username)

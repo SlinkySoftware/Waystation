@@ -192,10 +192,14 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   anonymous roles of the `grant_version` it loaded; it learns a new version from its own writes at once, from a
   change stream on `rbac_state` within moments, and from a 5 s poll when the stream is down. Authentication
   materialises the principal's effective roles into `Principal.grants` (in-process cache per
-  `(grant_version, roles)`, then Valkey `grants:<principal>:<grant_version>`); `access.check` decides from them
-  (built-in roles only when a principal carries none). A version change also drops resolved API-token principals.
+  `(grant_version, roles)`, then Valkey `grants:<principal>:<grant_version>`) and attaches the anonymous grants
+  (repository permissions only) to every authenticated principal as `Principal.anonymous_grants`; `access.check`
+  decides from own ∪ anonymous (built-in roles only when a principal carries none), after the credential's
+  narrowing (API token scopes and repository patterns, registry token grants), which bounds both. Changing the
+  anonymous roles bumps `grant_version` like any RBAC change. A version change also drops resolved API-token principals.
   Delegation is bounded in `access` too: `may_assign` (global actions only by holders, `admin` only by
-  administrators) and `may_manage` (no changing an account that holds more than the caller).
+  administrators) and `may_manage` (no changing an account that holds more than the caller), both from the
+  principal's own grants only, never the anonymous ones.
 - Token revocation: revoking an API token (or changing/disabling/deleting a service account) is announced on the
   Valkey pub/sub channel `revocations` (a token id, or `*` = drop everything); every replica's listener drops the
   cached entry at once (< 1 s), and clears its whole cache whenever it (re)subscribes. MongoDB stays

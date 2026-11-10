@@ -19,7 +19,7 @@ from waystation_server.security import access
 from waystation_server.security.actions import GLOBAL_ACTIONS, Action, Grants
 from waystation_server.security.groups import role_sources
 from waystation_server.security.identity import ServiceAccountRecord, UserRecord
-from waystation_server.security.principal import AuthMethod, Principal, PrincipalKind
+from waystation_server.security.principal import ANONYMOUS_ROLE, AuthMethod, Principal, PrincipalKind
 from waystation_server.services import Services
 
 PROBLEM = {'content': {'application/problem+json': {'schema': {'$ref': '#/components/schemas/Problem'}}}}
@@ -49,9 +49,10 @@ async def user_grants(svc: Services, user: UserRecord) -> tuple[tuple[str, ...],
 
 
 async def account_principal(svc: Services, account: ServiceAccountRecord) -> Principal:
-    """A service account as a principal holding its own (materialised) grants."""
+    """A service account as a principal holding its own (materialised) grants and the anonymous grants every
+    authenticated principal also receives."""
     roles = tuple(account.roles)
-    return Principal(
+    principal = Principal(
         PrincipalKind.SERVICE_ACCOUNT,
         account.id,
         account.name,
@@ -59,6 +60,7 @@ async def account_principal(svc: Services, account: ServiceAccountRecord) -> Pri
         AuthMethod.NONE,
         grants=await svc.rbac.grants(account.id, roles),
     )
+    return await svc.rbac.with_anonymous(principal)
 
 
 def require_manageable(caller: Principal, target: Grants, what: str) -> None:
@@ -79,7 +81,10 @@ class PrincipalRef(BaseModel):
 class EffectiveRole(BaseModel):
     id: str
     name: str
-    via: list[str] = Field(description='`direct`, or the names of the groups the role comes from')
+    via: list[str] = Field(
+        description='`direct`, `anonymous` (anonymous access, which every signed-in principal also receives), or the '
+        'names of the groups the role comes from'
+    )
 
 
 class GrantedPermission(BaseModel):
@@ -97,14 +102,20 @@ class RepositoryAccess(BaseModel):
 class EffectivePermissions(BaseModel):
     principal: PrincipalRef
     roles: list[EffectiveRole]
-    permissions: list[GrantedPermission] = Field(description='Every (action, scope) held, implied ones included')
+    permissions: list[GrantedPermission] = Field(
+        description='Every (action, scope) held, implied ones and the anonymous-access ones included'
+    )
     global_actions: list[Action]
     repositories: list[RepositoryAccess] = Field(description='Repositories with at least one allowed action')
     narrowed_by_token: bool = Field(description='The request used an API token, which narrows the grants shown')
 
 
+VIA_ANONYMOUS = 'anonymous'  # a role every signed-in principal receives from anonymous access
+
+
 async def _role_names(svc: Services) -> dict[str, str]:
     names = {rid: name for rid, name, _ in access.roles()}
+    names[ANONYMOUS_ROLE] = 'Anonymous'
     names.update({rid: r.name for rid, r in (await svc.rbac.custom_roles()).items()})
     return names
 
@@ -112,7 +123,8 @@ async def _role_names(svc: Services) -> dict[str, str]:
 async def effective_permissions(
     svc: Services, principal: Principal, *, user: UserRecord | None = None
 ) -> EffectivePermissions:
-    """What ``principal`` may do (its materialised grants, and per repository after any token narrowing)."""
+    """What ``principal`` may do (its materialised grants plus the anonymous ones, and per repository after any
+    token narrowing)."""
     names = await _role_names(svc)
     via: dict[str, list[str]] = {}
     if user is not None:
@@ -121,7 +133,10 @@ async def effective_permissions(
     else:
         for role in principal.roles:
             via.setdefault(role, []).append('direct')
-    grants = access.grants_of(principal)
+    if access.anonymous_part(principal) is not None:
+        for role in await svc.rbac.anonymous_roles():
+            via.setdefault(role, []).append(VIA_ANONYMOUS)
+    grants = access.effective_grants(principal)
     repos = []
     for repo in await svc.catalog.all():
         actions = [a for a in REPO_ACTIONS if access.check(principal, a, repo)]

@@ -65,11 +65,12 @@ def user_principal(
 async def principal_for(
     services: Services, user: UserRecord, method: AuthMethod, *, session_id: str | None = None
 ) -> Principal:
-    """The user's principal with its effective roles (its own plus its groups') and their materialised grants
-    (``security.rbac``)."""
+    """The user's principal with its effective roles (its own plus its groups'), their materialised grants and the
+    anonymous grants every signed-in principal also receives (``security.rbac``)."""
     roles = await services.rbac.roles_for(user)
     grants = await services.rbac.grants(user.id, roles)
-    return user_principal(user, method, session_id=session_id, roles=roles, grants=grants)
+    principal = user_principal(user, method, session_id=session_id, roles=roles, grants=grants)
+    return await services.rbac.with_anonymous(principal)
 
 
 def basic_credentials(header: str) -> tuple[str, str] | None:
@@ -144,7 +145,9 @@ async def authenticate(request: Request) -> Principal:
     principal = await _from_session(services, request)
     if principal is None:
         principal = await _from_header(services, request)
-    principal = principal or await services.rbac.anonymous()
+    # Every authenticated principal also holds the anonymous grants (the resolvers above attach them already; this
+    # covers any other authenticator).
+    principal = await services.rbac.with_anonymous(principal) if principal else await services.rbac.anonymous()
     request.state.principal = principal
     request.state.log['principal'] = principal.display
     bind_context(principal=principal.display)
