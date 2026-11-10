@@ -327,14 +327,14 @@ async def test_proxy_roles(services: Services, client: httpx.AsyncClient, repos:
     archive = await client.get('/repository/gal/roles/7/1.0.0.tar.gz')
     assert archive.status_code == 200 and archive.content == b'role archive'
     assert (await client.get('/repository/gal/roles/7/9.9.9.tar.gz')).status_code == 404
-    assert (await client.get('/repository/mine/api/v1/roles/7/versions/')).status_code == 404
+    assert (await client.get('/repository/mine/api/v1/roles/7/versions/')).status_code == 401  # hidden: challenge
 
 
 async def test_hosted_publish_import_delete(
     services: Services, client: httpx.AsyncClient, admin: httpx.AsyncClient, token: dict[str, str], repos: None
 ) -> None:
     v1 = collection('harness', 'demo', '1.0.0')
-    assert (await client.get('/repository/mine/api/v3/collections/harness/demo/')).status_code == 404
+    assert (await client.get('/repository/mine/api/v3/collections/harness/demo/')).status_code == 401  # ADR 0005
     assert (await client.get('/repository/mine/api/v3/collections/harness/demo/', headers=token)).status_code == 404
 
     wrong = await publish(client, 'mine', token, v1, 'harness-demo-1.0.0.tar.gz', digest='0' * 64)
@@ -362,7 +362,7 @@ async def test_hosted_publish_import_delete(
     done = (await client.get(task_url, headers=token)).json()
     assert done['state'] == 'completed' and done['finished_at'] and done['error'] is None
     assert [m['level'] for m in done['messages']] == ['INFO', 'INFO', 'INFO']
-    assert (await client.get(task_url)).status_code == 404  # hidden from anonymous
+    assert (await client.get(task_url)).status_code == 401  # hidden from anonymous: the challenge (ADR 0005)
     mine = await services.catalog.get('mine')
     assert mine is not None
     usage = await services.db[REPO_USAGE].find_one({'_id': mine.id})

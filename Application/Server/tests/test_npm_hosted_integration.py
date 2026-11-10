@@ -174,7 +174,7 @@ async def test_publish_packuments_tags_deprecate_unpublish(
     bad = publish_body('demo', '1.1.0', tarball('demo', '1.0.0'))
     refused = await client.put(f'{url}demo', content=bad, headers=full_access)
     assert refused.status_code == 400 and 'package.json in the tarball' in refused.json()['error']
-    assert (await client.put(f'{url}demo', content=bad)).status_code == 404  # anonymous: hidden hosted repository
+    assert (await client.put(f'{url}demo', content=bad)).status_code == 401  # anonymous: hidden, challenged (ADR 0005)
 
     beta = tarball('demo', '2.0.0-rc.1')
     body = publish_body('demo', '2.0.0-rc.1', beta, tag='beta')
@@ -267,15 +267,22 @@ async def test_login_issues_a_token_and_logout_revokes_it(client: httpx.AsyncCli
     made = next(t for t in listed if t['name'].startswith('npm login (npm-hosted)'))
     assert sorted(made['scopes']) == ['delete', 'read', 'write'] and made['expires_at'] is None
 
-    # wrong password: hidden repository = 404 (like a missing one), anonymous-readable proxy = 401
-    assert (await login(client, 'npm-hosted', 'admin', 'wrong')).status_code == 404
-    assert (await login(client, 'npm-nope', 'admin', 'wrong')).status_code == 404
+    # wrong password: a hidden repository answers like a missing one (no credentials sent: the 401 challenge,
+    # ADR 0005, with the same body), an anonymous-readable proxy says why (401 npm error)
+    hidden = await login(client, 'npm-hosted', 'admin', 'wrong')
+    missing = await login(client, 'npm-nope', 'admin', 'wrong')
+    assert hidden.status_code == missing.status_code == 401 and hidden.content == missing.content
+    assert hidden.headers['www-authenticate'] == missing.headers['www-authenticate']
     assert (await login(client, 'npm-proxy', 'admin', 'wrong')).status_code == 401
     await user(admin, 'norole', [])
-    assert (await login(client, 'npm-hosted', 'norole', PASSWORD)).status_code == 404
+    assert (await login(client, 'npm-hosted', 'norole', PASSWORD)).content == missing.content
     assert (await login(client, 'npm-proxy', 'norole', PASSWORD)).status_code == 404
     mismatch = await client.put(
         '/repository/npm-hosted/-/user/org.couchdb.user:admin', json={'name': 'other', 'password': PASSWORD}
+    )
+    assert mismatch.status_code == 401 and mismatch.content == missing.content  # hidden: even a bad request
+    mismatch = await client.put(
+        '/repository/npm-proxy/-/user/org.couchdb.user:admin', json={'name': 'other', 'password': PASSWORD}
     )
     assert mismatch.status_code == 400
 

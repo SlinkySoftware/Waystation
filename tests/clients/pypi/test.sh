@@ -60,6 +60,16 @@ uv pip install --quiet --target "$work/uv-group" --index-url "$group" ws-harness
   || fail 'uv pip install through the group'
 check_import "$work/uv-group" 'import ws_harness_demo; assert ws_harness_demo.VERSION == "0.1.0"'
 
+step 'pip install from the hosted repository with plain credentials: sent after the 401 challenge (ADR 0005)'
+# No credentials in the index URL: pip asks its keyring only when the server challenges (handle_401).
+: > "$work/keyring-asked"
+(cd "$work" && PYTHONPATH=/harness/pypi PYTHON_KEYRING_BACKEND=challenge_keyring.ChallengeKeyring \
+  WS_KEYRING_TOKEN="$token" WS_KEYRING_MARK="$work/keyring-asked" \
+  pip install --quiet --no-input --keyring-provider import --target "$work/challenge" \
+  --index-url "$W/repository/pypi-hosted/simple/" ws-harness-demo==0.1.0) || fail 'pip install after the challenge'
+[ -s "$work/keyring-asked" ] || fail 'pip was never challenged for credentials'
+check_import "$work/challenge" 'import ws_harness_demo; assert ws_harness_demo.VERSION == "0.1.0"'
+
 project() {  # project <dir> <tool section>: a dependency-only pyproject.toml using the group
   mkdir -p "$1"
   cat > "$1/pyproject.toml" <<EOF

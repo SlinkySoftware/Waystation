@@ -2,6 +2,8 @@
 # Maven 3.9 through Waystation (client-maven container): resolve through a Maven Central proxy and a group, deploy a
 # release and SNAPSHOTs to hosted repositories, consume them through the group. Every mvn run uses a settings.xml
 # mirror to Waystation (so mvn never talks to the upstream) with basic auth: the admin's username and an API token.
+# No preemptive authentication: mvn sends the credentials after the server's 401 Basic challenge, which Waystation
+# answers for anonymous requests to repositories anonymous cannot see (ADR 0005), as Nexus does.
 # The build plugins come pre-seeded in /opt/m2-seed (see format.env); each step starts from a copy of it.
 set -eu
 . /harness/lib.sh
@@ -44,9 +46,7 @@ local_repo() {  # local_repo <dir>: a local repository holding only the seeded b
 run_mvn() {  # run_mvn <project dir> <settings> <local repository> <args...>
   _dir=$1 _settings=$2 _repo=$3
   shift 3
-  # Credentials up front: anonymous requests to hosted and group repositories get 404, never a 401 challenge.
-  (cd "$_dir" && mvn -B -ntp --strict-checksums -s "$_settings" -Dmaven.repo.local="$_repo" \
-    -Daether.connector.http.preemptiveAuth=true "$@")
+  (cd "$_dir" && mvn -B -ntp --strict-checksums -s "$_settings" -Dmaven.repo.local="$_repo" "$@")
 }
 
 resolve='org.apache.maven.plugins:maven-dependency-plugin:3.8.1:resolve'
@@ -83,6 +83,16 @@ public_deps='
   <dependency><groupId>org.reactivestreams</groupId><artifactId>reactive-streams</artifactId>
     <version>[1.0.3,1.0.4]</version></dependency>'
 project "$work/consumer" com.example.harness consumer 1.0.0 "$public_deps"
+
+step 'anonymous requests to the group and to a missing repository get the same Basic challenge (ADR 0005)'
+challenge() {  # challenge <url>: "<status> <WWW-Authenticate>" of an anonymous GET
+  curl -sS -o /dev/null -D - "$1" | tr -d '\r' | awk 'NR == 1 {s = $2} tolower($1) == "www-authenticate:" {
+    sub(/^[^:]*: */, ""); h = $0} END {print s, h}'
+}
+group_answer=$(challenge "$base/maven-public/org/hamcrest/hamcrest-library/1.3/hamcrest-library-1.3.pom")
+missing_answer=$(challenge "$base/no-such-maven-repo/org/hamcrest/hamcrest-library/1.3/hamcrest-library-1.3.pom")
+case $group_answer in '401 Basic realm="Waystation"'*) ;; *) fail "anonymous group request: $group_answer" ;; esac
+[ "$group_answer" = "$missing_answer" ] || fail "hidden and missing repositories differ: $group_answer / $missing_answer"
 
 step 'resolve through the Maven Central proxy (cold cache: checksums verified, version range via maven-metadata.xml)'
 settings "$work/central.xml" maven-central
@@ -134,8 +144,8 @@ settings "$work/anonymous.xml" maven-public no
 if deploy_to maven-releases "$work/anonymous.xml" >"$work/anon.log" 2>&1; then
   fail 'an anonymous deploy succeeded'
 fi
-grep -Eq '401|404|Unauthorized|Could not find' "$work/anon.log" \
-  || { tail -20 "$work/anon.log"; fail 'anonymous deploy: expected a 401/404 from the server'; }
+grep -Eq '401|Unauthorized' "$work/anon.log" \
+  || { tail -20 "$work/anon.log"; fail 'anonymous deploy: expected the 401 challenge from the server'; }
 
 step 'deploy a SNAPSHOT twice (timestamped builds, version-level maven-metadata.xml)'
 sed -i 's#<version>1.0.0</version>#<version>1.1.0-SNAPSHOT</version>#' "$work/hello/pom.xml"

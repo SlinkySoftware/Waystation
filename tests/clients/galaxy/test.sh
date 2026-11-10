@@ -74,7 +74,7 @@ sed -i 's/^version: .*/version: 1.0.0/' "$src/galaxy.yml"
 ansible-galaxy collection build "$src" --output-path dist >/dev/null || fail 'build 1.0.0'
 sed -i 's/^version: .*/version: 1.1.0/' "$src/galaxy.yml"
 ansible-galaxy collection build "$src" --output-path dist >/dev/null || fail 'build 1.1.0'
-[ "$(status "${hosted}api/v3/collections/harness/demo/")" = 404 ] || fail 'anonymous sees the hosted repository'
+[ "$(status "${hosted}api/v3/collections/harness/demo/")" = 401 ] || fail 'anonymous not challenged (ADR 0005)'
 ansible-galaxy collection publish dist/harness-demo-1.0.0.tar.gz -s "$hosted" --token "$token" >publish.log 2>&1 \
   || fail "publish: $(cat publish.log)"
 if ansible-galaxy collection publish dist/harness-demo-1.0.0.tar.gz -s "$hosted" --token "$token" >again.log 2>&1; then

@@ -150,9 +150,9 @@ async def matrix_client(unit_services: Services) -> AsyncIterator[httpx.AsyncCli
     [
         (None, 'GET', 'npm-proxy', 200),
         (None, 'HEAD', 'npm-proxy', 200),
-        (None, 'GET', 'npm-hosted', 404),  # hidden: 404, never 403
+        (None, 'GET', 'npm-hosted', 401),  # hidden, no credentials: the Basic challenge (ADR 0005), never 403
         (None, 'PUT', 'npm-proxy', 401),
-        (None, 'PUT', 'npm-hosted', 404),
+        (None, 'PUT', 'npm-hosted', 401),
         ('reader', 'GET', 'npm-hosted', 200),
         ('reader', 'PUT', 'npm-hosted', 403),
         ('deployer', 'PUT', 'npm-hosted', 200),
@@ -238,3 +238,64 @@ async def test_signed_in_principal_without_roles_gets_calm_answers(matrix_client
     viewer = await matrix_client.get('/api/v1/events/stream?topics=tasks', headers={'Authorization': 'Bearer viewer'})
     assert viewer.status_code == 403  # the tasks topic is admin-only
     assert viewer.json()['code'] == 'permission_required'
+
+
+# ---------------------------------------------------------------------------- ADR 0005: the anonymous challenge
+@pytest.mark.parametrize('method', ['GET', 'HEAD', 'PUT', 'DELETE'])
+@pytest.mark.parametrize('path', ['pkg', '', 'a/%2e%2e/%2e%2e/etc/passwd', 'a%00b'])
+async def test_anonymous_gets_the_same_challenge_for_hidden_and_missing_repositories(
+    matrix_client: httpx.AsyncClient, method: str, path: str
+) -> None:
+    """ADR 0005: no credentials on ``/repository/<repo>/...`` → 401 + Basic challenge for a hidden repository, and
+    the very same answer (status, headers, body) for a repository that does not exist, so names are not
+    enumerable."""
+    hidden = await matrix_client.request(method, f'/repository/npm-hosted/{path}')
+    missing = await matrix_client.request(method, f'/repository/no-such-repo/{path}')
+    assert hidden.status_code == 401, hidden.text
+    assert hidden.headers['www-authenticate'].startswith('Basic realm="Waystation"')
+    assert missing.status_code == hidden.status_code
+    assert missing.content == hidden.content
+    assert {k: v for k, v in missing.headers.items() if k != 'x-request-id'} == {
+        k: v for k, v in hidden.headers.items() if k != 'x-request-id'
+    }
+
+
+@pytest.mark.parametrize('who', ['nobody', 'not-a-known-token'])
+@pytest.mark.parametrize('repo', ['npm-hosted', 'no-such-repo'])
+async def test_requests_with_credentials_keep_the_404(matrix_client: httpx.AsyncClient, who: str, repo: str) -> None:
+    """An authenticated principal that cannot see the repository, or a request whose credentials did not resolve to a
+    principal, keeps the 404 (ADR 0005 only changes requests without credentials)."""
+    response = await matrix_client.get(f'/repository/{repo}/pkg', headers={'Authorization': f'Bearer {who}'})
+    assert response.status_code == 404, response.text
+    assert 'www-authenticate' not in response.headers
+
+
+async def test_visible_repository_without_permission_still_challenges_and_others_are_unchanged(
+    matrix_client: httpx.AsyncClient,
+) -> None:
+    assert (await matrix_client.get('/repository/npm-proxy/pkg')).status_code == 200
+    denied = await matrix_client.put('/repository/npm-proxy/pkg')
+    assert denied.status_code == 401
+    assert denied.headers['www-authenticate'].startswith('Basic realm="Waystation"')
+    hidden = await matrix_client.put('/repository/npm-hosted/pkg')
+    assert hidden.content == denied.content  # visible-but-denied and hidden look the same to anonymous
+    # REST API and /v2/ are unchanged: the API hides with 404, /v2/ challenges with Bearer.
+    api = await matrix_client.get('/api/v1/repositories/npm-hosted')
+    assert api.status_code == 404
+    assert 'www-authenticate' not in api.headers
+    assert (await matrix_client.get('/api/v1/repositories/no-such-repo')).status_code == 404
+    v2 = await matrix_client.get('/v2/npm-hosted/tags/list')
+    assert v2.status_code == 401
+    assert v2.headers['www-authenticate'].startswith('Bearer ')
+
+
+def test_hidden_repo_decision() -> None:
+    def request(path: str, headers: dict[str, str] | None = None) -> Request:
+        raw = [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]
+        return Request({'type': 'http', 'method': 'GET', 'path': path, 'headers': raw, 'query_string': b''})
+
+    assert access.hidden_repo(request('/repository/x/a'), ANONYMOUS).status == 401
+    assert access.hidden_repo(request('/repository/x/a', {'Authorization': 'Bearer junk'}), ANONYMOUS).status == 404
+    assert access.hidden_repo(request('/repository/x/a'), READER).status == 404
+    assert access.hidden_repo(request('/api/v1/repositories/x'), ANONYMOUS).status == 404
+    assert access.hidden_repo(request('/v2/x/tags/list'), ANONYMOUS).status == 404
