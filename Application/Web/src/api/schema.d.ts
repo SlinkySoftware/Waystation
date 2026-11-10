@@ -2599,7 +2599,7 @@ export interface components {
         EffectiveRole: {
             id: string;
             name: string;
-            /** @description `direct`, or the names of the groups the role comes from */
+            /** @description `direct`, `anonymous` (anonymous access, which every signed-in principal also receives), or the names of the groups the role comes from */
             via: string[];
         };
         GrantedPermission: {
@@ -2615,7 +2615,7 @@ export interface components {
         EffectivePermissions: {
             principal: components["schemas"]["PrincipalRef"];
             roles: components["schemas"]["EffectiveRole"][];
-            /** @description Every (action, scope) held, implied ones included */
+            /** @description Every (action, scope) held, implied ones and the anonymous-access ones included */
             permissions: components["schemas"]["GrantedPermission"][];
             global_actions: components["schemas"]["Action"][];
             /** @description Repositories with at least one allowed action */

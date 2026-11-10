@@ -4,8 +4,8 @@
 // error, page error, or an API answer of 401/403/5xx (a refused request means the UI asked for something the session
 // cannot have). Runs in the official Playwright image (`make ui-smoke`), against
 //   - the mock build (default): serves dist/spa under /ui/ itself (build it with `make frontend-build-mock`); the
-//     mock users are `nina` (no role), `reed` (reader), `gus` (the anonymous-access grants only) and `grace`
-//     (viewer: statistics, no administration), or
+//     mock users are `nina` (no role: the anonymous-access grants every signed-in user gets), `reed` (reader),
+//     `gus` (a role with the anonymous-access grants only) and `grace` (viewer: statistics, no administration), or
 //   - a running stack (REAL=1, BASE=http://localhost:8080/ui/): USERS=<comma-separated> users that exist there, all
 //     with the password in PASSWORD_FILE (mount it read-only).
 // Env: BASE, REAL=1, USERS, PASSWORD_FILE, SETTLE (ms per page, default 1500).

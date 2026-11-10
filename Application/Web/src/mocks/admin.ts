@@ -77,6 +77,12 @@ export interface AdminDeps {
   serviceAccounts: () => ServiceAccount[]
 }
 
+/** The built-in `anonymous` role (not grantable, so not in the role list): browse and read on proxies. */
+const ANONYMOUS_PERMISSIONS: GrantedPermission[] = [
+  { action: 'browse', scope: 'type:proxy' },
+  { action: 'read', scope: 'type:proxy' },
+]
+
 interface Grants {
   roles: Map<string, string[]>
   permissions: GrantedPermission[]
@@ -136,7 +142,7 @@ export class AdminWorld {
     const global = new Set<Action>()
     let admin = false
     for (const roleId of roleSources.keys()) {
-      for (const p of this.role(roleId)?.permissions ?? []) {
+      for (const p of roleId === 'anonymous' ? ANONYMOUS_PERMISSIONS : (this.role(roleId)?.permissions ?? [])) {
         if (p.action === 'admin') admin = true
         if (isGlobalAction(p.action)) global.add(p.action)
         const actions = isGlobalAction(p.action) ? [p.action] : impliedActions(p.action as RepoAction)
@@ -217,9 +223,28 @@ export class AdminWorld {
     return user ? this.userGrants(user) : this.grantsOf(new Map([['admin', ['direct']]]))
   }
 
+  /** The roles of anonymous access as role sources (`via: anonymous`). */
+  anonymousSources(): Map<string, string[]> {
+    return new Map(this.anonymousRoles.map((r) => [r, ['anonymous']]))
+  }
+
+  /** Own plus anonymous grants: every signed-in principal also receives what anonymous access allows (repository
+   * permissions only), so signing in never reduces access (SPEC §4.10). Delegation uses the own grants only. */
+  withAnonymous(own: Grants): Grants {
+    const anonymous = this.grantsOf(this.anonymousSources()).permissions.filter((p) => !isGlobalAction(p.action))
+    const perms = new Map(own.permissions.map((p) => [`${p.action} ${p.scope}`, p]))
+    for (const p of anonymous) perms.set(`${p.action} ${p.scope}`, p)
+    return { ...own, permissions: [...perms.values()] }
+  }
+
+  /** What the signed-in mock user may do (`check`, capabilities): its own grants plus the anonymous ones. */
+  effectiveGrants(username: string | null): Grants {
+    return this.withAnonymous(this.callerGrants(username))
+  }
+
   /** The server's `access.check`: may the user perform `action` (on `repo`; without one: on some repository)? */
   check(username: string | null, action: Action, repo?: RepoRef): boolean {
-    const g = this.callerGrants(username)
+    const g = this.effectiveGrants(username)
     if (g.admin) return true
     if (isGlobalAction(action)) return g.global.has(action)
     return g.permissions.some((p) => p.action === action && (!repo || scopeMatches(p.scope, repo)))
@@ -232,7 +257,7 @@ export class AdminWorld {
 
   /** Session capabilities of a mock user, like the server's `access.capabilities` (UI hints only). */
   capabilities(username: string | null): string[] {
-    const g = this.callerGrants(username)
+    const g = this.effectiveGrants(username)
     const caps: string[] = g.admin ? ['admin', 'repositories.create'] : []
     if (g.admin || g.permissions.some((p) => p.action === 'manage')) caps.push('repositories.manage')
     if (g.admin || g.permissions.some((p) => p.action === 'browse' || p.action === 'read')) caps.push('repositories.browse')
@@ -459,9 +484,12 @@ export class AdminWorld {
   }
 
   // ---------------------------------------------------------------- effective permissions
-  effective(principal: EffectivePermissions['principal'], via: Map<string, string[]>): EffectivePermissions {
-    const grants = this.grantsOf(via)
-    const roles: EffectiveRole[] = [...via].map(([id, sources]) => ({ id, name: this.role(id)?.name ?? id, via: sources }))
+  effective(principal: EffectivePermissions['principal'], own: Map<string, string[]>): EffectivePermissions {
+    const grants = this.withAnonymous(this.grantsOf(own))
+    const via = new Map(own)
+    for (const [role, sources] of this.anonymousSources()) via.set(role, [...(via.get(role) ?? []), ...sources])
+    const name = (id: string) => (id === 'anonymous' ? 'Anonymous' : (this.role(id)?.name ?? id))
+    const roles: EffectiveRole[] = [...via].map(([id, sources]) => ({ id, name: name(id), via: sources }))
     const repositories: RepositoryAccess[] = []
     for (const repo of this.deps.repos()) {
       const actions = REPO_ACTIONS.filter((a) => grants.admin || grants.permissions.some((p) => p.action === a && scopeMatches(p.scope, repo)))
