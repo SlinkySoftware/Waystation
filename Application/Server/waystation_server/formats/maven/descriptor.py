@@ -157,8 +157,8 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
             'Optional: send the credentials up front (.mvn/maven.config, or on the command line)',
             PREEMPTIVE + '\n',
             filename='.mvn/maven.config',
-            description='Not required: Maven sends the settings.xml credentials after the 401 challenge from Waystation. '
-            'Sending them up front saves that extra round trip per request.',
+            description='Not required: Maven sends the settings.xml credentials after the 401 challenge from '
+            'Waystation. Sending them up front saves that extra round trip per request.',
         ),
     ]
     if hosted:
