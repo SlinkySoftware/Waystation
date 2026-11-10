@@ -530,6 +530,8 @@ export const en = {
       latest: 'Latest',
       cached: 'Cached versions',
       cachedOf: '{cached} of {total} versions cached',
+      versions: 'Versions',
+      versionCount: '{count} versions',
       install: 'Install',
       version: 'Version',
       published: 'Published',

@@ -19,7 +19,7 @@ from ws_fake_upstream import FakeUpstream, Respond
 from ws_testing import asgi_client
 
 from waystation_common.db import galaxy as galaxy_common_db
-from waystation_common.db.collections import ASSETS, AUDIT, GALAXY_COLLECTIONS, GALAXY_IMPORTS, JOB_OUTBOX
+from waystation_common.db.collections import ASSETS, AUDIT, GALAXY_COLLECTIONS, GALAXY_IMPORTS, JOB_OUTBOX, REPO_USAGE
 from waystation_common.settings import Settings
 from waystation_server.bootstrap import ensure_bootstrap_admin
 from waystation_server.formats.galaxy.descriptor import DEFAULT_COLLECTIONS_PATH
@@ -363,6 +363,10 @@ async def test_hosted_publish_import_delete(
     assert done['state'] == 'completed' and done['finished_at'] and done['error'] is None
     assert [m['level'] for m in done['messages']] == ['INFO', 'INFO', 'INFO']
     assert (await client.get(task_url)).status_code == 404  # hidden from anonymous
+    mine = await services.catalog.get('mine')
+    assert mine is not None
+    usage = await services.db[REPO_USAGE].find_one({'_id': mine.id})
+    assert usage is not None and (usage['bytes'], usage['assets'], usage['artifacts']) == (len(v1), 1, 1)
     assert (await client.get('/repository/gal' + task_url.removeprefix('/repository/mine'))).status_code == 404
 
     again = await publish(client, 'mine', token, v1, 'harness-demo-1.0.0.tar.gz')
@@ -415,9 +419,8 @@ async def test_hosted_publish_import_delete(
     # hosted records follow, proxy listings stay
     assert (await publish(client, 'mine', token, v1, 'harness-demo-1.0.0.tar.gz')).status_code == 202
     await run_imports(services)
-    mine = await services.catalog.get('mine')
     gal = await services.catalog.get('gal')
-    assert mine is not None and gal is not None
+    assert gal is not None
     await services.db[ASSETS].delete_one(
         {'repo_id': mine.id, 'path': 'collections/harness/demo/harness-demo-1.0.0.tar.gz'}
     )

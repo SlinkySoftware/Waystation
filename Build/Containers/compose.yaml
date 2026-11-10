@@ -173,6 +173,11 @@ services:
     container_name: waystation-mongodb
     user: "999:999"
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--quiet"]
+    # MongoDB's recommended open-file limit. With the Docker default (soft 1024) mongod accepts only about 400
+    # connections (the rest of its descriptors hold WiredTiger files) and refuses the rest, which server pools
+    # see as AutoReconnect under load (Documents/Operations/DEPLOYMENT.md "MongoDB connections").
+    ulimits:
+      nofile: {soft: 64000, hard: 64000}
     volumes:
       - type: ${WAYSTATION_MONGO_MOUNT_TYPE:-volume}
         source: ${WAYSTATION_MONGO_DIR:-mongodb}

@@ -1,4 +1,4 @@
-// Create the npm proxy repository the test uses, through the REST API as the run's bootstrap admin.
+// Create the npm repositories the test uses (proxy, hosted, group), through the REST API as the run's bootstrap admin.
 // Node (no curl in the node image): node /harness/npm/setup.mjs <name> <upstream-url>
 const [name, upstream] = process.argv.slice(2);
 const base = `${process.env.WAYSTATION_URL}/api/v1`;
@@ -27,19 +27,28 @@ const cookie = login.headers
   .join('; ');
 const auth = { cookie, 'x-csrf-token': session.csrf_token };
 
-const existing = await call('GET', `/repositories/${name}`, undefined, auth);
-if (existing.status === 200) {
-  console.log(`setup: repository ${name} exists`);
-  process.exit(0);
-}
-const created = await call(
-  'POST',
-  '/repositories',
+// The proxy, a hosted repository and a group of both (writes to the group land in the hosted member).
+const repositories = [
   { name, format: 'npm', type: 'proxy', online: true, proxy: { upstream_url: upstream } },
-  auth,
-);
-if (created.status !== 201) {
-  console.error(`setup: creating ${name} failed with ${created.status}: ${await created.text()}`);
-  process.exit(1);
+  { name: `${name}-hosted`, format: 'npm', type: 'hosted', online: true, hosted: { write_policy: 'disable_redeploy' } },
+  {
+    name: `${name}-all`,
+    format: 'npm',
+    type: 'group',
+    online: true,
+    group: { members: [`${name}-hosted`, name], writable_member: `${name}-hosted` },
+  },
+];
+for (const repo of repositories) {
+  const existing = await call('GET', `/repositories/${repo.name}`, undefined, auth);
+  if (existing.status === 200) {
+    console.log(`setup: repository ${repo.name} exists`);
+    continue;
+  }
+  const created = await call('POST', '/repositories', repo, auth);
+  if (created.status !== 201) {
+    console.error(`setup: creating ${repo.name} failed with ${created.status}: ${await created.text()}`);
+    process.exit(1);
+  }
+  console.log(`setup: created npm ${repo.type} ${repo.name}`);
 }
-console.log(`setup: created npm proxy ${name} -> ${upstream}`);

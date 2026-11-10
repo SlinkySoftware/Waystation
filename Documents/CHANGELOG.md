@@ -23,6 +23,43 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   harness `tests/clients/galaxy/` (new `client-ansible`: ansible-core 2.22; galaxy.ansible.com, its S3 redirect and a
   GitHub role archive recorded, 75 KB) and the fixture scrubber now redacts Pulp's `validate_token` query value.
   `Documents/Operations/clients/galaxy.md`.
+- T-S07, T-S12, T-S05, T-S09: fixes for the k6 suite's findings (full profile, before -> after). 500 concurrent
+  clients: 1-5 failed downloads per run -> 0. The cause was mongod refusing connections past its open-file limit
+  (Docker's default soft limit 1024 leaves about 400 connections; four server processes with 100-connection pools
+  exceeded it), which pymongo reported as `AutoReconnect: Connection is closed`; `compose.yaml` now sets
+  `ulimits: nofile: 64000` on `mongodb` (DEPLOYMENT.md "MongoDB connections"), and hot-path reads (`assets.get`,
+  `assets.sizes`, the repository catalog load) retry once after 20-100 ms on `AutoReconnect`
+  (`waystation_common.db.retry`; writes never). Docker tokens: a server process whose repository catalog predated a
+  new repository issued tokens granting nothing on it (and refused its `/v2/` requests) for up to 5 s; the catalog
+  now follows a change stream on `repositories` and reloads once when a lookup by name misses (at most once a second
+  and once per name and snapshot; Docker resolution and `/repository/<name>/`). Repository list at 1M assets: p95
+  179 ms / p99 1112 ms -> 8 ms / 10 ms: every process recounted `assets` (a 1M-document aggregation) every 30 s on
+  the request path; the storage figures now read `repo_usage` (new `artifacts` counter of content assets, kept by
+  every asset write, reconciled hourly, filled by migration `0003_usage_artifacts`) and an expired snapshot is
+  refreshed in the background. Folder browse: p95 40 ms -> 7 ms: the walk reads several small sub-folders per query
+  (batches grow while they hold several children) and the first page walks the folder once instead of twice.
+- T-P5-NPMH: npm hosted and group repositories. Hosted (`formats/npm/hosted.py`, `publish.py`): `npm publish` bodies
+  (≤ 100 MiB) parsed in a thread, one version and its base64 tarball, `length`/`dist.integrity`/`dist.shasum` checked,
+  the tarball read without extraction (bounded, safe entry names) and its `package.json` matched to the version;
+  stored as a live upload transfer with the manifest's `dist` computed by the server; write policy (`disable_redeploy`
+  answers npm's "cannot publish over"), quotas. Packuments (full and abbreviated) generated from the new
+  `npm_versions` collection and the hosted `npm_packages` document (compare-and-set on `rev`; a regeneration that
+  raced runs again) and stored as metadata assets (X-Accel, `ETag`/`304`). `npm deprecate` and
+  `npm unpublish <pkg>@<v>` (packument updates; removing versions needs `delete`), `unpublish --force`, tarball
+  deletes (also behind the `repository/<repo>/` path npm sends), dist-tags `GET/PUT/DELETE` (`dist-tag rm` = `write`),
+  hosted search; a version whose tarball a cleanup removed is dropped when a client asks for it. `npm login
+  --auth-type=legacy` / `npm logout` on every npm repository: new descriptor hooks `client_login` and
+  `request_action`, `FormatRequest.sign_in`/`sign_out`, `waystation_server.client_login` (password checked like
+  `docker login`, API token with the user's repository scopes, hidden repositories answer 404 for any failure,
+  audited); `verify_login(via=...)`. Groups (`formats/npm/group.py`): packuments merged in a thread (first member wins
+  per version, dist-tags from the first member with the tag, tarball URLs to the group), kept in the blob store per
+  members' digests, tarballs from the members in order, `?write=true` from the writable member, writes to the
+  writable member; proxies answer `dist-tags` too. UI: npm hosted and group in the create flow, hosted browse shows
+  version counts instead of cache state, "Set me up" publish snippets (`.npmrc` `_authToken`, `npm login`,
+  `publishConfig`, publish/dist-tag/deprecate/unpublish, pnpm). Harness `tests/clients/npm/`: npm 11 login, whoami,
+  publish to the group and the hosted repository, republish refused, install of a hosted and a proxied package
+  through the group, dist-tag add/ls/rm, deprecate, unpublish of a version and of the package, logout (fixtures
+  re-recorded). Client guide `Documents/Operations/clients/npm.md` (publishing, groups, `npm login`).
 - T-O07: backup and restore. `Build/Containers/backup/waystation-backup.sh` (bash + Docker only; `make backup`,
   `make restore`, `make verify-blobs`) works in a throwaway `mongo:8` container that borrows the worker's data mount,
   networks and MongoDB settings (URI never on a command line). Backup: `mongodump --archive --gzip` first, then the

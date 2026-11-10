@@ -52,6 +52,17 @@ not built yet).
 On a shared host, cap MongoDB's cache with a compose override (`command: ["mongod", "--replSet", "rs0",
 "--bind_ip_all", "--quiet", "--wiredTigerCacheSizeGB", "1"]`).
 
+### MongoDB connections
+
+Every server process (`WAYSTATION_SERVER_WORKERS`) and the worker keep a connection pool of up to 100 MongoDB
+connections, plus two monitoring connections each; under heavy concurrent load the pools fill up. mongod refuses
+connections past its limit, which it derives from its open-file limit: with Docker's default soft limit of 1024 it
+accepts only about 400 (WiredTiger keeps a file open per collection and index), and the refused connections show up
+as `AutoReconnect: ... Connection is closed` in the server log and 500 answers. The bundled `mongodb` service
+therefore sets `ulimits: nofile: 64000` (MongoDB's recommended value). For an external MongoDB, make sure its
+open-file limit (and `net.maxIncomingConnections`) leave room for `(server processes + 1) x 102` connections per
+Waystation host. A read that meets a transient connection error is retried once after a short random pause.
+
 ## 3. Images
 
 Images are named `${WAYSTATION_IMAGE_PREFIX}/waystation-{web,server,worker}:${WAYSTATION_IMAGE_TAG}`. Both variables
@@ -302,4 +313,5 @@ downtime upgrades need two or more server replicas (planned with the standalone 
 | Large pulls stop at a fixed time or size | A proxy timeout or body/buffer limit in front of Waystation (REVERSE_PROXIES.md) |
 | Live dashboard does not update | The proxy buffers `/api/v1/events/stream` (REVERSE_PROXIES.md) |
 | Log shows the proxy's address as the client | `WAYSTATION_TRUST_FORWARDED` / `WAYSTATION_TRUSTED_PROXIES` (REVERSE_PROXIES.md) |
+| `AutoReconnect: ... Connection is closed` in the server log under load | mongod refuses connections past its open-file limit: "MongoDB connections" in section 2 |
 | `/metrics` returns 404 | The scraper's address is not in `WAYSTATION_METRICS_ALLOW_CIDRS` |
