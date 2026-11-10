@@ -379,6 +379,11 @@ Not covered by `make proxies-check` (DSM is not available as a container); these
   buffering vary between DSM versions). The event stream works because the web tier sends `X-Accel-Buffering: no`.
   If large uploads fail with `413` or large pulls stall, DSM's limits are the cause: run one of the proxies above in
   a container on the NAS (Container Manager) instead, or point clients at the Docker host directly.
+- Tested 2026-11-11 on DSM 7.4 (Waystation in Container Manager on the same NAS, `WAYSTATION_HTTP_BIND=127.0.0.1`,
+  destination `127.0.0.1:8080`): DSM's generated nginx has `client_max_body_size 0` and request and response
+  buffering off; a 2.2 GB image pulled without stalls; docker, apt, dnf, npm and yarn clients worked through it.
+  The container sees DSM's connections from the gateway of Waystation's `frontend` network (`docker network inspect <project>_frontend` shows it):
+  that address is the one for `WAYSTATION_TRUSTED_PROXIES`, not the NAS's LAN address.
 
 ## 8. Checklist after setup
 

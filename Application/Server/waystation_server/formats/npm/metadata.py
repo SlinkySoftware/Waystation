@@ -29,6 +29,9 @@ _TARBALL = re.compile(r'[A-Za-z0-9_~+-][A-Za-z0-9._~+-]*\.tgz')
 _SHA1_HEX = re.compile(r'[0-9a-f]{40}')
 _REV = re.compile(r'[0-9A-Za-z-]{1,64}')
 _TAG = re.compile(r'[A-Za-z0-9_~-][A-Za-z0-9._~-]{0,127}')
+# A version or dist-tag in a version-document path: what a version (``+`` build metadata) or a tag can hold; never
+# ``-``/``-rev`` (tarball and revision paths) and never a leading dot.
+_REF = re.compile(r'[A-Za-z0-9_~+][A-Za-z0-9._~+-]{0,255}')
 _VERSION = re.compile(
     r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)'
     r'(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?'
@@ -42,6 +45,7 @@ MAX_VERSION_LENGTH = 256
 class Op(StrEnum):
     PACKUMENT = 'packument'  # GET; PUT = publish or packument update (deprecate); DELETE = unpublish everything
     PACKAGE_REV = 'package-rev'  # ``<pkg>/-rev/<rev>``: PUT = packument update (unpublish a version), DELETE = all
+    VERSION = 'version'  # ``<pkg>/<version or dist-tag>``: GET, one version object of the full packument
     TARBALL = 'tarball'  # GET; DELETE (also ``/-rev/<rev>`` and the ``repository/<repo>/`` form npm unpublish sends)
     DIST_TAGS = 'dist-tags'  # ``-/package/<pkg>/dist-tags``: GET
     DIST_TAG = 'dist-tag'  # ``-/package/<pkg>/dist-tags/<tag>``: PUT (body: the version as a JSON string), DELETE
@@ -58,7 +62,7 @@ class Route:
     op: Op
     package: str = ''  # '@scope/name' or 'name'
     filename: str = ''  # tarball file name
-    arg: str = ''  # dist-tag name, login user name, logout token
+    arg: str = ''  # version or dist-tag (version documents), dist-tag name, login user name, logout token
 
 
 def valid_name(package: str) -> bool:
@@ -89,6 +93,8 @@ def _package_route(segments: list[str]) -> Route | None:
     package, rest = split
     if not rest:
         return Route(Op.PACKUMENT, package)
+    if len(rest) == 1 and _REF.fullmatch(rest[0]):
+        return Route(Op.VERSION, package, arg=rest[0])
     if len(rest) == 2 and rest[0] == '-rev' and _REV.fullmatch(rest[1]):
         return Route(Op.PACKAGE_REV, package, arg=rest[1])
     if len(rest) in (2, 4) and rest[0] == '-' and _TARBALL.fullmatch(rest[1]):
@@ -198,6 +204,27 @@ def rewrite_packument(data: bytes, *, package: str, repo_url: str) -> bytes:
             filename = tarball_filename(dist['tarball'])
             dist['tarball'] = f'{repo_url}{package}/-/{quote(filename, safe="")}'
     return json.dumps(doc, ensure_ascii=False, separators=(',', ':')).encode()
+
+
+def version_document(packument: bytes, ref: str) -> bytes | None:
+    """The version object a ``<pkg>/<ref>`` request answers, from a (cached, rewritten or generated) full packument:
+    ``versions[ref]``, else the version the dist-tag ``ref`` names (npm's registry order). None: no such version.
+    CPU-heavy for large packuments: run it in a thread."""
+    try:
+        doc = json.loads(packument)
+    except ValueError:
+        raise UpstreamError('cached packument is not valid JSON') from None
+    versions = doc.get('versions') if isinstance(doc, dict) else None
+    if not isinstance(versions, dict):
+        return None
+    found = versions.get(ref)
+    if not isinstance(found, dict):
+        tags = doc.get('dist-tags')
+        tagged = tags.get(ref) if isinstance(tags, dict) else None
+        found = versions.get(tagged) if isinstance(tagged, str) else None
+    if not isinstance(found, dict):
+        return None
+    return json.dumps(found, ensure_ascii=False, separators=(',', ':')).encode()
 
 
 @dataclass(frozen=True)

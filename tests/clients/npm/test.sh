@@ -48,6 +48,31 @@ mkdir "$work/again"
 cp "$work/fresh/package.json" "$work/fresh/package-lock.json" "$work/again/"
 (cd "$work/again" && npm ci --cache "$work/cache-again") || fail 'npm ci (warm Waystation cache)'
 
+step 'version documents: npm view <pkg>@<version>, corepack-style GET <registry>/<pkg>/<version or tag>'
+[ "$(npm view --cache "$work/cache-view-proxy" is-odd@3.0.1 version)" = 3.0.1 ] || fail 'npm view is-odd@3.0.1'
+[ "$(npm view --cache "$work/cache-view-proxy" @sindresorhus/is@4.6.0 name)" = @sindresorhus/is ] \
+  || fail 'npm view @sindresorhus/is@4.6.0'
+# corepack resolves pnpm/yarn with a plain fetch of <registry>/<name>/<version> and reads dist.tarball/integrity
+node -e '
+  const reg = process.argv[1];
+  const get = async (p) => { const r = await fetch(reg + p); return [r.status, await r.json()]; };
+  (async () => {
+    for (const [p, name, version] of [
+      ["is-odd/3.0.1", "is-odd", "3.0.1"],
+      ["is-odd/latest", "is-odd", null],
+      ["@sindresorhus/is/4.6.0", "@sindresorhus/is", "4.6.0"],
+      ["@sindresorhus%2fis/4.6.0", "@sindresorhus/is", "4.6.0"],
+    ]) {
+      const [status, doc] = await get(p);
+      const tarball = String(doc.dist && doc.dist.tarball);
+      if (status !== 200 || doc.name !== name || (version && doc.version !== version) || !tarball.startsWith(reg)
+          || !doc.dist.integrity) throw new Error(`${p}: ${status} ${JSON.stringify(doc).slice(0, 300)}`);
+    }
+    const [status, doc] = await get("is-odd/no-such-tag");  // a tag: answered from the cached packument
+    if (status !== 404 || doc.error !== "version not found: no-such-tag") throw new Error(`unknown tag: ${status} ${JSON.stringify(doc)}`);
+  })().catch((e) => { console.error(e.message); process.exit(1); });
+' "$registry" || fail 'version documents'
+
 step 'npm audit (POST relayed to the upstream, anonymous)'
 (cd "$work/pinned" && npm audit --audit-level=critical --cache "$work/cache-pinned") || fail 'npm audit'
 
@@ -154,6 +179,31 @@ step 'npm deprecate (read with ?write=true through the group, written to the hos
 npm deprecate "$pkg@1.0.0" 'use 1.1.0' --registry "$group" --userconfig "$npmrc" || fail 'npm deprecate'
 deprecated=$(npm view "$pkg@1.0.0" deprecated --registry "$group" --userconfig "$npmrc" --cache "$work/cache-view")
 [ "$deprecated" = 'use 1.1.0' ] || fail "deprecation message not served: $deprecated"
+
+step 'version documents of the hosted package (group: from the merged packument; hosted: generated)'
+node -e '
+  const [group, hosted, pkg, token] = process.argv.slice(1);
+  const get = async (url) => {
+    const r = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    return [r.status, await r.json()];
+  };
+  const encoded = pkg.replace("/", "%2f");
+  (async () => {
+    for (const [url, version, base] of [
+      [`${group}${pkg}/1.0.0`, "1.0.0", group],
+      [`${group}${encoded}/latest`, "1.1.0", group],
+      [`${hosted}${encoded}/1.1.0`, "1.1.0", hosted],
+    ]) {
+      const [status, doc] = await get(url);
+      if (status !== 200 || doc.version !== version || !String(doc.dist && doc.dist.tarball).startsWith(base))
+        throw new Error(`${url}: ${status} ${JSON.stringify(doc).slice(0, 300)}`);
+    }
+    const [status, doc] = await get(`${group}${pkg}/1.0.0`);
+    if (doc.deprecated !== "use 1.1.0") throw new Error(`deprecated: ${JSON.stringify(doc)}`);
+    const [missing] = await get(`${hosted}${pkg}/9.9.9`);
+    if (missing !== 404) throw new Error(`unknown version: ${missing}`);
+  })().catch((e) => { console.error(e.message); process.exit(1); });
+' "$group" "$hosted" "$pkg" "$login_token" || fail 'hosted/group version documents'
 
 step 'npm unpublish one version, then the whole package'
 npm unpublish "$pkg@1.0.0" --registry "$hosted" --userconfig "$publisher" || fail 'npm unpublish <pkg>@1.0.0'
