@@ -33,6 +33,7 @@ from waystation_common.jobs import CleanupRun
 from waystation_common.jobs.schedule import parse_schedule
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.repositories import managed
 from waystation_server.audit import AuditAction
 from waystation_server.problems import FieldError, FieldErrors
 from waystation_server.repos.model import RepoConfig
@@ -133,6 +134,9 @@ class CleanupPolicy(BaseModel):
     updated_at: datetime
     next_run_at: datetime | None
     last_run: CleanupRunSummary | None
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class CleanupPolicyList(BaseModel):
@@ -273,6 +277,7 @@ async def _views(svc: Services, principal: Principal, policies: list[Document]) 
                 updated_at=policy['updated_at'],
                 next_run_at=_next_run(policy, definitions.get(policy_id), now),
                 last_run=run_view(last[0]) if last else None,
+                managed_by=managed(policy.get('managed_by')),
             )
         )
     return out

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Path, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -25,6 +25,7 @@ from waystation_common.errors import Conflict, Forbidden, NotFound
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
 from waystation_server.api.rbac import PROBLEM
+from waystation_server.api.repositories import managed
 from waystation_server.audit import AuditAction
 from waystation_server.db import roles as roles_db
 from waystation_server.problems import FieldError, FieldErrors
@@ -66,6 +67,9 @@ class Role(BaseModel):
     description: str
     builtin: bool
     permissions: list[RolePermissionBody]
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class RoleDetail(Role):
@@ -110,7 +114,14 @@ def _custom_body(record: RoleRecord) -> Role:
     perms = [
         RolePermissionBody(action=Action(p.action), scope=p.scope) for p in record.permissions if p.action in Action
     ]
-    return Role(id=record.id, name=record.name, description=record.description, builtin=False, permissions=perms)
+    return Role(
+        id=record.id,
+        name=record.name,
+        description=record.description,
+        builtin=False,
+        permissions=perms,
+        managed_by=managed(record.managed_by),
+    )
 
 
 def _check_permissions(body: RoleWrite) -> list[Permission]:

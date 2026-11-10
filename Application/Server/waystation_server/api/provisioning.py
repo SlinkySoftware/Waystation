@@ -39,7 +39,7 @@ def _file(svc: Services) -> str:
 @router.get('/provisioning', response_model=ProvisioningStatus, operation_id='getProvisioning')
 @access.requires(Action.ADMIN)
 async def get_provisioning(svc: ServicesDep) -> ProvisioningStatus:
-    from waystation_server.provisioning import engine as provisioning  # noqa: PLC0415 - see the module docstring
+    from waystation_server.provisioning import engine as provisioning
 
     path = svc.settings.provision_file
     return ProvisioningStatus(
@@ -54,8 +54,8 @@ async def get_provisioning(svc: ServicesDep) -> ProvisioningStatus:
 )
 @access.requires(Action.ADMIN)
 async def plan_provisioning(request: Request, svc: ServicesDep) -> ProvisioningPlan:
-    from waystation_server.provisioning import engine as provisioning  # noqa: PLC0415 - see the module docstring
-    from waystation_server.provisioning import loader  # noqa: PLC0415
+    from waystation_server.provisioning import engine as provisioning
+    from waystation_server.provisioning import loader
 
     principal = await authenticate(request)
     loaded = await loader.load(_file(svc))
@@ -67,8 +67,8 @@ async def plan_provisioning(request: Request, svc: ServicesDep) -> ProvisioningP
 )
 @access.requires(Action.ADMIN)
 async def apply_provisioning(request: Request, svc: ServicesDep) -> ProvisioningPlan:
-    from waystation_server.provisioning import engine as provisioning  # noqa: PLC0415 - see the module docstring
-    from waystation_server.provisioning import loader  # noqa: PLC0415
+    from waystation_server.provisioning import engine as provisioning
+    from waystation_server.provisioning import loader
 
     principal = await authenticate(request)
     loaded = await loader.load(_file(svc))

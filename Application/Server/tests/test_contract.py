@@ -161,6 +161,9 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/events/stream', 'get'),
     ('/audit', 'get'),
     ('/audit/export', 'get'),
+    ('/provisioning', 'get'),
+    ('/provisioning/plan', 'post'),
+    ('/provisioning/apply', 'post'),
 }
 
 # Deliberate, reviewed differences: (path, method, where) -> reason. Keep this short.

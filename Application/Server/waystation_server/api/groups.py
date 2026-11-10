@@ -26,6 +26,7 @@ from waystation_common.ids import new_id
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
 from waystation_server.api.rbac import PROBLEM, check_roles, require_manageable
+from waystation_server.api.repositories import managed
 from waystation_server.api.users import (
     UserPage,
     decode_cursor,
@@ -70,6 +71,9 @@ class Group(BaseModel):
     member_count: int | None = Field(description='Local groups; null for mapped groups (membership is per sign-in)')
     created_at: datetime
     updated_at: datetime
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class GroupCreate(BaseModel):
@@ -114,6 +118,7 @@ async def _bodies(svc: Services, groups: list[GroupRecord]) -> list[Group]:
                 member_count=counts.get(g.id, 0) if local else None,
                 created_at=g.created_at,
                 updated_at=g.updated_at,
+                managed_by=managed(g.managed_by),
             )
         )
     return out
