@@ -302,6 +302,13 @@ body into a `BlobWriter` as a live upload transfer, record committed blobs as as
 handing the request to a member (`dataclasses.replace(req, repo=member)`); `req.repository(name)` finds members and
 `req.allows_member(action, member)` asks the decision point about a member (RBAC with API-token limits, not the
 registry token's grants, which named the group).
+As implemented (T-P5-NPMH): a descriptor may override the action the router authorises for a request
+(`request_action(method, path)`, e.g. npm `dist-tag rm` is a `DELETE` that needs `write`) and may declare package-client
+sign-in paths (`client_login(method, path)`: npm `/-/user/...`). For those the router authenticates but authorises
+nothing; the plugin calls `req.sign_in` / `req.sign_out` (`waystation_server.client_login`), which verify the password
+like `docker login`, decide with `access.check`/`can_see` (`read` on the repository; a repository the caller could not
+see answers 404 whatever the outcome) and mint or revoke the user's API token. Formats still never import the security
+internals: these capabilities arrive on the `FormatRequest`.
 
 ## 12. Errors and logging
 Format endpoints return the format's native error shape (OCI JSON errors, npm JSON errors, plain 404 for file

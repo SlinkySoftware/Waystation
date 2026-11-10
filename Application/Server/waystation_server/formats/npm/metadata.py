@@ -27,11 +27,26 @@ _NAME = re.compile(r'[A-Za-z0-9_~-][A-Za-z0-9._~-]*')
 _SCOPE = re.compile(r'@[A-Za-z0-9_~-][A-Za-z0-9._~-]*')
 _TARBALL = re.compile(r'[A-Za-z0-9_~+-][A-Za-z0-9._~+-]*\.tgz')
 _SHA1_HEX = re.compile(r'[0-9a-f]{40}')
+_REV = re.compile(r'[0-9A-Za-z-]{1,64}')
+_TAG = re.compile(r'[A-Za-z0-9_~-][A-Za-z0-9._~-]{0,127}')
+_VERSION = re.compile(
+    r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)'
+    r'(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?'
+)
+COUCH_USER = 'org.couchdb.user:'
+MAX_USERNAME = 256
+MAX_TOKEN = 512
+MAX_VERSION_LENGTH = 256
 
 
 class Op(StrEnum):
-    PACKUMENT = 'packument'
-    TARBALL = 'tarball'
+    PACKUMENT = 'packument'  # GET; PUT = publish or packument update (deprecate); DELETE = unpublish everything
+    PACKAGE_REV = 'package-rev'  # ``<pkg>/-rev/<rev>``: PUT = packument update (unpublish a version), DELETE = all
+    TARBALL = 'tarball'  # GET; DELETE (also ``/-rev/<rev>`` and the ``repository/<repo>/`` form npm unpublish sends)
+    DIST_TAGS = 'dist-tags'  # ``-/package/<pkg>/dist-tags``: GET
+    DIST_TAG = 'dist-tag'  # ``-/package/<pkg>/dist-tags/<tag>``: PUT (body: the version as a JSON string), DELETE
+    LOGIN = 'login'  # ``-/user/org.couchdb.user:<name>``: PUT (``npm login --auth-type=legacy``)
+    LOGOUT = 'logout'  # ``-/user/token/<token>``: DELETE (``npm logout``)
     PING = 'ping'
     WHOAMI = 'whoami'
     SEARCH = 'search'
@@ -43,6 +58,7 @@ class Route:
     op: Op
     package: str = ''  # '@scope/name' or 'name'
     filename: str = ''  # tarball file name
+    arg: str = ''  # dist-tag name, login user name, logout token
 
 
 def valid_name(package: str) -> bool:
@@ -54,8 +70,59 @@ def valid_name(package: str) -> bool:
     return bool(_NAME.fullmatch(package))
 
 
+def _split_package(segments: list[str]) -> tuple[str, list[str]] | None:
+    if not segments or not segments[0]:
+        return None
+    if segments[0].startswith('@'):
+        if len(segments) < 2:
+            return None
+        package, rest = f'{segments[0]}/{segments[1]}', segments[2:]
+    else:
+        package, rest = segments[0], segments[1:]
+    return (package, rest) if valid_name(package) else None
+
+
+def _package_route(segments: list[str]) -> Route | None:
+    split = _split_package(segments)
+    if split is None:
+        return None
+    package, rest = split
+    if not rest:
+        return Route(Op.PACKUMENT, package)
+    if len(rest) == 2 and rest[0] == '-rev' and _REV.fullmatch(rest[1]):
+        return Route(Op.PACKAGE_REV, package, arg=rest[1])
+    if len(rest) in (2, 4) and rest[0] == '-' and _TARBALL.fullmatch(rest[1]):
+        if len(rest) == 4 and (rest[2] != '-rev' or not _REV.fullmatch(rest[3])):
+            return None
+        return Route(Op.TARBALL, package, rest[1])
+    return None
+
+
+def _special_route(segments: list[str]) -> Route | None:
+    """``-/package/<pkg>/dist-tags[/<tag>]``, ``-/user/org.couchdb.user:<name>``, ``-/user/token/<token>``."""
+    if len(segments) == 3 and segments[1] == 'user' and segments[2].startswith(COUCH_USER):
+        name = segments[2][len(COUCH_USER) :]
+        return Route(Op.LOGIN, arg=name) if 0 < len(name) <= MAX_USERNAME else None
+    if len(segments) == 4 and segments[1:3] == ['user', 'token'] and 0 < len(segments[3]) <= MAX_TOKEN:
+        return Route(Op.LOGOUT, arg=segments[3])
+    if len(segments) >= 4 and segments[1] == 'package':
+        split = _split_package(segments[2:])
+        if split is None:
+            return None
+        package, rest = split
+        if rest == ['dist-tags']:
+            return Route(Op.DIST_TAGS, package)
+        if len(rest) == 2 and rest[0] == 'dist-tags' and valid_tag(rest[1]):
+            return Route(Op.DIST_TAG, package, arg=rest[1])
+    return None
+
+
 def parse_route(path: str) -> Route | None:
-    """Map a normalised repository path to an npm operation. ``@scope%2fname`` arrives decoded (``@scope/name``)."""
+    """Map a normalised repository path to an npm operation. ``@scope%2fname`` arrives decoded (``@scope/name``).
+
+    ``npm unpublish <pkg>@<version>`` deletes the tarball at the *path* of its URL appended to the registry URL
+    (``<registry>/repository/<repo>/<pkg>/-/<file>/-rev/<rev>``), so a tarball route is also accepted behind a
+    ``repository/<name>/`` prefix (no package path has a second segment other than ``-``/``-rev``)."""
     if path in AUDIT_PATHS:
         return Route(Op.AUDIT)
     if path == '-/ping':
@@ -65,21 +132,25 @@ def parse_route(path: str) -> Route | None:
     if path == '-/v1/search':
         return Route(Op.SEARCH)
     segments = path.split('/') if path else []
-    if not segments or segments[0] == '-':
+    if not segments:
         return None
-    if segments[0].startswith('@'):
-        if len(segments) < 2:
-            return None
-        package, rest = f'{segments[0]}/{segments[1]}', segments[2:]
-    else:
-        package, rest = segments[0], segments[1:]
-    if not valid_name(package):
-        return None
-    if not rest:
-        return Route(Op.PACKUMENT, package)
-    if len(rest) == 2 and rest[0] == '-' and _TARBALL.fullmatch(rest[1]):
-        return Route(Op.TARBALL, package, rest[1])
-    return None
+    if segments[0] == '-':
+        return _special_route(segments)
+    route = _package_route(segments)
+    if route is None and segments[0] == 'repository' and len(segments) > 2:
+        inner = _package_route(segments[2:])
+        return inner if inner is not None and inner.op is Op.TARBALL else None
+    return route
+
+
+def valid_tag(tag: str) -> bool:
+    """A dist-tag name: URL-safe, not a version (npm would read it as one), no ``$``/``.`` start (MongoDB keys)."""
+    return bool(_TAG.fullmatch(tag)) and not _VERSION.fullmatch(tag.removeprefix('v'))
+
+
+def valid_version(version: str) -> bool:
+    """A strict SemVer 2.0 version, as npm publishes them."""
+    return len(version) <= MAX_VERSION_LENGTH and bool(_VERSION.fullmatch(version))
 
 
 def upstream_packument_path(package: str) -> str:

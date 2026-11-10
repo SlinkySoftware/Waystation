@@ -115,6 +115,13 @@ Windows containers support for the server.
   the same bytes again and refuses other content with "File already exists"). Project pages (PEP 503 HTML and PEP 691
   JSON) are rendered from the stored files per request; releases can be yanked (PEP 592) from Browse or
   `POST /api/v1/repositories/{name}/pypi/yank` (`write`). Uploads need `write`; uploads and yanks are audited.
+- npm (T-P5-NPMH): hosted repositories accept `npm publish` (one version and its base64 tarball per request, ≤ 100
+  MiB; `dist.integrity`/`shasum` and the tarball's own `package.json` checked against the version; the tarball read
+  in a thread without extraction, bounded), and generate their packuments (full and abbreviated, `ETag`/`304`) from
+  the stored versions after every change. `npm deprecate`, `npm unpublish <pkg>@<version>` and `--force` (needs
+  `delete`), `npm dist-tag add/rm/ls` (`write`; `latest` cannot be removed) and `npm search` work. Write policy as for
+  docker; `disable_redeploy` answers npm's "You cannot publish over the previously published versions". Publishes
+  are audited `content.upload`, deprecations and tag changes `content.update`, unpublishes `content.delete`.
 - Raw: `curl --upload-file` (`PUT`) and `DELETE` on any path; `X-Checksum-Sha256`/`-Sha1`/`-Md5` headers verified
   before anything is stored; write policy as above (`disable_redeploy`: a path is written once, 409; deletes stay
   allowed); directory listings (HTML, or JSON for scripts) at the root and any path ending in `/`.
@@ -163,8 +170,13 @@ Windows containers support for the server.
   proxy members in order) and send uploads to a hosted writable member.
   Now (T-P5-GO): Go groups (Go proxy members) merge `@v/list` per request (union, newest first, `ETag`/`304`), answer
   `.info`/`.mod`/`.zip` from any member's cached copy first, then `@latest`, queries and misses from the members in
-  order, and the checksum database from the first member that proxies it. Other formats' groups (npm... with
-  their metadata merges) are not built yet.
+  order, and the checksum database from the first member that proxies it.
+  Now (T-P5-NPMH): npm groups (npm proxy and hosted members) merge packuments in both representations (versions
+  union, the first member that has a version wins it; dist-tags from the first member that has the tag; tarball URLs
+  rewritten to the group), kept in the blob store and served with `ETag`/`304` until a member changes; tarballs come
+  from the members in order (so the member that won a version serves it); `npm publish`, `deprecate`, `unpublish`
+  and `dist-tag` through the group go to the hosted writable member (`?write=true` reads answer that member's own
+  packument); without one the group is read-only.
 
 ### 4.4 Routing and URLs
 - One base URL (`WAYSTATION_BASE_URL`, e.g. `https://registry.example.com`). TLS is terminated by the web tier or
@@ -201,7 +213,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 |---|---|---|---|---|
 | Raw / generic files | yes | yes | yes | 2 |
 | Docker / OCI (images, Helm OCI, any OCI artifact) | yes (Docker Hub, GHCR, Quay, any OCI) | yes | yes | 2 |
-| npm | yes | yes (P5) | yes | 2 (proxy) |
+| npm | yes | yes (P5, built) | yes | 2 (proxy) |
 | apt (Debian, Ubuntu, Raspberry Pi) | yes | yes, signed (P5) | no | 2 (proxy) |
 | yum / dnf (Rocky, Alma, Oracle, EPEL) | yes | yes, signed (P5) | no | 2 (proxy) |
 | PyPI | yes | yes | yes | 5 |
@@ -408,13 +420,17 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   (incident response).
 - **API token transport** for format clients on `/repository/*` and the API: `Authorization: Bearer <token>`,
   `Authorization: Token <token>`, or HTTP basic with the token as the password (any username). Basic credentials
-  whose password is not an API token are refused: account passwords (local or LDAP) are accepted only by the UI sign-in and
-  `docker login`.
+  whose password is not an API token are refused: account passwords (local or LDAP) are accepted only by the UI sign-in,
+  `docker login` and `npm login` (which exchanges them for an API token).
 - **Format client auth**: docker (Bearer token service at `/auth/token` per Docker token spec; `docker login` with
   username + local password or an API token as the password, any username; a registry token issued for an API token
   carries its id and is re-checked on every request, so revocation is immediate. `/v2/` accepts only these
   5-minute EdDSA tokens and answers everything else with the `401` Bearer challenge naming the scope; a token's
-  grants are re-checked against RBAC on every request), npm (`npm login --auth-type=legacy` and `_authToken` = API token), PyPI/twine
+  grants are re-checked against RBAC on every request), npm (`npm login --auth-type=legacy` and `_authToken` = API token;
+  now (T-P5-NPMH): the legacy login exchanges the password, checked like `docker login`, for a new API token of the
+  user with the repository scopes they hold, no repository pattern and no expiry, listed and revocable on the profile;
+  it needs `read` on the repository and a repository the caller could not see answers 404 for any failure;
+  `npm logout` revokes it), PyPI/twine
   (basic: username + token), Maven (basic in `settings.xml`, username + API token; sent preemptively for
   repositories anonymous cannot see, which answer anonymous requests with 404, not a challenge: proposed ADR 0005),
   Helm classic repos (basic: `helm repo add --username --password`), Terraform/OpenTofu (`credentials` block → `Authorization: Bearer`), Ansible Galaxy
@@ -960,7 +976,8 @@ Waystation/
 | Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified; `docker login` with an API token (T-S04); `registry:catalog:*` for everyone with a RBAC-filtered `/v2/_catalog`, `push`/`delete` grants carry `browse` (T-P2-DOCKERH) |
 | Raw format (T-P2-RAW) | M0 slice 2026-11-08: raw proxy repositories serve `GET`/`HEAD /repository/<repo>/<path>` through the proxy engine (cache by path, metadata regex → revalidated metadata, extension-based Content-Type, `Content-Disposition` + `nosniff`, native 404 with negative cache). 2026-11-10: raw hosted (streaming `PUT` with size limit and `X-Checksum-Sha256/Sha1/Md5` verification, write policy, `DELETE`, audit + activity + live upload transfers) and group repositories (members in order, uploads to the writable member), directory listings (HTML/JSON) for every type, "Set me up" for curl/wget upload and download, the repository form's Hosted/Group tiles for raw; curl and wget pass the real-client harness in replay (proxy, hosted upload/download/delete, group reads and upload). Nexus import creates raw hosted and group repositories; the harness also passes in live mode |
 | apt format (T-P2-APT) | M0 slice 2026-11-08: apt proxy repositories pass `InRelease`/`Release` through untouched, serve index files only by the SHA256 the cached `Release` lists (by-hash fetch, one `Release` revalidation on mismatch, then 502), accept self-validating `by-hash` paths, index cached `Packages` files into `apt_pool_index` and validate pool files against it (or record them `unverified`); several suites per repository. apt on Debian 13 and Ubuntu 26.04 passes the real-client harness in replay (`*-updates` and `*-security` suites). Hosted, Raspberry Pi OS / arm64 clients and worker-side re-verification pending |
-| npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Group repositories and pnpm/Yarn/Bun harness runs pending; hosted is Phase 5 |
+| npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`) pass in the harness. Hosted and group: see T-P5-NPMH. pnpm/Yarn/Bun harness runs pending |
+| npm hosted + group (T-P5-NPMH) | Done 2026-11-10: hosted publish (bounded, verified, tarball inspected in a thread), packuments generated from `npm_versions` and stored as metadata assets (compare-and-set on `npm_packages.rev`), deprecate, unpublish (version and package), dist-tags endpoints, search; `npm login --auth-type=legacy` issuing an API token and `npm logout` (`waystation_server.client_login`, descriptor `client_login`/`request_action`); groups merging packuments of proxy and hosted members with tarballs from the winning member and writes to the writable member; UI create flow for hosted/group, hosted browse, "Set me up" (`.npmrc` `_authToken`, `npm login`, `publishConfig`, publish/tag/deprecate/unpublish). Harness: npm 11 login, publish (group and hosted), install through the group with a proxied dependency, dist-tag, deprecate, unpublish, logout. pnpm/Yarn/Bun publish not in the harness |
 | PyPI (T-P5-PYPI) | Done 2026-11-10: proxy (PEP 503 HTML and PEP 691 JSON pages negotiated by `Accept` and cached per representation, normalised-name and trailing-slash redirects, file URLs rewritten into the repository with hashes, requires-python, yanked and core-metadata kept; files and PEP 658 `.metadata` files verified against the page's hashes before they are cached; legacy JSON API pass-through), hosted (twine / `uv publish` upload API streamed into the blob store, metadata read from wheels and sdists in a thread with zip/tar-slip checks, write policy, `.metadata` for wheels, yank API), group (merged pages, files from members, uploads to the writable member); browse (`pypi/projects`, `pypi/versions`) and search on `pypi_packages`; PEP 440 version order for cleanup; UI create flow, options, browse with yank, "Set me up" (pip, uv, Poetry, PDM, twine, uv publish). Harness: pip 26, uv 0.13, twine 7 against recorded pypi.org fixtures. Poetry/PDM harness runs pending |
 | Go modules (T-P5-GO) | Done 2026-11-10: proxy (GOPROXY protocol: `@v/list` and `@latest` as metadata, canonical `.info`/`.mod`/`.zip` as content, `.info` queries as metadata; module paths and versions case-decoded, validated and re-encoded; upstream `404`/`410` → `404`; size limits), `.mod`/`.zip` verified against the checksum database's `go.sum` lines (`h1:` dirhash in a thread, bounded) before they are cached (`verify_checksums`, `nosumdb` patterns), checksum database proxy at `sumdb/<name>/` (`supported`, `latest`, `lookup`, tiles: full tiles immutable, hash tiles size-checked), group (merged `@v/list`, files from the first member holding them, sumdb from the first proxying member); `go_modules` browse (`go/modules`, `go/versions`) and search; Go semver order for cleanup; UI create flow, options, Go browser, "Set me up" (GOPROXY, GONOSUMDB, `.netrc`). Harness: go 1.25 `go mod download`/`go run` through a proxy of proxy.golang.org with sum.golang.org verified through the proxy, and through a group with `.netrc` over TLS, recorded and replayed. Cached version lists and `@latest` are measured by the k6 metadata scenario (T-P2-PERF) |
 | Docker hosted (T-P2-DOCKERH) | Done 2026-11-09: docker hosted repositories (REST/UI type `hosted` with write policy and immutable tag patterns): chunked/monolithic/resumable uploads into the blob store (sha256-verified, `upload_sessions`), cross-repository mounts with RBAC on the source, manifest validation, tags with immutability, deletes, referrers API, `tags/list`, `/v2/_catalog` for proxies and hosted (RBAC-filtered), audit `content.upload`/`content.delete`, live upload transfers, browse of pushed images, "Set me up" for push/buildx/crane/oras/cosign. docker push and buildx multi-platform, skopeo, crane, oras and cosign 3 (offline, signatures via referrers) pass the client harness, and so does the OCI distribution-spec conformance suite v1.1.1. Quotas (T-O03): hard quotas refuse pushes with `403 DENIED` |
