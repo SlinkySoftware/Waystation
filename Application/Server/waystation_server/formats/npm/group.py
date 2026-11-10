@@ -12,7 +12,8 @@ Members (npm proxy and hosted repositories, in order; offline, missing and neste
   the writable member's own packument, so the changes they send back concern only it.
 - **Tarballs**: asked of the members in order (hosted: stored; proxy: cached, else fetched when its packument lists
   it), so the member that won a version in the merge also serves its tarball.
-- **dist-tags** (``GET``): from the merged packument. **Search**: the first proxy member's, else the hosted
+- **Version documents** (``<pkg>/<version or dist-tag>``) and **dist-tags** (``GET``): from the merged packument
+  (full for version documents). **Search**: the first proxy member's, else the hosted
   members'. **Audit**: the first proxy member that relays audits.
 - **Writes** (publish, packument updates, unpublish, dist-tag changes) go to the ``writable_member`` (a hosted npm
   repository): the principal needs the action on the group (router) and on the member; without one the group is
@@ -33,11 +34,18 @@ from typing import TYPE_CHECKING, Any
 
 from starlette.responses import JSONResponse, Response
 
-from waystation_common.errors import Forbidden, NotFound, WaystationError
+from waystation_common.errors import Forbidden, NotFound, UpstreamError, WaystationError
 from waystation_common.events import CacheState
 from waystation_server.formats.base import FormatRequest
 from waystation_server.formats.npm import metadata, publish
-from waystation_server.formats.npm.hosted import npm_json, search_body, search_params
+from waystation_server.formats.npm.hosted import (
+    PACKUMENT_MAX_BYTES,
+    npm_json,
+    search_body,
+    search_params,
+    version_not_found,
+    version_response,
+)
 from waystation_server.formats.npm.metadata import Op, Route
 from waystation_server.proxy.engine import StoredAsset
 from waystation_server.repos.model import RepoConfig, RepoType
@@ -50,7 +58,6 @@ log = logging.getLogger('waystation.formats.npm')
 
 MERGES_KEPT = 512
 RECLAIM_S = 3600.0  # well inside blob GC's grace period (24 h)
-PACKUMENT_MAX_BYTES = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -116,6 +123,8 @@ class NpmGroup:
                             pass
                 abbreviated = self._plugin.wants_abbreviated(req)
                 return await self._packument(req, members, route.package, abbreviated=abbreviated)
+            case Op.VERSION:
+                return await self._version(req, members, route)
             case Op.TARBALL:
                 return await self._tarball(req, members, route)
             case Op.DIST_TAGS:
@@ -222,6 +231,19 @@ class NpmGroup:
         return req.hosted.serve_generated(
             req, merged.sha256, merged.size, content_type=content_type, last_modified=merged.at
         )
+
+    async def _version(self, req: FormatRequest, members: list[RepoConfig], route: Route) -> Response:
+        """``<pkg>/<version or dist-tag>`` from the merged full packument (tarball URLs point at the group)."""
+        merged = await self.merged(req, members, route.package, abbreviated=False)
+        if merged is None:
+            raise NotFound('Not found')
+        if merged.size > PACKUMENT_MAX_BYTES:
+            raise UpstreamError('the merged packument is too large to parse')
+        data = await asyncio.to_thread(req.hosted.blobs.blob_path(merged.sha256).read_bytes)
+        response = await version_response(data, route.arg)
+        if response is None:
+            raise version_not_found(route.arg)
+        return response
 
     async def _dist_tags(self, req: FormatRequest, members: list[RepoConfig], package: str) -> Response:
         merged = await self.merged(req, members, package, abbreviated=True)

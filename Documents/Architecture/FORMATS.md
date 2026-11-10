@@ -179,6 +179,16 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
 Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
 - `GET /<pkg>` and `GET /@scope%2f<pkg>` (also accept unencoded `@scope/pkg`) → packument. `Accept:
   application/vnd.npm.install-v1+json` = abbreviated metadata ("corgi"); cache both representations separately.
+- Version documents (built 2026-11-11): `GET /<pkg>/<version>` and `GET /<pkg>/<dist-tag>` (scoped:
+  `/@scope/<pkg>/...` and `/@scope%2f<pkg>/...`) → the version object of the full packument (`versions[<v>]`, else
+  the version the dist-tag names, the registry's order), `application/json`. corepack fetches these
+  (`<registry>/@pnpm/exe.linux-x64/<v>`). The last segment must be 1-256 characters of `[A-Za-z0-9._~+-]` and not
+  start with `-` or `.` (so tarball `-/` and `-rev/` paths never clash). Proxy: from the cached full packument via
+  the same `ensure` path as packument requests (metadata max age, coalescing, stale-on-error, rewritten
+  `dist.tarball`); an exact SemVer version it does not list refreshes it once (published since the last fetch),
+  an unknown tag does not. Hosted: from the generated full packument; group: from the merged full packument
+  (tarballs point at the group). Unknown: 404 `{"error": "version not found: <v>"}`; unknown package: 404
+  `Not Found`. Semver ranges are not resolved. Authorised as a packument read; parsed in a thread, bounded reads.
 - Tarballs: `GET /<pkg>/-/<pkg>-<ver>.tgz` and `/@scope/<pkg>/-/<pkg>-<ver>.tgz`. Rewrite every
   `versions.*.dist.tarball` to `<base>/repository/<repo>/...`. Validate tarballs against `dist.integrity`
   (sha512 SRI) or `dist.shasum` (sha1).
