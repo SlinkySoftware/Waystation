@@ -366,7 +366,8 @@ async def test_group_sync_maps_roles(services: Services, client: httpx.AsyncClie
     alice = await sign_in(services, 'alice')
     assert 'admin' in alice.json()['capabilities']
     bob = await sign_in(services, 'bob')
-    assert bob.json()['capabilities'] == []  # platform is only reached through ops (nested off)
+    # platform is only reached through ops (nested off): no role, only the anonymous grants every user receives
+    assert bob.json()['capabilities'] == ['repositories.browse']
 
     body = openldap(group_mapping=mapping, ldap={'groups': {'nested': True}})
     del body['ldap']['connection']['bind_password']  # keep the stored one
@@ -384,7 +385,7 @@ async def test_group_sync_maps_roles(services: Services, client: httpx.AsyncClie
         response = await client.put(f'/api/v1/auth-providers/{provider["id"]}', json=body, headers=admin)
         assert response.status_code == 200
         services.groups.invalidate()
-        assert (await c.get('/api/v1/auth/me')).json()['capabilities'] == []
+        assert (await c.get('/api/v1/auth/me')).json()['capabilities'] == ['repositories.browse']  # anonymous only
     assert await services.db[GROUPS].count_documents({'provider_id': provider['id']}) == 0
 
 
