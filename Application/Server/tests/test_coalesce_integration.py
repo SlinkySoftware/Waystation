@@ -88,11 +88,13 @@ async def repo(services: Services, upstream: FakeUpstream, plugin: FilesPlugin, 
     return await add_repo(services, upstream.url)
 
 
-async def eventually(check: Callable[[], Awaitable[bool]], within: float = 10.0) -> None:
+async def eventually(
+    check: Callable[[], Awaitable[bool]], within: float = 10.0, what: Callable[[], str] = lambda: ''
+) -> None:
     deadline = asyncio.get_running_loop().time() + within
     while not await check():
         if asyncio.get_running_loop().time() > deadline:
-            raise AssertionError('condition not reached in time')
+            raise AssertionError(f'condition not reached within {within} s {what()}'.rstrip())
         await asyncio.sleep(0.02)
 
 
@@ -218,13 +220,15 @@ async def test_owner_gone_mid_transfer_a_follower_takes_over(
     await eventually(lambda: _status(services, repo, 'streaming'))
     followers = [asyncio.create_task((client if i % 3 else client_b).get(URL)) for i in range(15)]
 
+    sent: list[int] = []
+
     async def all_sending() -> bool:
         for s in (services, replica_b):
             await s.emitter.flush()
-        sent = [t['bytes_done'] for t in await live(services) if t['cache'] == 'COALESCED']
+        sent[:] = [t['bytes_done'] for t in await live(services) if t['cache'] == 'COALESCED']
         return len(sent) == 15 and all(n >= 2 * MiB for n in sent)
 
-    await eventually(all_sending, within=30)
+    await eventually(all_sending, within=30, what=lambda: f'(bytes sent per follower: {sorted(sent)})')
     owner.cancel()  # the owner's client goes away: its fill is aborted, a follower takes it over
     results = await asyncio.wait_for(asyncio.gather(*followers), 60)
     assert upstream.hits('/big.bin') == 2
