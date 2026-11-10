@@ -34,7 +34,7 @@
           </q-td>
         </template>
         <template #body-cell-source="{ row }">
-          <q-td class="cursor-pointer"><SourceBadge :source="row.source" /></q-td>
+          <q-td class="cursor-pointer"><SourceBadge :source="row.source" /> <ManagedBadge :item="row" /></q-td>
         </template>
         <template #body-cell-roles="{ row }">
           <q-td class="cursor-pointer"><RoleChips :roles="row.roles" /></q-td>
@@ -53,7 +53,7 @@
         <template #body-cell-actions="{ row }">
           <q-td class="text-right" @click.stop>
             <q-btn flat round dense size="sm" :icon="iconEdit" :aria-label="`${t('admin.groups.edit')} ${row.name}`" @click="edit(row)" />
-            <q-btn v-if="row.source === 'local'" flat round dense size="sm" :icon="iconDelete" :aria-label="`${t('admin.groups.delete')} ${row.name}`" @click="confirmDelete(row)" />
+            <q-btn v-if="row.source === 'local' && !isManaged(row)" flat round dense size="sm" :icon="iconDelete" :aria-label="`${t('admin.groups.delete')} ${row.name}`" @click="confirmDelete(row)" />
             <q-btn v-else flat round dense size="sm" :icon="iconAuthProviders" :aria-label="t('admin.groups.providerLink')" :to="{ name: 'admin-auth' }">
               <q-tooltip>{{ t('admin.groups.providerLink') }}</q-tooltip>
             </q-btn>
@@ -65,11 +65,12 @@
             <div class="groups__card-head">
               <GroupName :group="row" class="col" />
               <SourceBadge :source="row.source" />
+              <ManagedBadge :item="row" />
             </div>
             <RoleChips :roles="row.roles" />
             <div class="groups__card-actions" @click.stop>
               <q-btn v-if="row.source === 'local'" outline dense no-caps :icon="iconGroups" :label="`${t('admin.groups.members')} (${row.member_count ?? 0})`" @click="showMembers(row)" />
-              <q-btn v-if="row.source === 'local'" flat dense no-caps color="negative" :icon="iconDelete" :label="t('admin.groups.delete')" @click="confirmDelete(row)" />
+              <q-btn v-if="row.source === 'local' && !isManaged(row)" flat dense no-caps color="negative" :icon="iconDelete" :label="t('admin.groups.delete')" @click="confirmDelete(row)" />
             </div>
           </div>
         </template>
@@ -104,6 +105,7 @@ import RoleChips from '@/components/admin/RoleChips.vue'
 import SourceBadge from '@/components/admin/SourceBadge.vue'
 import { useProblemDialog } from '@/components/admin/useAdminActions'
 import EmptyState from '@/components/EmptyState.vue'
+import ManagedBadge from '@/components/ManagedBadge.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TimeCell from '@/components/TimeCell.vue'
 import { useAsync } from '@/composables/useAsync'
@@ -112,6 +114,7 @@ import { useQueryParam } from '@/composables/useQueryParam'
 import { t } from '@/i18n'
 import { useDirectoryStore } from '@/stores/directory'
 import { iconAuthProviders, iconDelete, iconEdit, iconGroupAdd, iconGroups } from '@/utils/icons'
+import { isManaged } from '@/utils/managed'
 
 const $q = useQuasar()
 const route = useRoute()

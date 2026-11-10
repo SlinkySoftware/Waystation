@@ -244,6 +244,9 @@ function spark(name: string, total: number): number[] {
   return raw.map((v) => Math.round((v / sum) * total))
 }
 
+/** Repositories the demo's provisioning file declares (T-O09): shown with the "Managed" label. */
+export const PROVISIONED = new Set(['dockerhub-proxy', 'ghcr-proxy', 'npm'])
+
 export function seedRepositories(): Repository[] {
   return SEEDS.map((s) => {
     const next = rng(hash(`repo:${s.name}`))
@@ -271,6 +274,7 @@ export function seedRepositories(): Repository[] {
         auto_block: { enabled: true, failures: 5, initial_s: 30, max_s: 1800 },
       },
       ...(s.options ? { format_options: s.options } : {}),
+      managed_by: PROVISIONED.has(s.name) ? 'provisioning' : null,
       storage,
       quota: quotaView(storage, Math.round(s.sizeGiB * GiB)),
       created_at: ago(s.createdDaysAgo * DAY),
