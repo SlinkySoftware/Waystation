@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://yum.oracle.com/repo/OracleLinux/OL9/addons/x86_64/repodata/repomd.xml"
+  },
+  "response": {
+    "body_sha256": "672a527a52827d7e172a619add2f35a58c6c06e6a88a79a92115dc8a6c5e8057",
+    "body_size": 3569,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-type",
+        "application/xml"
+      ],
+      [
+        "etag",
+        "\"a50b0ccd51c1de81477d6b7743457364:1793321673.357942\""
+      ],
+      [
+        "last-modified",
+        "Fri, 30 Oct 2026 00:54:24 GMT"
+      ],
+      [
+        "content-length",
+        "3569"
+      ]
+    ],
+    "status": 200
+  }
+}

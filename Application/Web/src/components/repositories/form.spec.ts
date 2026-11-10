@@ -87,8 +87,9 @@ describe('repository form model', () => {
     } as unknown as Repository
     const w = toWrite(modelFromRepository(repo))
     expect(w.format).toBe('yum')
-    expect(w.format_options).toEqual({ repo_path: '10/extras/$basearch/os/', gpg_key: null })
-    expect(toWrite(modelFromRepository({ ...repo, format_options: undefined } as unknown as Repository)).format_options).toEqual({ repo_path: '', gpg_key: null })
+    expect(w.format_options).toEqual({ repo_path: '10/extras/$basearch/os/', gpg_key: null, repomd_keys: null })
+    expect(toWrite(modelFromRepository({ ...repo, format_options: undefined } as unknown as Repository)).format_options).toEqual({ repo_path: '', gpg_key: null, repomd_keys: null })
+    expect(toWrite({ ...modelFromRepository(repo), repomdKeys: ' KEY ' }).format_options).toMatchObject({ repomd_keys: 'KEY' })
     expect(w.proxy?.content_max_age_s).toBe(86400)
     expect(w.proxy?.metadata_max_age_s).toBe(3600)
   })

@@ -3,6 +3,26 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-P5-YUMH: hosted yum repositories. RPMs are uploaded with `PUT <path>.rpm` or `POST` to a directory (streamed,
+  quota-checked; the header is read safely in a thread and the package's repodata entries rendered then), with
+  write policy, refusal of the same package at another path and `DELETE`. The worker job `index.yum` (outbox, dirty
+  flag) builds gzip `primary`/`filelists`/`other` and `repomd.xml`, signs it with the repository's own key and
+  publishes atomically (previous generation kept); the public key is served at `RPM-GPG-KEY`. Signing sits in
+  `waystation_common.signing` (RSA 3072 per repository, encrypted with `WAYSTATION_SECRET_KEYS` under `keys/`; packets
+  written in-house, verified by `waystation_common.openpgp`): ADR 0007, accepted 2026-11-11 (gpg was the
+  fallback). Browse shows uploads, "Set me up" gives the `.repo` file (`repo_gpgcheck=1`, gpgkey, credentials) and
+  curl commands, the create dialog offers hosted yum. Harness: rpmbuild in the Rocky client, upload, dnf
+  install/upgrade with `repo_gpgcheck=1`, delete.
+- T-P2-YUM (done): the yum proxy can verify `repomd.xml` itself. New option `repomd_keys` (the upstream's armored
+  public keys, validated when saved): `repomd.xml.asc` is fetched with every new `repomd.xml`, which is cached only
+  when the signature verifies (else 502; stale-on-error applies); the verified `.asc` is served with it. Verified
+  with `waystation_common.openpgp` (adr/0006), tested against real Rocky Linux and AlmaLinux signatures. RPM
+  version order (`rpmvercmp` with `~`/`^`, epoch:version-release) as `yum_packages.version_sort` with index
+  `repo_name_sort`. Browse: `GET /api/v1/repositories/{name}/yum/packages` and `/yum/versions` and a yum renderer
+  (packages → files, plus the folder tree). yum is offered in the create dialog (proxy) with Rocky, AlmaLinux, Oracle
+  Linux and EPEL presets and its options (repository path, gpgkey, repomd keys). Harness: Oracle Linux 9 (`addons`),
+  EPEL 10, dnf 5 (Fedora 43) and zypper (openSUSE Leap 16) clients, an API token in the `.repo` (refused once
+  revoked), Rocky with `repomd_keys`; fixture budget 16 MiB (EPEL metadata).
 - T-S03: ADR 0005 implemented. On `/repository/<repo>/...` a request without credentials for a repository anonymous
   cannot see answers `401` + `WWW-Authenticate: Basic realm="Waystation"` instead of `404`, and a repository that
   does not exist answers identically (status, headers, body), so names stay non-enumerable; requests with
