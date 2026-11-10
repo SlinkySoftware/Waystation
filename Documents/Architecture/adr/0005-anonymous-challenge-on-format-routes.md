@@ -1,7 +1,6 @@
 # ADR 0005: Basic challenge instead of 404 for anonymous requests to hidden repositories (format routes)
 
-Status: Proposed — needs the owner's approval (raised by T-P5-MAVEN, 2026-11-10). Nothing is implemented; the code
-follows ARCHITECTURE §7 as written.
+Status: accepted (2026-11-10, approved by the owner). Raised by T-P5-MAVEN; implementation pending (see TASKS T-S03).
 
 ## Context
 ARCHITECTURE §7 / CLAUDE.md: a repository the principal may not see answers `404` (hidden objects never leak). The
@@ -20,7 +19,7 @@ client harness.
 Nexus answers `401` (Basic challenge) to anonymous requests for repositories anonymous cannot read, so existing
 Nexus users' client configurations rely on the challenge.
 
-## Decision (proposed)
+## Decision
 On `/repository/<repo>/...` only, an **anonymous** request (no credentials at all) to a repository the anonymous
 principal cannot see answers `401` with `WWW-Authenticate: Basic realm="Waystation"` instead of `404`. Authenticated
 principals keep the `404` for hidden repositories, and everything outside the format routes (REST API, `/v2/`,
