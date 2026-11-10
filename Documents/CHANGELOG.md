@@ -2,6 +2,10 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-11
+- CI: the Gitea check workflow runs `make ui-smoke` (minimal-permission role smoke) after the check job; org variable
+  `WAYSTATION_CI_UI_SMOKE=false` skips it.
+
 ## 2026-11-10
 - T-P5-YUMH: hosted yum repositories. RPMs are uploaded with `PUT <path>.rpm` or `POST` to a directory (streamed,
   quota-checked; the header is read safely in a thread and the package's repodata entries rendered then), with
