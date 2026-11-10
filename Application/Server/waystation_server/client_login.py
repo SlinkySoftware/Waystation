@@ -6,8 +6,9 @@ calls ``FormatRequest.sign_in`` / ``sign_out``, implemented here:
 
 - **Sign in**: the password goes through ``security.login.verify_login`` (rate limit per address, lockout, LDAP; a
   one-time password or an account with two-factor sign-in is refused, as for ``docker login``). The user must be
-  able to read the repository. A repository the caller could not see before signing in answers ``404`` for every
-  failure (bad credentials or no access), so a hidden repository never answers differently from a missing one.
+  able to read the repository. A repository the caller could not see before signing in answers every failure (bad
+  credentials, no access, a malformed request) like a missing repository (the router applies
+  ``access.hidden_repo``: ``404``, or the ``401`` challenge for a request without credentials, ADR 0005).
   The token carries the repository scopes the user holds (``read``, ``write``, ``delete``; never more), no
   repository pattern (writes through a group reach its writable member) and no expiry; it is named after the client
   and repository, listed and revocable on the user's profile like any other token, and audited (``token.create``,
