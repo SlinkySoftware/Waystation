@@ -1,0 +1,37 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://galaxy.ansible.com/api/pulp/content/published/community-library_inventory_filtering_v1-1.1.5.tar.gz?expires=harness-redacted&validate_token=harness-redacted"
+  },
+  "response": {
+    "body_sha256": "2df1e0cd7190e6485b41ba12f0a445a2422a720cc97e6419160206383a481c5c",
+    "body_size": 10,
+    "headers": [
+      [
+        "content-type",
+        "application/gzip; charset=utf-8"
+      ],
+      [
+        "content-length",
+        "10"
+      ],
+      [
+        "content-disposition",
+        "attachment;filename=community-library_inventory_filtering_v1-1.1.5.tar.gz"
+      ],
+      [
+        "location",
+        "https://ansible-galaxy-ng.s3.dualstack.us-east-1.amazonaws.com/artifact/cb/b9e86c5b1720df21e940cedcd2f3e1226c38262623e090a883712610733851?response-content-disposition=attachment%3Bfilename%3Dcommunity-library_inventory_filtering_v1-1.1.5.tar.gz&response-content-type=application/gzip&X-Amz-Algorithm=harness-redacted&X-Amz-Credential=harness-redacted&X-Amz-Date=harness-redacted&X-Amz-Expires=harness-redacted&X-Amz-SignedHeaders=harness-redacted&X-Amz-Signature=harness-redacted"
+      ]
+    ],
+    "status": 302
+  }
+}

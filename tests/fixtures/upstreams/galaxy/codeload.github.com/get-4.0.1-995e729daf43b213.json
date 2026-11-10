@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://codeload.github.com/geerlingguy/ansible-role-ntp/tar.gz/refs/tags/4.0.1"
+  },
+  "response": {
+    "body_sha256": "93950b37148ae22dff538607cf16907a9bd8360398fec1ac8112660ec23efc5c",
+    "body_size": 7287,
+    "headers": [
+      [
+        "content-disposition",
+        "attachment; filename=ansible-role-ntp-4.0.1.tar.gz"
+      ],
+      [
+        "content-length",
+        "7287"
+      ],
+      [
+        "content-type",
+        "application/x-gzip"
+      ],
+      [
+        "etag",
+        "\"3428af75a84b0c5dfb420b969af2ca42bcd8581660a68910d836ef5ddd4d8c43\""
+      ],
+      [
+        "vary",
+        "Authorization,Accept-Encoding"
+      ]
+    ],
+    "status": 200
+  }
+}
