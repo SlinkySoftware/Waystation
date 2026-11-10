@@ -244,6 +244,7 @@ class Services:
         if not self._started:
             return
         self._started = False
+        await self.proxy.aclose()  # background cache fills: aborted (followers elsewhere take over), uploads removed
         await self.metrics.stop()
         await self.storage.aclose()
         await self.guard.stop()
