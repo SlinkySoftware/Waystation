@@ -35,9 +35,15 @@ the engine claims the asset's single-flight lease in Valkey. The owner fetches a
 follower count); followers of a streaming content fill tail the owner's upload file as it grows (``COALESCED``; last
 piece held back until the owner committed), or wait for the commit and are served by X-Accel (metadata, ``HEAD``,
 ``WAYSTATION_COALESCE_TAIL=wait``, another host or a network filesystem). A failed or mismatched fetch fails its
-followers too (nothing unverified is ever completed); an owner that goes away (its client left, it died: lease
-expiry) is replaced by one of its followers, which continue after the bytes they already sent once those are
-confirmed identical. Valkey being down only disables coalescing.
+followers too (nothing unverified is ever completed); an owner that goes away (it died: lease expiry; shutdown;
+not its client leaving, see below) is replaced by one of its followers, which continue after the bytes they
+already sent once those are confirmed identical. Valkey being down only disables coalescing.
+
+**Fills outlive their client** (``proxy.fills``): a streaming content fill runs as a background task of the engine
+(``FillRegistry``), not in the request's task, and the client's response reads it through a ``Feed`` (in memory
+while the client keeps up, else from the upload file). A client that goes away mid-transfer does not stop it: the
+blob is committed and indexed, followers keep tailing, the next request is a hit. Bounded by the upstream timeouts
+and the stall limit; shutdown (``aclose``) cancels the running fills (``aborted``, upload removed).
 
 **Auto-block** (``proxy.breaker``): every upstream request is admitted by the repository's breaker first (an
 auto-blocked upstream answers ``UpstreamAutoBlocked`` without a request, so stale-on-error applies) and every answer
@@ -91,6 +97,7 @@ from waystation_server.metrics import Metrics
 from waystation_server.problems import ResponseAborted
 from waystation_server.proxy.breaker import UpstreamBreaker, blocking_status
 from waystation_server.proxy.coalesce import Coalescer, FillState, Follower, Lease, Status
+from waystation_server.proxy.fills import Feed, FillRegistry
 from waystation_server.proxy.http import UpstreamClients, network_of
 from waystation_server.proxy.records import AssetKind, StoredAsset, UpstreamMeta
 from waystation_server.proxy.ssrf import UpstreamBlocked
@@ -415,6 +422,12 @@ class ProxyEngine:
         )
         self.breaker = breaker or UpstreamBreaker(valkey, emitter, metrics)
         self.quotas = quotas
+        self.fills = FillRegistry()
+
+    async def aclose(self) -> None:
+        """Shutdown: cancel the background cache fills and wait until they have cleaned up (each is published as
+        ``aborted``, so a follower on another replica takes it over, and its upload file is removed)."""
+        await self.fills.aclose()
 
     def _stall_s(self) -> float:
         """How long a fill may show no progress before it counts as abandoned: the owner's upstream timeouts (one
@@ -1093,13 +1106,18 @@ class ProxyEngine:
         self, follower: Follower, source: _Source, start: int, prefix: str | None, total: int | None
     ) -> AsyncGenerator[bytes]:
         """The followed fill's bytes from ``start``, as they become readable; returns once the owner committed.
-        Raises ``_Abandoned`` when the owner went away, the owner's error when the fetch failed."""
+        Raises ``_Abandoned`` when the owner went away, the owner's error when the fetch failed. Once the commit was
+        seen it is final: a slow follower may still be reading long after the fill record expired (``LINGER_MS``)."""
         pos = start
         checked = prefix is None
+        final: FillState | None = None
         while True:
-            state = follower.state()
-            if state is None or not follower.mine(state) or state.status is Status.ABORTED or follower.stalled():
+            state = final or follower.state()
+            if final is None and (
+                state is None or not follower.mine(state) or state.status is Status.ABORTED or follower.stalled()
+            ):
                 raise _Abandoned
+            assert state is not None
             if state.status is Status.FAILED:
                 raise _failure(state)
             if state.status is Status.PENDING or (
@@ -1108,6 +1126,8 @@ class ProxyEngine:
                 await follower.wait(WAIT_S)
                 continue
             done = state.status is Status.DONE
+            if done and state.sha256 is not None and state.size is not None:
+                final = state
             if done and state.outcome == UNSTORED:
                 raise _Abandoned  # served without being stored: claim again and fetch on our own
             if done and (state.sha256 is None or state.size is None):
@@ -1182,7 +1202,7 @@ class ProxyEngine:
             tee = self._pass_through(req, spec, response, info, fill)
         else:
             self._streaming(lease, fill, None)
-            tee = self._tee(req, spec, response, info, fill, lease, None)
+            tee = self._background_fill(req, spec, response, info, fill, lease, None).read()
         hasher = hashlib.sha256()
         skipped = 0
         async with contextlib.aclosing(tee):
@@ -1477,11 +1497,13 @@ class ProxyEngine:
     ) -> Response:
         fill = await self._open_fill(req, spec, response, info)
         tid = self._start_transfer(req, spec, fill.total, info.latency_ms)
+        feed: Feed | None = None
         if fill.writer is None:
             await lease.finish(outcome=UNSTORED)  # followers fetch on their own
             self._not_stored(req, spec, fill.reason or 'low_disk')
         else:
             self._streaming(lease, fill, tid)
+            feed = self._background_fill(req, spec, response, info, fill, lease, tid)
         headers: dict[str, str] = {'Content-Type': fill.content_type, 'X-Ws-Cache': CacheState.FETCHING.value}
         if fill.reason:
             headers['X-Ws-Not-Stored'] = fill.reason
@@ -1493,17 +1515,15 @@ class ProxyEngine:
         engine = self
 
         async def body() -> AsyncIterator[bytes]:
-            if fill.writer is None:
-                source = engine._pass_through(req, spec, response, info, fill, tid)
-            else:
-                source = engine._tee(req, spec, response, info, fill, lease, tid)
+            source = engine._pass_through(req, spec, response, info, fill, tid) if feed is None else feed.read()
             try:
-                async with contextlib.aclosing(source) as tee:
-                    async for chunk in tee:
+                async with contextlib.aclosing(source) as chunks:
+                    async for chunk in chunks:
                         yield chunk
             except BaseException as exc:
                 error = _describe(exc)
-                engine.emitter.transfer_finished(tid, status=502, bytes_done=fill.done, error=error)
+                if feed is None or not feed.kept:  # a fill that went on without its client ends the transfer itself
+                    engine.emitter.transfer_finished(tid, status=502, bytes_done=fill.done, error=error)
                 engine.metrics.request(repo=req.repo.name, format=req.repo.format, status=502, cache='ERROR')
                 if isinstance(exc, Exception):
                     raise ResponseAborted(error) from exc
@@ -1514,7 +1534,7 @@ class ProxyEngine:
 
         return StreamingResponse(body(), status_code=200, headers=headers)
 
-    async def _tee(
+    def _background_fill(
         self,
         req: FormatRequest,
         spec: AssetSpec,
@@ -1523,28 +1543,76 @@ class ProxyEngine:
         fill: _Fill,
         lease: Lease,
         tid: str | None,
-    ) -> AsyncGenerator[bytes]:
-        """Upstream → ``BlobWriter`` and → the caller at once (256 KiB chunks). The last chunk is held back until the
-        size and every expected digest are verified and the blob committed, so a mismatch (or a reset) leaves the
-        client with an incomplete transfer, never a complete wrong file, and nothing is cached. Followers see every
-        flushed byte (``lease.advance``, O(1)) and the outcome (``finish`` / ``fail``)."""
+    ) -> Feed:
+        """Start the streaming fill as a background task of the engine (``FillRegistry``), not of the request: if
+        the client goes away the fill still finishes (commit, index, followers, the next request hits). Returns the
+        feed the client's response reads."""
+        assert fill.writer is not None
+        feed = Feed(self.blobs, fill.writer.upload_id)
+        task = self.fills.spawn(
+            self._run_fill(req, spec, response, info, fill, lease, tid, feed), name=f'fill-{lease.key}'
+        )
+
+        def detach() -> bool:
+            if self.fills.detach(task):
+                log.info('client went away; finishing the cache fill', extra={'path': spec.path, 'bytes': fill.done})
+                return True
+            log.warning(
+                'too many cache fills without a client; aborting this one',
+                extra={'path': spec.path, 'fills': self.fills.detached},
+            )
+            task.cancel()
+            return False
+
+        feed.on_detach = detach
+        return feed
+
+    async def _run_fill(
+        self,
+        req: FormatRequest,
+        spec: AssetSpec,
+        response: httpx.Response,
+        info: UpstreamInfo,
+        fill: _Fill,
+        lease: Lease,
+        tid: str | None,
+        feed: Feed,
+    ) -> None:
+        """Upstream → ``BlobWriter`` (256 KiB chunks), each chunk released to ``feed`` (the client) once the next
+        one arrived: the last chunk is held back until the size and every expected digest are verified and the blob
+        committed, so a mismatch (or a reset) leaves the client with an incomplete transfer, never a complete wrong
+        file, and nothing is cached. Followers see every flushed byte (``lease.advance``, O(1)) and the outcome
+        (``finish`` / ``fail``). Runs to the end whether or not the client is still there; bounded by the upstream
+        timeouts and by the stall limit (no upstream bytes for ``_stall_s``). Cancelled only by shutdown (or the
+        ``FillRegistry`` bound): then ``aborted`` (followers take over) and the upload file is removed."""
         writer = fill.writer
         assert writer is not None
         expected = spec.expected
         held: bytes | None = None
         committed = False
+        error: str | None = None
+        failure: BaseException | None = None
+        stall = self._stall_s()
+        loop = asyncio.get_running_loop()
         try:
-            async for chunk in response.aiter_bytes(CHUNK):
-                for hasher in fill.extra.values():
-                    hasher.update(chunk)
-                await writer.write(chunk)
-                fill.done += len(chunk)
-                lease.advance(writer.flushed)
-                if tid is not None:
-                    self.emitter.transfer_progress(tid, fill.done, bytes_total=fill.total)
-                if held is not None:
-                    yield held
-                held = chunk
+            try:
+                async with asyncio.timeout(stall) as idle:
+                    async for chunk in response.aiter_bytes(CHUNK):
+                        idle.reschedule(loop.time() + stall)
+                        for hasher in fill.extra.values():
+                            hasher.update(chunk)
+                        await writer.write(chunk)
+                        fill.done += len(chunk)
+                        lease.advance(writer.flushed)
+                        if tid is not None:
+                            self.emitter.transfer_progress(tid, fill.done, bytes_total=fill.total)
+                        if held is not None:
+                            feed.release(held, writer.flushed)
+                        else:
+                            feed.wrote(writer.flushed)
+                        held = chunk
+            except TimeoutError:
+                raise UpstreamTimeout('upstream stalled') from None
             await self._answered(req, info.status)  # the whole body arrived (auto-block success)
             if expected is not None:
                 for alg, hasher in fill.extra.items():
@@ -1556,6 +1624,7 @@ class ProxyEngine:
                     await asyncio.to_thread(_check_file, check, writer.path)
             ref = await self.blobs.commit(writer)
             committed = True
+            feed.committed(ref.sha256)
             checksums = {'sha256': ref.sha256, **{alg: h.hexdigest() for alg, h in fill.extra.items()}}
             asset = await self._record(req, spec, ref, fill.content_type, fill.stored, info, checksums)
             self.emitter.asset_downloaded(asset.id)
@@ -1563,22 +1632,30 @@ class ProxyEngine:
             if spec.on_stored is not None:
                 await spec.on_stored(asset, None)
             if held is not None:
-                yield held
+                feed.release(held, ref.size)
+            feed.end()
         except BaseException as exc:
-            error = _describe(exc)
+            error = 'cache fill cancelled' if isinstance(exc, asyncio.CancelledError) else _describe(exc)
+            failure = exc
             if isinstance(exc, DigestMismatch):
                 self._upstream_failed(req, error, after_response=True)
-            elif isinstance(exc, httpx.HTTPError):
+            elif isinstance(exc, httpx.HTTPError | UpstreamTimeout):
                 await self._failed(req, error, after_response=True)
             log.warning('cache fill aborted', extra={'path': spec.path, 'error': error, 'bytes': fill.done})
             with anyio.CancelScope(shield=True):
                 await lease.fail(_as_error(exc))
-            raise
+            if not isinstance(exc, Exception):
+                raise
+            return  # the client (if still there) gets the error through the feed
         finally:
             with anyio.CancelScope(shield=True):
                 await response.aclose()
                 if not committed:
                     await writer.abort()
+            if failure is not None:  # only now, as before: nothing of the failed fill is left when the client hears
+                feed.fail(failure)
+            if feed.kept and tid is not None:
+                self.emitter.transfer_finished(tid, status=502 if error else 200, bytes_done=fill.done, error=error)
         self.metrics.add_bytes(repo=req.repo.name, direction='in_upstream', count=fill.done)
 
     async def _pass_through(
