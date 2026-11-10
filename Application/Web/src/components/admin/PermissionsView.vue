@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Effective permissions of a user or service account: its roles and where they come from, global permissions, and
-     the allowed actions per repository (a matrix; repositories not listed are hidden from the account). -->
+<!-- Effective permissions of a user or service account: its roles and where they come from (directly, a group, or
+     anonymous access, which every signed-in account also receives), global permissions, and the allowed actions per
+     repository (a matrix; repositories not listed are hidden from the account). -->
 <template>
   <div class="perms">
     <section class="perms__section">
@@ -79,7 +80,9 @@ const repos = computed(() => {
 })
 
 function viaLabel(source: string): string {
-  return source === 'direct' ? t('admin.permissions.direct') : t('admin.permissions.via', { source })
+  if (source === 'direct') return t('admin.permissions.direct')
+  if (source === 'anonymous') return t('admin.permissions.anonymous') // every signed-in account also gets it
+  return t('admin.permissions.via', { source })
 }
 </script>
 

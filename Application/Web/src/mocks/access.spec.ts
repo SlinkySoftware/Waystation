@@ -39,10 +39,28 @@ describe('mock access rules', () => {
     }
   })
 
-  it('hides every repository from a user without roles (404, never 403)', async () => {
-    for (const repo of [proxy, hosted]) {
-      expect(await answer(MINIMAL_USERS.noRoles, 'GET', `/repositories/${repo.name}`)).toMatchObject({ status: 404 })
-      expect(await answer(MINIMAL_USERS.noRoles, 'PUT', `/repositories/${repo.name}`)).toMatchObject({ status: 404 })
+  it('gives a user without roles what anonymous access allows: signing in never reduces access', async () => {
+    const nina = MINIMAL_USERS.noRoles
+    expect(world.capabilities(nina)).toEqual(['repositories.browse'])
+    expect(await answer(nina, 'GET', `/repositories/${proxy.name}/browse`)).toBeNull()
+    expect(await answer(nina, 'PUT', `/repositories/${proxy.name}`)).toEqual({ status: 403, code: 'permission_required' })
+    expect(await answer(nina, 'GET', `/repositories/${hosted.name}`)).toMatchObject({ status: 404 })
+    const effective = world.userPermissions('01JC0000000000000000000U10')
+    expect(effective.roles).toEqual([{ id: 'anonymous', name: 'Anonymous', via: ['anonymous'] }])
+    expect(effective.repositories.map((r) => r.name)).not.toContain(hosted.name)
+  })
+
+  it('hides every repository from a user without roles when anonymous access is off (404, never 403)', async () => {
+    const before = [...world.anonymousRoles]
+    world.setAnonymous({ roles: [] })
+    try {
+      expect(world.capabilities(MINIMAL_USERS.noRoles)).toEqual([])
+      for (const repo of [proxy, hosted]) {
+        expect(await answer(MINIMAL_USERS.noRoles, 'GET', `/repositories/${repo.name}`)).toMatchObject({ status: 404 })
+        expect(await answer(MINIMAL_USERS.noRoles, 'PUT', `/repositories/${repo.name}`)).toMatchObject({ status: 404 })
+      }
+    } finally {
+      world.setAnonymous({ roles: before })
     }
   })
 

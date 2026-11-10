@@ -172,6 +172,7 @@ export const admin = {
     roles: 'Roles',
     via: 'via {source}',
     direct: 'direct',
+    anonymous: 'via anonymous access',
     global: 'Global permissions',
     globalNone: 'No global permissions.',
     repositories: 'Repositories',
@@ -308,7 +309,7 @@ export const admin = {
   },
   anonymous: {
     title: 'Anonymous access',
-    caption: 'What requests without credentials may do (format clients and the API). Only roles without global permissions qualify.',
+    caption: 'What requests without credentials may do (format clients and the API). Signed-in users and service accounts get it too, on top of their own roles. Only roles without global permissions qualify.',
     roles: 'Roles of anonymous requests',
     none: 'No anonymous access: every request must sign in or use a token.',
     roleName: 'Anonymous',

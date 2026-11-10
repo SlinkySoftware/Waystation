@@ -64,7 +64,7 @@ describe('mock users', () => {
     expect(refused.errors?.[0]?.field).toBe('roles.0')
     expect(w.createUser('helpdesk', { display_name: '', must_change_password: true, username: 'newbie', roles: ['reader'] }).roles).toEqual(['reader'])
     expect(w.capabilities('helpdesk')).toEqual(['repositories.browse', 'users.admin'])
-    expect(w.capabilities('nina')).toEqual([]) // signed in without any role
+    expect(w.capabilities('nina')).toEqual(['repositories.browse']) // no role: what anonymous access allows
     expect(w.capabilities('reed')).toEqual(['repositories.browse'])
     expect(w.capabilities('gus')).toEqual(['repositories.browse'])
     expect(w.capabilities('admin')).toContain('admin')

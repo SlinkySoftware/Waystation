@@ -153,3 +153,21 @@ def test_password_policy() -> None:
     assert password_problem(' ' * 14, username='bob') == 'not only spaces'
     assert password_problem('x' * 1025, username='bob') == 'at most 1024 characters'
     assert password_problem('a perfectly fine one', username='bob') is None
+
+
+async def test_resolved_principals_also_hold_the_anonymous_grants() -> None:
+    """``RbacState.with_anonymous``: authentication attaches the current anonymous grants (repository permissions
+    only) to every principal but the anonymous one itself (SPEC §4.10: signing in never reduces access)."""
+    from waystation_server.security.principal import ANONYMOUS
+    from waystation_server.security.rbac import RbacState
+
+    rbac = RbacState(None, None, fixed=True)  # type: ignore[arg-type]
+    user = await rbac.with_anonymous(Principal(PrincipalKind.USER, 'u', 'u', (), AuthMethod.SESSION))
+    assert user.anonymous_grants == access.grants_for(('anonymous',))
+    assert access.check(user, Action.READ, NPM) and not access.check(user, Action.READ, NPM_HOSTED)
+    assert await rbac.with_anonymous(ANONYMOUS) is ANONYMOUS
+    assert await rbac.with_anonymous(user) is user  # already resolved
+    rbac._anonymous = ()  # anonymous access turned off
+    off = await rbac.with_anonymous(Principal(PrincipalKind.SERVICE_ACCOUNT, 's', 's', (), AuthMethod.API_TOKEN))
+    assert off.anonymous_grants == Grants(is_admin=False, permissions=())
+    assert not access.check(off, Action.READ, NPM)

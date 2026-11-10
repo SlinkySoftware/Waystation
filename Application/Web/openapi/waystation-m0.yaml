@@ -3411,7 +3411,7 @@ components:
         name: { type: string }
         via:
           type: array
-          description: '`direct`, or the names of the groups the role comes from'
+          description: '`direct`, `anonymous` (anonymous access, which every signed-in principal also receives), or the names of the groups the role comes from'
           items: { type: string }
     GrantedPermission:
       type: object
@@ -3439,7 +3439,7 @@ components:
           items: { $ref: '#/components/schemas/EffectiveRole' }
         permissions:
           type: array
-          description: Every (action, scope) held, implied ones included
+          description: Every (action, scope) held, implied ones and the anonymous-access ones included
           items: { $ref: '#/components/schemas/GrantedPermission' }
         global_actions:
           type: array
