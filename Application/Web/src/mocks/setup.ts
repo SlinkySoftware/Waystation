@@ -240,8 +240,8 @@ function maven(repo: Repository): SetupClient[] {
     { id: 'settings-mirror', title: 'Resolve everything through this repository (~/.m2/settings.xml)', language: 'xml', filename: 'settings.xml', os: null, content: settings },
     {
       id: 'maven-config',
-      title: 'Send the credentials up front (.mvn/maven.config, or on the command line)',
-      description: 'Needed when anonymous users cannot read this repository: Waystation answers 404, not a challenge, to anonymous requests for it, and Maven only sends credentials after a challenge.',
+      title: 'Optional: send the credentials up front (.mvn/maven.config, or on the command line)',
+      description: 'Not required: Maven sends the settings.xml credentials after the 401 challenge from Waystation. Sending them up front saves that extra round trip per request.',
       language: 'shell',
       filename: '.mvn/maven.config',
       os: null,
@@ -260,7 +260,7 @@ function maven(repo: Repository): SetupClient[] {
   ]
   if (hosted) {
     gradle.push(
-      { id: 'gradle-publishing', title: 'Publish (build.gradle.kts)', language: 'kotlin', filename: 'build.gradle.kts', os: null, content: `plugins {\n    \`maven-publish\`\n}\n\npublishing {\n    repositories {\n        maven {\n            url = uri("${url}")\n            credentials {\n                username = providers.gradleProperty("wsUser").get()\n                password = providers.gradleProperty("wsToken").get()\n            }\n            authentication { create<BasicAuthentication>("basic") }  // send them up front\n        }\n    }\n}\n` },
+      { id: 'gradle-publishing', title: 'Publish (build.gradle.kts)', language: 'kotlin', filename: 'build.gradle.kts', os: null, content: `plugins {\n    \`maven-publish\`\n}\n\npublishing {\n    repositories {\n        maven {\n            url = uri("${url}")\n            credentials {\n                username = providers.gradleProperty("wsUser").get()\n                password = providers.gradleProperty("wsToken").get()\n            }\n            authentication { create<BasicAuthentication>("basic") }  // optional: send them up front\n        }\n    }\n}\n` },
       { id: 'gradle-properties', title: 'Credentials (~/.gradle/gradle.properties)', language: 'ini', filename: 'gradle.properties', os: null, content: 'wsUser={{USERNAME}}\nwsToken={{TOKEN}}\n' },
     )
   }

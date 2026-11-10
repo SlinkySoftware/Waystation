@@ -106,9 +106,9 @@ def _gradle_read(ctx: SetupContext) -> str:
         '        // credentials {\n'
         '        //     username = providers.gradleProperty("wsUser").get()\n'
         '        //     password = providers.gradleProperty("wsToken").get()\n'
-        '        //     // send them up front: Waystation answers 404, not a challenge, to anonymous requests\n'
-        '        // authentication { create<BasicAuthentication>("basic") }\n'
         '        // }\n'
+        '        // optional: send them up front (saves the round trip of the 401 challenge)\n'
+        '        // authentication { create<BasicAuthentication>("basic") }\n'
         '    }\n'
         '}\n'
     )
@@ -128,7 +128,7 @@ def _gradle_publish(ctx: SetupContext) -> str:
         '                username = providers.gradleProperty("wsUser").get()\n'
         '                password = providers.gradleProperty("wsToken").get()\n'
         '            }\n'
-        '            authentication { create<BasicAuthentication>("basic") }  // send them up front\n'
+        '            authentication { create<BasicAuthentication>("basic") }  // optional: send them up front\n'
         '        }\n'
         '    }\n'
         '}\n'
@@ -154,11 +154,11 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
         ),
         snippet(
             'maven-config',
-            'Send the credentials up front (.mvn/maven.config, or on the command line)',
+            'Optional: send the credentials up front (.mvn/maven.config, or on the command line)',
             PREEMPTIVE + '\n',
             filename='.mvn/maven.config',
-            description='Needed when anonymous users cannot read this repository: Waystation answers 404, not a '
-            'challenge, to anonymous requests for it, and Maven only sends credentials after a challenge.',
+            description='Not required: Maven sends the settings.xml credentials after the 401 challenge from Waystation. '
+            'Sending them up front saves that extra round trip per request.',
         ),
     ]
     if hosted:
