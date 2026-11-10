@@ -9,8 +9,10 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
 from ws_fake_upstream import FakeUpstream, Respond
 
+from waystation_common import openpgp
 from waystation_common.db.collections import ASSETS, REPOSITORIES, YUM_PACKAGES
 from waystation_common.settings import Settings
 from waystation_server.formats.yum.plugin import YumPlugin
@@ -314,3 +316,111 @@ async def test_other_paths_and_methods(client: httpx.AsyncClient, upstream: Fake
     assert (await client.put(f'/repository/rocky/{RPM_PATH}', content=b'x')).status_code in (401, 403, 405)
     assert (await client.get('/repository/rocky/')).status_code == 404
     assert (await client.get('/repository/rocky/nosuch/repodata/x-primary.xml.gz')).status_code == 404
+
+
+# ---------------------------------------------------------------------------- verified repomd.xml (repomd_keys)
+def _signer() -> tuple[rsa.RSAPrivateKey, openpgp.PublicKey, str]:
+    private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    key = openpgp.parse_public_key(openpgp.rsa_key_body(private.public_key(), 1_700_000_000))
+    assert key is not None
+    return private, key, openpgp.certificate(private, key, 'upstream test key', created=1_700_000_000)
+
+
+async def test_repomd_keys_verify_repomd_against_its_signature(
+    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, repo: str
+) -> None:
+    private, key, cert = _signer()
+    other_private, other_key, other_cert = _signer()
+    await services.db[REPOSITORIES].update_one({'_id': repo}, {'$set': {'format_options': {'repomd_keys': cert}}})
+    services.catalog.invalidate()
+
+    def sign(directory: str, doc: bytes, signer: rsa.RSAPrivateKey, public: openpgp.PublicKey) -> None:
+        asc = openpgp.sign_detached(signer, public, doc).encode()
+        upstream.routes[f'/{directory}/repodata/repomd.xml.asc'] = Respond(200, {}, asc)
+
+    doc = publish(upstream, dict([by_checksum('primary', primary())]))
+    sign(DIR, doc, private, key)
+    response = await client.get(f'{URL}/repodata/repomd.xml')
+    assert response.status_code == 200
+    assert blob_of(response) == sha(doc)
+    asc = await client.get(f'{URL}/repodata/repomd.xml.asc')
+    assert asc.status_code == 200
+    stored = await services.db[ASSETS].find_one({'path': f'{DIR}/repodata/repomd.xml.asc'})
+    assert stored is not None
+    assert blob_of(asc) == stored['blob_sha256']
+    # The .asc is served as stored with the repomd.xml (never revalidated on its own).
+    assert (await client.get(f'{URL}/repodata/repomd.xml.asc')).headers['x-ws-cache'] == 'HIT'
+
+    # A repomd.xml whose signature does not verify (another key, tampered bytes, no .asc) is never cached.
+    for directory in ('wrongkey', 'tampered', 'unsigned'):
+        doc = publish(upstream, dict([by_checksum('primary', primary())]), directory=directory)
+        if directory == 'wrongkey':
+            sign(directory, doc, other_private, other_key)
+        elif directory == 'tampered':
+            sign(directory, doc + b' ', private, key)
+        else:
+            upstream.routes[f'/{directory}/repodata/repomd.xml.asc'] = Respond(404, {}, b'')
+        bad = await client.get(f'/repository/rocky/{directory}/repodata/repomd.xml')
+        assert bad.status_code == 502, directory
+        assert await services.db[ASSETS].find_one({'path': f'{directory}/repodata/repomd.xml'}) is None
+    # Configured with another vendor's keys: refused too.
+    await services.db[REPOSITORIES].update_one({'_id': repo}, {'$set': {'format_options': {'repomd_keys': other_cert}}})
+    services.catalog.invalidate()
+    doc = publish(upstream, dict([by_checksum('primary', primary())]), directory='other')
+    sign('other', doc, private, key)
+    assert (await client.get('/repository/rocky/other/repodata/repomd.xml')).status_code == 502
+
+
+async def test_browse_lists_packages_newest_evr_first(
+    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, plugin: YumPlugin, repo: str
+) -> None:
+    def pkg(name: str, epoch: str, ver: str, rel: str, arch: str) -> str:
+        href = f'Packages/{name[0]}/{name}-{ver}-{rel}.{arch}.rpm'
+        return (
+            f'<package type="rpm"><name>{name}</name><arch>{arch}</arch>'
+            f'<version epoch="{epoch}" ver="{ver}" rel="{rel}"/>'
+            f'<checksum type="sha256" pkgid="YES">{sha(href.encode())}</checksum>'
+            f'<size package="10"/><location href="{href}"/></package>'
+        )
+
+    entries = [
+        pkg('hello', '0', '1.9', '1.el10', 'x86_64'),
+        pkg('hello', '0', '1.10', '1.el10', 'x86_64'),
+        pkg('hello', '0', '1.10', '1.el10', 'aarch64'),
+        pkg('hello', '0', '1.10~rc1', '1.el10', 'x86_64'),
+        pkg('zed', '1', '0.1', '1', 'noarch'),
+    ]
+    body = gzip.compress(
+        f'<?xml version="1.0"?><metadata xmlns="http://linux.duke.edu/metadata/common">{"".join(entries)}</metadata>'.encode(),
+        mtime=0,
+    )
+    href, entry = by_checksum('primary', body)
+    publish(upstream, {href: entry})
+    assert (await client.get(f'{URL}/{href}')).status_code == 200
+    await plugin.drain()
+
+    api = '/api/v1/repositories/rocky/yum'
+    page = (await client.get(f'{api}/packages')).json()
+    assert [(p['name'], p['latest_version'], p['arches'], p['version_count']) for p in page['items']] == [
+        ('hello', '1.10-1.el10', ['aarch64', 'x86_64'], 3),
+        ('zed', '1:0.1-1', ['noarch'], 1),
+    ]
+    first = (await client.get(f'{api}/packages', params={'limit': 1})).json()
+    assert [p['name'] for p in first['items']] == ['hello']
+    rest = (await client.get(f'{api}/packages', params={'cursor': first['next_cursor']})).json()
+    assert [p['name'] for p in rest['items']] == ['zed']
+    assert [p['name'] for p in (await client.get(f'{api}/packages', params={'q': 'ZE'})).json()['items']] == ['zed']
+
+    versions = (await client.get(f'{api}/versions', params={'package': 'hello', 'limit': 2})).json()
+    assert [(v['evr'], v['arch']) for v in versions['items']] == [('1.10-1.el10', 'aarch64'), ('1.10-1.el10', 'x86_64')]
+    assert versions['items'][0]['directory'] == DIR
+    assert versions['items'][0]['cached'] is False
+    assert versions['items'][0]['checksum'].startswith('sha256:')
+    assert versions['items'][0]['download_url'].endswith(
+        f'/repository/rocky/{DIR}/Packages/h/hello-1.10-1.el10.aarch64.rpm'
+    )
+    more = (await client.get(f'{api}/versions', params={'package': 'hello', 'cursor': versions['next_cursor']})).json()
+    assert [v['evr'] for v in more['items']] == ['1.10~rc1-1.el10', '1.9-1.el10']
+    assert more['next_cursor'] is None
+    assert (await client.get(f'{api}/versions', params={'package': 'nope'})).status_code == 404
+    assert (await client.get('/api/v1/repositories/rocky/helm/charts')).status_code == 404

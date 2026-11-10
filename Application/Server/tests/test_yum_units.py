@@ -9,11 +9,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import ValidationError
 
+from waystation_common import openpgp
 from waystation_common.errors import ValidationFailed
 from waystation_server.formats.base import SetupContext
-from waystation_server.formats.yum import repodata
+from waystation_server.formats.yum import evr, repodata
 from waystation_server.formats.yum.descriptor import DESCRIPTOR, YumOptions, layout
 from waystation_server.formats.yum.plugin import Target, classify, expected_of
 from waystation_server.proxy.engine import Expected
@@ -352,3 +354,52 @@ def test_options_and_probe() -> None:
         DESCRIPTOR.probe_path(YumOptions(repo_path='10/extras/x86_64/os')) == '10/extras/x86_64/os/repodata/repomd.xml'
     )
     assert DESCRIPTOR.probe_path(DESCRIPTOR.parse_options({'repo_path': 'os'})) == 'os/repodata/repomd.xml'
+
+
+# ---------------------------------------------------------------------------- RPM version order
+@pytest.mark.parametrize(
+    ('older', 'newer'),
+    [
+        ('1.0', '1.0.1'),
+        ('1.0~rc1', '1.0'),
+        ('1.0~rc1', '1.0~rc2'),
+        ('1.0', '1.0^git1'),
+        ('1.0^git1', '1.0.1'),
+        ('1.0a', '1.0.1'),
+        ('1.0', '1.0a'),
+        ('a', 'ab'),
+        ('a1', 'ab'),
+        ('2', '10'),
+        ('1.010', '1.11'),
+        ('1_0', '1.1'),
+        ('5.14', '5.14.0'),
+        ('beta', '1'),
+    ],
+)
+def test_version_key_follows_rpmvercmp(older: str, newer: str) -> None:
+    assert evr.version_key(older) < evr.version_key(newer)
+
+
+def test_equal_versions_and_evr_order() -> None:
+    assert evr.version_key('1.01') == evr.version_key('1.1')
+    assert evr.version_key('1.0') == evr.version_key('1_0')
+    assert evr.evr_key('1', '1.0', '1') > evr.evr_key('0', '9.9', '9')
+    assert evr.evr_key(None, '1.0', '2.el10') > evr.evr_key('0', '1.0', '1.el10')
+    assert evr.evr_key('0', '1.0', '10.el10') > evr.evr_key('0', '1.0', '9.el10')
+    assert evr.evr_key('x', '1', '1') == evr.evr_key('0', '1', '1')
+    assert evr.version_key('1' + '0' * 120) > evr.version_key('9')
+    assert evr.evr_string('0', '1.0', '1.el10') == '1.0-1.el10'
+    assert evr.evr_string('2', '1.0', '1') == '2:1.0-1'
+    assert evr.evr_string(None, '1.0', '') == '1.0'
+
+
+# ---------------------------------------------------------------------------- repomd_keys option
+def test_repomd_keys_option_takes_only_valid_public_keys() -> None:
+    private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    key = openpgp.parse_public_key(openpgp.rsa_key_body(private.public_key(), 1_700_000_000))
+    assert key is not None
+    cert = openpgp.certificate(private, key, 'test')
+    assert YumOptions(repomd_keys=f'  {cert}  ').repomd_keys == cert.strip() + '\n'
+    assert YumOptions(repomd_keys='   ').repomd_keys is None
+    with pytest.raises(ValidationError, match='OpenPGP'):
+        YumOptions(repomd_keys='not a key')

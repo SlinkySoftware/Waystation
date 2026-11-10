@@ -3,8 +3,8 @@ context a browse view gets, the view protocols format plugins implement, and opa
 
 A format plugin that supports format-aware browsing exposes a ``browser`` attribute implementing one of the protocols
 below (``NpmBrowser``, ``AptBrowser``, ``DockerBrowser``, ``MavenBrowser``, ``PypiBrowser``, ``GoBrowser``,
-``HelmBrowser``, ``GalaxyBrowser``). The REST API finds it through the format registry and never imports the format
-package (ARCHITECTURE §3).
+``HelmBrowser``, ``GalaxyBrowser``, ``YumBrowser``). The REST API finds it through the format registry and never
+imports the format package (ARCHITECTURE §3).
 
 Download counters (``downloads``, ``pulls``, ``last_downloaded_at``, ``last_pulled_at``) are not recorded yet (T-S09
 full): they answer ``0`` / ``null``.
@@ -224,6 +224,41 @@ class HelmVersion(BaseModel):
 class HelmVersionPage(BaseModel):
     chart: HelmChart
     items: list[HelmVersion]
+    next_cursor: str | None
+
+
+# ---------------------------------------------------------------------------- yum
+class YumPackage(BaseModel):
+    name: str
+    latest_version: str = Field(description='Newest `[epoch:]version-release` (RPM version order)')
+    arches: list[str]
+    version_count: int = Field(description='Distinct epoch-version-release values')
+    summary: str | None = None
+
+
+class YumPackagePage(BaseModel):
+    items: list[YumPackage]
+    next_cursor: str | None
+
+
+class YumVersion(BaseModel):
+    evr: str = Field(description='`[epoch:]version-release`')
+    epoch: str
+    version: str
+    release: str
+    arch: str
+    path: str = Field(description='Path of the package file in the repository')
+    directory: str = Field(description='The yum repository directory (holding `repodata/`) listing it; empty: the root')
+    size_bytes: int | None = None
+    checksum: str | None = Field(default=None, description='`<algorithm>:<hex>` from the listing or the upload')
+    cached: bool = Field(description='The package file is stored (always true in hosted repositories)')
+    uploaded_at: datetime | None = None
+    download_url: str
+
+
+class YumVersionPage(BaseModel):
+    package: YumPackage
+    items: list[YumVersion]
     next_cursor: str | None
 
 
@@ -493,6 +528,15 @@ class HelmBrowser(Protocol):
 
     async def versions(self, ctx: BrowseContext, *, chart: str, cursor: str | None, limit: int) -> HelmVersionPage:
         """One chart's versions, newest first; raises ``NotFound`` for an unknown chart."""
+
+
+@runtime_checkable
+class YumBrowser(Protocol):
+    async def packages(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> YumPackagePage:
+        """Package names (proxy: listed by cached ``primary.xml`` files; hosted: uploaded), by name."""
+
+    async def versions(self, ctx: BrowseContext, *, package: str, cursor: str | None, limit: int) -> YumVersionPage:
+        """One package's files, newest EVR first; raises ``NotFound`` for an unknown package."""
 
 
 @runtime_checkable
