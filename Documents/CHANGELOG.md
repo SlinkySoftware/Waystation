@@ -3,6 +3,28 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-P5-NPMH: npm hosted and group repositories. Hosted (`formats/npm/hosted.py`, `publish.py`): `npm publish` bodies
+  (≤ 100 MiB) parsed in a thread, one version and its base64 tarball, `length`/`dist.integrity`/`dist.shasum` checked,
+  the tarball read without extraction (bounded, safe entry names) and its `package.json` matched to the version;
+  stored as a live upload transfer with the manifest's `dist` computed by the server; write policy (`disable_redeploy`
+  answers npm's "cannot publish over"), quotas. Packuments (full and abbreviated) generated from the new
+  `npm_versions` collection and the hosted `npm_packages` document (compare-and-set on `rev`; a regeneration that
+  raced runs again) and stored as metadata assets (X-Accel, `ETag`/`304`). `npm deprecate` and
+  `npm unpublish <pkg>@<v>` (packument updates; removing versions needs `delete`), `unpublish --force`, tarball
+  deletes (also behind the `repository/<repo>/` path npm sends), dist-tags `GET/PUT/DELETE` (`dist-tag rm` = `write`),
+  hosted search; a version whose tarball a cleanup removed is dropped when a client asks for it. `npm login
+  --auth-type=legacy` / `npm logout` on every npm repository: new descriptor hooks `client_login` and
+  `request_action`, `FormatRequest.sign_in`/`sign_out`, `waystation_server.client_login` (password checked like
+  `docker login`, API token with the user's repository scopes, hidden repositories answer 404 for any failure,
+  audited); `verify_login(via=...)`. Groups (`formats/npm/group.py`): packuments merged in a thread (first member wins
+  per version, dist-tags from the first member with the tag, tarball URLs to the group), kept in the blob store per
+  members' digests, tarballs from the members in order, `?write=true` from the writable member, writes to the
+  writable member; proxies answer `dist-tags` too. UI: npm hosted and group in the create flow, hosted browse shows
+  version counts instead of cache state, "Set me up" publish snippets (`.npmrc` `_authToken`, `npm login`,
+  `publishConfig`, publish/dist-tag/deprecate/unpublish, pnpm). Harness `tests/clients/npm/`: npm 11 login, whoami,
+  publish to the group and the hosted repository, republish refused, install of a hosted and a proxied package
+  through the group, dist-tag add/ls/rm, deprecate, unpublish of a version and of the package, logout (fixtures
+  re-recorded). Client guide `Documents/Operations/clients/npm.md` (publishing, groups, `npm login`).
 - T-O07: backup and restore. `Build/Containers/backup/waystation-backup.sh` (bash + Docker only; `make backup`,
   `make restore`, `make verify-blobs`) works in a throwaway `mongo:8` container that borrows the worker's data mount,
   networks and MongoDB settings (URI never on a command line). Backup: `mongodump --archive --gzip` first, then the
