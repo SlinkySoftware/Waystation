@@ -56,8 +56,11 @@ variable:
 The runner needs the `ubuntu-latest` label, Docker (about 6 GB of free memory for
 `integration`) and network access to the package registries. make starts its tools in containers that bind-mount
 the checkout, so jobs must run on the host (an `ubuntu-latest:host` runner label) or in a job container whose
-checkout path is the same on the Docker host. The workflow passes `make workflow-lint` (actionlint); it has not yet
-had a first run on the Gitea runners.
+checkout path is the same on the Docker host. With act_runner (Gitea runner) that means `container.bind_workdir: true`
+in the runner's `config.yaml`: the default (the workspace in a Docker volume) leaves every bind mount empty, and make
+fails with `can't open file '/src/...'`. The workflows pass `make workflow-lint` (actionlint). First runs on the
+Gitea runners (2026-11-10) failed on exactly that, on the unset `REGISTRY_HOST` variable (images) and on
+upload-artifact v4, which Gitea's artifact API does not support (perf now uses v3).
 
 ### Releases (GitHub)
 

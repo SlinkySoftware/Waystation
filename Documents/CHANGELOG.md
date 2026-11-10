@@ -14,6 +14,9 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   carry a global action (also when a role they use was edited to hold one). Changing `/anonymous-access` bumps
   `grant_version` as before, so sessions and cached tokens follow at once. Effective permissions list the anonymous
   roles with `via: anonymous` and include their permissions; hidden-404 and ADR 0005 are unchanged.
+- T-F03: Gitea perf workflow uploads its results with upload-artifact v3.2.2 (Gitea's artifact API rejects v4+);
+  CI.md names the runner setting the Gitea workflows need (`container.bind_workdir: true`) and the causes of the first
+  failed runs (bind mounts empty in volume workspaces, `REGISTRY_HOST` unset, upload-artifact v4).
 - CI: the Gitea check workflow runs `make ui-smoke` (minimal-permission role smoke) after the check job; org variable
   `WAYSTATION_CI_UI_SMOKE=false` skips it.
 
