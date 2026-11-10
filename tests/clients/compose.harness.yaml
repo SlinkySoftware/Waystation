@@ -144,6 +144,23 @@ services:
   client-go:  # the go command and curl (go format)
     <<: *client
     image: golang:1.25-trixie
+  client-terraform:  # terraform, tofu, curl and the TLS front of the go harness (terraform format)
+    <<: *client
+    build:
+      context: ${HARNESS_CLIENTS_DIR}/go
+      dockerfile_inline: |
+        FROM hashicorp/terraform:1.17.1 AS terraform
+        FROM ghcr.io/opentofu/opentofu:1.13.9-minimal AS tofu
+        FROM golang:1.25-alpine AS front
+        COPY tlsfront.go /src/tlsfront.go
+        RUN cd /src && CGO_ENABLED=0 GOTOOLCHAIN=local go build -o /tlsfront tlsfront.go
+        FROM alpine:3.22
+        RUN apk add --no-cache curl
+        COPY --from=terraform /bin/terraform /usr/local/bin/terraform
+        COPY --from=tofu /usr/local/bin/tofu /usr/local/bin/tofu
+        COPY --from=front /tlsfront /usr/local/bin/tlsfront
+    image: waystation-harness-terraform:1.17.1-1  # bump the suffix when the Dockerfile above changes
+    user: "0:0"
   client-skopeo:  # registry API pulls without a daemon (docker format)
     <<: *client
     image: quay.io/skopeo/stable:v1.20

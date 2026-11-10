@@ -4,6 +4,25 @@ All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
 - ADR 0005 (401 challenge for anonymous requests to hidden repositories on format routes) accepted; implementation queued.
+- T-P5-TFP: Terraform/OpenTofu provider network mirror (`formats/terraform/`, proxy repositories). Clients'
+  network mirror protocol at `/repository/<repo>/<hostname>/<namespace>/<type>/index.json`, `<version>.json` (per
+  platform the archive URL and `zh:` hash, plus `h1:` for archives the repository has cached, computed while they are
+  committed) and the archives (content, X-Accel). The origin is reached like Terraform does: service discovery
+  (`providers.v1`), the version list (metadata, revalidated), the platform download documents, `SHA256SUMS` and the
+  archive from wherever the registry points (redirects followed, SSRF guard on every hop; upstream credentials only
+  to the upstream URL's host). `SHA256SUMS` is cached only after its detached OpenPGP signature verified with the
+  signing keys the registry publishes (option `verify_signatures`) and it names the registry's archive with the same
+  sha256; archives are verified against it before they are committed. Origin allowlist per repository (`origins`,
+  default registry.terraform.io and registry.opentofu.org, plus the upstream URL's host). New
+  `waystation_common.openpgp` (v4 RSA/ECDSA/EdDSA detached-signature verification on `cryptography`, Terraform's
+  key policy; adr/0006, accepted 2026-11-10), `terraform_providers` collection, browse API `terraform/providers` and
+  `terraform/versions`, search (kind `package`), SemVer cleanup order. UI: Terraform tile in the create flow
+  (proxy), options (origin registries, signature verification), browse renderer (providers → versions → archives
+  with `zh:`/`h1:`), "Set me up" (CLI configuration with `network_mirror` and a `credentials` block, `TF_TOKEN_*`),
+  mocks. Real-client harness `tests/clients/terraform/` (terraform 1.17 and tofu 1.13 through a TLS front: init and
+  apply of `hashicorp/null` 3.1.0 from both registries, anonymous and with an API token; a token limited to other
+  repositories is refused), recorded (fixture budget raised to 11 MiB / 5 MiB per file: two provider archives) and
+  replayed. Client guide `Documents/Operations/clients/terraform.md`.
 - T-O09: declarative provisioning. A YAML file (`WAYSTATION_PROVISION_FILE`, `Documents/Operations/PROVISIONING.md`,
   full example `provisioning.example.yaml`, JSON Schema `provisioning.schema.json` from the pydantic models) declares
   repositories (every format, type and option; cleanup attachments; groups whose members the same file creates),

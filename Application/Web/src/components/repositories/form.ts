@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, WritePolicy, YumOptions } from '@/api/types'
+import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
 /** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (options carried through). */
@@ -71,6 +71,9 @@ export interface RepoFormModel {
   // galaxy (proxy)
   galaxyCollectionsPath: string
   galaxyRoles: boolean
+  // terraform (provider network mirror)
+  tfOrigins: string[]
+  verifySignatures: boolean
   // apt
   distribution: string
   flat: boolean
@@ -84,6 +87,9 @@ export interface RepoFormModel {
   repoPath: string
   gpgKey: string | null
 }
+
+/** Provider registries a Terraform mirror serves by default (the server's default too). */
+export const DEFAULT_TF_ORIGINS: readonly string[] = ['registry.terraform.io', 'registry.opentofu.org']
 
 export interface Preset {
   id: string
@@ -119,6 +125,9 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   pypi: [{ id: 'pypi', label: 'pypi.org', apply: { name: 'pypi-proxy', upstreamUrl: 'https://pypi.org' } }],
   go: [{ id: 'goproxy', label: 'proxy.golang.org', apply: { name: 'go-proxy', upstreamUrl: 'https://proxy.golang.org' } }],
   galaxy: [{ id: 'galaxy', label: 'galaxy.ansible.com', apply: { name: 'galaxy-proxy', upstreamUrl: 'https://galaxy.ansible.com/' } }],
+  terraform: [
+    { id: 'registries', label: 'Terraform and OpenTofu registries', apply: { name: 'terraform-mirror', upstreamUrl: 'https://registry.terraform.io', tfOrigins: [...DEFAULT_TF_ORIGINS] } },
+  ],
 }
 
 /** Galaxy NG / galaxy.ansible.com layout of collection documents under the upstream URL (the server default). */
@@ -168,6 +177,8 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     nosumdb: [],
     galaxyCollectionsPath: GALAXY_COLLECTIONS_PATH,
     galaxyRoles: true,
+    tfOrigins: [...DEFAULT_TF_ORIGINS],
+    verifySignatures: true,
     distribution: '',
     flat: false,
     metadataRegex: '',
@@ -185,7 +196,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
   const h = repo.hosted
   const quotaBytes = repo.storage?.quota_bytes ?? null
   const quotaSize = quotaBytes ? fromBytes(quotaBytes) : { size: m.quotaSize, unit: m.quotaUnit }
-  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions
+  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions & TerraformOptions
   return {
     ...m,
     name: repo.name,
@@ -227,6 +238,8 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     nosumdb: o.nosumdb ?? [],
     galaxyCollectionsPath: o.collections_path ?? GALAXY_COLLECTIONS_PATH,
     galaxyRoles: o.roles ?? true,
+    tfOrigins: o.origins ?? [...DEFAULT_TF_ORIGINS],
+    verifySignatures: o.verify_signatures ?? true,
     distribution: o.distribution ?? '',
     flat: o.flat ?? false,
     metadataRegex: o.metadata_path_regex ?? '',
@@ -256,6 +269,8 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
         verify_checksums: m.verifyChecksums,
         nosumdb: m.nosumdb.map((p) => p.trim()).filter(Boolean),
       }
+    case 'terraform':
+      return { origins: m.tfOrigins.map((h) => h.trim().toLowerCase()).filter(Boolean), verify_signatures: m.verifySignatures }
     case 'yum':
       return { repo_path: m.repoPath, gpg_key: m.gpgKey }
     case 'helm':
