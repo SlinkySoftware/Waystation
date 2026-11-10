@@ -14,6 +14,8 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   carry a global action (also when a role they use was edited to hold one). Changing `/anonymous-access` bumps
   `grant_version` as before, so sessions and cached tokens follow at once. Effective permissions list the anonymous
   roles with `via: anonymous` and include their permissions; hidden-404 and ADR 0005 are unchanged.
+- CI: the Gitea check workflow runs `make ui-smoke` (minimal-permission role smoke) after the check job; org variable
+  `WAYSTATION_CI_UI_SMOKE=false` skips it.
 
 ## 2026-11-10
 - T-P5-YUMH: hosted yum repositories. RPMs are uploaded with `PUT <path>.rpm` or `POST` to a directory (streamed,
