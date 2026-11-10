@@ -100,7 +100,7 @@ auth_providers:
     [{}, {'file': '/a', 'env': 'B'}, {'file': 'relative/path'}, {'env': 'not a name'}],
 )
 def test_secret_refs_need_exactly_one_valid_source(ref: dict[str, str]) -> None:
-    with pytest.raises(ValueError, match='exactly one|absolute|variable name'):
+    with pytest.raises(ValueError, match=r'exactly one|absolute|variable name'):
         SecretRef.model_validate(ref)
 
 
