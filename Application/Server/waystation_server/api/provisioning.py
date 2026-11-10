@@ -7,6 +7,9 @@
 
 Both act on the configured file only: the API never accepts a document, so a caller cannot make the server read
 files or environment variables through secret references. 409 when no file is configured.
+
+The engine is imported when a route runs: it builds on the other API modules (validation, views), which import
+this package's ``__init__`` first.
 """
 
 from __future__ import annotations
@@ -15,8 +18,6 @@ from fastapi import APIRouter, Request
 
 from waystation_common.errors import Conflict
 from waystation_server.api.deps import ServicesDep
-from waystation_server.provisioning import engine as provisioning
-from waystation_server.provisioning import loader
 from waystation_server.provisioning.report import ProvisioningPlan, ProvisioningStatus
 from waystation_server.security import access
 from waystation_server.security.access import Action
@@ -38,6 +39,8 @@ def _file(svc: Services) -> str:
 @router.get('/provisioning', response_model=ProvisioningStatus, operation_id='getProvisioning')
 @access.requires(Action.ADMIN)
 async def get_provisioning(svc: ServicesDep) -> ProvisioningStatus:
+    from waystation_server.provisioning import engine as provisioning  # noqa: PLC0415 - see the module docstring
+
     path = svc.settings.provision_file
     return ProvisioningStatus(
         configured=path is not None,
@@ -51,6 +54,9 @@ async def get_provisioning(svc: ServicesDep) -> ProvisioningStatus:
 )
 @access.requires(Action.ADMIN)
 async def plan_provisioning(request: Request, svc: ServicesDep) -> ProvisioningPlan:
+    from waystation_server.provisioning import engine as provisioning  # noqa: PLC0415 - see the module docstring
+    from waystation_server.provisioning import loader  # noqa: PLC0415
+
     principal = await authenticate(request)
     loaded = await loader.load(_file(svc))
     return await provisioning.plan(provisioning.Context(svc=svc, principal=principal, by=principal.name), loaded)
@@ -61,6 +67,9 @@ async def plan_provisioning(request: Request, svc: ServicesDep) -> ProvisioningP
 )
 @access.requires(Action.ADMIN)
 async def apply_provisioning(request: Request, svc: ServicesDep) -> ProvisioningPlan:
+    from waystation_server.provisioning import engine as provisioning  # noqa: PLC0415 - see the module docstring
+    from waystation_server.provisioning import loader  # noqa: PLC0415
+
     principal = await authenticate(request)
     loaded = await loader.load(_file(svc))
     return await provisioning.apply(provisioning.Context(svc=svc, principal=principal, by=principal.name), loaded)
