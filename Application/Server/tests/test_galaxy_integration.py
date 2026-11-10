@@ -327,14 +327,14 @@ async def test_proxy_roles(services: Services, client: httpx.AsyncClient, repos:
     archive = await client.get('/repository/gal/roles/7/1.0.0.tar.gz')
     assert archive.status_code == 200 and archive.content == b'role archive'
     assert (await client.get('/repository/gal/roles/7/9.9.9.tar.gz')).status_code == 404
-    assert (await client.get('/repository/mine/api/v1/roles/7/versions/')).status_code == 404
+    assert (await client.get('/repository/mine/api/v1/roles/7/versions/')).status_code == 401  # hidden: challenge
 
 
 async def test_hosted_publish_import_delete(
     services: Services, client: httpx.AsyncClient, admin: httpx.AsyncClient, token: dict[str, str], repos: None
 ) -> None:
     v1 = collection('harness', 'demo', '1.0.0')
-    assert (await client.get('/repository/mine/api/v3/collections/harness/demo/')).status_code == 404
+    assert (await client.get('/repository/mine/api/v3/collections/harness/demo/')).status_code == 401  # ADR 0005
     assert (await client.get('/repository/mine/api/v3/collections/harness/demo/', headers=token)).status_code == 404
 
     wrong = await publish(client, 'mine', token, v1, 'harness-demo-1.0.0.tar.gz', digest='0' * 64)
