@@ -151,8 +151,24 @@ Stale-on-error and offline mode as SPEC §4.1.
   wait for completion, then serve via X-Accel. Metadata fetches and revalidations are coalesced the same way
   (followers always wait). A failed or mismatched fetch fails its followers with the same error (stale-on-error
   still applies per follower); nothing unverified is ever completed.
-- Owner failure = lease expiry (owner died) or an `aborted` outcome (its client went away, internal error):
-  followers claim again and one becomes owner. A follower that already sent bytes continues only after checking
+- **Fills outlive their client.** A streaming content fill runs as a background task owned by the engine
+  (`proxy.fills.FillRegistry`), not in the triggering request's task or cancellation scope; the owner's client reads
+  it through a `Feed` like any other consumer: the released bytes in memory while it keeps up (at most 8 MiB
+  buffered), the rest from the upload file (a slow client never slows the fill or its followers; the fill never
+  waits for a client). When the owner's client goes away mid-transfer (aborted `docker pull`/`apt`, client timeout
+  on a large layer) the fill carries on: verified, committed and indexed as usual, the lease renewed and then
+  released with the outcome, followers keep tailing or waiting and succeed, and the next request is a hit; with no
+  follower it still finishes so the next pull is fast. Its live transfer stays up until the fill ends. Bounds: the
+  upstream timeouts (connect, 60 s read idle), a stall limit (no upstream bytes for the stall time below: the fill
+  fails as a timeout), the max size and the free-space guard of `open_writer`; at most 64 fills per process may run
+  without a client (past that, a fill whose client leaves is aborted as before). Shutdown (`ProxyEngine.aclose`,
+  first in `Services.stop`) cancels every running fill and waits for it (bounded): `aborted`, upload removed, so a
+  follower on another replica takes it over. Metadata (buffered) fills, pass-through (unstored) responses and `HEAD`
+  stay tied to their request. Since a fill no longer waits for its client it can end well before a slow follower
+  has read the file: a tailing follower that has seen the commit treats it as final and finishes from the blob even
+  after the fill record expired (`LINGER_MS`).
+- Owner failure = lease expiry (owner died) or an `aborted` outcome (shutdown, internal error; a client leaving does
+  not abort a streaming fill, above): followers claim again and one becomes owner. A follower that already sent bytes continues only after checking
   that they are a prefix of the new fill (sha256 of the sent bytes vs the new file / new upstream bytes); a
   different upstream answer aborts that client's transfer.
 - Tailing is only safe where the follower sees the owner's writes immediately: same host and a local filesystem.

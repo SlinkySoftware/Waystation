@@ -3,6 +3,29 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-11
+- T-P2-NPM: per-version npm documents. `GET /<pkg>/<version>` and `/<pkg>/<dist-tag>` (scoped: `@scope/name/...` and
+  `@scope%2fname/...`) answer the version object of the full packument (`versions[<v>]`, else the version the tag
+  names), as the public registry does; corepack bootstraps pnpm/Yarn with these (`<registry>/@pnpm/exe.linux-x64/<v>`).
+  Proxies read the cached full packument through the same path as packument requests (metadata max age,
+  coalescing, stale-on-error, `dist.tarball` rewritten to the repository); an exact version the cache does not list
+  refreshes it once. Hosted repositories answer from the generated packument, groups from the merged one (tarball
+  URLs point at the group). Unknown versions and tags answer 404 `{"error": "version not found: <v>"}`. Same RBAC
+  decision as packument reads (hidden repositories 404); parsing and serialising run in a thread, reads are bounded.
+  Harness: `npm view <pkg>@<version>` and corepack-style fetches through the proxy, the group and the hosted
+  repository (replay).
+- T-S07: cache fills finish after the client disconnects. A streaming content fill now runs as a background task of
+  the proxy engine (`proxy.fills.FillRegistry`) instead of in the request: when the client that triggered it goes
+  away mid-download (an aborted `docker pull` or `apt` run, a client timeout on a large layer) the fill carries on,
+  the blob is verified, committed and indexed, coalesced followers keep tailing and succeed, the lease is renewed
+  and released with the outcome, and the next request is a cache hit. Before, the disconnect cancelled the fill: the
+  partial upload was discarded, the lease published `aborted` and a follower (if any) fetched the file from the
+  upstream again; with no follower nothing was cached. The client reads the fill through a `Feed` (in memory while it
+  keeps up, at most 8 MiB, then from the upload file), so a slow client no longer slows the fill or its followers.
+  Bounds: upstream timeouts, a stall limit (no upstream bytes for the coalescing stall time: fails as a timeout),
+  size limit and low-disk guard, at most 64 fills per process without a client. Shutdown cancels and awaits running
+  fills (`aborted`, upload removed, a follower elsewhere takes over). Metadata fills and pass-through responses are
+  unchanged (still tied to the request). A tailing follower that has seen the commit now finishes from the blob even
+  after the fill record expired (a fast fill and a slow follower used to cost a second upstream fetch).
 - T-S03: signed-in principals also receive the anonymous grants (owner decision), so signing in never reduces access.
   Every authenticated principal (users of any source, service accounts; by session, API token, basic, `docker login`
   or a registry token) holds its own grants plus the anonymous principal's (`Principal.anonymous_grants`, attached by
@@ -14,6 +37,13 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   carry a global action (also when a role they use was edited to hold one). Changing `/anonymous-access` bumps
   `grant_version` as before, so sessions and cached tokens follow at once. Effective permissions list the anonymous
   roles with `via: anonymous` and include their permissions; hidden-404 and ADR 0005 are unchanged.
+- Operations: first production-style deployment checks. REVERSE_PROXIES.md records the DSM 7.4 reverse proxy as
+  tested (body size, buffering, a 2.2 GB pull, the trusted-proxy address is the `frontend` gateway);
+  MIGRATING_FROM_NEXUS.md lists the yum `repomd.xml` difference (Nexus drops the `*_db` entries); the Nexus import
+  ran against a live Nexus 3 CE (T-M01) and the DSM settings are no longer untested (T-M03).
+- T-F03: Gitea perf workflow uploads its results with upload-artifact v3.2.2 (Gitea's artifact API rejects v4+);
+  CI.md names the runner setting the Gitea workflows need (`container.bind_workdir: true`) and the causes of the first
+  failed runs (bind mounts empty in volume workspaces, `REGISTRY_HOST` unset, upload-artifact v4).
 - CI: the Gitea check workflow runs `make ui-smoke` (minimal-permission role smoke) after the check job; org variable
   `WAYSTATION_CI_UI_SMOKE=false` skips it.
 

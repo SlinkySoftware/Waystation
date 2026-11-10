@@ -219,6 +219,62 @@ async def test_unlisted_tarball_refreshes_packument_once_then_404(
     assert upstream.hits('/is-number/-/is-number-9.9.9.tgz') == 0
 
 
+async def test_version_documents_from_the_cached_full_packument(
+    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, repo: str
+) -> None:
+    route_is_number(upstream)
+    first = await client.get('/repository/npm/is-number/7.0.0')
+    assert first.status_code == 200
+    assert first.headers['content-type'].startswith('application/json')
+    doc = first.json()
+    assert doc['version'] == '7.0.0'
+    assert doc['dist']['tarball'] == f'{BASE}is-number/-/is-number-7.0.0.tgz'  # rewritten to this repository
+    assert (await stored(services, 'is-number/-/packument.json') or {})['kind'] == 'metadata'
+    assert [s.headers['accept'] for s in upstream.seen] == ['application/json']  # the full packument
+
+    assert (await client.get('/repository/npm/is-number/latest')).json() == doc  # dist-tag
+    assert (await client.get('/repository/npm/is-number')).headers['x-ws-cache'] == 'HIT'  # one cache entry
+    tag = await client.get('/repository/npm/is-number/beta')  # unknown tag: no refresh
+    assert tag.status_code == 404 and tag.json() == {'error': 'version not found: beta'}
+    assert upstream.hits('/is-number') == 1
+
+    missing = await client.get('/repository/npm/is-number/9.9.9')  # unknown version: refreshed once
+    assert missing.status_code == 404 and missing.json() == {'error': 'version not found: 9.9.9'}
+    assert upstream.hits('/is-number') == 2
+    assert (await client.head('/repository/npm/is-number/7.0.0')).status_code == 200
+    assert (await client.get('/repository/npm/no-such-package/1.0.0')).json() == {'error': 'Not Found'}
+
+
+async def test_version_published_since_the_last_fetch_refreshes_the_packument(
+    client: httpx.AsyncClient, upstream: FakeUpstream, repo: str
+) -> None:
+    route_is_number(upstream)
+    assert (await client.get('/repository/npm/is-number/7.0.0')).status_code == 200
+    files = {v: {'file': f'is-number-{v}.tgz', 'integrity': sri(TGZ)} for v in ('7.0.0', '7.0.1')}
+    body = packument(upstream.url, 'is-number', files)
+    upstream.routes['/is-number'] = Respond(200, {'Content-Type': 'application/json', 'ETag': '"p2"'}, body)
+    newer = await client.get('/repository/npm/is-number/7.0.1')
+    assert newer.status_code == 200 and newer.json()['version'] == '7.0.1'
+
+
+async def test_scoped_version_documents_both_encodings_and_stale_on_error(
+    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream
+) -> None:
+    await add_npm_repo(services, upstream.url, metadata_max_age_s=0)
+    files = {'12.18.0': {'file': 'exe.linux-x64-12.18.0.tgz', 'integrity': sri(SCOPED_TGZ)}}
+    body = packument(upstream.url, '@pnpm/exe.linux-x64', files)
+    upstream.routes['/@pnpm%2Fexe.linux-x64'] = Respond(200, {'Content-Type': 'application/json'}, body)
+    encoded = await client.get('/repository/npm/@pnpm%2fexe.linux-x64/12.18.0')  # what corepack fetches
+    assert encoded.status_code == 200
+    tarball = encoded.json()['dist']['tarball']
+    assert tarball == f'{BASE}@pnpm/exe.linux-x64/-/exe.linux-x64-12.18.0.tgz'
+
+    upstream.routes['/@pnpm%2Fexe.linux-x64'] = Respond(500, {}, b'down')  # stale-on-error: the cached copy answers
+    plain = await client.get('/repository/npm/@pnpm/exe.linux-x64/latest')
+    assert plain.status_code == 200 and plain.json() == encoded.json()
+    assert upstream.hits('/@pnpm%2Fexe.linux-x64') == 2
+
+
 async def test_packument_for_another_package_is_refused(
     client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, repo: str
 ) -> None:
