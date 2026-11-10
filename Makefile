@@ -121,6 +121,15 @@ budgets: dev-image ## Report performance budgets (Build/ci/budgets.json); only '
 env-example: sync ## Regenerate .env.example from waystation_common.settings (idempotent)
 	$(DEV_RUN) sh -c "uv run --frozen python -m waystation_common.settings env-example > .env.example.tmp && mv .env.example.tmp .env.example"
 
+.PHONY: provision-schema provision-check provision-plan
+provision-schema: sync ## Regenerate Documents/Operations/provisioning.schema.json (the provisioning file's JSON Schema)
+	$(DEV_RUN) sh -c "uv run --frozen python -m waystation_server.provisioning schema > Documents/Operations/provisioning.schema.json.tmp && mv Documents/Operations/provisioning.schema.json.tmp Documents/Operations/provisioning.schema.json"
+provision-check: sync ## Validate a provisioning file offline (syntax + schema; secrets not resolved): FILE=<path>
+	@[ -n "$(FILE)" ] || { echo 'make provision-check: set FILE=<provisioning file>'; exit 2; }
+	$(DEV_RUN) uv run --frozen python -m waystation_server.provisioning check '$(FILE)'
+provision-plan: ## What the configured provisioning file would change, in a RUNNING stack [PREFIX=waystation] [JSON=1]
+	docker exec $(or $(PREFIX),waystation)-server python -m waystation_server.provisioning plan $(if $(JSON),--json)
+
 .PHONY: set-version
 set-version: ## Set the version everywhere: make set-version V=X.Y.Z
 	@[ -n "$(V)" ] || { echo "usage: make set-version V=X.Y.Z"; exit 1; }
