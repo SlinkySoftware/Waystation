@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-F08: a job run's `expires_at` is computed from the same clock read as its `started_at` (it read the clock twice,
+  so a run could be kept retention + 1 ms; `test_stats_rollup_runs_as_a_job_exactly_once` failed now and then).
 - T-P5-NPMH: npm hosted and group repositories. Hosted (`formats/npm/hosted.py`, `publish.py`): `npm publish` bodies
   (≤ 100 MiB) parsed in a thread, one version and its base64 tarball, `length`/`dist.integrity`/`dist.shasum` checked,
   the tarball read without extraction (bounded, safe entry names) and its `package.json` matched to the version;
