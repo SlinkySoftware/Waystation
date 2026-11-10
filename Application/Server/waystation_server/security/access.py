@@ -24,7 +24,7 @@ Decisions
   materialised grants (anonymous, unit tests) gets its built-in roles' permissions.
 - Signing in never reduces access: every authenticated principal (users of any source, service accounts) also
   receives the anonymous principal's grants (``Principal.anonymous_grants``, repository permissions only), so
-  ``check`` decides from own ∪ anonymous. Those grants are not the principal's own: delegation (``may_assign``,
+  ``check`` decides from own + anonymous grants. Those grants are not the principal's own: delegation (``may_assign``,
   ``may_manage``) ignores them, and the narrowing of the credential used (API token scopes and repository patterns,
   Docker registry token grants) bounds them like everything else.
 - Giving away power is bounded by what the giver holds (``may_assign``): global actions only by someone holding
@@ -151,7 +151,7 @@ def anonymous_part(principal: Principal) -> Grants | None:
 
 
 def effective_grants(principal: Principal) -> Grants:
-    """Own ∪ anonymous grants (what ``check`` decides from, before any credential narrowing)."""
+    """Own plus anonymous grants (what ``check`` decides from, before any credential narrowing)."""
     own = grants_of(principal)
     extra = anonymous_part(principal)
     if extra is None or not extra.permissions:
