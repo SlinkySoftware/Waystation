@@ -362,7 +362,7 @@ async def test_hosted_publish_import_delete(
     done = (await client.get(task_url, headers=token)).json()
     assert done['state'] == 'completed' and done['finished_at'] and done['error'] is None
     assert [m['level'] for m in done['messages']] == ['INFO', 'INFO', 'INFO']
-    assert (await client.get(task_url)).status_code == 404  # hidden from anonymous
+    assert (await client.get(task_url)).status_code == 401  # hidden from anonymous: the challenge (ADR 0005)
     mine = await services.catalog.get('mine')
     assert mine is not None
     usage = await services.db[REPO_USAGE].find_one({'_id': mine.id})
