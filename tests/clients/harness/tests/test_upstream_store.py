@@ -14,6 +14,8 @@ def test_scrub_url_redacts_signed_query_values_and_userinfo() -> None:
         f'https://cdn.example.com/blob?X-Amz-Signature={REDACTED}&X-Amz-Expires={REDACTED}&keep=1&token={REDACTED}'
     )
     assert scrub_url(scrubbed) == scrubbed  # idempotent: replayed Locations map to the same key
+    pulp = 'https://cdn.example.com/content/a.tar.gz?expires=1&validate_token=abc:def'
+    assert scrub_url(pulp) == f'https://cdn.example.com/content/a.tar.gz?expires={REDACTED}&validate_token={REDACTED}'
 
 
 def test_scrub_url_leaves_ordinary_queries_byte_identical() -> None:

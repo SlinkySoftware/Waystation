@@ -11,6 +11,43 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   timeout now reports the bytes each follower had sent.
 - T-F08: a job run's `expires_at` is computed from the same clock read as its `started_at` (it read the clock twice,
   so a run could be kept retention + 1 ms; `test_stats_rollup_runs_as_a_job_exactly_once` failed now and then).
+- T-P5-HELM / T-P5-MAVEN: deleting a repository now also drops its `helm_charts` records and its Maven `components`
+  (they were left behind). A test fails if a `repo_id`-keyed collection is missing from the delete list.
+- T-P5-GALAXY: Ansible Galaxy repositories (`waystation_server.formats.galaxy`, FORMATS.md "Ansible Galaxy").
+  Proxy: discovery (`api/`, v1 only where roles are proxied), collection, version list and version documents cached
+  as metadata (every upstream page, revalidated, validated, bounded; large fields dropped) and served with this
+  repository's URLs (`href`s, pagination `links`, `download_url`); upstream paths in the Galaxy NG layout by default
+  (`collections_path` option), Galaxy NG paths also accepted from clients; artifacts verified against the version's
+  sha256 and size while they stream. Hosted: `ansible-galaxy collection publish` (multipart streamed into the blob
+  store, `sha256` field checked, 256 MiB limit, quota), the import task and the new `import.galaxy` worker job
+  written in one transaction (outbox); the worker reads the archive without extracting it (tar-slip guards,
+  `MANIFEST.json`, `FILES.json` against the manifest checksum, every file's sha256, no unlisted files) and then lists
+  the version; `GET api/v3/imports/collections/<task>/` for polling; versions immutable; delete a version or a whole
+  collection; audited. Group: merged version lists (first member wins), documents and artifacts from the first
+  member that has the version, publishing and task polling through the writable member. Legacy v1 roles proxied
+  read-only (search, versions, archives cached unverified). New collections `galaxy_collections`, `galaxy_imports`
+  (TTL 30 days); repository deletion drops them. Browse `galaxy/namespaces`, `galaxy/collections`, `galaxy/versions`
+  (contract + UI renderer), create flow (galaxy.ansible.com preset, collections path, roles toggle), "Set me up"
+  (`ansible.cfg` server list with a token, install, requirements, publish, delete, roles). Cleanup groups artifacts
+  per collection in SemVer order. `formats.pypi.multipart` moved to `formats.common.multipart` (shared). Real-client
+  harness `tests/clients/galaxy/` (new `client-ansible`: ansible-core 2.22; galaxy.ansible.com, its S3 redirect and a
+  GitHub role archive recorded, 75 KB) and the fixture scrubber now redacts Pulp's `validate_token` query value.
+  `Documents/Operations/clients/galaxy.md`.
+- T-S07, T-S12, T-S05, T-S09: fixes for the k6 suite's findings (full profile, before -> after). 500 concurrent
+  clients: 1-5 failed downloads per run -> 0. The cause was mongod refusing connections past its open-file limit
+  (Docker's default soft limit 1024 leaves about 400 connections; four server processes with 100-connection pools
+  exceeded it), which pymongo reported as `AutoReconnect: Connection is closed`; `compose.yaml` now sets
+  `ulimits: nofile: 64000` on `mongodb` (DEPLOYMENT.md "MongoDB connections"), and hot-path reads (`assets.get`,
+  `assets.sizes`, the repository catalog load) retry once after 20-100 ms on `AutoReconnect`
+  (`waystation_common.db.retry`; writes never). Docker tokens: a server process whose repository catalog predated a
+  new repository issued tokens granting nothing on it (and refused its `/v2/` requests) for up to 5 s; the catalog
+  now follows a change stream on `repositories` and reloads once when a lookup by name misses (at most once a second
+  and once per name and snapshot; Docker resolution and `/repository/<name>/`). Repository list at 1M assets: p95
+  179 ms / p99 1112 ms -> 8 ms / 10 ms: every process recounted `assets` (a 1M-document aggregation) every 30 s on
+  the request path; the storage figures now read `repo_usage` (new `artifacts` counter of content assets, kept by
+  every asset write, reconciled hourly, filled by migration `0003_usage_artifacts`) and an expired snapshot is
+  refreshed in the background. Folder browse: p95 40 ms -> 7 ms: the walk reads several small sub-folders per query
+  (batches grow while they hold several children) and the first page walks the folder once instead of twice.
 - T-P5-NPMH: npm hosted and group repositories. Hosted (`formats/npm/hosted.py`, `publish.py`): `npm publish` bodies
   (≤ 100 MiB) parsed in a thread, one version and its base64 tarball, `length`/`dist.integrity`/`dist.shasum` checked,
   the tarball read without extraction (bounded, safe entry names) and its `package.json` matched to the version;

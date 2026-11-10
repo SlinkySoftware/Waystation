@@ -21,6 +21,7 @@ from typing import Any
 
 from pymongo import UpdateOne
 
+from waystation_common.db import usage
 from waystation_common.db.client import Database
 from waystation_common.db.collections import (
     APT_PACKAGES,
@@ -80,9 +81,16 @@ async def _search_keys(db: Database) -> None:
     await _backfill(db, ASSETS, {'kind': 'content'}, 'path', file_keys)
 
 
+async def _usage_artifacts(db: Database) -> None:
+    """``repo_usage.artifacts`` (content assets per repository; the storage figures read it instead of aggregating
+    ``assets`` per request): one recount of every repository, as the ``quota.reconcile`` job does."""
+    await usage.reconcile(db, [repo.repo_id for repo in await usage.repositories(db)])
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration('0001_baseline', 'baseline schema', _baseline),
     Migration('0002_search_keys', 'search keys on searchable content (T-U06)', _search_keys),
+    Migration('0003_usage_artifacts', 'artifact counts in repo_usage (T-S05)', _usage_artifacts),
 )
 
 

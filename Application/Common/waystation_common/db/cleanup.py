@@ -224,11 +224,12 @@ async def _delete_asset(db: Database, repo_id: str, c: Candidate) -> int:
     if c.asset_id is None:
         return -1
     doc = await db[ASSETS].find_one_and_delete(
-        {'_id': c.asset_id, 'blob_sha256': c.blob_sha256}, projection={'size': 1}
+        {'_id': c.asset_id, 'blob_sha256': c.blob_sha256}, projection={'size': 1, 'kind': 1}
     )
     if doc is None:
         return -1
-    await usage_db.add(db, repo_id, -int(doc.get('size') or 0), -1)
+    artifact = int(doc.get('kind') == 'content')
+    await usage_db.add(db, repo_id, -int(doc.get('size') or 0), -1, artifacts_delta=-artifact)
     return c.size
 
 

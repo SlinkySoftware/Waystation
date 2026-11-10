@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://galaxy.ansible.com/api/v1/roles/10965/versions/?page_size=50"
+  },
+  "response": {
+    "body_sha256": "999f943bcc79ef837e85b7b5ca28acbe1f291c666e28c13191dd213c80597eff",
+    "body_size": 11508,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "11508"
+      ],
+      [
+        "vary",
+        "Accept, Accept-Language, Cookie"
+      ]
+    ],
+    "status": 200
+  }
+}

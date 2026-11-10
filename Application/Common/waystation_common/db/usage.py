@@ -4,8 +4,10 @@ Usage is the sum of the sizes of a repository's assets: a blob counts towards **
 it (de-duplication saves disk space, not quota), and a repository's own duplicates (two paths, one blob) count
 twice. One document per repository, ``_id`` = repository id:
 
-- ``bytes``, ``assets``: kept up to date incrementally (``add``: one ``$inc`` per asset write or delete, by the code
-  that writes ``assets``), so a quota check is one read by ``_id``;
+- ``bytes``, ``assets``, ``artifacts``: kept up to date incrementally (``add``: one ``$inc`` per asset write or
+  delete, by the code that writes ``assets``), so a quota check is one read by ``_id``; ``artifacts`` counts the
+  content assets only (``kind: content``: the "artifacts" of the repository list and the storage figures, which read
+  these documents instead of aggregating ``assets``);
 - ``reconciled_at``: the last ``reconcile`` (worker job ``quota.reconcile``), which recomputes both figures from
   ``assets`` and so repairs any drift (a crash between an asset write and its ``$inc``, content that existed before
   usage was tracked, writes racing the recount);
@@ -34,6 +36,7 @@ class Usage:
     repo_id: str
     bytes: int = 0
     assets: int = 0
+    artifacts: int = 0
     alert_level: int = 0
     reconciled_at: datetime | None = None
 
@@ -43,6 +46,7 @@ class Usage:
             repo_id=str(doc['_id']),
             bytes=max(0, int(doc.get('bytes') or 0)),
             assets=max(0, int(doc.get('assets') or 0)),
+            artifacts=max(0, int(doc.get('artifacts') or 0)),
             alert_level=int(doc.get('alert_level') or 0),
             reconciled_at=doc.get('reconciled_at'),
         )
@@ -59,14 +63,17 @@ def level_of(used: int, quota: int | None) -> int:
     return 0
 
 
-async def add(db: Database, repo_id: str, bytes_delta: int, assets_delta: int = 0) -> Usage | None:
-    """Count an asset write or delete (``bytes_delta`` may be negative). Returns the new figures (None when nothing
-    changed)."""
-    if not bytes_delta and not assets_delta:
+async def add(
+    db: Database, repo_id: str, bytes_delta: int, assets_delta: int = 0, *, artifacts_delta: int = 0
+) -> Usage | None:
+    """Count an asset write or delete (deltas may be negative; ``artifacts_delta``: content assets). Returns the new
+    figures (None when nothing changed)."""
+    if not bytes_delta and not assets_delta and not artifacts_delta:
         return None
+    inc = {'bytes': bytes_delta, 'assets': assets_delta, 'artifacts': artifacts_delta}
     doc = await db[REPO_USAGE].find_one_and_update(
         {'_id': repo_id},
-        {'$inc': {'bytes': bytes_delta, 'assets': assets_delta}, '$set': {'updated_at': datetime.now(UTC)}},
+        {'$inc': inc, '$set': {'updated_at': datetime.now(UTC)}},
         upsert=True,
         return_document=ReturnDocument.AFTER,
     )
@@ -139,14 +146,25 @@ class Reconciled:
     bytes: int
     assets: int
     drift_bytes: int  # recounted minus recorded
+    artifacts: int = 0
 
 
-async def totals(db: Database) -> dict[str, tuple[int, int]]:
-    """Recount from ``assets``: repository id -> (bytes, assets)."""
+async def totals(db: Database) -> dict[str, tuple[int, int, int]]:
+    """Recount from ``assets``: repository id -> (bytes, assets, artifacts)."""
     pipeline: list[dict[str, Any]] = [
-        {'$group': {'_id': '$repo_id', 'bytes': {'$sum': '$size'}, 'assets': {'$sum': 1}}}
+        {
+            '$group': {
+                '_id': '$repo_id',
+                'bytes': {'$sum': '$size'},
+                'assets': {'$sum': 1},
+                'artifacts': {'$sum': {'$cond': [{'$eq': ['$kind', 'content']}, 1, 0]}},
+            }
+        }
     ]
-    return {str(d['_id']): (int(d['bytes']), int(d['assets'])) async for d in await db[ASSETS].aggregate(pipeline)}
+    return {
+        str(d['_id']): (int(d['bytes']), int(d['assets']), int(d['artifacts']))
+        async for d in await db[ASSETS].aggregate(pipeline)
+    }
 
 
 async def reconcile(db: Database, repo_ids: Iterable[str], *, now: datetime | None = None) -> list[Reconciled]:
@@ -158,13 +176,21 @@ async def reconcile(db: Database, repo_ids: Iterable[str], *, now: datetime | No
     recorded = await get_many(db, ids)
     out: list[Reconciled] = []
     for repo_id in sorted(ids):
-        size, assets = counted.get(repo_id, (0, 0))
+        size, assets, artifacts = counted.get(repo_id, (0, 0, 0))
         before = recorded[repo_id]
         await db[REPO_USAGE].update_one(
             {'_id': repo_id},
-            {'$set': {'bytes': size, 'assets': assets, 'reconciled_at': now, 'updated_at': now}},
+            {
+                '$set': {
+                    'bytes': size,
+                    'assets': assets,
+                    'artifacts': artifacts,
+                    'reconciled_at': now,
+                    'updated_at': now,
+                }
+            },
             upsert=True,
         )
-        out.append(Reconciled(repo_id, size, assets, size - before.bytes))
+        out.append(Reconciled(repo_id, size, assets, size - before.bytes, artifacts))
     await db[REPO_USAGE].delete_many({'_id': {'$nin': sorted(ids)}})
     return out

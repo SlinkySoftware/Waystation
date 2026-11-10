@@ -3,9 +3,11 @@
 Every query is a range or ``$in`` on ``repo_path_unique`` (``repo_id``, ``path``).
 
 The folder walk (``children``) lists the direct children of a folder without scanning its subtrees: it reads asset
-paths in index order in small, growing batches and, on meeting a path inside a sub-folder, emits the folder and seeks
-past its whole subtree (``<folder>/`` < ``<folder>0`` in byte order). Cost: one index seek per sub-folder plus the
-files themselves, whatever the subtree sizes.
+paths in index order in batches, emits each sub-folder at its first path (a subtree is one contiguous range:
+``<folder>/`` < ``<folder>0`` in byte order) and, when a batch ends inside a sub-folder, seeks past the rest of its
+subtree. Batches grow while they hold several children (small subtrees: many sub-folders per query) and shrink back
+when most of a batch was inside sub-folders already emitted (big subtrees: one seek per sub-folder). Cost: at most
+one index seek per sub-folder plus the files themselves, whatever the subtree sizes.
 """
 
 from __future__ import annotations
@@ -60,21 +62,26 @@ async def children(
             .limit(batch)
             .to_list()
         )
-        skipped = False
+        folder: str | None = None  # the sub-folder the current document is in (its subtree is contiguous)
+        inside = 0  # documents of the batch inside an already emitted sub-folder (read for nothing)
         for doc in docs:
             name, sep, _ = str(doc['path'])[len(prefix) :].partition('/')
             if sep:
+                if name == folder:
+                    inside += 1
+                    continue
+                folder = name
                 yield Child('folder', name, doc)
-                lo, op, skipped = subtree_end(f'{prefix}{name}/'), '$gte', True
-                break
+                continue
+            folder = None
             yield Child('file', name, doc)
             lo, op = str(doc['path']), '$gt'
-        if skipped:
-            batch = FIRST_BATCH
-        elif len(docs) < batch:
+        if len(docs) < batch:
             return
-        else:
-            batch = min(batch * 2, MAX_BATCH)
+        if folder is not None:  # the batch ended inside a sub-folder: seek past the rest of its subtree
+            lo, op = subtree_end(f'{prefix}{folder}/'), '$gte'
+        # Big subtrees: back to small batches (one seek per sub-folder); small ones: several children per batch.
+        batch = FIRST_BATCH if inside * 2 > len(docs) else min(batch * 2, MAX_BATCH)
 
 
 async def by_paths(

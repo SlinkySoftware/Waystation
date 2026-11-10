@@ -72,27 +72,23 @@ async def list_folder(db: Database, repo_id: str, path: str, *, cursor: str | No
         phase = 'd'
     entries: list[FolderEntry] = []
     more = False
-    if phase == 'd':
-        start = browse_db.subtree_end(f'{prefix}{after}/') if after is not None else None
-        async for child in browse_db.children(db, repo_id, prefix, start=start):
-            if child.kind != 'folder':
-                continue
-            if len(entries) == limit:
-                more = True
-                break
-            entries.append(FolderEntry(name=child.name, path=prefix + child.name, kind='folder'))
-        after = None
-    if not more:
-        start = prefix + after if (phase == 'f' and after is not None) else None
-        async for child in browse_db.children(
-            db, repo_id, prefix, start=start, inclusive=start is None, projection=FILE_FIELDS
-        ):
-            if child.kind != 'file':
-                continue
-            if len(entries) == limit:
-                more = True
-                break
-            entries.append(_file(prefix, child.name, dict(child.doc)))
+    if phase == 'd' and after is None:
+        # First page: one walk collects the folders and the first files (the walk passes them anyway).
+        files: list[FolderEntry] = []
+        async for child in browse_db.children(db, repo_id, prefix, projection=FILE_FIELDS):
+            if child.kind == 'folder':
+                if len(entries) == limit:
+                    more = True
+                    break
+                entries.append(FolderEntry(name=child.name, path=prefix + child.name, kind='folder'))
+            elif len(files) <= limit:
+                files.append(_file(prefix, child.name, dict(child.doc)))
+        if not more:
+            room = limit - len(entries)
+            more = len(files) > room
+            entries.extend(files[:room])
+    else:
+        more = await _later_page(db, repo_id, prefix, phase, after, limit, entries)
     if prefix and not entries and cursor is None:
         raise NotFound('folder not found')
     next_cursor = None
@@ -100,3 +96,29 @@ async def list_folder(db: Database, repo_id: str, path: str, *, cursor: str | No
         last = entries[-1]
         next_cursor = encode_cursor('d' if last.kind == 'folder' else 'f', last.name)
     return FolderListing(path=prefix.rstrip('/'), entries=entries, next_cursor=next_cursor)
+
+
+async def _later_page(
+    db: Database, repo_id: str, prefix: str, phase: str, after: str | None, limit: int, entries: list[FolderEntry]
+) -> bool:
+    """A page after the first: the folders after ``after`` (phase 'd'), then the files from the start of the folder
+    or after the file ``after`` (phase 'f'). Appends to ``entries``; True when there is more."""
+    if phase == 'd':
+        start = browse_db.subtree_end(f'{prefix}{after}/') if after is not None else None
+        async for child in browse_db.children(db, repo_id, prefix, start=start):
+            if child.kind != 'folder':
+                continue
+            if len(entries) == limit:
+                return True
+            entries.append(FolderEntry(name=child.name, path=prefix + child.name, kind='folder'))
+        after = None
+    start = prefix + after if (phase == 'f' and after is not None) else None
+    async for child in browse_db.children(
+        db, repo_id, prefix, start=start, inclusive=start is None, projection=FILE_FIELDS
+    ):
+        if child.kind != 'file':
+            continue
+        if len(entries) == limit:
+            return True
+        entries.append(_file(prefix, child.name, dict(child.doc)))
+    return False
