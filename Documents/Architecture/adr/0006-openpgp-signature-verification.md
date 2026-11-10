@@ -1,6 +1,6 @@
 # ADR 0006: OpenPGP signature verification in-house on `cryptography`
 
-Status: **Proposed — needs James's approval** (2026-11-10, T-P5-TFP).
+Status: accepted (2026-11-10, approved by James).
 
 ## Context
 The Terraform/OpenTofu provider mirror (T-P5-TFP) must verify each provider version's `SHA256SUMS` against its

@@ -14,7 +14,7 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   sha256; archives are verified against it before they are committed. Origin allowlist per repository (`origins`,
   default registry.terraform.io and registry.opentofu.org, plus the upstream URL's host). New
   `waystation_common.openpgp` (v4 RSA/ECDSA/EdDSA detached-signature verification on `cryptography`, Terraform's
-  key policy; adr/0006, proposed), `terraform_providers` collection, browse API `terraform/providers` and
+  key policy; adr/0006, accepted 2026-11-10), `terraform_providers` collection, browse API `terraform/providers` and
   `terraform/versions`, search (kind `package`), SemVer cleanup order. UI: Terraform tile in the create flow
   (proxy), options (origin registries, signature verification), browse renderer (providers → versions → archives
   with `zh:`/`h1:`), "Set me up" (CLI configuration with `network_mirror` and a `credentials` block, `TF_TOKEN_*`),
