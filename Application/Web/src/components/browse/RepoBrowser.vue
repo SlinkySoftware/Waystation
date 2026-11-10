@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Browse renderer framework: picks the format-aware view; every other format (raw, yum until its package view
-     ships) gets the generic folder listing of cached files. -->
+<!-- Browse renderer framework: picks the format-aware view; every other format (raw, ...) gets the generic folder
+     listing of cached files. -->
 <template>
   <DockerBrowser v-if="repo.format === 'docker'" :repo="repo" />
   <NpmBrowser v-else-if="repo.format === 'npm'" :repo="repo" />
@@ -10,6 +10,7 @@
   <MavenBrowser v-else-if="repo.format === 'maven'" :repo="repo" />
   <PypiBrowser v-else-if="repo.format === 'pypi'" :repo="repo" />
   <GoBrowser v-else-if="repo.format === 'go'" :repo="repo" />
+  <YumBrowser v-else-if="repo.format === 'yum'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
@@ -25,6 +26,7 @@ import GoBrowser from './GoBrowser.vue'
 import MavenBrowser from './MavenBrowser.vue'
 import NpmBrowser from './NpmBrowser.vue'
 import PypiBrowser from './PypiBrowser.vue'
+import YumBrowser from './YumBrowser.vue'
 
 defineProps<{ repo: Repository }>()
 </script>
