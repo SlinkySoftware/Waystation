@@ -85,6 +85,9 @@ class Repository(BaseModel):
     created_at: datetime
     updated_at: datetime
     stats: RepositorySummaryStats
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class RepositoryPage(BaseModel):
@@ -159,6 +162,11 @@ def group_view(repo: RepoConfig) -> GroupConfig | None:
     return GroupConfig(members=list(repo.group.members), writable_member=repo.group.writable_member)
 
 
+def managed(value: str | None) -> Literal['provisioning'] | None:
+    """The ``managed_by`` of a view (only the provisioning file manages objects today)."""
+    return 'provisioning' if value == 'provisioning' else None
+
+
 def _quota_view(quota: QuotaStatus | None) -> RepositoryQuota | None:
     if quota is None:
         return None
@@ -195,6 +203,7 @@ def to_view(
         created_at=repo.created_at,
         updated_at=repo.updated_at,
         stats=RepositorySummaryStats(**summary.__dict__),
+        managed_by=managed(repo.managed_by),
     )
 
 

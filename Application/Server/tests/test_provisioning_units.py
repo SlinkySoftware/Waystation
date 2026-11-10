@@ -86,7 +86,7 @@ def test_size_and_depth_are_bounded() -> None:
 def test_names_are_unique_per_section() -> None:
     text = b"""
 version: 1
-service_accounts: [{name: ci}, {name: CI}]
+service_accounts: [{name: ci-a}, {name: ci-a}]
 auth_providers:
   - {kind: oidc, name: SSO, oidc: {issuer: https://sso.example.com, client_id: w, client_auth: none}}
   - {kind: oidc, name: sso, oidc: {issuer: https://sso.example.com, client_id: w, client_auth: none}}

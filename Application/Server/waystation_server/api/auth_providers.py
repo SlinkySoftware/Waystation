@@ -27,6 +27,7 @@ from waystation_common.errors import Conflict, NotFound
 from waystation_common.ids import new_id
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.repositories import managed
 from waystation_server.audit import AuditAction
 from waystation_server.db import auth_providers as providers_db
 from waystation_server.db import groups as groups_db
@@ -80,6 +81,9 @@ class AuthProviderConfig(BaseModel):
     group_mapping: list[GroupMapping]
     created_at: datetime
     updated_at: datetime
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class AuthProviderTestRequest(BaseModel):
@@ -359,6 +363,7 @@ def provider_view(svc: Services, record: ProviderRecord, groups: list[GroupRecor
         group_mapping=mapping,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        managed_by=managed(record.managed_by),
     )
 
 

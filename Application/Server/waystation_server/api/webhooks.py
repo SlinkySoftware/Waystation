@@ -28,6 +28,7 @@ from waystation_common.ids import new_id
 from waystation_common.jobs import WebhookDeliver
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.repositories import managed
 from waystation_server.audit import AuditAction
 from waystation_server.problems import FieldError, FieldErrors
 from waystation_server.repos.schemas import NAME_PATTERN
@@ -129,6 +130,9 @@ class Webhook(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_delivery: WebhookDeliverySummary | None
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class WebhookList(BaseModel):
@@ -206,6 +210,7 @@ def _view(doc: Document, last: Document | None) -> Webhook:
         created_at=doc['created_at'],
         updated_at=doc['updated_at'],
         last_delivery=_summary(last) if last else None,
+        managed_by=managed(doc.get('managed_by')),
     )
 
 
