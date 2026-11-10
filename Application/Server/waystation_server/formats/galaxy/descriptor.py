@@ -114,7 +114,8 @@ def _publish(ctx: SetupContext, *, into: str | None = None) -> SetupSnippet:
         'galaxy-publish',
         f'Build and publish a collection{where}',
         'ansible-galaxy collection build\n'
-        f'ansible-galaxy collection publish ./my_namespace-my_collection-1.0.0.tar.gz -s {ctx.repo_url} --token {TOKEN}',
+        'ansible-galaxy collection publish ./my_namespace-my_collection-1.0.0.tar.gz \\\n'
+        f'  -s {ctx.repo_url} --token {TOKEN}',
         description='Publishing needs the write permission. The import is checked within seconds '
         '(MANIFEST.json, FILES.json and every file checksum); versions cannot be replaced.',
     )

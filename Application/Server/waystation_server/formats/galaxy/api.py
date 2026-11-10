@@ -45,7 +45,7 @@ def load(data: bytes, what: str) -> dict[str, Any]:
         raise ValidationFailed(f'{what} is too large')
     try:
         doc = json.loads(data)
-    except (ValueError, UnicodeDecodeError):
+    except ValueError, UnicodeDecodeError:
         raise ValidationFailed(f'{what} is not valid JSON') from None
     if not isinstance(doc, dict):
         raise ValidationFailed(f'{what} is not a JSON object')
@@ -242,7 +242,9 @@ def slim_detail(data: bytes, info: Any) -> bytes:
     """What is cached of an upstream version document: the fields clients use (``files``, ``manifest`` and
     ``docs_blob`` dropped)."""
     doc = load(data, 'the upstream version document')
-    keep = {k: doc[k] for k in (*_DETAIL_KEYS, 'artifact', 'download_url', 'namespace', 'collection', 'name') if k in doc}
+    keep = {
+        k: doc[k] for k in (*_DETAIL_KEYS, 'artifact', 'download_url', 'namespace', 'collection', 'name') if k in doc
+    }
     meta = keep.get('metadata')
     if isinstance(meta, dict):
         keep['metadata'] = {k: v for k, v in meta.items() if k != 'contents'}
@@ -287,17 +289,15 @@ def discovery(*, prefix: str = '', roles: bool) -> dict[str, Any]:
     return {'available_versions': versions, 'current_version': 'v3'}
 
 
-def render_collection(urls: Urls, namespace: str, name: str, info: Info, versions: Sequence[Version]) -> dict[str, Any]:
-    top = highest(versions)
+def render_collection(urls: Urls, namespace: str, name: str, info: Info, top: str | None) -> dict[str, Any]:
+    """A collection document; ``top`` = its highest version (``highest``)."""
     return {
         'href': urls.collection(namespace, name),
         'namespace': namespace,
         'name': name,
         'deprecated': info.deprecated,
         'versions_url': urls.versions(namespace, name),
-        'highest_version': (
-            {'href': urls.version(namespace, name, top.version), 'version': top.version} if top is not None else None
-        ),
+        'highest_version': ({'href': urls.version(namespace, name, top), 'version': top} if top is not None else None),
         'created_at': info.created_at,
         'updated_at': info.updated_at,
         'download_count': 0,
@@ -447,4 +447,3 @@ def role_download(versions: Sequence[Mapping[str, Any]], version: str) -> str | 
         if v.get('name') == version:
             return http_url(v.get('download_url'))
     return None
-

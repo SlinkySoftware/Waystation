@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 
 from waystation_common.errors import PayloadTooLarge, UpstreamError
+from waystation_server.formats.common.multipart import MultipartError, MultipartReader, boundary_of, parse_header
 from waystation_server.formats.pypi import simple
 from waystation_server.formats.pypi.common import Op, latest_of, parse_route
 from waystation_server.formats.pypi.descriptor import simple_root
 from waystation_server.formats.pypi.distmeta import DistributionInvalid, read_distribution
-from waystation_server.formats.common.multipart import MultipartError, MultipartReader, boundary_of, parse_header
 
 SHA = 'a' * 64
 META_SHA = 'b' * 64

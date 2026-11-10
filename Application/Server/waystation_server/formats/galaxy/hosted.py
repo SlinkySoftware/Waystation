@@ -18,7 +18,6 @@ Uploads need ``write`` and deletes ``delete`` (checked by the router from the me
 
 from __future__ import annotations
 
-import os
 import re
 import time
 from collections.abc import Mapping, Sequence
@@ -65,10 +64,9 @@ class Refused(Exception):  # noqa: N818 - an answer, not a failure
 
 def iso(value: Any) -> str | None:
     if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=UTC)
-        return value.astimezone(UTC).isoformat().replace('+00:00', 'Z')
-    return value if isinstance(value, str) else None
+        when: datetime = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return when.astimezone(UTC).isoformat().replace('+00:00', 'Z')
+    return str(value) if isinstance(value, str) else None
 
 
 def version_of(doc: Mapping[str, Any]) -> api.Version:
@@ -184,7 +182,7 @@ class GalaxyHosted:
         return fields, artifact, writer
 
     async def _admit_artifact(self, req: FormatRequest, filename: str) -> galaxy.Artifact:
-        base = os.path.basename(filename.replace('\\', '/'))
+        base = filename.replace('\\', '/').rsplit('/', 1)[-1]
         artifact = galaxy.parse_filename(base)
         if artifact is None:
             raise Refused(
@@ -279,11 +277,18 @@ class GalaxyHosted:
             audit.record(
                 AuditAction.CONTENT_DELETE,
                 target=audit.target('galaxy_collection', None, f'{repo.name}/{namespace}.{name}:{doc["version"]}'),
-                details={'repository': repo.name, 'collection': f'{namespace}.{name}', 'version': doc['version'],
-                         'size': size},
+                details={
+                    'repository': repo.name,
+                    'collection': f'{namespace}.{name}',
+                    'version': doc['version'],
+                    'size': size,
+                },
             )
             req.hosted.activity(
-                req, EventType.ASSET_DELETED, path=str(doc['path']), artifact=str(doc['path']).rsplit('/', 1)[-1],
+                req,
+                EventType.ASSET_DELETED,
+                path=str(doc['path']),
+                artifact=str(doc['path']).rsplit('/', 1)[-1],
                 size=size,
             )
         req.hosted.account(req, CacheState.HIT, 204, 0, started)

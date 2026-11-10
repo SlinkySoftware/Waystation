@@ -34,7 +34,7 @@ import hashlib
 import logging
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -99,7 +99,7 @@ def _artifact_route(filename: str) -> Route | None:
     return Route('artifact', found.namespace, found.name, found.version) if found is not None else None
 
 
-def parse_route(path: str) -> Route | None:  # noqa: C901 - a flat table of routes
+def parse_route(path: str) -> Route | None:
     seg = [s for s in path.split('/') if s]
     if not seg:
         return Route('discovery', prefix='api/')
@@ -231,9 +231,7 @@ class GalaxyPlugin:
         return [dataclasses.replace(req, repo=m) for m in await self.members(req)]
 
     async def _has_roles(self, req: FormatRequest) -> bool:
-        return any(
-            sub.repo.type is RepoType.PROXY and _options(sub.repo).roles for sub in await self._sources(req)
-        )
+        return any(sub.repo.type is RepoType.PROXY and _options(sub.repo).roles for sub in await self._sources(req))
 
     # ------------------------------------------------------------------ collections: one source
     def _parsed_get(self, kind: str, asset: StoredAsset) -> Any:
@@ -307,7 +305,11 @@ class GalaxyPlugin:
         async def stored(asset: StoredAsset, data: bytes | None) -> None:
             async def record() -> None:
                 detail = api.parse_detail(await engine.read(asset, max_bytes=api.MAX_DOC), ns, name, version)
-                fields = {'sha256': detail.sha256, 'size': detail.size, 'description': detail.metadata.get('description')}
+                fields = {
+                    'sha256': detail.sha256,
+                    'size': detail.size,
+                    'description': detail.metadata.get('description'),
+                }
                 await galaxy_db.update_details(engine.db, repo_id, ns, name, version, fields)
 
             self._indexing.spawn(('detail', repo_id, asset.blob_sha256), record)
@@ -440,7 +442,7 @@ class GalaxyPlugin:
         if not infos:
             raise NotFound('Not Found')
         merged = api.merge(lists)
-        top = api.highest(merged)
+        best = api.highest(merged)
         created = [i.created_at for i in infos if i.created_at]
         updated = [i.updated_at for i in infos if i.updated_at]
         info = api.Info(
@@ -448,12 +450,12 @@ class GalaxyPlugin:
             created_at=min(created) if created else None,
             updated_at=max(updated) if updated else None,
         )
-        return api.render_collection(urls, ns, name, info, top.version if top is not None else None)
+        return api.render_collection(urls, ns, name, info, best.version if best is not None else None)
 
-    async def _skip_failure[T](self, sub: FormatRequest, work: Any) -> T | None:
+    async def _skip_failure[T](self, sub: FormatRequest, work: Awaitable[T | None]) -> T | None:
         """A group member's answer; an unreachable member without a cached copy is left out (logged)."""
         try:
-            result: T | None = await work
+            result = await work
         except WaystationError as exc:
             log.warning('group member unavailable', extra={'repo': sub.repo.name, 'error': exc.detail})
             return None
@@ -462,7 +464,7 @@ class GalaxyPlugin:
     async def versions_of(self, req: FormatRequest, ns: str, name: str) -> list[api.Version] | None:
         if req.repo.type is not RepoType.GROUP:
             return await self.source_versions(req, ns, name)
-        lists = []
+        lists: list[list[api.Version]] = []
         for sub in await self._sources(req):
             found = await self._skip_failure(sub, self.source_versions(sub, ns, name))
             if found is not None:
@@ -681,7 +683,13 @@ class GalaxyPlugin:
         if route.kind in ('collection', 'version') and req.method == 'DELETE':
             target = await self._writable(req, Action.DELETE)
             return await self.hosted.delete(target, route.namespace, route.name, route.version or None)
-        allow = 'POST' if route.kind == 'publish' else 'GET, HEAD, DELETE' if route.kind in ('collection', 'version') else 'GET, HEAD'
+        allow = (
+            'POST'
+            if route.kind == 'publish'
+            else 'GET, HEAD, DELETE'
+            if route.kind in ('collection', 'version')
+            else 'GET, HEAD'
+        )
         return native_error(405, 'Method Not Allowed', headers={'Allow': allow})
 
     async def _writable(self, req: FormatRequest, action: Action) -> FormatRequest:
