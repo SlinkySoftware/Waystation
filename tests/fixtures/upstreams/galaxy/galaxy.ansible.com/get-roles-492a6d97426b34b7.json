@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://galaxy.ansible.com/api/v1/roles/?owner__username=geerlingguy&name=ntp"
+  },
+  "response": {
+    "body_sha256": "f25ff52dcd46e2997579ccd92571461058dd1bd08c2b299003b877bab4ab631d",
+    "body_size": 2176,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "2176"
+      ],
+      [
+        "vary",
+        "Accept, Accept-Language, Cookie"
+      ]
+    ],
+    "status": 200
+  }
+}
