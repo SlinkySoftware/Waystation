@@ -9,7 +9,7 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   flag) builds gzip `primary`/`filelists`/`other` and `repomd.xml`, signs it with the repository's own key and
   publishes atomically (previous generation kept); the public key is served at `RPM-GPG-KEY`. Signing sits in
   `waystation_common.signing` (RSA 3072 per repository, encrypted with `WAYSTATION_SECRET_KEYS` under `keys/`; packets
-  written in-house, verified by `waystation_common.openpgp`): ADR 0007 drafted, **Proposed** (needs the owner's approval; gpg is the
+  written in-house, verified by `waystation_common.openpgp`): ADR 0007, accepted 2026-11-11 (gpg was the
   fallback). Browse shows uploads, "Set me up" gives the `.repo` file (`repo_gpgcheck=1`, gpgkey, credentials) and
   curl commands, the create dialog offers hosted yum. Harness: rpmbuild in the Rocky client, upload, dnf
   install/upgrade with `repo_gpgcheck=1`, delete.

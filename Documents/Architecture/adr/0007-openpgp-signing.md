@@ -1,7 +1,6 @@
 # ADR 0007: In-house OpenPGP signing on `cryptography`
 
-Status: **Proposed — needs the owner's approval** (drafted 2026-11-10 in T-P5-YUMH). The code below ships behind
-`waystation_common.signing` so it can be swapped if this is declined.
+Status: accepted (2026-11-11, approved by the owner). Drafted 2026-11-10 in T-P5-YUMH; implemented behind `waystation_common.signing`.
 
 ## Context
 ARCHITECTURE §2 reserves the OpenPGP *signing* implementation for hosted apt/yum repositories for an ADR ("a Python
@@ -26,7 +25,7 @@ Options:
 3. **In-house on `cryptography`** (already a dependency, ARCH §2): packet framing, armor and v4 signature hashing
    are about 150 lines on top of `cryptography`'s RSA; every packet written is read back by adr/0006's verifier.
 
-## Decision (proposed)
+## Decision
 Option 3, in `waystation_common.signing` (the only signing entry point, ARCH §2):
 
 - Packet writers: v4 RSA public key, user ID, positive self-certification (key flags certify + sign, preferred
