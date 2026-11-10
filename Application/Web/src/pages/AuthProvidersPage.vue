@@ -31,7 +31,7 @@
           <q-td class="cursor-pointer">
             <div class="providers__name">
               <q-icon :name="iconAuthProviders" size="20px" class="providers__icon" />
-              <span class="providers__title">{{ row.name }}</span>
+              <span class="providers__title">{{ row.name }}</span> <ManagedBadge :item="row" />
             </div>
           </q-td>
         </template>
@@ -61,7 +61,7 @@
         <template #body-cell-actions="{ row }">
           <q-td class="text-right" @click.stop>
             <q-btn flat round dense size="sm" :icon="iconEdit" :aria-label="`${t('common.edit')} ${row.name}`" @click="edit(row)" />
-            <q-btn flat round dense size="sm" :icon="iconDelete" :aria-label="`${t('common.delete')} ${row.name}`" @click="confirmDelete(row)" />
+            <q-btn v-if="!isManaged(row)" flat round dense size="sm" :icon="iconDelete" :aria-label="`${t('common.delete')} ${row.name}`" @click="confirmDelete(row)" />
           </q-td>
         </template>
 
@@ -69,7 +69,7 @@
           <div class="providers__card" role="button" tabindex="0" @click="edit(row)" @keydown.enter="edit(row)">
             <div class="providers__name">
               <q-icon :name="iconAuthProviders" size="20px" class="providers__icon" />
-              <span class="providers__title">{{ row.name }}</span>
+              <span class="providers__title">{{ row.name }}</span> <ManagedBadge :item="row" />
               <q-space />
               <StateLabel :enabled="row.enabled" />
             </div>
@@ -103,11 +103,13 @@ import ProviderDialog from '@/components/auth/ProviderDialog.vue'
 import { serverHost } from '@/components/auth/providerForm'
 import StateLabel from '@/components/auth/StateLabel.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import ManagedBadge from '@/components/ManagedBadge.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAsync } from '@/composables/useAsync'
 import { useNotify } from '@/composables/useNotify'
 import { t } from '@/i18n'
 import { iconAdd, iconAuthProviders, iconDelete, iconEdit, iconLock, iconWarning } from '@/utils/icons'
+import { isManaged } from '@/utils/managed'
 
 const $q = useQuasar()
 const notify = useNotify()

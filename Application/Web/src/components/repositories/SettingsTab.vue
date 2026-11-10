@@ -2,18 +2,19 @@
 <!-- Repository settings: the same sectioned form as create (name/format/type fixed), plus delete. -->
 <template>
   <div class="settings">
-    <PageCard :title="t('detail.settings.title')" :caption="t('detail.settings.caption')">
+    <PageCard :title="t('detail.settings.title')" :caption="managed ? t('provisioning.managedHelp') : t('detail.settings.caption')">
+      <template v-if="managed" #actions><ManagedBadge :item="repo" /></template>
       <q-form greedy @submit="save">
         <div v-if="formError" class="settings__error" role="alert">{{ formError }}</div>
         <RepositoryForm v-model="model" mode="edit" :errors="fieldErrors" />
         <div class="settings__actions">
           <q-btn flat no-caps :label="t('detail.settings.reset')" :disable="saving || !dirty" @click="reset" />
-          <q-btn unelevated no-caps color="primary" type="submit" :label="t('common.save')" :loading="saving" :disable="!dirty" />
+          <q-btn unelevated no-caps color="primary" type="submit" :label="t('common.save')" :loading="saving" :disable="!dirty || managed" />
         </div>
       </q-form>
     </PageCard>
 
-    <PageCard :title="t('detail.settings.danger')" class="settings__danger">
+    <PageCard v-if="!managed" :title="t('detail.settings.danger')" class="settings__danger">
       <div class="settings__danger-row">
         <div>
           <div class="text-weight-medium">{{ t('detail.settings.deleteTitle') }}</div>
@@ -32,17 +33,20 @@ import { useRouter } from 'vue-router'
 
 import { api, ApiError, call, errorMessage } from '@/api/client'
 import type { Repository } from '@/api/types'
+import ManagedBadge from '@/components/ManagedBadge.vue'
 import PageCard from '@/components/PageCard.vue'
 import { useNotify } from '@/composables/useNotify'
 import { t } from '@/i18n'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { iconDelete } from '@/utils/icons'
+import { isManaged } from '@/utils/managed'
 
 import { modelFromRepository, type RepoFormModel, toWrite } from './form'
 import RepositoryForm from './RepositoryForm.vue'
 
 const props = defineProps<{ repo: Repository }>()
 const emit = defineEmits<{ saved: [repo: Repository] }>()
+const managed = computed(() => isManaged(props.repo))
 
 const $q = useQuasar()
 const router = useRouter()

@@ -5,7 +5,7 @@
   <FormDialog
     v-model="open"
     :title="title"
-    :caption="readonly ? t('admin.roleForm.viewCaption') : role ? t('admin.roleForm.heldBy') : undefined"
+    :caption="managed ? t('provisioning.managedHelp') : readonly ? t('admin.roleForm.viewCaption') : role ? t('admin.roleForm.heldBy') : undefined"
     :saving="saving"
     :readonly="readonly"
     :submit-label="role ? t('common.save') : t('admin.rolesPage.create')"
@@ -58,6 +58,7 @@ import { api, ApiError, call } from '@/api/client'
 import type { Role } from '@/api/types'
 import FormDialog from '@/components/FormDialog.vue'
 import { t } from '@/i18n'
+import { isManaged } from '@/utils/managed'
 import { toMatrix } from '@/utils/rbac'
 
 import { emptyRoleModel, matrixProblems, modelFromRole, ROLE_ID_PATTERN, type RoleFormModel, slugify, toRoleCreate, toRoleWrite } from './forms'
@@ -73,7 +74,8 @@ const idTouched = ref(false)
 const saving = ref(false)
 const problem = ref<unknown>(null)
 const fieldErrors = ref<Record<string, string>>({})
-const readonly = computed(() => Boolean(props.role?.builtin))
+const managed = computed(() => isManaged(props.role))
+const readonly = computed(() => Boolean(props.role?.builtin) || managed.value)
 const title = computed(() => {
   if (!props.role) return t('admin.roleForm.createTitle')
   return readonly.value ? t('admin.roleForm.viewTitle', { name: props.role.name }) : t('admin.roleForm.editTitle', { name: props.role.name })

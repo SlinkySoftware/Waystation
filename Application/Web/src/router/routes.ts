@@ -52,6 +52,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/audit', name: 'admin-audit', component: () => import('@/pages/AuditLogPage.vue'), meta: { title: 'nav.audit' } },
       { path: 'admin/webhooks', name: 'admin-webhooks', component: () => import('@/pages/WebhooksPage.vue'), meta: { title: 'nav.webhooks' } },
       { path: 'admin/settings', name: 'admin-settings', component: () => import('@/pages/SettingsPage.vue'), meta: { title: 'nav.settings' } },
+      { path: 'admin/provisioning', name: 'admin-provisioning', component: () => import('@/pages/ProvisioningPage.vue'), meta: { title: 'nav.provisioning' } },
       { path: 'admin/system', name: 'admin-system', component: () => import('@/pages/SystemPage.vue'), meta: { title: 'nav.system' } },
       { path: 'profile', name: 'profile', component: () => import('@/pages/ProfilePage.vue'), meta: { title: 'nav.profile' } },
       { path: ':catchAll(.*)*', name: 'not-found', component: () => import('@/pages/NotFoundPage.vue'), meta: { title: 'notFound.title' } },

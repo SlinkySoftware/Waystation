@@ -2065,10 +2065,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/provisioning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether a provisioning file is configured and how its last apply went (needs `admin`) */
+        get: operations["getProvisioning"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/provisioning/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What applying the configured provisioning file would change (needs `admin`; nothing is written)
+         * @description Always the file named by `WAYSTATION_PROVISION_FILE` (no document is accepted). Items are `create`, `update`
+         *     (with field changes), `unchanged` or `prune`; a changed secret appears only as `redacted`. An invalid file
+         *     (`valid: false`) lists its `errors`. 409 when no file is configured.
+         */
+        post: operations["planProvisioning"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/provisioning/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply the configured provisioning file (needs `admin`)
+         * @description Plans, then makes the changes when the whole file is valid (nothing otherwise). Each change is audited with
+         *     its usual action and `details.source = provisioning`; `items[].outcome` says what happened.
+         */
+        post: operations["applyProvisioning"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description `provisioning`: declared in the provisioning file; changes made here are overwritten by its next apply */
+        ManagedBy: "provisioning" | null;
+        ProvisioningStatus: {
+            /** @description `WAYSTATION_PROVISION_FILE` is set */
+            configured: boolean;
+            file: string | null;
+            last_apply: components["schemas"]["ProvisioningLastApply"] | null;
+        };
+        ProvisioningLastApply: {
+            at: components["schemas"]["Timestamp"];
+            /** @description `init`, `cli`, or the administrator who applied it */
+            by: string;
+            sha256: string | null;
+            /** @enum {string} */
+            outcome: "applied" | "invalid" | "failed";
+            summary: components["schemas"]["ProvisioningSummary"];
+        };
+        ProvisioningSummary: {
+            create?: number;
+            update?: number;
+            unchanged?: number;
+            prune?: number;
+            failed?: number;
+        };
+        ProvisioningChange: {
+            field: string;
+            before?: unknown;
+            after?: unknown;
+            /** @description A secret: before/after only say whether it is set */
+            redacted?: boolean;
+        };
+        ProvisioningItem: {
+            /** @enum {string} */
+            kind: "role" | "cleanup_policy" | "repository" | "group" | "service_account" | "auth_provider" | "webhook" | "settings";
+            name: string;
+            /** @enum {string} */
+            action: "create" | "update" | "unchanged" | "prune";
+            changes?: components["schemas"]["ProvisioningChange"][];
+            note?: string | null;
+            /** @description Apply only: what happened to this item */
+            outcome?: ("applied" | "failed" | "skipped") | null;
+            error?: string | null;
+        };
+        ProvisioningProblem: {
+            /** @description Dotted path into the file, or `file` */
+            field: string;
+            message: string;
+        };
+        ProvisioningPlan: {
+            file: string;
+            sha256: string | null;
+            valid: boolean;
+            applied?: boolean;
+            errors?: components["schemas"]["ProvisioningProblem"][];
+            items?: components["schemas"]["ProvisioningItem"][];
+            summary?: components["schemas"]["ProvisioningSummary"];
+        };
         /** @description RFC 9457 problem details */
         Problem: {
             /** @description URI reference identifying the problem type; `about:blank` when generic */
@@ -2253,6 +2370,7 @@ export interface components {
             secret: string;
         };
         ServiceAccount: {
+            managed_by?: components["schemas"]["ManagedBy"];
             id: string;
             name: string;
             description: string;
@@ -2481,6 +2599,7 @@ export interface components {
             name: string | null;
         };
         Group: {
+            managed_by?: components["schemas"]["ManagedBy"];
             id: string;
             name: string;
             description: string;
@@ -2599,6 +2718,7 @@ export interface components {
             scope: string;
         };
         Role: {
+            managed_by?: components["schemas"]["ManagedBy"];
             /** @description Role id used in grants and group mappings, e.g. `deployer` */
             id: string;
             name: string;
@@ -2620,6 +2740,7 @@ export interface components {
             permissions: components["schemas"]["RolePermission"][];
             /** @description Who holds the role directly */
             usage: components["schemas"]["RoleUsage"];
+            managed_by?: components["schemas"]["ManagedBy"];
         };
         RoleWrite: {
             name: string;
@@ -2801,6 +2922,7 @@ export interface components {
             group_mapping?: components["schemas"]["GroupMapping"][];
         };
         AuthProviderConfig: {
+            managed_by?: components["schemas"]["ManagedBy"];
             id: string;
             /** @enum {string} */
             kind: "ldap" | "oidc";
@@ -3164,6 +3286,7 @@ export interface components {
             last_activity_at: string | null;
         };
         Repository: {
+            managed_by?: components["schemas"]["ManagedBy"];
             name: components["schemas"]["RepositoryName"];
             format: components["schemas"]["Format"];
             type: components["schemas"]["RepositoryType"];
@@ -4067,6 +4190,7 @@ export interface components {
             items: components["schemas"]["CleanupRunSummary"][];
         };
         CleanupPolicy: {
+            managed_by?: components["schemas"]["ManagedBy"];
             id: string;
             name: string;
             description: string;
@@ -4495,6 +4619,7 @@ export interface components {
             error: string | null;
         };
         Webhook: {
+            managed_by?: components["schemas"]["ManagedBy"];
             id: string;
             name: string;
             description: string;
@@ -8249,6 +8374,71 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    getProvisioning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provisioning status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvisioningStatus"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    planProvisioning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvisioningPlan"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    applyProvisioning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProvisioningPlan"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
         };
     };
 }

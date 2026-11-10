@@ -19,7 +19,7 @@
         <div class="policies__title">
           <PolicyFormat :format="row.format" icon-only />
           <div>
-            <div class="policies__name">{{ row.name }}</div>
+            <div class="policies__name">{{ row.name }} <ManagedBadge :item="row" /></div>
             <div class="policies__desc">{{ formatScope(row.format) }}<template v-if="row.description"> · {{ row.description }}</template></div>
           </div>
         </div>
@@ -49,7 +49,7 @@
     </template>
     <template #body-cell-enabled="{ row }">
       <q-td @click.stop>
-        <q-toggle :model-value="row.enabled" dense :disable="!canEdit" :aria-label="t('cleanup.action.enableWhat', { name: row.name })" @update:model-value="(on: boolean) => emit('toggle', row, on)" />
+        <q-toggle :model-value="row.enabled" dense :disable="!canEdit || isManaged(row)" :aria-label="t('cleanup.action.enableWhat', { name: row.name })" @update:model-value="(on: boolean) => emit('toggle', row, on)" />
       </q-td>
     </template>
     <template #body-cell-actions="{ row }">
@@ -63,10 +63,10 @@
         <div class="policies__card-head">
           <PolicyFormat :format="row.format" icon-only />
           <div class="col">
-            <div class="policies__name">{{ row.name }}</div>
+            <div class="policies__name">{{ row.name }} <ManagedBadge :item="row" /></div>
             <div class="policies__desc">{{ describeSchedule(row.schedule) }}</div>
           </div>
-          <q-toggle :model-value="row.enabled" dense :disable="!canEdit" :aria-label="t('cleanup.action.enableWhat', { name: row.name })" @update:model-value="(on: boolean) => emit('toggle', row, on)" />
+          <q-toggle :model-value="row.enabled" dense :disable="!canEdit || isManaged(row)" :aria-label="t('cleanup.action.enableWhat', { name: row.name })" @update:model-value="(on: boolean) => emit('toggle', row, on)" />
         </div>
         <CriteriaChips :criteria="row.criteria" />
         <LastRun :run="row.last_run" />
@@ -85,10 +85,12 @@ import { type QTableColumn, useQuasar } from 'quasar'
 import { computed } from 'vue'
 
 import type { CleanupPolicy, Format } from '@/api/types'
+import ManagedBadge from '@/components/ManagedBadge.vue'
 import RepoChip from '@/components/RepoChip.vue'
 import TimeCell from '@/components/TimeCell.vue'
 import { t } from '@/i18n'
 import { useRepositoriesStore } from '@/stores/repositories'
+import { isManaged } from '@/utils/managed'
 
 import { describeSchedule, formatScope } from './cleanup'
 import CriteriaChips from './CriteriaChips.vue'

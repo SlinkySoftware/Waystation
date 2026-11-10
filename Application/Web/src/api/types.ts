@@ -227,3 +227,12 @@ export type WebhookDelivery = S['WebhookDelivery']
 export type WebhookDeliveryList = S['WebhookDeliveryList']
 export type WebhookAttempt = S['WebhookAttempt']
 export type WebhookDeliveryAccepted = S['WebhookDeliveryAccepted']
+
+// Declarative provisioning (T-O09).
+export type ManagedBy = S['ManagedBy']
+export type ProvisioningStatus = S['ProvisioningStatus']
+export type ProvisioningLastApply = S['ProvisioningLastApply']
+export type ProvisioningPlan = S['ProvisioningPlan']
+export type ProvisioningItem = S['ProvisioningItem']
+export type ProvisioningChange = S['ProvisioningChange']
+export type ProvisioningSummary = S['ProvisioningSummary']

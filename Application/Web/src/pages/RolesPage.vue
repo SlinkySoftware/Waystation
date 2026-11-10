@@ -20,7 +20,7 @@
           <header class="role-card__head">
             <q-icon :name="role.builtin ? iconLock : iconRoles" size="20px" class="role-card__icon" />
             <div class="col">
-              <div class="role-card__name">{{ role.name }}</div>
+              <div class="role-card__name">{{ role.name }} <ManagedBadge :item="role" /></div>
               <div class="role-card__id mono">{{ role.id }}</div>
             </div>
             <span class="role-card__kind" :class="{ 'role-card__kind--builtin': role.builtin }">{{ role.builtin ? t('admin.roles.builtin') : t('admin.roles.custom') }}</span>
@@ -28,14 +28,14 @@
               <q-menu auto-close anchor="bottom right" self="top right">
                 <q-list dense style="min-width: 180px">
                   <q-item clickable @click="open(role)">
-                    <q-item-section side><q-icon :name="role.builtin ? iconShow : iconEdit" size="18px" /></q-item-section>
-                    <q-item-section>{{ role.builtin ? t('admin.rolesPage.view') : t('admin.rolesPage.edit') }}</q-item-section>
+                    <q-item-section side><q-icon :name="role.builtin || isManaged(role) ? iconShow : iconEdit" size="18px" /></q-item-section>
+                    <q-item-section>{{ role.builtin || isManaged(role) ? t('admin.rolesPage.view') : t('admin.rolesPage.edit') }}</q-item-section>
                   </q-item>
                   <q-item clickable @click="duplicate(role)">
                     <q-item-section side><q-icon :name="iconCopy" size="18px" /></q-item-section>
                     <q-item-section>{{ t('admin.rolesPage.duplicate') }}</q-item-section>
                   </q-item>
-                  <q-item v-if="!role.builtin" clickable class="text-negative" @click="confirmDelete(role)">
+                  <q-item v-if="!role.builtin && !isManaged(role)" clickable class="text-negative" @click="confirmDelete(role)">
                     <q-item-section side><q-icon :name="iconDelete" size="18px" color="negative" /></q-item-section>
                     <q-item-section>{{ t('admin.rolesPage.delete') }}</q-item-section>
                   </q-item>
@@ -73,12 +73,14 @@ import type { Role, RoleUsage } from '@/api/types'
 import AnonymousAccessCard from '@/components/admin/AnonymousAccessCard.vue'
 import RoleDialog from '@/components/admin/RoleDialog.vue'
 import { useProblemDialog } from '@/components/admin/useAdminActions'
+import ManagedBadge from '@/components/ManagedBadge.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAsync } from '@/composables/useAsync'
 import { useNotify } from '@/composables/useNotify'
 import { t } from '@/i18n'
 import { useDirectoryStore } from '@/stores/directory'
 import { iconAdd, iconCopy, iconDelete, iconEdit, iconLock, iconMore, iconRoles, iconShow } from '@/utils/icons'
+import { isManaged } from '@/utils/managed'
 import { toMatrix } from '@/utils/rbac'
 
 const $q = useQuasar()
