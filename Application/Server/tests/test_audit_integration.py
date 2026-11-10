@@ -554,6 +554,19 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     await rec.expect(A.WEBHOOK_REDELIVER, **{'details.redelivery_of': ping.json()['delivery_id']})
     await rec.expect(A.WEBHOOK_DELETE, **{'target.id': hook_id})
 
+    # --- cleanup policies: create, change, delete
+    policy = {'name': 'old-npm', 'format': 'npm', 'criteria': {'last_downloaded_older_than_days': 90}}
+    made_policy = await admin.post(f'{api}/cleanup-policies', json=policy)
+    assert made_policy.status_code == 201, made_policy.text
+    policy_id = made_policy.json()['id']
+    changed_policy = await admin.put(f'{api}/cleanup-policies/{policy_id}', json={**policy, 'enabled': False})
+    assert changed_policy.status_code == 200, changed_policy.text
+    assert (await admin.delete(f'{api}/cleanup-policies/{policy_id}')).status_code == 204
+    await rec.expect(A.CLEANUP_POLICY_CREATE, **{'target.id': policy_id, 'target.name': 'old-npm'})
+    policy_update = await rec.expect(A.CLEANUP_POLICY_UPDATE, **{'target.id': policy_id})
+    assert policy_update['changes'] == [{'field': 'enabled', 'before': True, 'after': False, 'redacted': False}]
+    await rec.expect(A.CLEANUP_POLICY_DELETE, **{'target.id': policy_id})
+
     # --- sign-out
     signed_out = await admin.post(f'{api}/auth/logout')
     assert signed_out.status_code == 200

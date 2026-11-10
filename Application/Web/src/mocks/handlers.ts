@@ -24,6 +24,7 @@ import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
 import { nexusImportHandlers } from './nexusImport'
+import { provisioningHandlers } from './provisioning'
 import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
@@ -316,6 +317,9 @@ export const handlers = [
 
   // ---------------------------------------------------------------- webhooks (T-O05)
   ...webhookHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
+
+  // ---------------------------------------------------------------- declarative provisioning (T-O09)
+  ...provisioningHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
   // ---------------------------------------------------------------- audit log (T-S10)
   ...auditHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),

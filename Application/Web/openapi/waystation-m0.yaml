@@ -2651,6 +2651,54 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /provisioning:
+    get:
+      tags: [admin]
+      operationId: getProvisioning
+      summary: Whether a provisioning file is configured and how its last apply went (needs `admin`)
+      responses:
+        '200':
+          description: Provisioning status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningStatus' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /provisioning/plan:
+    post:
+      tags: [admin]
+      operationId: planProvisioning
+      summary: What applying the configured provisioning file would change (needs `admin`; nothing is written)
+      description: |
+        Always the file named by `WAYSTATION_PROVISION_FILE` (no document is accepted). Items are `create`, `update`
+        (with field changes), `unchanged` or `prune`; a changed secret appears only as `redacted`. An invalid file
+        (`valid: false`) lists its `errors`. 409 when no file is configured.
+      responses:
+        '200':
+          description: The plan
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningPlan' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /provisioning/apply:
+    post:
+      tags: [admin]
+      operationId: applyProvisioning
+      summary: Apply the configured provisioning file (needs `admin`)
+      description: |
+        Plans, then makes the changes when the whole file is valid (nothing otherwise). Each change is audited with
+        its usual action and `details.source = provisioning`; `items[].outcome` says what happened.
+      responses:
+        '200':
+          description: What was applied
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProvisioningPlan' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
 components:
   securitySchemes:
     session:
@@ -2858,6 +2906,86 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
 
   schemas:
+    ManagedBy:
+      description: '`provisioning`: declared in the provisioning file; changes made here are overwritten by its next apply'
+      anyOf:
+        - { type: string, const: provisioning }
+        - { type: 'null' }
+    ProvisioningStatus:
+      type: object
+      required: [configured, file, last_apply]
+      properties:
+        configured: { type: boolean, description: '`WAYSTATION_PROVISION_FILE` is set' }
+        file: { type: [string, 'null'] }
+        last_apply:
+          oneOf:
+            - $ref: '#/components/schemas/ProvisioningLastApply'
+            - type: 'null'
+    ProvisioningLastApply:
+      type: object
+      required: [at, by, sha256, outcome, summary]
+      properties:
+        at: { $ref: '#/components/schemas/Timestamp' }
+        by: { type: string, description: '`init`, `cli`, or the administrator who applied it' }
+        sha256: { type: [string, 'null'] }
+        outcome: { type: string, enum: [applied, invalid, failed] }
+        summary: { $ref: '#/components/schemas/ProvisioningSummary' }
+    ProvisioningSummary:
+      type: object
+      properties:
+        create: { type: integer }
+        update: { type: integer }
+        unchanged: { type: integer }
+        prune: { type: integer }
+        failed: { type: integer }
+    ProvisioningChange:
+      type: object
+      required: [field]
+      properties:
+        field: { type: string }
+        before: {}
+        after: {}
+        redacted: { type: boolean, description: 'A secret: before/after only say whether it is set' }
+    ProvisioningItem:
+      type: object
+      required: [kind, name, action]
+      properties:
+        kind:
+          type: string
+          enum: [role, cleanup_policy, repository, group, service_account, auth_provider, webhook, settings]
+        name: { type: string }
+        action: { type: string, enum: [create, update, unchanged, prune] }
+        changes:
+          type: array
+          items: { $ref: '#/components/schemas/ProvisioningChange' }
+        note: { type: [string, 'null'] }
+        outcome:
+          description: 'Apply only: what happened to this item'
+          oneOf:
+            - { type: string, enum: [applied, failed, skipped] }
+            - { type: 'null' }
+        error: { type: [string, 'null'] }
+    ProvisioningProblem:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string, description: 'Dotted path into the file, or `file`' }
+        message: { type: string }
+    ProvisioningPlan:
+      type: object
+      required: [file, sha256, valid]
+      properties:
+        file: { type: string }
+        sha256: { type: [string, 'null'] }
+        valid: { type: boolean }
+        applied: { type: boolean }
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/ProvisioningProblem' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ProvisioningItem' }
+        summary: { $ref: '#/components/schemas/ProvisioningSummary' }
     # ---------------------------------------------------------------- common
     Problem:
       type: object
@@ -3069,6 +3197,7 @@ components:
       type: object
       required: [id, name, description, roles, disabled, active_tokens, created_at]
       properties:
+        managed_by: { $ref: '#/components/schemas/ManagedBy' }
         id: { type: string }
         name: { type: string }
         description: { type: string }
@@ -3384,6 +3513,7 @@ components:
       type: object
       required: [id, name, description, source, provider, external_group, roles, member_count, created_at, updated_at]
       properties:
+        managed_by: { $ref: '#/components/schemas/ManagedBy' }
         id: { type: string }
         name: { type: string }
         description: { type: string }
@@ -3543,6 +3673,7 @@ components:
       type: object
       required: [id, name, description, builtin, permissions]
       properties:
+        managed_by: { $ref: '#/components/schemas/ManagedBy' }
         id: { type: string, description: 'Role id used in grants and group mappings, e.g. `deployer`' }
         name: { type: string }
         description: { type: string }
@@ -3569,6 +3700,7 @@ components:
           type: array
           items: { $ref: '#/components/schemas/RolePermission' }
         usage: { $ref: '#/components/schemas/RoleUsage', description: Who holds the role directly }
+        managed_by: { $ref: '#/components/schemas/ManagedBy' }
     RoleWrite:
       type: object
       required: [name, permissions]
@@ -3706,6 +3838,7 @@ components:
       type: object
       required: [id, kind, name, enabled, order, ldap, oidc, group_mapping, created_at, updated_at]
       properties:
+        managed_by: { $ref: '#/components/schemas/ManagedBy' }
         id: { type: string }
         kind: { type: string, enum: [ldap, oidc] }
         name: { type: string }
@@ -4049,6 +4182,7 @@ components:
       type: object
       required: [name, format, type, online, status, url, created_at, updated_at, stats]
       properties:
+        managed_by: { $ref: '#/components/schemas/ManagedBy' }
         name: { $ref: '#/components/schemas/RepositoryName' }
         format: { $ref: '#/components/schemas/Format' }
         type: { $ref: '#/components/schemas/RepositoryType' }
@@ -5149,6 +5283,7 @@ components:
       type: object
       required: [id, name, description, format, criteria, schedule, enabled, repositories, created_at, updated_at, next_run_at, last_run]
       properties:
+        managed_by: { $ref: '#/components/schemas/ManagedBy' }
         id: { type: string }
         name: { type: string }
         description: { type: string }
@@ -5625,6 +5760,7 @@ components:
       type: object
       required: [id, name, description, url, events, repositories, enabled, secret_set, header_names, allow_private, timeout_s, max_attempts, created_at, updated_at, last_delivery]
       properties:
+        managed_by: { $ref: '#/components/schemas/ManagedBy' }
         id: { type: string }
         name: { type: string }
         description: { type: string }

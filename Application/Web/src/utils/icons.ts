@@ -108,3 +108,6 @@ export {
 
 // Webhooks (T-O05).
 export { symOutlinedSend as iconSend, symOutlinedWebhook as iconWebhook } from '@quasar/extras/material-symbols-outlined'
+
+// Declarative provisioning (T-O09).
+export { symOutlinedDataObject as iconProvisioning } from '@quasar/extras/material-symbols-outlined'

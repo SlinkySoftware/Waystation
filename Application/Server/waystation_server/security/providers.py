@@ -243,6 +243,7 @@ class ProviderRecord(BaseModel):
     order: int = 100
     ldap: StoredLdapConfig | None = None
     oidc: StoredOidcConfig | None = None
+    managed_by: str | None = None  # ``provisioning``: declared in the provisioning file
     config_version: int = 1
     created_at: datetime
     updated_at: datetime

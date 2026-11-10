@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from types import EllipsisType
 from typing import Any, Literal
 
 from fastapi import APIRouter, Request, Response
@@ -26,6 +27,7 @@ from waystation_common.errors import Conflict, NotFound
 from waystation_common.ids import new_id
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.repositories import managed
 from waystation_server.audit import AuditAction
 from waystation_server.db import auth_providers as providers_db
 from waystation_server.db import groups as groups_db
@@ -79,6 +81,9 @@ class AuthProviderConfig(BaseModel):
     group_mapping: list[GroupMapping]
     created_at: datetime
     updated_at: datetime
+    managed_by: Literal['provisioning'] | None = Field(
+        default=None, description='`provisioning`: declared in the provisioning file (changes here are overwritten)'
+    )
 
 
 class AuthProviderTestRequest(BaseModel):
@@ -202,7 +207,7 @@ def _check_ldap(config: LdapConfigWrite, *, stored_secret: bool, keyring_set: bo
     return errors
 
 
-def _check_mapping(
+def check_mapping(
     mapping: list[GroupMapping],
     custom: access.RoleTable,
     principal: Principal | None = None,
@@ -269,7 +274,7 @@ def _check_kind(body: AuthProviderWrite, prefix: str = '') -> list[FieldError]:
     return errors
 
 
-def _check_config(
+def check_config(
     body: AuthProviderWrite, existing: ProviderRecord | None, *, keyring_set: bool, prefix: str = ''
 ) -> list[FieldError]:
     errors = _check_kind(body, prefix)
@@ -287,9 +292,9 @@ def _check_config(
 async def _validate(
     svc: Services, body: AuthProviderWrite, existing: ProviderRecord | None, principal: Principal | None = None
 ) -> None:
-    errors = _check_config(body, existing, keyring_set=svc.keyring is not None)
+    errors = check_config(body, existing, keyring_set=svc.keyring is not None)
     groups = await groups_db.for_provider(svc.db, existing.id) if existing is not None else []
-    errors += _check_mapping(body.group_mapping, await svc.rbac.table(), principal, groups)
+    errors += check_mapping(body.group_mapping, await svc.rbac.table(), principal, groups)
     if errors:
         raise FieldErrors(errors)
 
@@ -345,7 +350,7 @@ def _oidc_view(svc: Services, record: ProviderRecord, stored: StoredOidcConfig) 
     )
 
 
-def _view(svc: Services, record: ProviderRecord, groups: list[GroupRecord]) -> AuthProviderConfig:
+def provider_view(svc: Services, record: ProviderRecord, groups: list[GroupRecord]) -> AuthProviderConfig:
     mapping = [GroupMapping(external_group=g.external_group or g.external_id or '', roles=g.roles) for g in groups]
     return AuthProviderConfig(
         id=record.id,
@@ -358,6 +363,7 @@ def _view(svc: Services, record: ProviderRecord, groups: list[GroupRecord]) -> A
         group_mapping=mapping,
         created_at=record.created_at,
         updated_at=record.updated_at,
+        managed_by=managed(record.managed_by),
     )
 
 
@@ -391,7 +397,65 @@ def _audit_changes(
     return changes
 
 
-async def _changed(svc: Services) -> None:
+async def save(
+    svc: Services,
+    body: AuthProviderWrite,
+    existing: ProviderRecord | None,
+    *,
+    by: str,
+    managed_by: str | EllipsisType | None = ...,
+) -> ProviderRecord:
+    """Store a validated provider (new secrets encrypted, omitted ones kept) and its group mapping.
+    ``managed_by``: set the provisioning tag (omitted: keep it)."""
+    now = datetime.now(UTC)
+    tag: dict[str, Any] = {} if isinstance(managed_by, EllipsisType) else {'managed_by': managed_by}
+    record: ProviderRecord | None
+    if existing is None:
+        provider_id = new_id()
+        doc = {
+            '_id': provider_id,
+            'kind': body.kind.value,
+            'name': body.name,
+            'enabled': body.enabled,
+            'order': body.order,
+            **_stored_config(svc, provider_id, body, None),
+            **tag,
+            'config_version': 1,
+            'created_at': now,
+            'updated_at': now,
+            'created_by': by,
+            'updated_by': by,
+        }
+        record = await providers_db.insert(svc.db, doc)
+    else:
+        record = await providers_db.replace(
+            svc.db,
+            existing.id,
+            {
+                'name': body.name,
+                'enabled': body.enabled,
+                'order': body.order,
+                **_stored_config(svc, existing.id, body, existing),
+                **tag,
+                'updated_at': now,
+                'updated_by': by,
+            },
+        )
+        if record is None:
+            raise NotFound('provider not found')
+    await groups_db.replace_mapping(
+        svc.db,
+        kind=record.kind.value,
+        provider_id=record.id,
+        provider_name=record.name,
+        mapping=body.group_mapping,
+        now=now,
+    )
+    await providers_changed(svc)
+    return record
+
+
+async def providers_changed(svc: Services) -> None:
     svc.auth_providers.invalidate()
     await svc.rbac.changed()  # the group mapping holds roles (grant_version)
     svc.oidc.forget()
@@ -402,7 +466,7 @@ async def _changed(svc: Services) -> None:
 @access.requires(Action.SETTINGS_ADMIN)
 async def list_auth_providers(svc: ServicesDep) -> list[AuthProviderConfig]:
     records = sorted(await providers_db.list_all(svc.db), key=lambda r: (r.order, r.name.lower()))
-    return [_view(svc, r, await groups_db.for_provider(svc.db, r.id)) for r in records]
+    return [provider_view(svc, r, await groups_db.for_provider(svc.db, r.id)) for r in records]
 
 
 @router.post(
@@ -419,33 +483,9 @@ async def create_auth_provider(
     principal = await authenticate(request)
     await _validate(svc, body, None, principal)
     await _check_name(svc, body.name, None)
-    provider_id = new_id()
-    now = datetime.now(UTC)
-    doc = {
-        '_id': provider_id,
-        'kind': body.kind.value,
-        'name': body.name,
-        'enabled': body.enabled,
-        'order': body.order,
-        **_stored_config(svc, provider_id, body, None),
-        'config_version': 1,
-        'created_at': now,
-        'updated_at': now,
-        'created_by': principal.display,
-        'updated_by': principal.display,
-    }
-    record = await providers_db.insert(svc.db, doc)
-    await groups_db.replace_mapping(
-        svc.db,
-        kind=record.kind.value,
-        provider_id=record.id,
-        provider_name=record.name,
-        mapping=body.group_mapping,
-        now=now,
-    )
-    await _changed(svc)
+    record = await save(svc, body, None, by=principal.display)
     response.headers['Location'] = f'/api/v1/auth-providers/{record.id}'
-    view = _view(svc, record, await groups_db.for_provider(svc.db, record.id))
+    view = provider_view(svc, record, await groups_db.for_provider(svc.db, record.id))
     audit.record(
         AuditAction.AUTH_PROVIDER_CREATE,
         target=audit.target('auth_provider', record.id, record.name),
@@ -542,7 +582,7 @@ async def _test_existing(svc: Services, body: AuthProviderTestRequest) -> Provid
         raise NotFound('provider not found')
     if existing is not None and existing.kind is not body.provider.kind:
         raise FieldErrors([FieldError(field='provider.kind', message='the kind cannot change', code='immutable')])
-    errors = _check_config(body.provider, existing, keyring_set=True, prefix='provider.')
+    errors = check_config(body.provider, existing, keyring_set=True, prefix='provider.')
     if errors:
         raise FieldErrors(errors)
     return existing
@@ -603,7 +643,7 @@ async def _test_directory(svc: Services, body: AuthProviderTestRequest) -> ldap_
 @access.requires(Action.SETTINGS_ADMIN)
 async def get_auth_provider(id: str, svc: ServicesDep) -> AuthProviderConfig:
     record = await _load(svc, id)
-    return _view(svc, record, await groups_db.for_provider(svc.db, record.id))
+    return provider_view(svc, record, await groups_db.for_provider(svc.db, record.id))
 
 
 @router.put(
@@ -621,36 +661,13 @@ async def update_auth_provider(
 ) -> AuthProviderConfig:
     principal = await authenticate(request)
     existing = await _load(svc, id)
-    before = _view(svc, existing, await groups_db.for_provider(svc.db, existing.id))
+    before = provider_view(svc, existing, await groups_db.for_provider(svc.db, existing.id))
     if body.kind != existing.kind:
         raise FieldErrors([FieldError(field='kind', message='the kind cannot change', code='immutable')])
     await _validate(svc, body, existing, principal)
     await _check_name(svc, body.name, existing.id)
-    now = datetime.now(UTC)
-    record = await providers_db.replace(
-        svc.db,
-        existing.id,
-        {
-            'name': body.name,
-            'enabled': body.enabled,
-            'order': body.order,
-            **_stored_config(svc, existing.id, body, existing),
-            'updated_at': now,
-            'updated_by': principal.display,
-        },
-    )
-    if record is None:
-        raise NotFound('provider not found')
-    await groups_db.replace_mapping(
-        svc.db,
-        kind=record.kind.value,
-        provider_id=record.id,
-        provider_name=record.name,
-        mapping=body.group_mapping,
-        now=now,
-    )
-    await _changed(svc)
-    view = _view(svc, record, await groups_db.for_provider(svc.db, record.id))
+    record = await save(svc, body, existing, by=principal.display)
+    view = provider_view(svc, record, await groups_db.for_provider(svc.db, record.id))
     audit.record(
         AuditAction.AUTH_PROVIDER_UPDATE,
         target=audit.target('auth_provider', record.id, record.name),
@@ -663,11 +680,11 @@ async def update_auth_provider(
 @access.requires(Action.SETTINGS_ADMIN)
 async def delete_auth_provider(id: str, svc: ServicesDep) -> Response:
     existing = await _load(svc, id)
-    before = _view(svc, existing, await groups_db.for_provider(svc.db, existing.id))
+    before = provider_view(svc, existing, await groups_db.for_provider(svc.db, existing.id))
     if not await providers_db.delete(svc.db, id):
         raise NotFound('provider not found')
     await groups_db.delete_for_provider(svc.db, id)
-    await _changed(svc)
+    await providers_changed(svc)
     audit.record(
         AuditAction.AUTH_PROVIDER_DELETE,
         target=audit.target('auth_provider', existing.id, existing.name),

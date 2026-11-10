@@ -40,6 +40,7 @@ class GroupRecord(BaseModel):
     position: int = 0  # order within the provider's mapping
     description: str = ''
     roles: list[str] = Field(default_factory=list)
+    managed_by: str | None = None  # ``provisioning``: declared in the provisioning file (local groups)
     created_at: datetime
     updated_at: datetime
 

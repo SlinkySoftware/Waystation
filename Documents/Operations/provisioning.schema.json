@@ -1,0 +1,1692 @@
+{
+  "$defs": {
+    "Action": {
+      "enum": [
+        "browse",
+        "read",
+        "write",
+        "delete",
+        "manage",
+        "admin",
+        "user-admin",
+        "audit-read",
+        "stats-read",
+        "settings-admin"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "AuthKind": {
+      "enum": [
+        "none",
+        "basic",
+        "bearer"
+      ],
+      "title": "AuthKind",
+      "type": "string"
+    },
+    "AuthProviderSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ProviderKind"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "order": {
+          "default": 100,
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Order",
+          "type": "integer"
+        },
+        "ldap": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LdapConfigSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "oidc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OidcConfigSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "group_mapping": {
+          "description": "External group -> roles",
+          "items": {
+            "$ref": "#/$defs/GroupMapping"
+          },
+          "maxItems": 500,
+          "title": "Group Mapping",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "AuthProviderSpec",
+      "type": "object"
+    },
+    "AutoBlockConfig": {
+      "additionalProperties": false,
+      "description": "Stop calling a failing upstream for a while (SPECIFICATION \u00a74.1).",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "failures": {
+          "default": 5,
+          "description": "Consecutive upstream failures that block it",
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Failures",
+          "type": "integer"
+        },
+        "initial_s": {
+          "default": 30,
+          "description": "First block period (seconds)",
+          "maximum": 86400,
+          "minimum": 1,
+          "title": "Initial S",
+          "type": "integer"
+        },
+        "max_s": {
+          "default": 1800,
+          "description": "Longest block period (seconds); the period doubles after every failed probe",
+          "maximum": 604800,
+          "minimum": 1,
+          "title": "Max S",
+          "type": "integer"
+        }
+      },
+      "title": "AutoBlockConfig",
+      "type": "object"
+    },
+    "CleanupPolicySpec": {
+      "additionalProperties": false,
+      "description": "As ``CleanupPolicyWrite``; repositories attach policies by name (``repositories[].cleanup_policies``).",
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Description",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "*",
+            "docker",
+            "npm",
+            "apt",
+            "raw",
+            "yum",
+            "pypi",
+            "maven",
+            "go",
+            "helm",
+            "terraform",
+            "galaxy",
+            "swift",
+            "nuget",
+            "cargo",
+            "rubygems",
+            "composer",
+            "conda",
+            "apk",
+            "huggingface"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "criteria": {
+          "$ref": "#/$defs/Criteria"
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When it runs: 5-field UTC cron (`0 3 * * *`) or a macro such as `@daily`; null = manual only",
+          "title": "Schedule"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Scheduled runs happen only while enabled",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "format",
+        "criteria"
+      ],
+      "title": "CleanupPolicySpec",
+      "type": "object"
+    },
+    "Criteria": {
+      "additionalProperties": false,
+      "description": "Every criterion that is set must match (AND). See OpenAPI ``CleanupCriteria``.",
+      "properties": {
+        "last_downloaded_older_than_days": {
+          "anyOf": [
+            {
+              "maximum": 36500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Downloaded Older Than Days"
+        },
+        "published_older_than_days": {
+          "anyOf": [
+            {
+              "maximum": 36500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published Older Than Days"
+        },
+        "keep_latest_n_versions": {
+          "anyOf": [
+            {
+              "maximum": 1000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Keep Latest N Versions"
+        },
+        "name_include": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name Include"
+        },
+        "name_exclude": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name Exclude"
+        },
+        "version_include": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Include"
+        },
+        "version_exclude": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Exclude"
+        },
+        "prerelease_only": {
+          "default": false,
+          "title": "Prerelease Only",
+          "type": "boolean"
+        },
+        "untagged_older_than_days": {
+          "anyOf": [
+            {
+              "maximum": 36500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Untagged Older Than Days"
+        }
+      },
+      "title": "Criteria",
+      "type": "object"
+    },
+    "GroupConfig": {
+      "additionalProperties": false,
+      "description": "Group repositories: ordered members (SPECIFICATION \u00a74.3).",
+      "properties": {
+        "members": {
+          "description": "Member repository names in resolution order (same format; proxy or hosted)",
+          "items": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$",
+            "type": "string"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Members",
+          "type": "array"
+        },
+        "writable_member": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Docker: the hosted member that receives pushes sent to the group; null = the group is read-only",
+          "title": "Writable Member"
+        }
+      },
+      "required": [
+        "members"
+      ],
+      "title": "GroupConfig",
+      "type": "object"
+    },
+    "GroupMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "external_group": {
+          "description": "Group DN or name (case-insensitive)",
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "External Group",
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Roles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "external_group",
+        "roles"
+      ],
+      "title": "GroupMapping",
+      "type": "object"
+    },
+    "GroupMode": {
+      "enum": [
+        "none",
+        "member_of",
+        "search"
+      ],
+      "title": "GroupMode",
+      "type": "string"
+    },
+    "GroupSpec": {
+      "additionalProperties": false,
+      "description": "A local group (groups mapped from a provider are declared in its ``group_mapping``).",
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Description",
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Roles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "GroupSpec",
+      "type": "object"
+    },
+    "HostedConfig": {
+      "additionalProperties": false,
+      "description": "Hosted repositories: what clients may overwrite (SPECIFICATION \u00a74.2).",
+      "properties": {
+        "write_policy": {
+          "$ref": "#/$defs/WritePolicy",
+          "default": "allow_redeploy",
+          "description": "`allow_redeploy`: versions/tags may be overwritten; `disable_redeploy`: never; `read_only`: no uploads at all"
+        },
+        "immutable_tag_patterns": {
+          "description": "Docker: regular expressions (full match); a matching tag never moves once pushed, e.g. `v[0-9]+\\.[0-9]+\\.[0-9]+`",
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Immutable Tag Patterns",
+          "type": "array"
+        }
+      },
+      "title": "HostedConfig",
+      "type": "object"
+    },
+    "LdapConfigSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "connection": {
+          "$ref": "#/$defs/LdapConnectionSpec"
+        },
+        "users": {
+          "$ref": "#/$defs/LdapUsers"
+        },
+        "groups": {
+          "$ref": "#/$defs/LdapGroups"
+        },
+        "cache_ttl_s": {
+          "default": 60,
+          "description": "How long a successful password check is reused (0 = never)",
+          "maximum": 900,
+          "minimum": 0,
+          "title": "Cache Ttl S",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "connection",
+        "users",
+        "groups"
+      ],
+      "title": "LdapConfigSpec",
+      "type": "object"
+    },
+    "LdapConnectionSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "servers": {
+          "description": "`host`, `host:port`, `ldap://host[:port]` or `ldaps://host[:port]`",
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Servers",
+          "type": "array"
+        },
+        "security": {
+          "$ref": "#/$defs/LdapSecurity",
+          "default": "starttls"
+        },
+        "ca_pem": {
+          "anyOf": [
+            {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "PEM CA bundle trusted instead of the system store",
+          "title": "Ca Pem"
+        },
+        "bind_dn": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Service account for searches; empty = anonymous",
+          "title": "Bind Dn"
+        },
+        "connect_timeout_s": {
+          "default": 5,
+          "maximum": 30,
+          "minimum": 1,
+          "title": "Connect Timeout S",
+          "type": "number"
+        },
+        "timeout_s": {
+          "default": 10,
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Timeout S",
+          "type": "number"
+        },
+        "bind_password": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Needed with a bind DN"
+        }
+      },
+      "required": [
+        "servers"
+      ],
+      "title": "LdapConnectionSpec",
+      "type": "object"
+    },
+    "LdapGroups": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/GroupMode",
+          "default": "member_of"
+        },
+        "base_dn": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Dn"
+        },
+        "filter": {
+          "default": "(objectClass=groupOfNames)",
+          "maxLength": 1024,
+          "title": "Filter",
+          "type": "string"
+        },
+        "member_attribute": {
+          "default": "member",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Member Attribute",
+          "type": "string"
+        },
+        "member_value": {
+          "$ref": "#/$defs/MemberValue",
+          "default": "dn"
+        },
+        "name_attribute": {
+          "default": "cn",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name Attribute",
+          "type": "string"
+        },
+        "member_of_attribute": {
+          "default": "memberOf",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Member Of Attribute",
+          "type": "string"
+        },
+        "nested": {
+          "default": false,
+          "title": "Nested",
+          "type": "boolean"
+        },
+        "require_group": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Require Group"
+        }
+      },
+      "title": "LdapGroups",
+      "type": "object"
+    },
+    "LdapSecurity": {
+      "enum": [
+        "ldaps",
+        "starttls",
+        "none"
+      ],
+      "title": "LdapSecurity",
+      "type": "string"
+    },
+    "LdapUsers": {
+      "additionalProperties": false,
+      "properties": {
+        "base_dn": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Base Dn",
+          "type": "string"
+        },
+        "filter": {
+          "default": "(objectClass=person)",
+          "maxLength": 1024,
+          "title": "Filter",
+          "type": "string"
+        },
+        "username_attribute": {
+          "default": "uid",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Username Attribute",
+          "type": "string"
+        },
+        "display_name_attribute": {
+          "default": "cn",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Display Name Attribute",
+          "type": "string"
+        },
+        "email_attribute": {
+          "default": "mail",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Email Attribute",
+          "type": "string"
+        }
+      },
+      "required": [
+        "base_dn"
+      ],
+      "title": "LdapUsers",
+      "type": "object"
+    },
+    "MemberValue": {
+      "enum": [
+        "dn",
+        "username"
+      ],
+      "title": "MemberValue",
+      "type": "string"
+    },
+    "OidcClientAuth": {
+      "enum": [
+        "client_secret_basic",
+        "client_secret_post",
+        "none"
+      ],
+      "title": "OidcClientAuth",
+      "type": "string"
+    },
+    "OidcConfigSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "issuer": {
+          "description": "Issuer URL exactly as the provider states it (discovery: `/.well-known/...`)",
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Issuer",
+          "type": "string"
+        },
+        "client_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Client Id",
+          "type": "string"
+        },
+        "client_auth": {
+          "$ref": "#/$defs/OidcClientAuth",
+          "default": "client_secret_basic"
+        },
+        "scopes": {
+          "description": "`openid` is always sent",
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[!#-\\[\\]-~]+$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Scopes",
+          "type": "array"
+        },
+        "username_claim": {
+          "default": "preferred_username",
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^\\S+$",
+          "title": "Username Claim",
+          "type": "string"
+        },
+        "display_name_claim": {
+          "default": "name",
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^\\S+$",
+          "title": "Display Name Claim",
+          "type": "string"
+        },
+        "email_claim": {
+          "default": "email",
+          "maxLength": 256,
+          "minLength": 1,
+          "pattern": "^\\S+$",
+          "title": "Email Claim",
+          "type": "string"
+        },
+        "groups_claim": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^\\S+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "groups",
+          "description": "Claim listing the user's groups (dotted path allowed)",
+          "title": "Groups Claim"
+        },
+        "require_group": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only members of this group may sign in",
+          "title": "Require Group"
+        },
+        "auto_provision": {
+          "default": true,
+          "description": "Create a Waystation user at the first sign-in",
+          "title": "Auto Provision",
+          "type": "boolean"
+        },
+        "use_userinfo": {
+          "default": false,
+          "description": "Also read claims from the userinfo endpoint",
+          "title": "Use Userinfo",
+          "type": "boolean"
+        },
+        "rp_logout": {
+          "default": true,
+          "description": "Also sign out at the provider when it supports RP-initiated logout",
+          "title": "Rp Logout",
+          "type": "boolean"
+        },
+        "allow_private": {
+          "default": false,
+          "description": "The provider may resolve to private addresses (SSRF guard)",
+          "title": "Allow Private",
+          "type": "boolean"
+        },
+        "signing_algs": {
+          "description": "Accepted ID token algorithms",
+          "items": {
+            "enum": [
+              "RS256",
+              "RS384",
+              "RS512",
+              "PS256",
+              "PS384",
+              "PS512",
+              "ES256",
+              "ES384",
+              "ES512",
+              "EdDSA",
+              "Ed25519"
+            ],
+            "type": "string"
+          },
+          "maxItems": 12,
+          "minItems": 1,
+          "title": "Signing Algs",
+          "type": "array"
+        },
+        "timeout_s": {
+          "default": 10,
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Timeout S",
+          "type": "number"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Needed unless client_auth is none"
+        }
+      },
+      "required": [
+        "issuer",
+        "client_id"
+      ],
+      "title": "OidcConfigSpec",
+      "type": "object"
+    },
+    "ProviderKind": {
+      "enum": [
+        "ldap",
+        "oidc"
+      ],
+      "title": "ProviderKind",
+      "type": "string"
+    },
+    "ProxySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "upstream_url": {
+          "format": "uri",
+          "maxLength": 2048,
+          "title": "Upstream Url",
+          "type": "string"
+        },
+        "auth": {
+          "$ref": "#/$defs/UpstreamAuthSpec"
+        },
+        "metadata_max_age_s": {
+          "default": 1800,
+          "minimum": 0,
+          "title": "Metadata Max Age S",
+          "type": "integer"
+        },
+        "content_max_age_s": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "null = forever (immutable content)",
+          "title": "Content Max Age S"
+        },
+        "negative_ttl_s": {
+          "default": 600,
+          "minimum": 0,
+          "title": "Negative Ttl S",
+          "type": "integer"
+        },
+        "stale_on_error": {
+          "default": true,
+          "title": "Stale On Error",
+          "type": "boolean"
+        },
+        "offline": {
+          "default": false,
+          "title": "Offline",
+          "type": "boolean"
+        },
+        "allow_private_upstream": {
+          "default": false,
+          "title": "Allow Private Upstream",
+          "type": "boolean"
+        },
+        "ca_pem": {
+          "anyOf": [
+            {
+              "maxLength": 262144,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra CA certificates (PEM) trusted for this upstream, in addition to the system ones",
+          "title": "Ca Pem"
+        },
+        "http_proxy": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Outbound HTTP proxy for this upstream (`http://host:port`); null = the server-wide proxy",
+          "title": "Http Proxy"
+        },
+        "auto_block": {
+          "$ref": "#/$defs/AutoBlockConfig"
+        }
+      },
+      "required": [
+        "upstream_url"
+      ],
+      "title": "ProxySpec",
+      "type": "object"
+    },
+    "Prune": {
+      "additionalProperties": false,
+      "description": "Per section: delete objects the file manages but no longer declares (default: never delete).",
+      "properties": {
+        "roles": {
+          "default": false,
+          "title": "Roles",
+          "type": "boolean"
+        },
+        "cleanup_policies": {
+          "default": false,
+          "title": "Cleanup Policies",
+          "type": "boolean"
+        },
+        "repositories": {
+          "default": false,
+          "title": "Repositories",
+          "type": "boolean"
+        },
+        "groups": {
+          "default": false,
+          "title": "Groups",
+          "type": "boolean"
+        },
+        "service_accounts": {
+          "default": false,
+          "title": "Service Accounts",
+          "type": "boolean"
+        },
+        "auth_providers": {
+          "default": false,
+          "title": "Auth Providers",
+          "type": "boolean"
+        },
+        "webhooks": {
+          "default": false,
+          "title": "Webhooks",
+          "type": "boolean"
+        }
+      },
+      "title": "Prune",
+      "type": "object"
+    },
+    "QuotaMode": {
+      "description": "Quotas (SPECIFICATION \u00a74.8): ``soft`` warns at 80 % and 100 %; ``hard`` also refuses new writes once reached.",
+      "enum": [
+        "soft",
+        "hard"
+      ],
+      "title": "QuotaMode",
+      "type": "string"
+    },
+    "RepoType": {
+      "enum": [
+        "proxy",
+        "hosted",
+        "group"
+      ],
+      "title": "RepoType",
+      "type": "string"
+    },
+    "RepositorySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "docker",
+            "npm",
+            "apt",
+            "raw",
+            "yum",
+            "pypi",
+            "maven",
+            "go",
+            "helm",
+            "terraform",
+            "galaxy",
+            "swift",
+            "nuget",
+            "cargo",
+            "rubygems",
+            "composer",
+            "conda",
+            "apk",
+            "huggingface"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/RepoType"
+        },
+        "online": {
+          "default": true,
+          "description": "Accepts requests",
+          "title": "Online",
+          "type": "boolean"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Description",
+          "type": "string"
+        },
+        "proxy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProxySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hosted": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HostedConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hosted repositories only (defaults when omitted)"
+        },
+        "group": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GroupConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Group repositories only (required for them)"
+        },
+        "storage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StorageConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Quota (proxy and hosted repositories)"
+        },
+        "format_options": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Format-specific options; the shape follows the repository's `format`",
+          "title": "Format Options"
+        },
+        "cleanup_policies": {
+          "description": "Names of cleanup policies to attach, in run order",
+          "items": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Cleanup Policies",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "format",
+        "type"
+      ],
+      "title": "RepositorySpec",
+      "type": "object"
+    },
+    "RolePermissionBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "scope": {
+          "description": "`*`, a repository name, a glob (`docker-*`), `format:<format>` or `type:<type>`; global actions only `*`",
+          "maxLength": 140,
+          "minLength": 1,
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "scope"
+      ],
+      "title": "RolePermissionBody",
+      "type": "object"
+    },
+    "RoleSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "What users, groups and accounts store",
+          "pattern": "^[a-z][a-z0-9-]{1,47}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Description",
+          "type": "string"
+        },
+        "permissions": {
+          "items": {
+            "$ref": "#/$defs/RolePermissionBody"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Permissions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "permissions"
+      ],
+      "title": "RoleSpec",
+      "type": "object"
+    },
+    "SecretRef": {
+      "additionalProperties": false,
+      "description": "Where a secret comes from: exactly one of ``file`` (absolute path, read when the file is applied) or ``env``.",
+      "properties": {
+        "file": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 2,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Absolute path of a file",
+          "title": "File"
+        },
+        "env": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of an environment variable",
+          "title": "Env"
+        }
+      },
+      "title": "SecretRef",
+      "type": "object"
+    },
+    "ServiceAccountSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{1,62}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Description",
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Roles",
+          "type": "array"
+        },
+        "disabled": {
+          "default": false,
+          "title": "Disabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ServiceAccountSpec",
+      "type": "object"
+    },
+    "SettingsSpec": {
+      "additionalProperties": false,
+      "description": "Instance settings; a field left out is not managed.",
+      "properties": {
+        "instance_name": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instance Name"
+        },
+        "require_totp_for_admins": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Require Totp For Admins"
+        },
+        "anonymous_access": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Roles of requests without credentials ([] = no anonymous access)",
+          "title": "Anonymous Access"
+        },
+        "default_docker_repository": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The docker repository that receives unprefixed names",
+          "title": "Default Docker Repository"
+        },
+        "storage_guard": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StorageGuardSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "SettingsSpec",
+      "type": "object"
+    },
+    "StorageConfig": {
+      "additionalProperties": false,
+      "description": "Stored-bytes quota (SPECIFICATION \u00a74.8). Usage counts every asset the repository holds (a blob shared with other\nrepositories counts in each of them).",
+      "properties": {
+        "quota_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740992,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Quota in bytes; null = no quota (group repositories: always null)",
+          "title": "Quota Bytes"
+        },
+        "quota_mode": {
+          "$ref": "#/$defs/QuotaMode",
+          "default": "soft",
+          "description": "`soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)"
+        }
+      },
+      "title": "StorageConfig",
+      "type": "object"
+    },
+    "StorageGuardSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "min_free_bytes": {
+          "description": "Refuse new cache fills and uploads below this many bytes",
+          "maximum": 9007199254740992,
+          "minimum": 0,
+          "title": "Min Free Bytes",
+          "type": "integer"
+        },
+        "min_free_percent": {
+          "default": 0,
+          "description": "... or below this percentage of the filesystem (the larger floor wins)",
+          "maximum": 90,
+          "minimum": 0,
+          "title": "Min Free Percent",
+          "type": "number"
+        }
+      },
+      "required": [
+        "min_free_bytes"
+      ],
+      "title": "StorageGuardSettings",
+      "type": "object"
+    },
+    "UpstreamAuthSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/AuthKind",
+          "default": "none"
+        },
+        "username": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Username"
+        },
+        "secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Password or token (basic and bearer)"
+        }
+      },
+      "title": "UpstreamAuthSpec",
+      "type": "object"
+    },
+    "WebhookSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Description",
+          "type": "string"
+        },
+        "url": {
+          "description": "Where events are POSTed (http or https)",
+          "maxLength": 2048,
+          "minLength": 8,
+          "title": "Url",
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "enum": [
+              "*",
+              "content.*",
+              "repository.*",
+              "content.upload",
+              "content.delete",
+              "content.update",
+              "repository.create",
+              "repository.update",
+              "repository.delete"
+            ],
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Events",
+          "type": "array"
+        },
+        "repositories": {
+          "description": "Repository name globs (`*`, `?`, case-insensitive); empty = every repository",
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 50,
+          "title": "Repositories",
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "secret": {
+          "$ref": "#/$defs/SecretRef",
+          "description": "HMAC-SHA256 signing key"
+        },
+        "headers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SecretRef"
+          },
+          "description": "Extra request headers; values are secret references",
+          "title": "Headers",
+          "type": "object"
+        },
+        "allow_private": {
+          "default": false,
+          "description": "Allow targets on private or reserved addresses",
+          "title": "Allow Private",
+          "type": "boolean"
+        },
+        "timeout_s": {
+          "default": 10,
+          "maximum": 30,
+          "minimum": 1,
+          "title": "Timeout S",
+          "type": "integer"
+        },
+        "max_attempts": {
+          "default": 8,
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "events",
+        "secret"
+      ],
+      "title": "WebhookSpec",
+      "type": "object"
+    },
+    "WritePolicy": {
+      "description": "Hosted repositories (SPECIFICATION \u00a74.2): may an existing version (docker: a tag) be overwritten?",
+      "enum": [
+        "allow_redeploy",
+        "disable_redeploy",
+        "read_only"
+      ],
+      "title": "WritePolicy",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "File format version",
+      "title": "Version",
+      "type": "integer"
+    },
+    "prune": {
+      "$ref": "#/$defs/Prune"
+    },
+    "roles": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/RoleSpec"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Roles"
+    },
+    "cleanup_policies": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/CleanupPolicySpec"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cleanup Policies"
+    },
+    "repositories": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/RepositorySpec"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Repositories"
+    },
+    "groups": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/GroupSpec"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Groups"
+    },
+    "service_accounts": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/ServiceAccountSpec"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Service Accounts"
+    },
+    "auth_providers": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/AuthProviderSpec"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Auth Providers"
+    },
+    "webhooks": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/WebhookSpec"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Webhooks"
+    },
+    "settings": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SettingsSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "title": "Waystation provisioning file",
+  "type": "object"
+}

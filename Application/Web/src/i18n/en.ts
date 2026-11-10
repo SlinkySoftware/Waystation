@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // English catalogue. Plurals: "one|other", chosen by the `count` parameter.
 import { admin } from './admin'
+import { provisioning } from './provisioning'
 import { webhooks } from './webhooks'
 
 export const en = {
@@ -54,6 +55,7 @@ export const en = {
     webhooks: 'Webhooks',
     settings: 'Settings',
     system: 'System',
+    provisioning: 'Provisioning',
     profile: 'Profile',
   },
   shell: {
@@ -1855,6 +1857,7 @@ export const en = {
   },
   admin,
   webhooks,
+  provisioning,
   nexusImport: {
     open: 'Import from Nexus',
     title: 'Import from Nexus',

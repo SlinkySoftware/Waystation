@@ -146,6 +146,7 @@ source_modules = [
     "waystation_server.stats",
     "waystation_server.sse",
     "waystation_server.search",
+    "waystation_server.provisioning",
     "waystation_worker.jobs",
 ]
 forbidden_modules = ["pymongo", "bson"]

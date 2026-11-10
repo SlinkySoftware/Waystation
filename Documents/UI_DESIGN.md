@@ -229,6 +229,20 @@ attempts newest first (status icon, HTTP status, latency, error, the answer's fi
 drawer and the table refresh every few seconds while something is queued or retrying. Phones: cards, full-screen
 drawer.
 
+**Provisioning** (T-O09, `/admin/provisioning`, rail item for `admin`): without a configured file, an empty state
+explaining `WAYSTATION_PROVISION_FILE`. With one: two fact tiles (the file path in mono; the last apply as an
+outcome pill, when, by whom and the short sha256), then the plan card: counts (to create / update / delete,
+unchanged, failed) in the header, the validation errors in a red block when the file is invalid ("nothing can be
+applied", each with its dotted path in mono), and one row per object: an action pill (Create green, Update blue,
+Delete red, Unchanged grey), the kind and name, a note (released objects), the apply outcome and error, and the
+field changes in mono (`field: before → after`; secrets only "secret changed"). Unchanged rows are hidden behind a
+"Show unchanged (n)" toggle; "Everything matches the file" when there is nothing to do. Header actions: Plan changes
+and Apply (confirm with the number of changes; disabled when invalid or nothing changes). **Managed objects**: a
+small "Managed" label (lock icon, brand outline, tooltip "Declared in the provisioning file...") next to the name of
+repositories (list, detail header, settings tab), roles, groups, service accounts, sign-in providers, cleanup
+policies and webhooks; their forms open read-only (no Save; the caption repeats the hint), and delete, enable/disable
+and edit actions are disabled or hidden.
+
 ### 4.11 Profile
 Display name, theme, density, password (local accounts; while a one-time password is pending the router keeps
 the user here and only this card is usable), two-factor sign-in (local accounts: state badge and recovery codes
