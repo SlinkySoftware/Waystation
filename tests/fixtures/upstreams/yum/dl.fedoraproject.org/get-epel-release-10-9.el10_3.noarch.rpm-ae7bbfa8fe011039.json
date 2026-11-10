@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl.fedoraproject.org/pub/epel/10/Everything/x86_64/Packages/e/epel-release-10-9.el10_3.noarch.rpm"
+  },
+  "response": {
+    "body_sha256": "f567aa5c3cde55f579ba5c41c79df97da692a391efddd14b123a4eec0824fbc0",
+    "body_size": 19219,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "19219"
+      ],
+      [
+        "content-type",
+        "application/x-rpm"
+      ],
+      [
+        "etag",
+        "\"4b13-658f3e11d0ab9\""
+      ],
+      [
+        "last-modified",
+        "Thu, 13 Aug 2026 20:52:17 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

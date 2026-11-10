@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl.rockylinux.org/pub/rocky/10/extras/x86_64/os/media.1/media"
+  },
+  "response": {
+    "body_sha256": "10174434dbe479c08b32ce3b42b70e7c6336647d29e4393483158d590d35c325",
+    "body_size": 153,
+    "headers": [
+      [
+        "content-length",
+        "153"
+      ],
+      [
+        "content-type",
+        "text/html"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 404
+  }
+}

@@ -319,11 +319,27 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   package with no entry looks up the closest enclosing directory with a cached `repomd.xml`, ensures and indexes its
   `primary` (waiting for it), then validates; otherwise it is served and recorded `unverified` and dropped if a later
   listing disagrees (or uses another algorithm). Other paths (`.treeinfo`, keys) are metadata by path, so files
-  over 128 MiB outside `repodata/` and packages (installer images) are not supported. Real clients: dnf 4 on Rocky
-  Linux 10 and AlmaLinux 10 against their `extras` repositories (`tests/clients/yum/`). Browse: the generic folder
-  tree only (no yum package view yet). Not yet: hosted, group, Oracle Linux 9 / EPEL / Fedora / zypper in the
-  harness, dnf 5, the `components` collection, a worker-side refresh of `primary` and re-verification of unverified
-  packages.
+  over 128 MiB outside `repodata/` and packages (installer images) are not supported.
+- Built (T-P2-YUM full, 2026-11-10): **verified `repomd.xml`** (option `repomd_keys`: the upstream's armored public
+  keys, validated when saved): right before a `repomd.xml` is fetched or revalidated upstream (the engine's `expect`
+  hook), its `repomd.xml.asc` is fetched fresh and cached, and the new `repomd.xml` is refused (502, nothing cached;
+  stale-on-error applies) unless that signature verifies with one of the keys (`waystation_common.openpgp`: in-house
+  on `cryptography`, v4 RSA/EdDSA keys, SHA-224/256/384/512, critical unknown subpackets and expired signatures
+  refused; binding/revocation of the configured keys not evaluated; verification runs in the engine's validation
+  thread); client requests for `.asc` then bring `repomd.xml` up to date and serve the `.asc` stored with it (never
+  revalidated on its own). Rocky Linux and AlmaLinux sign `repomd.xml`; EPEL and Oracle Linux do not. **RPM version
+  order**: `formats.yum.evr` encodes `rpmvercmp` (digit/letter runs, numeric newer than alphabetic, `~` before the
+  end, `^` after it) and epoch:version-release as a sortable string, written as `version_sort` with every listing.
+  **Browse**: `GET /api/v1/repositories/{name}/yum/packages` (names with the newest EVR, architectures, distinct
+  EVRs; listed packages only) and `/yum/versions?package=` (files newest first with directory, checksum, size,
+  cached), UI renderer with packages / files (folder tree) views. **Real clients** (`tests/clients/yum/`): dnf 4 on
+  Rocky Linux 10 (`extras` with `repomd_keys`, then EPEL 10 `Everything` with the EPEL key fetched through the proxy
+  as `gpgkey`), AlmaLinux 10 (`extras`), Oracle Linux 9 (`addons`, `getPackage/` locations, filelists fetched by
+  dnf 4.14), dnf 5 on Fedora 43 and zypper on openSUSE Leap 16 (smoke: makecache/refresh with the `.asc` verified by
+  the client, download, `rpm -K`); fixtures about 8.7 MB (EPEL's primary and updateinfo), budget 16 MiB. The create
+  dialog offers yum (proxy) with Rocky/AlmaLinux/Oracle/EPEL presets and the options. Not yet: hosted (T-P5-YUMH),
+  yum 3 (EL7), the `components` collection, a worker-side refresh of `primary` and re-verification of unverified
+  packages (they are re-checked whenever a newer listing is cached). Group: not supported (SPEC §4.3).
 
 ## PyPI — Phase 5
 Specs: PEP 503 (simple HTML), PEP 691 (JSON simple API, `application/vnd.pypi.simple.v1+json`), PEP 658/714
