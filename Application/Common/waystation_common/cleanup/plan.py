@@ -9,7 +9,9 @@ Components and versions come from asset paths (``coordinates``) until components
   ``<name>-<version>-<release>.<arch>.rpm`` (per name and arch); pypi ``packages/<project>/<wheel or sdist>`` (and
   its ``.metadata`` sidecar; per project, PEP 440, every file of a version shares its rank); go
   ``<module>/@v/<version>.{zip,mod,info}`` (case-encoding decoded; per module, Go semver); galaxy
-  ``collections/<ns>/<name>/<ns>-<name>-<version>.tar.gz`` (per collection, SemVer); every other format
+  ``collections/<ns>/<name>/<ns>-<name>-<version>.tar.gz`` (per collection, SemVer); terraform
+  ``<hostname>/<namespace>/<type>/<version>/<os>/<arch>/<archive>.zip`` (per provider, semver; every platform of a
+  version shares its rank); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -124,6 +126,10 @@ def coordinates(fmt: str, path: str) -> Coord:
         artifact = parse_artifact_path(path)
         if artifact is not None:
             return Coord(artifact.fqcn, artifact.version, artifact.fqcn, True)
+    if fmt == 'terraform' and filename.endswith('.zip') and path.count('/') == 6:
+        hostname, namespace, kind, version, _ = path.split('/', 4)
+        provider = f'{hostname}/{namespace}/{kind}'
+        return Coord(provider, version, provider, True)
     return Coord(path, filename, _parent(path), False)
 
 

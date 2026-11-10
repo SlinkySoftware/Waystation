@@ -19,6 +19,7 @@ import { galaxyCollectionList, galaxyNamespaceList, galaxyVersionsFor } from './
 import { helmChartList, helmVersionsFor } from './fixtures/helm'
 import { npmPackageList, npmVersionsFor } from './fixtures/npm'
 import { goModuleList, goVersionsFor } from './fixtures/go'
+import { terraformProviderList, terraformVersionsFor } from './fixtures/terraform'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { genericTree, rawListing } from './fixtures/raw'
@@ -651,6 +652,28 @@ export const handlers = [
     const found = goVersionsFor(repo.name, url.searchParams.get('module') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ module: found.module, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/terraform/providers`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'terraform')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    const items = terraformProviderList().filter((p) => !q || p.provider.toLowerCase().includes(q))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/terraform/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'terraform')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    const found = terraformVersionsFor(repo.name, url.searchParams.get('provider') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ provider: found.provider, ...paginate(found.versions, url) })
   }),
   http.get(`${API}/repositories/:name/apt/suites`, async ({ request, params }) => {
     const denied = guard(request)

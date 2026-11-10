@@ -410,6 +410,50 @@ class GoVersionPage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- terraform
+class TerraformProvider(BaseModel):
+    provider: str = Field(description='Provider address: `<hostname>/<namespace>/<type>`')
+    latest: str | None = Field(
+        default=None, description='Newest release in the cached version list, else the newest version'
+    )
+    version_count: int = Field(description='Versions in the cached registry version list')
+    cached_archives: int = Field(description='Provider archives (one per version and platform) cached')
+    size_bytes: int = Field(description='Bytes of the cached archives')
+
+
+class TerraformProviderPage(BaseModel):
+    items: list[TerraformProvider]
+    next_cursor: str | None
+
+
+class TerraformArchive(BaseModel):
+    os: str
+    arch: str
+    filename: str
+    size: int
+    sha256: str
+    h1: str | None = Field(default=None, description='`h1:` hash of the archive contents (as in the lock file)')
+    cached_at: datetime | None = None
+    last_downloaded_at: datetime | None = None
+    downloads: int = 0
+
+
+class TerraformVersion(BaseModel):
+    version: str
+    prerelease: bool
+    protocols: list[str] = Field(description='Plugin protocol versions the registry lists')
+    platforms: list[str] = Field(description='`<os>_<arch>` platforms the registry lists')
+    listed: bool = Field(description='In the cached registry version list')
+    archives: list[TerraformArchive] = Field(description='Archives of the version held by this repository')
+    size_bytes: int
+
+
+class TerraformVersionPage(BaseModel):
+    provider: TerraformProvider
+    items: list[TerraformVersion] = Field(description='Newest first (semantic version order)')
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- views
 @dataclass(frozen=True)
 class BrowseContext:
@@ -472,6 +516,20 @@ class GoBrowser(Protocol):
     async def versions(self, ctx: BrowseContext, *, module: str, cursor: str | None, limit: int) -> GoVersionPage:
         """One module's versions (cached list and cached files, newest first); raises ``NotFound`` for an unknown
         module."""
+
+
+@runtime_checkable
+class TerraformBrowser(Protocol):
+    async def providers(
+        self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int
+    ) -> TerraformProviderPage:
+        """Providers the repository has cached something of, by address."""
+
+    async def versions(
+        self, ctx: BrowseContext, *, provider: str, cursor: str | None, limit: int
+    ) -> TerraformVersionPage:
+        """One provider's versions (cached version list and cached archives, newest first); raises ``NotFound`` for
+        an unknown provider."""
 
 
 @runtime_checkable

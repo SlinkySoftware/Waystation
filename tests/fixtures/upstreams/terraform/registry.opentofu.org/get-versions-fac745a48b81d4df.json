@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.opentofu.org/v1/providers/hashicorp/null/versions"
+  },
+  "response": {
+    "body_sha256": "70f53abf5d0a0fa80bfa7bef163f4b6762d5c9ff0ceb6454cb848651b0a29aa0",
+    "body_size": 14269,
+    "headers": [
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "content-length",
+        "14269"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "etag",
+        "\"9bab4f0f78c95c4c892d3a550df02d2c\""
+      ],
+      [
+        "last-modified",
+        "Thu, 10 Sep 2026 16:35:51 GMT"
+      ],
+      [
+        "cache-control",
+        "max-age=14400"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -136,6 +136,11 @@ Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. 
   `.info`/`.mod`/`.zip` files held with size, cached time, copyable sha256 and a per-version `go get` snippet).
   Groups show their members to browse. The repository form's Go options: checksum database proxy and verification
   toggles, database name and URL, private module patterns (GONOSUMDB syntax, chips).
+- **Terraform** (T-P5-TFP): providers table (address `<hostname>/<namespace>/<type>`, latest, versions listed,
+  archives cached, size) → provider page (latest, a copyable `required_providers` entry; versions newest first with
+  pre-release and "not in version list" badges, protocols, platform count, cache state, expandable to the archives
+  held per platform with size, cached time, copyable `zh:` and `h1:` hashes, and the platforms the registry lists).
+  The repository form's Terraform options: origin registries (chips) and the signature verification toggle.
 - **apt / yum**: suites/components/arches tree → package list with versions and arch.
 - **Raw**: folder listing.
 

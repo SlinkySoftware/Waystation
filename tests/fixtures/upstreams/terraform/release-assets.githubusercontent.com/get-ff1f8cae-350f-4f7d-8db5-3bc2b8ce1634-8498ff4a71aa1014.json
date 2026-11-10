@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://release-assets.githubusercontent.com/github-production-release-asset/691499464/ff1f8cae-350f-4f7d-8db5-3bc2b8ce1634?sp=harness-redacted&sv=harness-redacted&sr=b&spr=https&se=harness-redacted&rscd=attachment%3B+filename%3Dterraform-provider-null_3.1.0_SHA256SUMS&rsct=application/octet-stream&skoid=harness-redacted&sktid=harness-redacted&skt=harness-redacted&ske=harness-redacted&sks=harness-redacted&skv=harness-redacted&sig=harness-redacted&jwt=harness-redacted&response-content-disposition=attachment%3B+filename%3Dterraform-provider-null_3.1.0_SHA256SUMS&response-content-type=application/octet-stream"
+  },
+  "response": {
+    "body_sha256": "696517a3c233ae99c964fcb0d77776e3878c2fab5e64d8c8d80d2a94d2a3eaae",
+    "body_size": 1008,
+    "headers": [
+      [
+        "content-length",
+        "1008"
+      ],
+      [
+        "last-modified",
+        "Fri, 15 Sep 2023 05:04:56 GMT"
+      ],
+      [
+        "etag",
+        "\"0x8DBB5A94DD49019\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-disposition",
+        "attachment; filename=terraform-provider-null_3.1.0_SHA256SUMS"
+      ],
+      [
+        "content-type",
+        "application/octet-stream"
+      ]
+    ],
+    "status": 200
+  }
+}
