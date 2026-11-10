@@ -239,6 +239,8 @@ class TokenService:
         if record is None or record.revoked_at is not None:
             return _Entry(now, None, None)
         principal = await self._owner_principal(record)
+        if principal is not None and self._rbac is not None:
+            principal = await self._rbac.with_anonymous(principal)  # signing in never reduces access (SPEC §4.10)
         expires = record.expires_at.timestamp() if record.expires_at else None
         return _Entry(now, principal, expires)
 
