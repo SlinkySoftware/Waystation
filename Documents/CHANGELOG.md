@@ -3,6 +3,23 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-O09: declarative provisioning. A YAML file (`WAYSTATION_PROVISION_FILE`, `Documents/Operations/PROVISIONING.md`,
+  full example `provisioning.example.yaml`, JSON Schema `provisioning.schema.json` from the pydantic models) declares
+  repositories (every format, type and option; cleanup attachments; groups whose members the same file creates),
+  cleanup policies, custom roles, local groups, service accounts, LDAP/OIDC providers with their group → role
+  mapping, webhooks and settings (instance name, 2FA policy, anonymous access, default docker repository, low-disk
+  guard). Secrets are only `{file: ...}`/`{env: ...}` references (inline values and Waystation's own settings
+  variables refused, never echoed), stored encrypted and shown as redacted. Plans list create / update (field
+  diffs) / unchanged / prune; a file with any validation error (the API's own rules, run as dry builds) applies
+  nothing; applying an unchanged file changes nothing. `init` applies it at every start and fails when it is
+  invalid (init now also waits for Valkey); Administration → Provisioning and `GET /api/v1/provisioning`,
+  `POST /api/v1/provisioning/plan|apply` (admin) plan and apply the configured file (never an uploaded one);
+  `python -m waystation_server.provisioning schema|check|plan|apply`, `make provision-check|plan|schema`. Managed
+  objects carry `managed_by: provisioning` (new field on repositories, roles, groups, service accounts, providers,
+  cleanup policies and webhooks, and on their API views), existing objects are adopted, left-out ones released or,
+  with `prune` per section, deleted (API guards apply). Every change is audited with `details.source=provisioning`;
+  cleanup policy changes are now audited everywhere (`cleanup_policy.create|update|delete`). UI: "Managed" label
+  and read-only forms on managed objects, the Provisioning page (status, plan diff, apply), MSW mocks.
 - T-S07, T-S12, T-S05, T-S09: fixes for the k6 suite's findings (full profile, before -> after). 500 concurrent
   clients: 1-5 failed downloads per run -> 0. The cause was mongod refusing connections past its open-file limit
   (Docker's default soft limit 1024 leaves about 400 connections; four server processes with 100-connection pools
