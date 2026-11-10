@@ -113,7 +113,7 @@ async def _drop_batch(db: Database, repo_id: str, docs: list[Document]) -> int:
 
 async def publish_artifact(db: Database, repo_id: str, path: str, *, sha256: str, size: int, now: datetime) -> None:
     """Make the committed blob ``sha256`` the repository's file ``path`` (an imported collection artifact); the
-    repository's usage follows."""
+    repository's usage (bytes, assets, artifacts) follows."""
     fields: dict[str, Any] = {
         'repo_id': repo_id,
         'path': path,
@@ -131,12 +131,13 @@ async def publish_artifact(db: Database, repo_id: str, path: str, *, sha256: str
         {'$set': fields, '$setOnInsert': {'_id': new_id(), 'created_at': now}, '$unset': {'blob_missing': ''}},
         upsert=True,
         return_document=ReturnDocument.BEFORE,
-        projection={'size': 1},
+        projection={'size': 1, 'kind': 1},
     )
     if before is None:
-        await usage_db.add(db, repo_id, size, 1)
+        await usage_db.add(db, repo_id, size, 1, artifacts_delta=1)  # a content asset: an artifact
     else:
-        await usage_db.add(db, repo_id, size - int(before.get('size') or 0))
+        was_artifact = int(before.get('kind') == 'content')
+        await usage_db.add(db, repo_id, size - int(before.get('size') or 0), artifacts_delta=1 - was_artifact)
 
 
 # ---------------------------------------------------------------------------- imports

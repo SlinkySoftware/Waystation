@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- npm browse: packages → package page (install snippet, dist-tags, versions with cached/deprecated flags). -->
+<!-- npm browse: packages → package page (install snippet, dist-tags, versions with cached/deprecated flags; hosted
+     repositories store every version they list, so they show version counts instead of cache state). -->
 <template>
   <PageCard flush>
     <template #title><BrowseCrumbs :crumbs="crumbs" @go="pkg = null" /></template>
@@ -17,7 +18,8 @@
             <div class="pkg__meta">
               <span>{{ t('browse.npm.latest') }} <strong class="mono">{{ versions.data.value.package.latest }}</strong></span>
               <span v-if="versions.data.value.package.license">{{ versions.data.value.package.license }}</span>
-              <span>{{ t('browse.npm.cachedOf', { cached: versions.data.value.package.cached_versions, total: versions.data.value.package.version_count }) }}</span>
+              <span v-if="hosted">{{ t('browse.npm.versionCount', { count: versions.data.value.package.version_count }) }}</span>
+              <span v-else>{{ t('browse.npm.cachedOf', { cached: versions.data.value.package.cached_versions, total: versions.data.value.package.version_count }) }}</span>
             </div>
             <div class="pkg__tags">
               <span v-for="(v, tag) in versions.data.value.dist_tags ?? {}" :key="tag" class="dist-tag"><span>{{ tag }}</span><span class="mono">{{ v }}</span></span>
@@ -105,12 +107,17 @@ const versions = useAsync(
   [pkg],
 )
 
+/** Hosted repositories store every version they list: no cache columns. */
+const hosted = computed(() => props.repo.type === 'hosted')
+
 const crumbs = computed(() => [{ label: t('browse.npm.packages') }, ...(pkg.value ? [{ label: pkg.value, mono: true }] : [])])
 
 const pkgColumns = computed<QTableColumn<NpmPackage>[]>(() => [
   { name: 'name', label: t('browse.npm.package'), field: 'name', align: 'left', sortable: true },
   { name: 'latest', label: t('browse.npm.latest'), field: 'latest', align: 'left', classes: 'mono gt-xs', headerClasses: 'gt-xs' },
-  { name: 'versions', label: t('browse.npm.cached'), field: (r) => `${r.cached_versions} / ${r.version_count}`, align: 'right', classes: 'gt-xs', headerClasses: 'gt-xs' },
+  hosted.value
+    ? { name: 'versions', label: t('browse.npm.versions'), field: 'version_count', align: 'right', classes: 'gt-xs', headerClasses: 'gt-xs' }
+    : { name: 'versions', label: t('browse.npm.cached'), field: (r) => `${r.cached_versions} / ${r.version_count}`, align: 'right', classes: 'gt-xs', headerClasses: 'gt-xs' },
   { name: 'size', label: t('browse.size'), field: 'size_bytes', align: 'right', sortable: true },
   { name: 'downloads', label: t('browse.downloads'), field: (r) => r.downloads ?? 0, format: (v: number) => formatCount(v), align: 'right', sortable: true, classes: 'gt-sm', headerClasses: 'gt-sm' },
   { name: 'last', label: t('browse.lastDownloaded'), field: (r) => r.last_downloaded_at ?? '', align: 'left', sortable: true, classes: 'gt-sm', headerClasses: 'gt-sm' },
@@ -121,7 +128,7 @@ const columns = computed<QTableColumn<NpmVersion>[]>(() => [
   { name: 'published', label: t('browse.npm.published'), field: 'published_at', align: 'left' },
   { name: 'size', label: t('browse.size'), field: (r) => r.size_bytes ?? 0, align: 'right' },
   { name: 'downloads', label: t('browse.downloads'), field: (r) => r.downloads ?? 0, format: (v: number) => formatCount(v), align: 'right', classes: 'gt-xs', headerClasses: 'gt-xs' },
-  { name: 'cached', label: t('browse.cache'), field: 'cached', align: 'left' },
+  ...(hosted.value ? [] : [{ name: 'cached', label: t('browse.cache'), field: 'cached', align: 'left' } as QTableColumn<NpmVersion>]),
   { name: 'last', label: t('browse.lastDownloaded'), field: (r) => r.last_downloaded_at ?? '', align: 'left', classes: 'gt-sm', headerClasses: 'gt-sm' },
 ])
 </script>
