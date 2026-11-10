@@ -111,6 +111,8 @@ Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. 
   referrers (signatures, SBOM) list, pull commands by tag and by digest).
 - **npm / PyPI / Maven / NuGet / Helm / Galaxy / Swift**: package → versions table (version, published, size,
   downloads, deprecated/yanked flags), README rendered safely (sanitised markdown, no raw HTML), dependencies.
+  npm (T-P5-NPMH): hosted repositories show "N versions" and a Versions column instead of the cache columns
+  (everything they list is stored); dist-tags and deprecation badges as for proxies.
   Built for Maven (T-P5-MAVEN): artifacts table (artifactId over its groupId, latest, version count, filter by
   groupId or artifactId) → versions table (Maven order, SNAPSHOT badge, files, size, deployed by; a copyable
   `<dependency>` snippet) → the version's files (name, size, modified, copy download URL).

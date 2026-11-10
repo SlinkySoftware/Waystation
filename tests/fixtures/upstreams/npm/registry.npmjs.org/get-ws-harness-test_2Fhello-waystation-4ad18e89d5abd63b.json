@@ -1,0 +1,29 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.npmjs.org/@ws-harness-test%2Fhello-waystation"
+  },
+  "response": {
+    "body_sha256": "c8d3eae160a892e32837db3dcae515e843e5383fef52b8141940c8bcf8b6d59f",
+    "body_size": 21,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "21"
+      ]
+    ],
+    "status": 404
+  }
+}

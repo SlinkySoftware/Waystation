@@ -25,6 +25,16 @@ describe('repository form model', () => {
     expect(group.group).toEqual({ members: ['charts'], writable_member: 'charts' })
   })
 
+  it('builds npm hosted repositories and groups with a writable member', () => {
+    expect(HOSTED_FORMATS).toContain('npm')
+    expect(GROUP_FORMATS).toContain('npm')
+    expect(WRITABLE_GROUP_FORMATS).toContain('npm')
+    const hosted = toWrite({ ...emptyModel('npm', 'hosted'), name: 'npm-internal', writePolicy: 'disable_redeploy' })
+    expect(hosted).toMatchObject({ format: 'npm', type: 'hosted', hosted: { write_policy: 'disable_redeploy' } })
+    const group = toWrite({ ...emptyModel('npm', 'group'), name: 'npm-all', members: ['npm-internal', 'npm'], writableMember: 'npm-internal' })
+    expect(group).toMatchObject({ type: 'group', group: { members: ['npm-internal', 'npm'], writable_member: 'npm-internal' } })
+  })
+
   it('never sends an empty secret (write-only: omitted keeps the stored one)', () => {
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', authKind: 'bearer' as const }
     expect(toWrite(m).proxy?.auth).toEqual({ kind: 'bearer', username: null })
