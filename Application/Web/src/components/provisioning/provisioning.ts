@@ -17,10 +17,11 @@ export function changeCount(plan: ProvisioningPlan | null | undefined): number {
 /** A before/after value as one short line (secrets are never sent: a redacted change says so). */
 export function formatValue(value: unknown): string {
   if (value === null || value === undefined) return t('provisioning.notSet')
-  if (typeof value === 'string') return value === '' ? '""' : value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  const text = JSON.stringify(value)
-  return text.length > 160 ? `${text.slice(0, 157)}…` : text
+  let text: string
+  if (typeof value === 'string') text = value === '' ? '""' : value
+  else if (typeof value === 'number' || typeof value === 'boolean') text = String(value)
+  else text = JSON.stringify(value)
+  return text.length > 160 ? `${text.slice(0, 159)}…` : text
 }
 
 export function describeChange(change: ProvisioningChange): string {
