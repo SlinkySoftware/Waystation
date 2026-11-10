@@ -374,3 +374,56 @@ async def test_version_whose_tarball_was_cleaned_up_is_dropped(
     full = await client.get('/repository/npm-hosted/demo', headers=headers)
     doc = json.loads(services.blobs.blob_path(full.headers['x-ws-digest'].removeprefix('sha256:')).read_bytes())
     assert list(doc['versions']) == ['1.1.0'] and doc['dist-tags'] == {'latest': '1.1.0'}
+
+
+# ---------------------------------------------------------------------------- version documents
+@pytest.mark.usefixtures('repos')
+async def test_version_documents_hosted_group_and_hidden(client: httpx.AsyncClient, admin: httpx.AsyncClient) -> None:
+    headers = await token(admin, ['read', 'write', 'delete'])
+    published = (('demo', '1.0.0', 'latest'), ('demo', '2.0.0-rc.1', 'beta'), ('@acme/util', '0.1.0', 'latest'))
+    for name, version, tag in published:
+        body = publish_body(name, version, tarball(name, version), tag=tag)
+        made = await client.put(f'/repository/npm-hosted/{name.replace("/", "%2f")}', content=body, headers=headers)
+        assert made.status_code == 201, made.text
+
+    hosted = '/repository/npm-hosted/'
+    one = await client.get(f'{hosted}demo/1.0.0', headers=headers)
+    assert one.status_code == 200 and one.headers['content-type'].startswith('application/json')
+    assert one.json()['version'] == '1.0.0' and one.json()['description'] == 'demo 1.0.0'
+    assert one.json()['dist']['tarball'] == f'{BASE}npm-hosted/demo/-/demo-1.0.0.tgz'
+    assert (await client.get(f'{hosted}demo/beta', headers=headers)).json()['version'] == '2.0.0-rc.1'
+    assert (await client.get(f'{hosted}demo/latest', headers=headers)).json()['version'] == '1.0.0'
+    for path in ('@acme/util/0.1.0', '@acme%2futil/0.1.0', '@acme%2Futil/latest'):
+        scoped = await client.get(f'{hosted}{path}', headers=headers)
+        assert scoped.status_code == 200 and scoped.json()['name'] == '@acme/util', path
+    missing = await client.get(f'{hosted}demo/9.9.9', headers=headers)
+    assert missing.status_code == 404 and missing.json() == {'error': 'version not found: 9.9.9'}
+    assert (await client.get(f'{hosted}demo/nope', headers=headers)).json() == {'error': 'version not found: nope'}
+    assert (await client.get(f'{hosted}nothing/1.0.0', headers=headers)).status_code == 404
+    assert (await client.put(f'{hosted}demo/1.0.0', json={}, headers=headers)).status_code == 405
+
+    # the packument's RBAC decision: hidden from anonymous callers and roleless users, answered like a missing repo
+    anonymous, packument = await client.get(f'{hosted}demo/1.0.0'), await client.get(f'{hosted}demo')
+    nowhere = await client.get('/repository/npm-nope/demo/1.0.0')
+    assert anonymous.status_code == packument.status_code == nowhere.status_code == 401
+    assert anonymous.content == nowhere.content
+    await user(admin, 'norole', [])
+    signed = await login(client, 'npm-proxy', 'norole', PASSWORD)
+    norole = {'Authorization': f'Bearer {signed.json()["token"]}'}
+    hidden = await client.get(f'{hosted}demo/1.0.0', headers=norole)
+    assert hidden.status_code == 404
+    assert hidden.content == (await client.get('/repository/npm-nope/demo/1.0.0', headers=norole)).content
+    assert (await client.get('/repository/npm-proxy/demo/3.0.0', headers=norole)).status_code == 200
+
+    # group: resolved against the merged packument, tarball URLs point at the group
+    group = '/repository/npm-all/'
+    won = await client.get(f'{group}demo/1.0.0', headers=headers)
+    assert won.json()['description'] == 'demo 1.0.0'  # the hosted member wins 1.0.0
+    assert won.json()['dist']['tarball'] == f'{BASE}npm-all/demo/-/demo-1.0.0.tgz'
+    proxied = await client.get(f'{group}demo/next', headers=headers)
+    assert proxied.json()['version'] == '3.0.0' and proxied.json()['dist']['integrity'] == sri(PROXY_TGZ_3)
+    assert proxied.json()['dist']['tarball'] == f'{BASE}npm-all/demo/-/demo-3.0.0.tgz'
+    assert (await client.get(f'{group}demo/beta', headers=headers)).json()['version'] == '2.0.0-rc.1'
+    assert (await client.get(f'{group}@acme%2futil/0.1.0', headers=headers)).json()['version'] == '0.1.0'
+    gone = await client.get(f'{group}demo/7.0.0', headers=headers)
+    assert gone.status_code == 404 and gone.json() == {'error': 'version not found: 7.0.0'}

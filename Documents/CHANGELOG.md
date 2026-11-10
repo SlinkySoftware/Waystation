@@ -3,6 +3,16 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-11
+- T-P2-NPM: per-version npm documents. `GET /<pkg>/<version>` and `/<pkg>/<dist-tag>` (scoped: `@scope/name/...` and
+  `@scope%2fname/...`) answer the version object of the full packument (`versions[<v>]`, else the version the tag
+  names), as the public registry does; corepack bootstraps pnpm/Yarn with these (`<registry>/@pnpm/exe.linux-x64/<v>`).
+  Proxies read the cached full packument through the same path as packument requests (metadata max age,
+  coalescing, stale-on-error, `dist.tarball` rewritten to the repository); an exact version the cache does not list
+  refreshes it once. Hosted repositories answer from the generated packument, groups from the merged one (tarball
+  URLs point at the group). Unknown versions and tags answer 404 `{"error": "version not found: <v>"}`. Same RBAC
+  decision as packument reads (hidden repositories 404); parsing and serialising run in a thread, reads are bounded.
+  Harness: `npm view <pkg>@<version>` and corepack-style fetches through the proxy, the group and the hosted
+  repository (replay).
 - T-S03: signed-in principals also receive the anonymous grants (owner decision), so signing in never reduces access.
   Every authenticated principal (users of any source, service accounts; by session, API token, basic, `docker login`
   or a registry token) holds its own grants plus the anonymous principal's (`Principal.anonymous_grants`, attached by
