@@ -99,9 +99,13 @@ services:
   client-ubuntu:  # apt on Ubuntu 26.04
     <<: *client
     image: ubuntu:26.04
-  client-rocky:  # dnf on Rocky Linux 10 (yum format)
+  client-rocky:  # dnf on Rocky Linux 10 (yum format), plus rpm-build for the hosted repository test
     <<: *client
-    image: rockylinux/rockylinux:10.2
+    build:
+      dockerfile_inline: |
+        FROM rockylinux/rockylinux:10.2
+        RUN dnf -y install rpm-build && dnf clean all
+    image: waystation-harness-rocky:10.2-1  # bump the suffix when the Dockerfile above changes
   client-alma:  # dnf on AlmaLinux 10 (yum format)
     <<: *client
     image: almalinux:10.2

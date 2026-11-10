@@ -97,6 +97,58 @@ The repository's **Set me up** tab shows the snippets with your repository URL f
   no cached `primary.xml` lists is served and recorded as *unverified*, and when a listing arrives and disagrees the
   cached copy is dropped and fetched again on the next request.
 
+## Hosted repositories
+
+A hosted yum repository stores your own RPMs and serves them with repodata Waystation builds and signs. Create one
+with type *Hosted* (no options). Groups are not supported for yum.
+
+Upload with any HTTP client (the `write` permission; an API token as the password):
+
+```shell
+# PUT: stored at the path you give (any directory layout)
+curl -fS -u alice:<api-token> --upload-file mypackage-1.0-1.el10.x86_64.rpm \
+  https://registry.example.com/repository/myrpms/
+curl -fS -u alice:<api-token> --upload-file mypackage-1.0-1.el10.x86_64.rpm \
+  https://registry.example.com/repository/myrpms/Packages/m/mypackage-1.0-1.el10.x86_64.rpm
+# POST: the body is the package, stored as <name>-<version>-<release>.<arch>.rpm in that directory
+curl -fS -u alice:<api-token> --data-binary @mypackage-1.0-1.el10.x86_64.rpm \
+  -H 'Content-Type: application/x-rpm' https://registry.example.com/repository/myrpms/
+# Delete (the delete permission)
+curl -fS -u alice:<api-token> -X DELETE \
+  https://registry.example.com/repository/myrpms/mypackage-1.0-1.el10.x86_64.rpm
+```
+
+Waystation reads the package header (binary and source RPMs; refused with `400` when it is not a well-formed RPM)
+and a worker rebuilds `repodata/` within seconds: `primary`, `filelists` and `other` (gzip) and `repomd.xml`, signed
+with the repository's own OpenPGP key into `repomd.xml.asc`. The key (RSA 3072) is created on the first build and
+kept encrypted in the data directory; its public half is served at `RPM-GPG-KEY` (and `repodata/repomd.xml.key`).
+The new repodata appears at once (old and new files never mix); the previous generation's files stay available for
+clients that are mid-update. Until the first package is uploaded, `repodata/repomd.xml` answers `404`.
+
+Write policy: *allow redeploy* replaces a package uploaded to the same path, *disable redeploy* refuses it (`409`),
+*read only* refuses every upload and delete (`403`). The same name, epoch, version, release and architecture at a
+different path is always refused (`409`): delete the old one first. Nothing can be uploaded under `repodata/`.
+
+Client configuration (the repository's **Set me up** tab shows it filled in):
+
+```ini
+[myrpms]
+name=myrpms (Waystation)
+baseurl=https://registry.example.com/repository/myrpms/
+enabled=1
+repo_gpgcheck=1
+gpgcheck=0
+gpgkey=https://registry.example.com/repository/myrpms/RPM-GPG-KEY
+username=alice
+password=<your-api-token>
+```
+
+`repo_gpgcheck=1` makes dnf verify `repomd.xml` against Waystation's signature; dnf asks to import the key on first
+use (compare the fingerprint: `curl -fsS https://registry.example.com/repository/myrpms/RPM-GPG-KEY | gpg --show-keys`).
+Waystation does not sign packages: keep `gpgcheck=0` for unsigned builds, or sign them yourself (`rpm --addsign`)
+and set `gpgcheck=1` with your key added to `gpgkey`. After an upload, `dnf makecache --refresh` (or
+`dnf --refresh upgrade`) sees it.
+
 ## Browse
 
 The repository's **Browse** tab lists the packages of every `primary.xml` Waystation has cached (all directories:
@@ -108,14 +160,17 @@ cached. *Files* switches to the folder tree of everything cached. A package fetc
 
 ## Authentication
 
-M0: proxy repositories are readable anonymously, so no client configuration is needed. When an administrator
-removes anonymous access, dnf authenticates with HTTP basic auth using a username and an API token once API tokens
-land (T-S04): add to each section (and keep the file `chmod 600`):
+Repositories anonymous users may read need no client configuration. Otherwise (hosted repositories, or when an
+administrator removes anonymous access) dnf authenticates with HTTP basic auth: your username and an API token
+(Profile → API tokens, scope `read`; `write` to upload) as the password. Add to each section and keep the file
+`chmod 600`:
 
 ```ini
 username=alice
 password=<your-api-token>
 ```
+
+A revoked or expired token answers `401` (`dnf makecache` fails with "Status code: 401"). The harness checks both.
 
 ## Troubleshooting
 
@@ -131,4 +186,7 @@ password=<your-api-token>
 | `504 Gateway Timeout` | The upstream did not answer in time. A stale cached `repomd.xml` is served instead when one exists and *stale on error* is on. |
 | Updates appear late | The cached `repomd.xml` is served until it is older than the metadata max age (default 30 minutes), and dnf keeps its own copy for `metadata_expire`. Lower either if needed. |
 | `401` | Anonymous access was removed for this repository: add credentials (above). |
+| Hosted: `repomd.xml` `404` | Nothing has been uploaded yet, or the worker has not built the repodata yet (seconds; check the Tasks page for `index.yum`). |
+| Hosted: `repomd.xml GPG signature verification error` | The key dnf imported is not this repository's (for example a repository deleted and created again under the same name has a new key): `rpm -e gpg-pubkey-<id>` for the old one and refresh. |
+| Hosted upload `409` | The same package is already at another path, or the write policy refuses replacing it. |
 | Repository configured with `mirrorlist=` or `metalink=` | Not supported: Waystation needs a `baseurl`, and the repository's upstream must be a concrete mirror URL. |

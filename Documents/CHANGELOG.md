@@ -3,6 +3,16 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-P5-YUMH: hosted yum repositories. RPMs are uploaded with `PUT <path>.rpm` or `POST` to a directory (streamed,
+  quota-checked; the header is read safely in a thread and the package's repodata entries rendered then), with
+  write policy, refusal of the same package at another path and `DELETE`. The worker job `index.yum` (outbox, dirty
+  flag) builds gzip `primary`/`filelists`/`other` and `repomd.xml`, signs it with the repository's own key and
+  publishes atomically (previous generation kept); the public key is served at `RPM-GPG-KEY`. Signing sits in
+  `waystation_common.signing` (RSA 3072 per repository, encrypted with `WAYSTATION_SECRET_KEYS` under `keys/`) on the
+  in-house `waystation_common.openpgp`: ADR 0007 drafted, **Proposed** (needs James's approval; gpg is the
+  fallback). Browse shows uploads, "Set me up" gives the `.repo` file (`repo_gpgcheck=1`, gpgkey, credentials) and
+  curl commands, the create dialog offers hosted yum. Harness: rpmbuild in the Rocky client, upload, dnf
+  install/upgrade with `repo_gpgcheck=1`, delete.
 - T-P2-YUM (done): the yum proxy can verify `repomd.xml` itself. New option `repomd_keys` (the upstream's armored
   public keys, validated when saved): `repomd.xml.asc` is fetched with every new `repomd.xml`, which is cached only
   when the signature verifies (else 502; stale-on-error applies); the verified `.asc` is served with it. In-house

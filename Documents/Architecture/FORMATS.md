@@ -340,6 +340,24 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   dialog offers yum (proxy) with Rocky/AlmaLinux/Oracle/EPEL presets and the options. Not yet: hosted (T-P5-YUMH),
   yum 3 (EL7), the `components` collection, a worker-side refresh of `primary` and re-verification of unverified
   packages (they are re-checked whenever a newer listing is cached). Group: not supported (SPEC §4.3).
+- Built (T-P5-YUMH, hosted, 2026-11-10): `formats/yum/hosted.py`, header reader `rpm.py`, worker
+  `waystation_worker.yum`. Upload `PUT <path>.rpm` (stored at that path) or `POST <dir>/` with the package as the body
+  (stored as `<dir>/<name>-<version>-<release>.<arch>.rpm`); nothing under `repodata/`. The RPM header (lead, signature
+  header padded to 8, main header; at most 64 MiB of header and 200 000 entries; every offset/count checked against
+  the store; RPMSIGTAG_SHA256 verified when present; name/version/release/arch charset-checked; source RPMs have
+  arch `src`) gives the package's `primary` entry (header range, provides/requires/conflicts/obsoletes and weak
+  dependencies with flags and EVR, `pre`, files in `/etc`, `*bin/*`, `/usr/lib/sendmail`), `filelists` entry (all
+  files, `dir`/`ghost` types) and `other` entry (10 newest changelog entries), rendered at upload with control
+  characters dropped and stored gzip-compressed on the record (at most 8 MiB). Requirements on `rpmlib()` and on what
+  the package provides or contains itself are dropped, as createrepo does. Write policy per SPEC §4.2; the same NEVRA
+  at another path is 409. The record and an `index.yum` job are written in one transaction; the worker rebuilds the
+  whole repodata from the records (records whose file is gone are dropped), streams `primary.xml.gz`,
+  `filelists.xml.gz`, `other.xml.gz` (named `<sha256>-<type>.xml.gz`, `packages` count exact), writes `repomd.xml`
+  (sha256 checksum and open-checksum, sizes, revision = build time), signs it (`repomd.xml.asc`, detached, SHA-512,
+  RSA 3072 repository key from `waystation_common.signing`) and switches `repomd.xml`, `.asc`, `RPM-GPG-KEY` and
+  `repodata/repomd.xml.key` in one transaction; repodata files older than the previous generation are removed.
+  Hosted repositories serve stored files only (404 before the first build). Clients: dnf 4 on Rocky Linux 10 in the
+  harness (`repo_gpgcheck=1`, `gpgcheck=0` for the unsigned test package, API token as the password).
 
 ## PyPI — Phase 5
 Specs: PEP 503 (simple HTML), PEP 691 (JSON simple API, `application/vnd.pypi.simple.v1+json`), PEP 658/714

@@ -5,7 +5,9 @@
 #   fetched through the proxy as gpgkey);
 # - alma (AlmaLinux 10): `extras` through `almalinux`;
 # - oracle (Oracle Linux 9): `addons` through `oracle` (packages under getPackage/, no repomd.xml.asc upstream);
-# - fedora (dnf 5) and opensuse (zypper): smoke runs against the Rocky `extras` repository the rocky run cached.
+# - fedora (dnf 5) and opensuse (zypper): smoke runs against the Rocky `extras` repository the rocky run cached;
+# - rocky also runs hosted.sh: an RPM built with rpmbuild uploaded to the hosted `yum-hosted` and installed by dnf
+#   with repo_gpgcheck=1 against the key Waystation serves.
 # dnf keeps verifying the distribution's own signatures: repomd.xml against repomd.xml.asc (repo_gpgcheck=1, where
 # the upstream signs it) and every package (gpgcheck=1), so a modified repomd.xml or package would fail. Runs
 # identically in every mode; assertions use only what survives fixture scrubbing.
@@ -100,6 +102,7 @@ REPO
     rm -f /etc/yum.repos.d/ws-auth.repo
     check epel ws-epel "EPEL \$releasever - Everything" "\$releasever/Everything/\$basearch/" \
       "$WAYSTATION_URL/repository/epel/RPM-GPG-KEY-EPEL-10" 0 epel-release
+    sh /harness/yum/hosted.sh || exit 1
     ;;
   alma)
     check almalinux ws-extras "AlmaLinux \$releasever - Extras" "\$releasever/extras/\$basearch/os/" \
