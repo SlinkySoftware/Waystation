@@ -1,0 +1,3 @@
+# Public hosts that appear in the galaxy format's recorded upstream content: the S3 bucket galaxy.ansible.com
+# redirects collection downloads to.
+ansible-galaxy-ng.s3.dualstack.us-east-1.amazonaws.com
