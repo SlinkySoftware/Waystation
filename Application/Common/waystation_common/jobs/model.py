@@ -199,6 +199,22 @@ class HelmIndex(JobPayload):
         return f'index.helm:{self.repo_id}'
 
 
+class GalaxyImport(JobPayload):
+    """Import an uploaded Ansible collection into its hosted repository (FORMATS.md "Ansible Galaxy";
+    ``waystation_worker.galaxy``): validate the artifact (``MANIFEST.json``, ``FILES.json`` and every file's sha256,
+    tar-slip guards), then publish the version and finish the import task the client polls. Enqueued through the
+    outbox in the transaction that recorded the upload."""
+
+    kind: ClassVar[str] = 'import.galaxy'
+    queue: ClassVar[Queue] = 'import'
+    max_attempts: ClassVar[int] = 3
+
+    task_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'import.galaxy:{self.task_id}'
+
+
 class StorageCheck(JobPayload):
     """Compare the data filesystem's free space with the low-disk guard and announce ``storage.low`` /
     ``storage.ok`` on a change (``waystation_worker.quota``); scheduled every minute."""

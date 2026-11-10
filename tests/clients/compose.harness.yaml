@@ -128,6 +128,19 @@ services:
       PIP_ROOT_USER_ACTION: ignore
       UV_NO_PROGRESS: "1"
       UV_PYTHON_DOWNLOADS: never
+  client-ansible:  # ansible-galaxy (ansible-core) and curl (galaxy format)
+    <<: *client
+    build:
+      dockerfile_inline: |
+        FROM python:3.14-slim
+        RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
+            && pip install --no-cache-dir --root-user-action=ignore ansible-core==2.22.0
+    image: waystation-harness-ansible:2.22.0-1  # bump the suffix when the Dockerfile above changes
+    environment:
+      <<: *client-env
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      ANSIBLE_NOCOLOR: "1"
+      ANSIBLE_FORCE_COLOR: "0"
   client-go:  # the go command and curl (go format)
     <<: *client
     image: golang:1.25-trixie
