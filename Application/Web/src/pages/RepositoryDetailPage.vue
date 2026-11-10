@@ -95,11 +95,16 @@ import { iconSetup } from '@/utils/icons'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-// Cleanup needs `manage` on the repository (a hint: the server decides, and the tab handles 403/404 itself).
-const tabs = computed(() => (auth.can('repositories.manage') ? ['overview', 'browse', 'cleanup', 'settings'] : ['overview', 'browse', 'settings']) as readonly ('overview' | 'browse' | 'cleanup' | 'settings')[])
+// Cleanup and settings need `manage` on the repository (a hint: the server decides, and the tabs handle 403/404
+// themselves); without it a deep link to either opens the overview.
+type Tab = 'overview' | 'browse' | 'cleanup' | 'settings'
+const tabs = computed<readonly Tab[]>(() => (auth.can('repositories.manage') ? ['overview', 'browse', 'cleanup', 'settings'] : ['overview', 'browse']))
 const repos = useRepositoriesStore()
 const name = computed(() => String(route.params.name))
-const tab = computed(() => (typeof route.params.tab === 'string' && route.params.tab ? route.params.tab : 'overview'))
+const tab = computed<Tab>(() => {
+  const asked = typeof route.params.tab === 'string' ? (route.params.tab as Tab) : 'overview'
+  return tabs.value.includes(asked) ? asked : 'overview'
+})
 const setupOpen = ref(route.query.setup === '1')
 
 const state = useAsync(() => call(api.GET('/repositories/{name}', { params: { path: { name: name.value } } })), [name])

@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.opentofu.org/v1/providers/hashicorp/null/3.1.0/download/linux/amd64"
+  },
+  "response": {
+    "body_sha256": "44bc808b7ab6c77b637a1724ba81ac55159f810df6879d8fe791a412d0468c0b",
+    "body_size": 6034,
+    "headers": [
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "content-length",
+        "6034"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "etag",
+        "\"3f7b28b4534846160fafb7e8adf496d9\""
+      ],
+      [
+        "last-modified",
+        "Mon, 09 Mar 2026 20:02:34 GMT"
+      ],
+      [
+        "cache-control",
+        "max-age=14400"
+      ]
+    ],
+    "status": 200
+  }
+}

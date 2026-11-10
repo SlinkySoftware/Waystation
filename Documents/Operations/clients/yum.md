@@ -34,7 +34,7 @@ Options (all optional):
 - *Verify repomd.xml with these keys* (`repomd_keys`): the upstream's armored OpenPGP public key(s), e.g. the content
   of `RPM-GPG-KEY-Rocky-10` (several blocks may be pasted). When set, Waystation fetches `repomd.xml.asc` together
   with every new `repomd.xml` and caches the `repomd.xml` only when the signature verifies with one of these keys
-  (RSA or Ed25519, SHA-224/256/384/512 signatures; SHA-1 is refused); otherwise the request fails with `502` (a stale
+  (version 4 RSA, ECDSA or EdDSA keys with valid self-signatures; SHA-2 or SHA-3 signatures, SHA-1 is refused); otherwise the request fails with `502` (a stale
   copy is served when *stale on error* is on) and nothing is cached. The verified `repomd.xml.asc` is served with
   it. This protects every client, including ones running with `repo_gpgcheck=0`, against an upstream or mirror
   serving tampered metadata. Only for upstreams that sign `repomd.xml`: Rocky Linux and AlmaLinux do; EPEL and Oracle

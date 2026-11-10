@@ -99,7 +99,7 @@ async def published(services: Services, client: httpx.AsyncClient, auth: tuple[s
     asc = served(services, await client.get(f'{base}/repodata/repomd.xml.asc', auth=auth))
     key = served(services, await client.get(f'{base}/RPM-GPG-KEY', auth=auth))
     assert served(services, await client.get(f'{base}/repodata/repomd.xml.key', auth=auth)) == key
-    openpgp.verify_detached(repomd, asc, openpgp.read_public_keys(key))
+    openpgp.verify_detached(repomd, asc, openpgp.read_certs(key))
     parsed = repodata.parse_repomd(repomd)
     assert sorted(e.type for e in parsed.entries.values()) == ['filelists', 'other', 'primary']
     for entry in parsed.entries.values():

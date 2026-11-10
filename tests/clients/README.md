@@ -124,3 +124,9 @@ list and version documents, the artifact through its two redirects to the S3 buc
 `galaxy/allowed_hosts.txt`) and the `geerlingguy.ntp` 4.0.1 role (v1 search, version list, GitHub tag archive),
 about 75 KB; the version documents' `files` lists are dropped (`DROP_JSON_KEYS`). The collection published to the
 hosted repository is built with `ansible-galaxy collection init/build` at run time.
+terraform: fixtures are `hashicorp/null` 3.1.0 for linux_amd64 from both origin registries: service discovery,
+version lists, download documents, `SHA256SUMS`, signatures and the two provider archives (HashiCorp's release site;
+GitHub release assets behind a redirect for OpenTofu). A provider archive is a Go binary of about 4.6 MiB and no
+smaller real one with plugin protocol 5 exists, so the budget is raised to 11 MiB (5 MiB per file,
+`tests/clients/terraform/format.env`). Both clients accept only `https://` mirrors: `client-terraform` is Alpine with
+terraform, tofu, curl and `go/tlsfront.go` built in.

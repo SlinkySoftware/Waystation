@@ -2,7 +2,7 @@
 <!-- Repository overview: live transfers here, traffic, upstream configuration + health, recent activity. -->
 <template>
   <div class="overview">
-    <PageCard class="overview__live" :title="t('live.title')" :caption="t('detail.liveCaption')" flush>
+    <PageCard v-if="stats" class="overview__live" :title="t('live.title')" :caption="t('detail.liveCaption')" flush>
       <LiveTransfers :key="repo.name" :repository="repo.name" :max-rows="6" :compact="$q.screen.lt.lg" />
     </PageCard>
 
@@ -41,7 +41,7 @@
       </dl>
     </PageCard>
 
-    <ActivityFeed class="overview__activity" :repository="repo.name" :limit="6" />
+    <ActivityFeed v-if="stats" class="overview__activity" :repository="repo.name" :limit="6" />
   </div>
 </template>
 
@@ -59,6 +59,7 @@ import StatusPill from '@/components/StatusPill.vue'
 import TimeCell from '@/components/TimeCell.vue'
 import { useAsync } from '@/composables/useAsync'
 import { t } from '@/i18n'
+import { useAuthStore } from '@/stores/auth'
 import { useLiveStore } from '@/stores/live'
 import { formatDuration, formatLatency, formatPercent } from '@/utils/format'
 
@@ -66,7 +67,9 @@ const props = defineProps<{ repo: Repository }>()
 
 const range = ref<StatsRange>('24h')
 const live = useLiveStore()
-const upstreams = useAsync(() => call(api.GET('/stats/upstreams')))
+// Live transfers, activity and upstream health need `stats.read` (the server refuses them otherwise, SPEC §4.10).
+const stats = computed(() => useAuthStore().can('stats.read'))
+const upstreams = useAsync(() => (stats.value ? call(api.GET('/stats/upstreams')) : Promise.resolve(null)), [stats])
 const health = computed(() => live.upstreams[props.repo.name] ?? upstreams.data.value?.find((u) => u.repository === props.repo.name) ?? null)
 const aliases = computed(() => (props.repo.format === 'docker' ? ((props.repo.format_options as DockerOptions | undefined)?.aliases ?? []) : []))
 

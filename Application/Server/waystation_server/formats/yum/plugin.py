@@ -10,7 +10,7 @@ holds ``repodata/``; four kinds of file:
    ``repomd.xml`` drops the cached ``.asc`` so the pair is fetched together again. With the ``repomd_keys`` option
    (the upstream's public keys) ``repomd.xml.asc`` is fetched fresh right before every ``repomd.xml`` fetch or
    revalidation and the new ``repomd.xml`` is refused (502; stale-on-error applies) unless the signature verifies
-   (``waystation_common.openpgp``); that ``.asc`` is then served with it.
+   (``waystation_common.openpgp``, adr/0006); that ``.asc`` is then served with it.
 2. **Files ``repomd.xml`` lists** (``primary``, ``filelists``, ``other``, ``updateinfo``, ``modules``, ``comps``,
    sqlite variants; ``.gz``/``.xz``/``.zst``/``.bz2``): served only by the checksum and size the currently cached
    ``repomd.xml`` of the directory lists (SHA-1/256/512), so the set always matches the ``repomd.xml`` the client
@@ -116,8 +116,8 @@ def repomd_keys(req: FormatRequest) -> str | None:
 
 
 @functools.lru_cache(maxsize=32)
-def parsed_keys(text: str) -> tuple[openpgp.PublicKey, ...]:
-    return tuple(openpgp.read_public_keys(text))
+def parsed_keys(text: str) -> tuple[openpgp.Cert, ...]:
+    return tuple(openpgp.read_certs(text.encode()))
 
 
 def _signature_spec(repo_dir: str, *, max_age_s: int | None) -> AssetSpec:
@@ -200,8 +200,8 @@ class YumPlugin:
             _validate_repomd(data, info)
             try:
                 openpgp.verify_detached(data, signatures[-1] if signatures else b'', parsed_keys(keys))
-            except ValidationFailed as exc:
-                raise UpstreamError(f'upstream repomd.xml is not signed by a configured key ({exc.detail})') from None
+            except openpgp.OpenPgpError as exc:
+                raise UpstreamError(f'upstream repomd.xml is not signed by a configured key ({exc})') from None
 
         return AssetSpec(
             path=_join(repo_dir, 'repodata', REPOMD),

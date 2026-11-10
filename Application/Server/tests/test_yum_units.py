@@ -12,7 +12,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import ValidationError
 
-from waystation_common import openpgp
+from waystation_common import signing
 from waystation_common.errors import ValidationFailed
 from waystation_server.formats.base import SetupContext
 from waystation_server.formats.yum import evr, repodata
@@ -396,9 +396,7 @@ def test_equal_versions_and_evr_order() -> None:
 # ---------------------------------------------------------------------------- repomd_keys option
 def test_repomd_keys_option_takes_only_valid_public_keys() -> None:
     private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    key = openpgp.parse_public_key(openpgp.rsa_key_body(private.public_key(), 1_700_000_000))
-    assert key is not None
-    cert = openpgp.certificate(private, key, 'test')
+    cert = signing.certificate(private, signing.PublicPart.of(private, 1_700_000_000), 'test')
     assert YumOptions(repomd_keys=f'  {cert}  ').repomd_keys == cert.strip() + '\n'
     assert YumOptions(repomd_keys='   ').repomd_keys is None
     with pytest.raises(ValidationError, match='OpenPGP'):

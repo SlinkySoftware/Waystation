@@ -39,6 +39,7 @@ NPM_PACKAGES = 'npm_packages'
 NPM_VERSIONS = 'npm_versions'
 PYPI_PACKAGES = 'pypi_packages'
 GO_MODULES = 'go_modules'
+TERRAFORM_PROVIDERS = 'terraform_providers'
 YUM_PACKAGES = 'yum_packages'
 HELM_CHARTS = 'helm_charts'
 GALAXY_COLLECTIONS = 'galaxy_collections'
@@ -302,6 +303,15 @@ SPECS: tuple[CollectionSpec, ...] = (
         GO_MODULES,
         (
             # One summary per module path a Go proxy has cached something of (version list or files).
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=True),
+        ),
+    ),
+    CollectionSpec(
+        TERRAFORM_PROVIDERS,
+        (
+            # One summary per provider address (<hostname>/<namespace>/<type>) a Terraform mirror has cached
+            # something of, with the h1 hashes of its cached archives.
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=True),
         ),

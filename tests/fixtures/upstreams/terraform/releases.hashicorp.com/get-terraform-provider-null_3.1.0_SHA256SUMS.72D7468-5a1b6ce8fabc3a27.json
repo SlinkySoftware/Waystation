@@ -1,0 +1,53 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://releases.hashicorp.com/terraform-provider-null/3.1.0/terraform-provider-null_3.1.0_SHA256SUMS.72D7468F.sig"
+  },
+  "response": {
+    "body_sha256": "6fe7dd46fbd9850ab77423800fdc5c548c20d6637bb7690e7fce1bd9e5f05189",
+    "body_size": 566,
+    "headers": [
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "content-length",
+        "566"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "last-modified",
+        "Mon, 09 May 2022 16:38:15 GMT"
+      ],
+      [
+        "etag",
+        "\"1455e8454997d4cf0167ea14d3babf77\""
+      ],
+      [
+        "cache-control",
+        "max-age=31536000, stale-while-revalidate=86400, stale-if-error=604800, public"
+      ],
+      [
+        "content-disposition",
+        "attachment"
+      ],
+      [
+        "vary",
+        "Origin"
+      ]
+    ],
+    "status": 200
+  }
+}
