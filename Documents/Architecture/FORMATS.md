@@ -518,6 +518,46 @@ Discovery (`/.well-known/terraform.json`).
   number can exist.
 - Works for registry.terraform.io and registry.opentofu.org upstreams. Clients: terraform 1.9+, tofu 1.8+.
 
+As implemented (T-P5-TFP, `waystation_server.formats.terraform`; client guide `Documents/Operations/clients/terraform.md`;
+proxy repositories only, the modules proxy and the hosted repository are T-P5-TFM):
+- **Routes** (`paths`): `<hostname>/<namespace>/<type>/index.json`, `<hostname>/<namespace>/<type>/<version>.json` and
+  the archive `<hostname>/<namespace>/<type>/<version>/<os>/<arch>/<filename>` (the URL the version document gives,
+  relative to it). Host names, namespaces and types are lower-cased and validated (host `[:port]`, `[a-z0-9-]` parts,
+  SemVer versions, `[a-z0-9]` platform words, a `.zip` file name); `GET`/`HEAD` only (`405`); anything else `404`.
+  A host name that is not an allowed origin (option `origins`, default `registry.terraform.io` and
+  `registry.opentofu.org`, plus the upstream URL's host) answers `404` without contacting anyone.
+- **Origin** (`registry`): service discovery `https://<hostname>/.well-known/terraform.json` (`providers.v1`, absolute
+  or relative; metadata cached a day; the upstream URL's own host is reached with its scheme, so a registry without
+  TLS works), the version list `<providers.v1><namespace>/<type>/versions` (metadata, revalidated after the
+  repository's metadata max age, ≤ 32 MiB, ≤ 20 000 versions; invalid entries skipped), a platform's download
+  document `<...>/<version>/download/<os>/<arch>` (kept: a release does not change), `SHA256SUMS` and its signature
+  from the URLs the download document names, and the archive from `download_url` (GitHub release assets, HashiCorp's
+  release site...: redirects followed, every hop through the SSRF guard; upstream credentials go only to the upstream
+  URL's host). Internal asset keys: `<hostname>/.well-known/terraform.json`, `<provider>/versions`,
+  `<provider>/<version>/download/<os>/<arch>`, `<provider>/<version>/SHA256SUMS[.sig]`.
+- **Trust**: `SHA256SUMS` is cached only when (a) its detached OpenPGP signature verifies with one of the
+  `signing_keys.gpg_public_keys` the registry publishes for the provider (`verify_signatures`, default on;
+  `waystation_common.openpgp`, adr/0006 proposed: v4 RSA ≥ 2048 / ECDSA P-256/384/521 / EdDSA keys, subkey bindings
+  verified, revoked or expired keys and SHA-1 data signatures refused, as the Terraform client does) and (b) it lists
+  the download document's file with the same `shasum`. The signature is fetched only when `SHA256SUMS` is. An
+  archive is committed (and its last bytes sent) only when its sha256 matches the verified list; a mismatch cuts
+  the transfer and caches nothing (`502` before any byte when the list itself fails).
+- **Mirror documents** are rendered per request from cached metadata (`ETag`, `304`, `HEAD`): `index.json` lists the
+  versions of the registry list (parsed once per content, in-process cache); `<version>.json` lists one archive per
+  platform found in `SHA256SUMS` under the download document's naming (`<prefix>_<os>_<arch>.zip`) and in the version
+  list, each with `zh:<sha256>`, and `h1:` first when this repository has cached that archive (computed from the
+  verified zip while it is committed, `dirhash` Hash1 as Terraform's `PackageHashV1`, bounded, in a thread). A
+  mirror's hashes are checked, not signed, so Terraform records only the installed package's `h1:` in the lock
+  file (`terraform providers lock` adds the other platforms).
+- **Browse/search**: `terraform_providers` summaries (latest release, version count, the `h1:` of cached archives)
+  written in the background; `terraform/providers`, `terraform/versions?provider=`; search kind `package` (by
+  provider address, last segment = type). Cleanup: SemVer order per provider; every platform of a version shares its
+  rank.
+- **Clients verified** (harness, recorded fixtures): terraform 1.17 and tofu 1.13 `init` + `apply` of
+  `hashicorp/null` 3.1.0 (linux_amd64) through the mirror over TLS: registry.terraform.io (HashiCorp's release site)
+  and registry.opentofu.org (GitHub release assets behind a redirect), anonymous and with an API token in a
+  `credentials` block (bearer); a token limited to other repositories is refused.
+
 ## Ansible Galaxy — Phase 5
 Spec: Galaxy NG / Pulp Ansible v3 API (what `ansible-galaxy` speaks to galaxy.ansible.com).
 - Discovery `GET /repository/<repo>/api/` → `available_versions: {v3: "v3/"}`.

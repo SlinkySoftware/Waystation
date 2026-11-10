@@ -42,6 +42,7 @@ proxy.golang.org
 sum.golang.org
 registry.terraform.io
 registry.opentofu.org
+releases.hashicorp.com
 galaxy.ansible.com
 
 # Public upstreams: Linux distribution mirrors

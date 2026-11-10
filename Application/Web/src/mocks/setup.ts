@@ -318,9 +318,29 @@ function go(repo: Repository): SetupClient[] {
   ]
 }
 
+/** Terraform/OpenTofu: the provider_installation network mirror and a credentials block (bearer API token). */
+function terraform(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const host = new URL(BASE_URL).host
+  const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupClient['snippets'][number] => ({ id, title, description, language, filename, os: null, content })
+  const config = `provider_installation {\n  network_mirror {\n    url = "${url}"\n  }\n}\n\ncredentials "${host}" {\n  token = "{{TOKEN}}"\n}\n`
+  const note = 'Every provider is installed through Waystation. The credentials block is needed only when anonymous reads are not allowed: the API token is sent as a bearer token to this host only.'
+  return [
+    { id: 'terraform', label: 'Terraform', snippets: [
+      s('terraform-cli-config', 'Terraform CLI configuration', config, 'hcl', '~/.terraformrc', `${note} On Windows the file is %APPDATA%\\terraform.rc; TF_CLI_CONFIG_FILE names another.`),
+      s('terraform-init', 'Install providers', 'terraform init\n# record the hashes of every platform your team uses in .terraform.lock.hcl:\nterraform providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=windows_amd64'),
+      s('terraform-token-env', 'Or pass the token in the environment', `export TF_TOKEN_${host.replace(/-/g, '__').replace(/\./g, '_')}={{TOKEN}}`, 'shell', null, 'Instead of the credentials block (host names without a port only).'),
+    ] },
+    { id: 'tofu', label: 'OpenTofu', snippets: [
+      s('tofu-cli-config', 'OpenTofu CLI configuration', config, 'hcl', '~/.tofurc', `${note} On Windows the file is %APPDATA%\\tofu.rc; TF_CLI_CONFIG_FILE names another.`),
+      s('tofu-init', 'Install providers', 'tofu init'),
+    ] },
+  ]
+}
+
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {

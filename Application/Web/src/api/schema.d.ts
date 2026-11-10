@@ -1383,6 +1383,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/terraform/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Providers a Terraform provider mirror has cached (version lists or archives), by address */
+        get: operations["listTerraformProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/terraform/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One provider and its versions (cached registry version list and cached archives, newest first) */
+        get: operations["listTerraformVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/apt/suites": {
         parameters: {
             query?: never;
@@ -3277,8 +3315,23 @@ export interface components {
              */
             roles: boolean;
         };
+        TerraformOptions: {
+            /**
+             * @description Provider registry host names this mirror serves providers of (the first part of a provider address, e.g. `registry.terraform.io/hashicorp/null`). The upstream URL's host is always allowed too
+             * @default [
+             *       "registry.terraform.io",
+             *       "registry.opentofu.org"
+             *     ]
+             */
+            origins: string[];
+            /**
+             * @description Verify each version's SHA256SUMS against its OpenPGP signature and the signing keys the origin registry publishes before anything of that version is served
+             * @default true
+             */
+            verify_signatures: boolean;
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -3878,6 +3931,55 @@ export interface components {
         GalaxyVersionPage: {
             collection: components["schemas"]["GalaxyCollection"];
             items: components["schemas"]["GalaxyVersion"][];
+            next_cursor: string | null;
+        };
+        TerraformProvider: {
+            /** @description Provider address: `<hostname>/<namespace>/<type>` */
+            provider: string;
+            /** @description Newest release in the cached version list, else the newest version */
+            latest?: string | null;
+            /** @description Versions in the cached registry version list */
+            version_count: number;
+            /** @description Provider archives (one per version and platform) cached */
+            cached_archives: number;
+            /** @description Bytes of the cached archives */
+            size_bytes: number;
+        };
+        TerraformProviderPage: {
+            items: components["schemas"]["TerraformProvider"][];
+            next_cursor: string | null;
+        };
+        TerraformArchive: {
+            os: string;
+            arch: string;
+            filename: string;
+            size: number;
+            sha256: string;
+            /** @description `h1:` hash of the archive contents (as in the lock file) */
+            h1?: string | null;
+            /** Format: date-time */
+            cached_at?: string | null;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+            downloads?: number;
+        };
+        TerraformVersion: {
+            version: string;
+            prerelease: boolean;
+            /** @description Plugin protocol versions the registry lists */
+            protocols: string[];
+            /** @description `<os>_<arch>` platforms the registry lists */
+            platforms: string[];
+            /** @description In the cached registry version list */
+            listed: boolean;
+            /** @description Archives of the version held by this repository */
+            archives: components["schemas"]["TerraformArchive"][];
+            size_bytes: number;
+        };
+        TerraformVersionPage: {
+            provider: components["schemas"]["TerraformProvider"];
+            /** @description Newest first (semantic version order) */
+            items: components["schemas"]["TerraformVersion"][];
             next_cursor: string | null;
         };
         AptSuite: {
@@ -7436,6 +7538,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GalaxyVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listTerraformProviders: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Providers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerraformProviderPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listTerraformVersions: {
+        parameters: {
+            query: {
+                /** @description Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null` */
+                provider: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerraformVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];
