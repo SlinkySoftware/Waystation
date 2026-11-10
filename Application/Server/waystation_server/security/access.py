@@ -311,8 +311,14 @@ def check(principal: Principal, action: Action, repo: RepoConfig | None = None) 
     grants = grants_of(principal)
     if grants.is_admin or _allows(grants, action, repo):
         return True
-    extra = anonymous_part(principal)
-    return extra is not None and action not in GLOBAL_ACTIONS and _allows(extra, action, repo)
+    # The anonymous grants: repository actions only (never a global action, ``is_admin`` is not looked at).
+    extra = principal.anonymous_grants
+    return (
+        extra is not None
+        and not principal.is_anonymous
+        and action not in GLOBAL_ACTIONS
+        and _allows(extra, action, repo)
+    )
 
 
 def _allows(grants: Grants, action: Action, repo: RepoConfig | None) -> bool:
