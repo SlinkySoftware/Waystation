@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-P5-HELM / T-P5-MAVEN: deleting a repository now also drops its `helm_charts` records and its Maven `components`
+  (they were left behind). A test fails if a `repo_id`-keyed collection is missing from the delete list.
 - T-P5-GALAXY: Ansible Galaxy repositories (`waystation_server.formats.galaxy`, FORMATS.md "Ansible Galaxy").
   Proxy: discovery (`api/`, v1 only where roles are proxied), collection, version list and version documents cached
   as metadata (every upstream page, revalidated, validated, bounded; large fields dropped) and served with this
