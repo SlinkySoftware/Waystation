@@ -472,6 +472,59 @@ Spec: Galaxy NG / Pulp Ansible v3 API (what `ansible-galaxy` speaks to galaxy.an
   content (documented limitation).
 - Clients: ansible-galaxy (ansible-core 2.17+), `ansible-galaxy collection install -s <url>` / `ansible.cfg` server list.
 
+As implemented (T-P5-GALAXY, `waystation_server.formats.galaxy`; client guide `Documents/Operations/clients/galaxy.md`):
+- **Routes** (`plugin.parse_route`, trailing slashes optional): `''` (discovery with `api/` prefixes, so the
+  repository URL is the server URL) and `api/` (`{"available_versions": {"v3": "v3/", "v1": "v1/"}}`, `v1` only when
+  a proxy (member) proxies roles); `api/v3/collections/<ns>/<name>/[versions/[<version>/]]`; the Galaxy NG aliases
+  `api/v3/plugin/ansible/content/<distribution>/collections/index/...` and `.../collections/artifacts/<file>`;
+  artifacts at `collections/<ns>/<name>/<ns>-<name>-<version>.tar.gz`; hosted `POST api/v3/artifacts/collections/`,
+  `GET api/v3/imports/collections/<task>/`, `DELETE` of a version or a collection document; roles
+  `api/v1/roles/?owner__username=&name=`, `api/v1/roles/<id>/versions/`, `roles/<id>/<version>.tar.gz`. Names: Galaxy
+  NG's rule for new collections (`[a-z][a-z0-9_]*`, no `__`, ≤ 64) for uploads, `[A-Za-z0-9_]{1,64}` for lookups;
+  versions strict SemVer ≤ 128 characters (`waystation_common.galaxy`).
+- **Rendered documents** (`api.py`): built per request (`ETag`, `304`, `HEAD`, `Cache-Control: no-cache`); `href`s
+  and pagination `links` are server paths in the addressed repository (ansible-galaxy joins them with the server's
+  scheme and host), `download_url` is absolute. Version lists use Galaxy's `limit` (default 10, ≤ 100)/`offset`.
+- **Proxy**: upstream URLs = upstream root (a trailing `/api/` is dropped) + `collections_path` (option, default
+  `api/v3/plugin/ansible/content/published/collections/index/`; `api/v3/collections/` for plain v3 servers). The
+  collection document, every page of the version list (`?limit=100&offset=N`, at most 200 pages; a page older than
+  the first by more than a minute is fetched again so the pages line up) and each version document are METADATA
+  (≤ 16 MiB, JSON objects naming the asked collection; versions not SemVer are skipped). Version documents are
+  stored slimmed (`files`, `manifest`, `docs_blob`, `metadata.contents` dropped) and must carry a hex sha256 and an
+  http(s) `download_url`. Artifacts are CONTENT fetched from that `download_url` (redirects followed under the SSRF
+  guard) and verified against `artifact.sha256` and `size` while streaming; a cached artifact is served without a
+  document lookup. Version lists are recorded in `galaxy_collections` in the background (generation = digest of the
+  page blobs); version details add `sha256`/`size`.
+- **Hosted**: publish multipart (shared streaming reader `formats.common.multipart`), file part `file` named
+  `<ns>-<name>-<version>.tar.gz` (≤ 256 MiB), text field `sha256` checked at commit; refused with `409` when the
+  version exists or an upload of it is unfinished. The upload becomes a `galaxy_imports` task and an
+  `import.galaxy` job in one transaction (outbox); answer `202 {"task": "<repo path>api/v3/imports/collections/<id>/"}`.
+  The worker (`waystation_worker.galaxy`) reads the tarball in a thread without extracting it: regular files,
+  directories and symlinks resolving inside the collection only; names without absolute paths, `..`, backslashes or
+  control characters, ≤ 64 levels; ≤ 20 000 members, ≤ 2 GiB unpacked; `MANIFEST.json` (≤ 4 MiB) whose
+  `collection_info` names the uploaded namespace, name and SemVer version and whose `file_manifest_file` names
+  `FILES.json` with its sha256; `FILES.json` (≤ 32 MiB): every `file` entry present with that sha256 (links
+  followed), every archive file listed; dependencies a mapping of collection names to strings. Then the
+  `galaxy_collections` record (unique: immutability) and the artifact asset are written and the task completes;
+  failures finish the task with `error{code, description}` and an `ERROR` message. `requires_ansible` comes from
+  `meta/runtime.yml`. Deletes remove records and artifacts (audited per version).
+- **Group**: collection document = members' fields, highest version of the merged list; version list = union,
+  first member wins; version document and artifact from the first member that has the version (`X-Ws-Group-Member`);
+  failing members are skipped while another answers. Publishing goes to the writable member (RBAC on the member);
+  tasks of hosted members are polled through the group.
+- **Roles** (proxy option `roles`, default on): the v1 role search (one result set, non-numeric ids dropped) and a
+  role's version list (`page_size=50`, `next_link` followed on the upstream host only, ≤ 20 pages) are METADATA;
+  each version's `download_url` is rewritten to `roles/<id>/<version>.tar.gz`, cached as CONTENT from the upstream's
+  URL **unverified** (v1 has no checksums); versions without a URL are left without one, so ansible-galaxy falls back
+  to GitHub directly. Groups answer roles from their first proxy member that has them.
+- **Browse**: `galaxy/namespaces`, `galaxy/collections?namespace=&q=`, `galaxy/versions?namespace=&collection=`
+  from `galaxy_collections` (groups: the members' records, first member wins per version). Cleanup: artifacts
+  grouped per collection in SemVer order; hosted records whose artifact a policy removed are dropped after the run.
+- Clients verified (harness, recorded galaxy.ansible.com and GitHub fixtures): ansible-core 2.22 `ansible-galaxy
+  collection install` (proxy, group, `ansible.cfg` with a token), `collection publish` (hosted and through the
+  group, import polled), `role install` (proxy). Not done: Galaxy in the perf suite, global search, collection
+  signature verification (upstream `signatures` are passed through), publishing roles.
+
 ## Swift Package Registry — Phase 5
 Spec: Swift Package Registry Service (SE-0292, `swift package-registry`). `Accept: application/vnd.swift.registry.v1+json`, responses carry `Content-Version: 1`.
 - Endpoints: `GET /{scope}/{name}` (releases), `GET /{scope}/{name}/{version}` (metadata, `resources[{name:"source-archive", checksum}]`),
