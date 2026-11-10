@@ -1,4 +1,6 @@
-"""npm proxy (FORMATS.md "npm"; T-P2-NPM M0 slice).
+"""npm plugin (FORMATS.md "npm"): proxy (T-P2-NPM), hosted and group repositories (T-P5-NPMH).
+
+**Proxy**:
 
 - ``GET /<pkg>``, ``/@scope%2f<pkg>`` and ``/@scope/<pkg>``: the packument, full (``application/json``) or abbreviated
   (``Accept: application/vnd.npm.install-v1+json``), cached separately as metadata and revalidated after the
@@ -6,29 +8,42 @@
 - ``GET /<pkg>/-/<file>.tgz`` and the scoped form: the tarball, cached as content and verified while it streams
   against ``dist.integrity`` (SRI, sha512) and/or ``dist.shasum`` (sha1) from the cached abbreviated packument
   (fetched first when needed; looked up only on a cache miss). A tarball the packument does not list is 404.
-- ``/-/ping`` (answered locally), ``/-/whoami``, ``/-/v1/search`` (proxied, cached 5 minutes per query), audit POSTs
-  (``/-/npm/v1/security/...``, relayed uncached when ``audit_passthrough`` is on).
+- ``/-/v1/search`` (proxied, cached 5 minutes per query), audit POSTs (``/-/npm/v1/security/...``, relayed uncached
+  when ``audit_passthrough`` is on), ``GET -/package/<pkg>/dist-tags`` (from the cached packument). Writes: 405.
 
-Errors answer npm's JSON shape ``{"error": "..."}``. Hosted (publish, dist-tags) and group are later tasks.
+**Hosted** (``formats.npm.hosted``): publish, packuments generated from the stored versions, deprecate, unpublish,
+dist-tags, search. **Group** (``formats.npm.group``): merged packuments, tarballs from the members in order, writes
+to the writable member.
 
-Browse (``browser``, ``formats.npm.browse``): when a packument is stored, its summary is recorded in ``npm_packages``
-in the background (parsed in a thread), so the response never waits for it.
+**Every type**: ``/-/ping`` (answered locally), ``/-/whoami``, ``npm login --auth-type=legacy``
+(``PUT /-/user/org.couchdb.user:<name>``: the password is exchanged for a new API token of the user,
+``waystation_server.client_login``; the router does not authorise it, the sign-in applies the repository's
+visibility) and ``npm logout`` (``DELETE /-/user/token/<token>``: revokes the token the request used).
+
+Errors answer npm's JSON shape ``{"error": "..."}``.
+
+Browse (``browser``, ``formats.npm.browse``): when a proxy stores a packument, its summary is recorded in
+``npm_packages`` in the background (parsed in a thread), so the response never waits for it; hosted repositories
+write theirs with every change.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 
 from starlette.responses import JSONResponse, Response
 
-from waystation_common.errors import NotFound, PayloadTooLarge, WaystationError
+from waystation_common.errors import InsufficientStorage, NotFound, PayloadTooLarge, ValidationFailed, WaystationError
 from waystation_server.db import npm as npm_db
 from waystation_server.formats.base import FormatDescriptor, FormatRequest
 from waystation_server.formats.common.background import Background
-from waystation_server.formats.npm import metadata
+from waystation_server.formats.npm import metadata, publish
 from waystation_server.formats.npm.browse import NpmBrowse, parse_packument
 from waystation_server.formats.npm.descriptor import DESCRIPTOR, NpmOptions
+from waystation_server.formats.npm.group import NpmGroup
+from waystation_server.formats.npm.hosted import NpmHosted, read_body
 from waystation_server.formats.npm.metadata import Op, Route
 from waystation_server.proxy.engine import (
     AssetKind,
@@ -39,12 +54,15 @@ from waystation_server.proxy.engine import (
     StoredAsset,
     UpstreamInfo,
 )
+from waystation_server.repos.model import RepoConfig, RepoType
+from waystation_server.repos.quota import QuotaExceeded
 
 SEARCH_MAX_AGE_S = 300
 SEARCH_MAX_BYTES = 4 * 1024 * 1024
 MAX_QUERY_LENGTH = 2048
 AUDIT_MAX_REQUEST_BYTES = 16 * 1024 * 1024
 AUDIT_FORWARD_HEADERS = ('content-type', 'content-encoding', 'accept', 'npm-command')
+LOGIN_MAX_BYTES = 64 * 1024
 
 
 def npm_error(status: int, message: str, *, headers: dict[str, str] | None = None) -> Response:
@@ -59,6 +77,8 @@ class NpmPlugin:
     def __init__(self, descriptor: FormatDescriptor = DESCRIPTOR) -> None:
         self.descriptor = descriptor
         self.browser = NpmBrowse()
+        self.hosted = NpmHosted(self)
+        self.group = NpmGroup(self)
         self._indexing = Background('npm-packages')
 
     async def drain(self) -> None:
@@ -68,36 +88,94 @@ class NpmPlugin:
     async def handle(self, req: FormatRequest) -> Response:
         try:
             return await self._handle(req)
+        except QuotaExceeded as exc:  # a hard repository quota (SPECIFICATION §4.8)
+            return npm_error(403, exc.detail)
+        except InsufficientStorage:  # the low-disk guard
+            return npm_error(507, 'not enough free space in the blob store')
         except WaystationError as exc:
             headers = getattr(exc, 'headers', None)
             return npm_error(exc.status, exc.detail, headers=dict(headers) if headers else None)
+
+    @staticmethod
+    def wants_abbreviated(req: FormatRequest) -> bool:
+        return wants_abbreviated(req.request.headers.get('accept', ''))
 
     async def _handle(self, req: FormatRequest) -> Response:
         route = metadata.parse_route(req.path)
         if route is None:
             raise NotFound('Not Found')
         req.log(op=route.op.value)
-        if route.op is Op.AUDIT:
-            if req.method != 'POST':
-                return npm_error(405, 'method not allowed', headers={'Allow': 'POST'})
-            return await self._audit(req)
-        if req.method not in ('GET', 'HEAD'):
-            return npm_error(405, 'method not allowed', headers={'Allow': 'GET, HEAD'})
         match route.op:
-            case Op.PING:
-                return JSONResponse({})
-            case Op.WHOAMI:
+            case Op.LOGIN:
+                return await self._login(req, route)
+            case Op.LOGOUT:
+                return await self._logout(req, route)
+            case Op.PING | Op.WHOAMI:
+                if req.method not in ('GET', 'HEAD'):
+                    return npm_error(405, 'method not allowed', headers={'Allow': 'GET, HEAD'})
+                if route.op is Op.PING:
+                    return JSONResponse({})
                 if req.principal.is_anonymous:
                     return npm_error(401, 'authentication required')
                 return JSONResponse({'username': req.principal.name})
+        if req.repo.type is RepoType.GROUP:
+            return await self.group.handle(req, route)
+        if req.repo.type is RepoType.HOSTED:
+            return await self.hosted.handle(req, route)
+        return await self._proxy(req, route)
+
+    async def _proxy(self, req: FormatRequest, route: Route) -> Response:
+        if route.op is Op.AUDIT:
+            if req.method != 'POST':
+                return npm_error(405, 'method not allowed', headers={'Allow': 'POST'})
+            return await self.audit(req)
+        if req.method not in ('GET', 'HEAD'):
+            return npm_error(
+                405,
+                'this repository is a read-only proxy: publish to a hosted repository',
+                headers={'Allow': 'GET, HEAD'},
+            )
+        match route.op:
             case Op.SEARCH:
-                return await self._search(req)
+                return await self.search(req)
             case Op.PACKUMENT:
-                abbreviated = wants_abbreviated(req.request.headers.get('accept', ''))
+                abbreviated = self.wants_abbreviated(req)
                 return await req.proxy.serve(req, self.packument_spec(req, route.package, abbreviated=abbreviated))
             case Op.TARBALL:
                 return await req.proxy.serve(req, self.tarball_spec(req, route))
-        raise NotFound('Not Found')  # pragma: no cover - every Op is handled above
+            case Op.DIST_TAGS:
+                asset = await req.proxy.ensure(req, self.packument_spec(req, route.package, abbreviated=True))
+                data = await req.proxy.read(asset)
+                return JSONResponse(await asyncio.to_thread(publish.tags_of, data))
+        raise NotFound('Not Found')
+
+    # ------------------------------------------------------------------ npm login / logout
+    async def _login(self, req: FormatRequest, route: Route) -> Response:
+        if req.method != 'PUT':
+            return npm_error(405, 'method not allowed', headers={'Allow': 'PUT'})
+        raw = await read_body(req, LOGIN_MAX_BYTES)
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            body = None
+        if not isinstance(body, dict):
+            raise ValidationFailed('the body must be a JSON object')
+        name, password = body.get('name', route.arg), body.get('password')
+        if not isinstance(name, str) or not isinstance(password, str) or name != route.arg:
+            raise ValidationFailed('name and password are required')
+        secret = await req.sign_in(name, password, client='npm')
+        return JSONResponse(
+            {'ok': True, 'id': f'{metadata.COUCH_USER}{name}', 'token': secret},
+            status_code=201,
+            headers={'Cache-Control': 'no-store'},
+        )
+
+    async def _logout(self, req: FormatRequest, route: Route) -> Response:
+        if req.method != 'DELETE':
+            return npm_error(405, 'method not allowed', headers={'Allow': 'DELETE'})
+        if not await req.sign_out(route.arg):
+            raise NotFound('Not Found')
+        return JSONResponse({'ok': True})
 
     # ------------------------------------------------------------------ packuments and tarballs
     def packument_spec(
@@ -160,7 +238,7 @@ class NpmPlugin:
         raise NotFound('Not Found')
 
     # ------------------------------------------------------------------ pass-through endpoints
-    async def _search(self, req: FormatRequest) -> Response:
+    async def search(self, req: FormatRequest) -> Response:
         query = req.request.url.query
         if len(query) > MAX_QUERY_LENGTH:
             return npm_error(414, 'search query too long')
@@ -179,9 +257,13 @@ class NpmPlugin:
         )
         return await req.proxy.serve(req, spec)
 
-    async def _audit(self, req: FormatRequest) -> Response:
-        options = self.descriptor.parse_options(req.repo.format_options)
-        if not isinstance(options, NpmOptions) or not options.audit_passthrough:
+    def audits(self, repo: RepoConfig) -> bool:
+        """Does this proxy relay audit requests (``audit_passthrough``)?"""
+        options = self.descriptor.parse_options(repo.format_options)
+        return isinstance(options, NpmOptions) and options.audit_passthrough
+
+    async def audit(self, req: FormatRequest) -> Response:
+        if not self.audits(req.repo):
             raise NotFound('audit is not available from this repository')
         chunks: list[bytes] = []
         size = 0
