@@ -219,8 +219,7 @@ class ProvisioningFile(_Strict):
 
 
 def json_schema() -> dict[str, Any]:
-    """The JSON Schema of the file (``make provision-schema``; editors can validate with it)."""
+    """The JSON Schema (draft 2020-12, as pydantic writes it) of the file (``make provision-schema``; for editors)."""
     schema = ProvisioningFile.model_json_schema(mode='validation')
-    schema['$schema'] = 'https://json-schema.org/draft/2020-12/schema'
     schema['title'] = 'Waystation provisioning file'
     return schema
