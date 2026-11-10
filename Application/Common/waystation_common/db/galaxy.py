@@ -80,7 +80,11 @@ async def delete_version(
 
 
 async def drop_missing(db: Database, repo_id: str) -> int:
-    """Delete a hosted repository's version records whose artifact is gone (removed by a cleanup policy)."""
+    """Delete a hosted repository's version records whose artifact is gone (removed by a cleanup policy). Other
+    repositories are left alone: a proxy lists every upstream version, cached or not."""
+    repo = await repository(db, repo_id)
+    if repo is None or repo.get('type') != 'hosted':
+        return 0
     removed = 0
     cursor = db[GALAXY_COLLECTIONS].find({'repo_id': repo_id}, {'_id': 1, 'path': 1})
     batch: list[Document] = []

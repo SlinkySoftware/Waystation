@@ -3,6 +3,26 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-P5-GALAXY: Ansible Galaxy repositories (`waystation_server.formats.galaxy`, FORMATS.md "Ansible Galaxy").
+  Proxy: discovery (`api/`, v1 only where roles are proxied), collection, version list and version documents cached
+  as metadata (every upstream page, revalidated, validated, bounded; large fields dropped) and served with this
+  repository's URLs (`href`s, pagination `links`, `download_url`); upstream paths in the Galaxy NG layout by default
+  (`collections_path` option), Galaxy NG paths also accepted from clients; artifacts verified against the version's
+  sha256 and size while they stream. Hosted: `ansible-galaxy collection publish` (multipart streamed into the blob
+  store, `sha256` field checked, 256 MiB limit, quota), the import task and the new `import.galaxy` worker job
+  written in one transaction (outbox); the worker reads the archive without extracting it (tar-slip guards,
+  `MANIFEST.json`, `FILES.json` against the manifest checksum, every file's sha256, no unlisted files) and then lists
+  the version; `GET api/v3/imports/collections/<task>/` for polling; versions immutable; delete a version or a whole
+  collection; audited. Group: merged version lists (first member wins), documents and artifacts from the first
+  member that has the version, publishing and task polling through the writable member. Legacy v1 roles proxied
+  read-only (search, versions, archives cached unverified). New collections `galaxy_collections`, `galaxy_imports`
+  (TTL 30 days); repository deletion drops them. Browse `galaxy/namespaces`, `galaxy/collections`, `galaxy/versions`
+  (contract + UI renderer), create flow (galaxy.ansible.com preset, collections path, roles toggle), "Set me up"
+  (`ansible.cfg` server list with a token, install, requirements, publish, delete, roles). Cleanup groups artifacts
+  per collection in SemVer order. `formats.pypi.multipart` moved to `formats.common.multipart` (shared). Real-client
+  harness `tests/clients/galaxy/` (new `client-ansible`: ansible-core 2.22; galaxy.ansible.com, its S3 redirect and a
+  GitHub role archive recorded, 75 KB) and the fixture scrubber now redacts Pulp's `validate_token` query value.
+  `Documents/Operations/clients/galaxy.md`.
 - T-O07: backup and restore. `Build/Containers/backup/waystation-backup.sh` (bash + Docker only; `make backup`,
   `make restore`, `make verify-blobs`) works in a throwaway `mongo:8` container that borrows the worker's data mount,
   networks and MongoDB settings (URI never on a command line). Backup: `mongodump --archive --gzip` first, then the

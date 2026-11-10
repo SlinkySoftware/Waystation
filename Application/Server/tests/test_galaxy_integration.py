@@ -18,6 +18,7 @@ from pydantic import SecretStr
 from ws_fake_upstream import FakeUpstream, Respond
 from ws_testing import asgi_client
 
+from waystation_common.db import galaxy as galaxy_common_db
 from waystation_common.db.collections import ASSETS, AUDIT, GALAXY_COLLECTIONS, GALAXY_IMPORTS, JOB_OUTBOX
 from waystation_common.settings import Settings
 from waystation_server.bootstrap import ensure_bootstrap_admin
@@ -410,9 +411,23 @@ async def test_hosted_publish_import_delete(
     assert (await client.delete('/repository/mine/api/v3/collections/harness/demo/', headers=token)).status_code == 204
     assert await services.db[GALAXY_COLLECTIONS].count_documents({}) == 0
 
+    # a deleted version can be published again; an artifact removed behind the records' back (cleanup policy):
+    # hosted records follow, proxy listings stay
+    assert (await publish(client, 'mine', token, v1, 'harness-demo-1.0.0.tar.gz')).status_code == 202
+    await run_imports(services)
+    mine = await services.catalog.get('mine')
+    gal = await services.catalog.get('gal')
+    assert mine is not None and gal is not None
+    await services.db[ASSETS].delete_one(
+        {'repo_id': mine.id, 'path': 'collections/harness/demo/harness-demo-1.0.0.tar.gz'}
+    )
+    assert await galaxy_common_db.drop_missing(services.db, mine.id) == 1
+    assert await galaxy_common_db.drop_missing(services.db, gal.id) == 0
+    assert await galaxy_common_db.drop_missing(services.db, 'gone') == 0
+
     await services.audit.flush()
     actions = [d['action'] async for d in services.db[AUDIT].find({'target.kind': 'galaxy_collection'})]
-    assert actions.count('content.upload') == 3 and actions.count('content.delete') == 2
+    assert actions.count('content.upload') == 4 and actions.count('content.delete') == 2
 
     await create(admin, {'name': 'frozen', 'type': 'hosted', 'hosted': {'write_policy': 'read_only'}})
     frozen = await publish(client, 'frozen', token, v1, 'harness-demo-1.0.0.tar.gz')

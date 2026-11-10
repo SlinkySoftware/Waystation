@@ -68,7 +68,7 @@ async def cleanup_run(job: CleanupRun, ctx: JobContext) -> dict[str, Any]:
         if outcome.format == 'helm' and outcome.removed.items and outcome.repo_id:
             envelope = JobEnvelope.for_payload(HelmIndex(repo_id=outcome.repo_id), now=now)
             await jobs_db.outbox_add(ctx.db, envelope, now=now)
-        # Galaxy collection versions whose artifact a policy removed are no longer listed (waystation_worker.galaxy)
+        # hosted Galaxy collection versions whose artifact a policy removed are no longer listed
         if outcome.format == 'galaxy' and outcome.removed.items and outcome.repo_id:
             await galaxy_db.drop_missing(ctx.db, outcome.repo_id)
     return cleanup.summarise(policy, outcomes)
