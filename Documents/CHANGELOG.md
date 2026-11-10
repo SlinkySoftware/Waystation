@@ -3,6 +3,23 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-U10: users with few or no permissions. A user allowed to sign in (in the provider's required group) but holding
+  no role got major UI errors: the dashboard asked for statistics, upstream health, activity and storage (all 403),
+  the event stream was refused and retried forever, Activity, Storage and Cleanup showed load errors, Browse showed
+  skeletons for ever, Repositories offered "Create repository", repository pages loaded activity and upstream health,
+  and admin URLs loaded data that was refused. Server: a signed-in principal lacking a permission now gets problem
+  code `permission_required` (403), and `GET /auth/me` adds the capability `repositories.browse`; the answers were
+  already consistent and are now pinned by "signed in, no roles", "anonymous grants" and reader columns in the route
+  matrix (unit and integration). UI: every page route names its capability (guard → "No access to this page"), the
+  rail and command palette show only what the session holds, the live store follows only topics the session may
+  (`stats.read`; `admin` for `tasks`) and re-checks the session (at most every 30 s) instead of spinning when the
+  stream is refused, the dashboard becomes a landing without `stats.read` (your repositories, or "You are signed in,
+  but have no access yet"), repository pages drop live/activity/upstream health without `stats.read` and the
+  Cleanup/Settings tabs without `manage`, empty states offer "create" only to those who can, and a refused load
+  shows "Not available to you" (`LoadFailedState`). Mocks now apply the server's route rules (`mocks/access.ts`)
+  with mock users `nina` (no role), `reed` (reader), `gus` (anonymous grants) and `grace` (viewer); `make ui-smoke`
+  opens every rail page as each of them on the mock build (Playwright) and fails on any console error or refused
+  request (181 problems on the previous UI, none now).
 - T-O09: declarative provisioning. A YAML file (`WAYSTATION_PROVISION_FILE`, `Documents/Operations/PROVISIONING.md`,
   full example `provisioning.example.yaml`, JSON Schema `provisioning.schema.json` from the pydantic models) declares
   repositories (every format, type and option; cleanup attachments; groups whose members the same file creates),
