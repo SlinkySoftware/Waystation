@@ -91,7 +91,7 @@ class Status(StrEnum):
     STREAMING = 'streaming'  # the owner is writing ``uploads/<upload>``
     DONE = 'done'  # committed (``sha256``) or finished without a fill (``outcome``): look in the cache
     FAILED = 'failed'  # the fetch failed: followers answer the same error, nothing was cached
-    ABORTED = 'aborted'  # the owner gave up (its client left, shutdown, internal error): a follower takes over
+    ABORTED = 'aborted'  # the owner gave up (shutdown, internal error; not its client leaving): a follower takes over
 
 
 ACTIVE = frozenset({Status.PENDING, Status.STREAMING})
