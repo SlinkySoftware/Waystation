@@ -38,6 +38,16 @@ describe('authGuard', () => {
     expect(await authGuard(route({ fullPath: '/profile', name: 'profile' }), pending)).toBe(true)
   })
 
+  it('shows the no-access page instead of a page whose capability the session lacks', async () => {
+    const noRoles = { signedIn: true, ensureChecked: async () => {}, can: () => false }
+    const activity = route({ fullPath: '/activity?range=1h', name: 'activity', meta: { capability: 'stats.read' } })
+    expect(await authGuard(activity, noRoles)).toEqual({ name: 'no-access', query: { page: '/activity?range=1h' } })
+    expect(await authGuard(route({ fullPath: '/', name: 'dashboard' }), noRoles)).toBe(true)
+    expect(await authGuard(route({ fullPath: '/profile', name: 'profile' }), noRoles)).toBe(true)
+    const viewer = { ...noRoles, can: (c: string) => c === 'stats.read' }
+    expect(await authGuard(activity, viewer)).toBe(true)
+  })
+
   it('refuses open redirects', () => {
     expect(safeNext('//evil.example.com')).toBe('/')
     expect(safeNext('https://evil.example.com')).toBe('/')

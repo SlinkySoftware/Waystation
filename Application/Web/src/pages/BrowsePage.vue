@@ -4,7 +4,7 @@
   <q-page class="ws-page">
     <PageHeader :title="t('nav.browse')" :caption="t('browse.pageCaption')" />
     <div class="pick">
-      <q-skeleton v-for="i in (repos.items.length ? 0 : 6)" :key="i" height="96px" />
+      <q-skeleton v-for="i in (repos.items.length || repos.loaded ? 0 : 6)" :key="i" height="96px" />
       <router-link v-for="r in repos.items" :key="r.name" :to="{ name: 'repository', params: { name: r.name, tab: 'browse' } }" class="pick__card">
         <FormatIcon :mark="repoMark(r)" :size="26" brand />
         <div class="pick__text">
@@ -14,18 +14,24 @@
         <q-icon :name="iconChevronRight" size="20px" class="text-faint" />
       </router-link>
     </div>
+    <q-card v-if="repos.loaded && !repos.items.length">
+      <EmptyState illustration="repositories" :title="t('repos.emptyTitle')" :text="auth.can('repositories.create') ? t('repos.emptyText') : t('repos.emptyNoAccessText')" />
+    </q-card>
   </q-page>
 </template>
 
 <script setup lang="ts">
+import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { t } from '@/i18n'
+import { useAuthStore } from '@/stores/auth'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { formatLabel, repoMark } from '@/utils/domain'
 import { formatBytes, formatCount } from '@/utils/format'
 import { iconChevronRight } from '@/utils/icons'
 
+const auth = useAuthStore()
 const repos = useRepositoriesStore()
 void repos.load(true).catch(() => undefined)
 </script>
