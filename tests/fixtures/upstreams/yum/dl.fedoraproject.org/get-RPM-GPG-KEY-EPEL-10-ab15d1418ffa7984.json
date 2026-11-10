@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-10"
+  },
+  "response": {
+    "body_sha256": "de390fc168eae5ab2852e9e93d34a0b9ddf05cf9ce90ee28d97de26a4b1f6b93",
+    "body_size": 1656,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "1656"
+      ],
+      [
+        "etag",
+        "\"678-621694e1740b1\""
+      ],
+      [
+        "last-modified",
+        "Fri, 06 Sep 2024 01:27:05 GMT"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ]
+    ],
+    "status": 200
+  }
+}

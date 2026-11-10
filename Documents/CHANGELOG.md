@@ -3,6 +3,17 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-P2-YUM (done): the yum proxy can verify `repomd.xml` itself. New option `repomd_keys` (the upstream's armored
+  public keys, validated when saved): `repomd.xml.asc` is fetched with every new `repomd.xml`, which is cached only
+  when the signature verifies (else 502; stale-on-error applies); the verified `.asc` is served with it. In-house
+  OpenPGP verification `waystation_common.openpgp` on `cryptography` (v4 RSA/Ed25519 keys, SHA-2 signatures; SHA-1,
+  expired and unknown-critical signatures refused), tested against real Rocky Linux and AlmaLinux signatures. RPM
+  version order (`rpmvercmp` with `~`/`^`, epoch:version-release) as `yum_packages.version_sort` with index
+  `repo_name_sort`. Browse: `GET /api/v1/repositories/{name}/yum/packages` and `/yum/versions` and a yum renderer
+  (packages → files, plus the folder tree). yum is offered in the create dialog (proxy) with Rocky, AlmaLinux, Oracle
+  Linux and EPEL presets and its options (repository path, gpgkey, repomd keys). Harness: Oracle Linux 9 (`addons`),
+  EPEL 10, dnf 5 (Fedora 43) and zypper (openSUSE Leap 16) clients, an API token in the `.repo` (refused once
+  revoked), Rocky with `repomd_keys`; fixture budget 16 MiB (EPEL metadata).
 - T-O09: declarative provisioning. A YAML file (`WAYSTATION_PROVISION_FILE`, `Documents/Operations/PROVISIONING.md`,
   full example `provisioning.example.yaml`, JSON Schema `provisioning.schema.json` from the pydantic models) declares
   repositories (every format, type and option; cleanup attachments; groups whose members the same file creates),

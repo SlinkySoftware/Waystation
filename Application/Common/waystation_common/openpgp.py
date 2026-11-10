@@ -13,7 +13,7 @@ Deliberately small. What it reads:
   binding and revocation signatures, expiry and key flags are **not** evaluated (the operator chose the keys).
 - **Signatures** (tag 2), version 4, of a binary (0x00) or text (0x01) document with SHA-224/256/384/512. SHA-1 and
   MD5 signatures are refused. A critical hashed subpacket of an unknown type refuses the signature (RFC 9580
-  §5.2.3.11); an expired signature (creation time + signature expiration) is refused.
+  "critical" bit); an expired signature (creation time + signature expiration) is refused.
 
 Pure CPU work on bytes: callers on the event loop run it in a thread (ARCHITECTURE §9).
 """
@@ -62,7 +62,7 @@ SIG_BINARY = 0x00
 SIG_TEXT = 0x01
 SIG_POSITIVE_CERT = 0x13
 
-# Subpacket types (RFC 9580 §5.2.3.7).
+# Signature subpacket types (RFC 9580).
 SUB_CREATED = 2
 SUB_SIG_EXPIRES = 3
 SUB_KEY_EXPIRES = 9

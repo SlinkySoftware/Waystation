@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl.fedoraproject.org/pub/epel/10/Everything/x86_64/repodata/repomd.xml"
+  },
+  "response": {
+    "body_sha256": "9dbeb96a658b0e31f513ce1d91b53a20e4329a7957dc5437f21353d016f51980",
+    "body_size": 4066,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "4066"
+      ],
+      [
+        "content-type",
+        "text/xml"
+      ],
+      [
+        "etag",
+        "\"fe2-65fe354576d16\""
+      ],
+      [
+        "last-modified",
+        "Tue, 10 Nov 2026 03:03:57 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

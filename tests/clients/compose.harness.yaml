@@ -105,6 +105,15 @@ services:
   client-alma:  # dnf on AlmaLinux 10 (yum format)
     <<: *client
     image: almalinux:10.2
+  client-oracle:  # dnf on Oracle Linux 9 (yum format); the image has only a major-version tag: pinned by digest
+    <<: *client
+    image: oraclelinux:9@sha256:06f1c40f41e4026172cc2065103e313e454747ca48d40d165097c5297d764b38
+  client-fedora:  # dnf 5 on Fedora 43 (yum format smoke)
+    <<: *client
+    image: fedora:43
+  client-opensuse:  # zypper on openSUSE Leap 16.0 (yum format smoke)
+    <<: *client
+    image: opensuse/leap:16.0
   client-helm:  # helm 3 + curl (helm format)
     <<: *client
     image: alpine/helm:3.19.0

@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://yum.oracle.com/repo/OracleLinux/OL9/addons/x86_64/repodata/a9a6203ea21064ebbf9e0fc74077c6975fe4f227806210158596013f843d5018-primary.xml.gz"
+  },
+  "response": {
+    "body_sha256": "a9a6203ea21064ebbf9e0fc74077c6975fe4f227806210158596013f843d5018",
+    "body_size": 147886,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-type",
+        "application/x-gzip"
+      ],
+      [
+        "etag",
+        "\"4066db023c2bd511ea4bf29dd7a41e71:1793321672.679332\""
+      ],
+      [
+        "last-modified",
+        "Fri, 30 Oct 2026 00:54:19 GMT"
+      ],
+      [
+        "content-length",
+        "147886"
+      ]
+    ],
+    "status": 200
+  }
+}
