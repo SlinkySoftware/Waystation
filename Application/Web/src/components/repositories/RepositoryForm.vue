@@ -124,7 +124,7 @@
     </section>
 
     <section
-      v-if="model.format !== 'yum' && model.format !== 'helm' && !(model.format === 'maven' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy') && model.type !== 'proxy')"
+      v-if="!(model.format === 'yum' && model.type !== 'proxy') && model.format !== 'helm' && !(model.format === 'maven' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy') && model.type !== 'proxy')"
       class="repo-form__section"
     >
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
@@ -240,6 +240,43 @@
           />
           <q-toggle v-model="model.flat" :label="t('repoForm.flat')" class="col-auto" />
         </div>
+      </template>
+      <template v-else-if="model.format === 'yum'">
+        <div class="repo-form__row">
+          <q-input
+            v-model="model.repoPath"
+            outlined
+            dense
+            :label="t('repoForm.repoPath')"
+            :hint="t('repoForm.repoPathHint')"
+            class="col mono"
+            :error="!!errors['format_options.repo_path']"
+            :error-message="errors['format_options.repo_path']"
+          />
+          <q-input
+            :model-value="model.gpgKey ?? ''"
+            outlined
+            dense
+            :label="t('repoForm.gpgKey')"
+            :hint="t('repoForm.gpgKeyHint')"
+            class="col mono"
+            :error="!!errors['format_options.gpg_key']"
+            :error-message="errors['format_options.gpg_key']"
+            @update:model-value="(v: string | number | null) => (model.gpgKey = v ? String(v) : null)"
+          />
+        </div>
+        <q-input
+          v-model="model.repomdKeys"
+          outlined
+          dense
+          type="textarea"
+          autogrow
+          :label="t('repoForm.repomdKeys')"
+          :hint="t('repoForm.repomdKeysHint')"
+          class="mono"
+          :error="!!errors['format_options.repomd_keys']"
+          :error-message="errors['format_options.repomd_keys']"
+        />
       </template>
       <template v-else-if="model.format === 'maven'">
         <div class="repo-form__row">
@@ -400,7 +437,7 @@ const model = defineModel<RepoFormModel>({ required: true })
 
 const config = useConfigStore()
 const baseUrl = computed(() => config.config?.base_url ?? '')
-const presets = computed(() => (props.mode === 'create' && model.value.type === 'proxy' ? (model.value.format === 'yum' ? [] : PRESETS[model.value.format]) : []))
+const presets = computed(() => (props.mode === 'create' && model.value.type === 'proxy' ? PRESETS[model.value.format] : []))
 
 const repositories = useRepositoriesStore()
 void repositories.load().catch(() => undefined)

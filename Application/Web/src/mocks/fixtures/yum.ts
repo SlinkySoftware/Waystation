@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // yum/dnf repositories for the live generator: Rocky Linux 10, AlmaLinux 10, Oracle Linux 9 and EPEL 10, with
-// their real path layouts under the upstream base (FORMATS.md "yum / dnf"). There is no yum browse renderer yet
-// (T-P2-YUM), so these only feed `dnf makecache` / `dnf install` runs.
-import { fakeSha256, KiB, MiB } from '../rng'
+// their real path layouts under the upstream base (FORMATS.md "yum / dnf"). They feed `dnf makecache` / `dnf install`
+// runs and the yum browse view (packages → files); any other yum repository browses the EL10 BaseOS/AppStream set.
+import type { YumPackage, YumVersion } from '@/api/types'
+
+import { fakeSha256, hash, KiB, MiB } from '../rng'
+import { BASE_URL } from './repositories'
 
 interface RpmSeed {
   name: string
@@ -158,4 +161,59 @@ export function yumPackages(distro: string, arch: string): YumFile[] {
 export function dnfAgent(distro: string, arch: string): string {
   const d = YUM_DISTROS[distro]
   return `libdnf (${d?.agent ?? 'Rocky Linux 10.1'}; ${distro === 'oracle' ? 'server' : 'generic'}; Linux.${arch})`
+}
+
+const ROCKY = 'rocky'
+
+/** The rpm `version-release` of a seed one or two updates back (`-6.el10` → `-5.el10`). */
+function older(vr: string, steps: number): string {
+  return vr.replace(/-(\d+)/, (_m, rel: string) => `-${Math.max(1, Number(rel) - steps)}`)
+}
+
+function seedsOf(repo: string): { d: YumDistro; key: string } {
+  const key = YUM_DISTROS[repo] ? repo : ROCKY
+  return { d: YUM_DISTROS[key]!, key }
+}
+
+/** Packages the browse view lists: the distribution's seeds, newest first, with their architectures. */
+export function yumPackageList(repo: string): YumPackage[] {
+  const { d } = seedsOf(repo)
+  const byName = new Map<string, YumPackage>()
+  for (const p of d.pkgs) {
+    if (byName.has(p.name)) continue
+    byName.set(p.name, { name: p.name, latest_version: p.vr, arches: p.noarch ? ['noarch'] : [...d.archs].sort(), version_count: 1 + (hash(p.name) % 3), summary: null })
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** One package's files (every architecture, newest version first), the newest cached on the first architecture. */
+export function yumVersionsFor(repo: string, name: string, hosted = false): { package: YumPackage; versions: YumVersion[] } | null {
+  const { d } = seedsOf(repo)
+  const seed = d.pkgs.find((p) => p.name === name)
+  const pkg = yumPackageList(repo).find((p) => p.name === name)
+  if (!seed || !pkg) return null
+  const versions: YumVersion[] = []
+  for (let step = 0; step < pkg.version_count; step++) {
+    const vr = step === 0 ? seed.vr : older(seed.vr, step)
+    const [version, release] = [vr.slice(0, vr.indexOf('-')), vr.slice(vr.indexOf('-') + 1)]
+    for (const arch of pkg.arches) {
+      const base = d.base(seed.repo, arch === 'noarch' ? d.archs[0]! : arch)
+      const path = d.pkg(base, `${seed.name}-${vr}.${arch}.rpm`)
+      versions.push({
+        evr: vr,
+        epoch: '0',
+        version,
+        release,
+        arch,
+        path,
+        directory: base.replace(/\/$/, ''),
+        size_bytes: Math.round(seed.kib * KiB * (arch === 'aarch64' ? 0.96 : 1)),
+        checksum: `sha256:${fakeSha256(path)}`,
+        cached: hosted || (step === 0 && arch === pkg.arches[0]),
+        uploaded_at: hosted ? new Date(Date.now() - (step * 9 + (hash(path) % 7)) * 86_400_000).toISOString() : null,
+        download_url: `${BASE_URL}/repository/${repo}/${path}`,
+      })
+    }
+  }
+  return { package: pkg, versions }
 }

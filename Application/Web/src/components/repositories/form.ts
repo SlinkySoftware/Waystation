@@ -3,14 +3,14 @@
 import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
-/** Formats the form can hold: the creatable M0 formats, plus yum for editing existing repositories (options carried through). */
-export type FormFormat = M0Format | 'yum'
+/** Formats the form can hold: the creatable formats. */
+export type FormFormat = M0Format
 
 /** Repository types the form can create or edit: proxies for every format; hosted and group where the format serves them. */
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
 export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
@@ -83,9 +83,11 @@ export interface RepoFormModel {
   // maven
   versionPolicy: NonNullable<MavenOptions['version_policy']>
   layoutPolicy: NonNullable<MavenOptions['layout_policy']>
-  // yum: not edited in this form yet; carried through so saving keeps them
+  // yum (proxy)
   repoPath: string
   gpgKey: string | null
+  /** Armored public keys repomd.xml must be signed with; empty = not verified. */
+  repomdKeys: string
 }
 
 /** Provider registries a Terraform mirror serves by default (the server's default too). */
@@ -127,6 +129,12 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   galaxy: [{ id: 'galaxy', label: 'galaxy.ansible.com', apply: { name: 'galaxy-proxy', upstreamUrl: 'https://galaxy.ansible.com/' } }],
   terraform: [
     { id: 'registries', label: 'Terraform and OpenTofu registries', apply: { name: 'terraform-mirror', upstreamUrl: 'https://registry.terraform.io', tfOrigins: [...DEFAULT_TF_ORIGINS] } },
+  ],
+  yum: [
+    { id: 'rocky', label: 'Rocky Linux', apply: { name: 'rocky', upstreamUrl: 'https://dl.rockylinux.org/pub/rocky/' } },
+    { id: 'alma', label: 'AlmaLinux', apply: { name: 'almalinux', upstreamUrl: 'https://repo.almalinux.org/almalinux/' } },
+    { id: 'oracle', label: 'Oracle Linux', apply: { name: 'oracle', upstreamUrl: 'https://yum.oracle.com/repo/OracleLinux/' } },
+    { id: 'epel', label: 'EPEL', apply: { name: 'epel', upstreamUrl: 'https://dl.fedoraproject.org/pub/epel/' } },
   ],
 }
 
@@ -187,6 +195,7 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     layoutPolicy: 'strict',
     repoPath: '',
     gpgKey: null,
+    repomdKeys: '',
   }
 }
 
@@ -248,6 +257,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     layoutPolicy: o.layout_policy ?? 'strict',
     repoPath: o.repo_path ?? '',
     gpgKey: o.gpg_key ?? null,
+    repomdKeys: o.repomd_keys ?? '',
   }
 }
 
@@ -272,7 +282,7 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
     case 'terraform':
       return { origins: m.tfOrigins.map((h) => h.trim().toLowerCase()).filter(Boolean), verify_signatures: m.verifySignatures }
     case 'yum':
-      return { repo_path: m.repoPath, gpg_key: m.gpgKey }
+      return m.type === 'proxy' ? { repo_path: m.repoPath.trim(), gpg_key: m.gpgKey?.trim() || null, repomd_keys: m.repomdKeys.trim() || null } : {}
     case 'helm':
       return {}
     case 'galaxy':

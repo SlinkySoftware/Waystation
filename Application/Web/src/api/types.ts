@@ -89,6 +89,8 @@ export type NpmVersionPage = S['NpmVersionPage']
 export type HelmChart = S['HelmChart']
 export type HelmChartPage = S['HelmChartPage']
 export type HelmVersion = S['HelmVersion']
+export type YumPackage = S['YumPackage']
+export type YumVersion = S['YumVersion']
 export type HelmVersionPage = S['HelmVersionPage']
 export type GalaxyNamespace = S['GalaxyNamespace']
 export type GalaxyNamespacePage = S['GalaxyNamespacePage']
@@ -150,7 +152,7 @@ export type GcRun = S['GcRun']
 export type GcStatus = S['GcStatus']
 
 /** Formats with a working M0 implementation (create flow, Set me up, browse). */
-export const M0_FORMATS = ['docker', 'npm', 'apt', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'terraform'] as const satisfies readonly Format[]
+export const M0_FORMATS = ['docker', 'npm', 'apt', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'terraform', 'yum'] as const satisfies readonly Format[]
 export type M0Format = (typeof M0_FORMATS)[number]
 
 // Administration: sign-in providers and roles (T-A01).

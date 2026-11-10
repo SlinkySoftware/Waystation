@@ -1715,6 +1715,48 @@ paths:
               schema: { $ref: '#/components/schemas/HelmVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/yum/packages:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listYumPackages
+      summary: Packages of a yum repository (a proxy's cached primary.xml listings, hosted uploads), by name
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 250 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/YumPackagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/yum/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listYumVersions
+      summary: One package and its files (newest epoch-version-release first)
+      parameters:
+        - name: package
+          in: query
+          required: true
+          description: Package name
+          schema: { type: string, maxLength: 250 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Files
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/YumVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/galaxy/namespaces:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4073,6 +4115,7 @@ components:
       properties:
         repo_path: { type: string, maxLength: 200, default: '', description: 'Path of the yum repository (the directory holding `repodata/`) below the upstream URL, e.g. `$releasever/BaseOS/$basearch/os/`. Empty: derived for well-known upstreams, else the repository root. Only used by "Set me up" and "test upstream"' }
         gpg_key: { type: [string, 'null'], maxLength: 500, description: '`gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams' }
+        repomd_keys: { type: [string, 'null'], maxLength: 65536, description: "Armored OpenPGP public key block(s) of the upstream (e.g. the distribution's `RPM-GPG-KEY-*`). When set, a `repomd.xml` is cached only when its `repomd.xml.asc` verifies with one of these keys, and the verified `.asc` is served with it. Only for upstreams that sign `repomd.xml` (Rocky Linux, AlmaLinux); EPEL and Oracle Linux do not" }
     MavenArtifact:
       type: object
       required: [group_id, artifact_id, version_count]
@@ -4800,6 +4843,48 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/HelmVersion' }
+        next_cursor: { type: [string, 'null'] }
+    YumPackage:
+      type: object
+      required: [name, latest_version, arches, version_count]
+      properties:
+        name: { type: string }
+        latest_version: { type: string, description: 'Newest `[epoch:]version-release` (RPM version order)' }
+        arches: { type: array, items: { type: string } }
+        version_count: { type: integer, description: Distinct epoch-version-release values }
+        summary: { type: [string, 'null'] }
+    YumPackagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/YumPackage' }
+        next_cursor: { type: [string, 'null'] }
+    YumVersion:
+      type: object
+      required: [evr, epoch, version, release, arch, path, directory, cached, download_url]
+      properties:
+        evr: { type: string, description: '`[epoch:]version-release`' }
+        epoch: { type: string }
+        version: { type: string }
+        release: { type: string }
+        arch: { type: string }
+        path: { type: string, description: Path of the package file in the repository }
+        directory: { type: string, description: 'The yum repository directory (holding `repodata/`) listing it; empty: the root' }
+        size_bytes: { type: [integer, 'null'] }
+        checksum: { type: [string, 'null'], description: '`<algorithm>:<hex>` from the listing or the upload' }
+        cached: { type: boolean, description: 'The package file is stored (always true in hosted repositories)' }
+        uploaded_at: { type: [string, 'null'], format: date-time }
+        download_url: { type: string }
+    YumVersionPage:
+      type: object
+      required: [package, items, next_cursor]
+      properties:
+        package: { $ref: '#/components/schemas/YumPackage' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/YumVersion' }
         next_cursor: { type: [string, 'null'] }
     GalaxyNamespace:
       type: object

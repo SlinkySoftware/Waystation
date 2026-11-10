@@ -22,6 +22,7 @@ import { goModuleList, goVersionsFor } from './fixtures/go'
 import { terraformProviderList, terraformVersionsFor } from './fixtures/terraform'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
+import { yumPackageList, yumVersionsFor } from './fixtures/yum'
 import { genericTree, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
@@ -130,7 +131,9 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
     if (body.format === 'go' && body.type === 'hosted') {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy'].includes(body.format)) {
+    } else if (body.format === 'yum' && body.type === 'group') {
+      errors.push({ field: 'type', message: 'yum supports: proxy, hosted', code: 'unsupported' })
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -543,6 +546,27 @@ export const handlers = [
     const found = helmVersionsFor(repo.name, url.searchParams.get('chart') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ chart: found.chart, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/yum/packages`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'yum')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    return HttpResponse.json(paginate(yumPackageList(repo.name).filter((p) => !q || p.name.toLowerCase().includes(q)), url))
+  }),
+  http.get(`${API}/repositories/:name/yum/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'yum')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const found = yumVersionsFor(repo.name, url.searchParams.get('package') ?? '', repo.type === 'hosted')
+    if (!found) return notFound()
+    return HttpResponse.json({ package: found.package, ...paginate(found.versions, url) })
   }),
   http.get(`${API}/repositories/:name/galaxy/namespaces`, async ({ request, params }) => {
     const denied = guard(request)

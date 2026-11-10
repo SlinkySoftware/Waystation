@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
+import { yumPackageList, yumVersionsFor } from './fixtures/yum'
 import { quotaView, seedRepositories } from './fixtures/repositories'
 import { dnfRun } from './scenarios'
 import { setupGuide } from './setup'
@@ -69,6 +70,17 @@ describe('mock Set me up', () => {
     expect(repoFile.content).toContain('baseurl=https://registry.example.com/repository/rocky/$releasever/BaseOS/$basearch/os/')
     expect(repoFile.content).toContain('gpgcheck=1')
     expect(snippet('oracle', 'repo')).toContain('/repository/oracle/repo/OracleLinux/OL9/baseos/latest/$basearch/')
+  })
+
+  it('browses yum repos as packages with their files, newest first', () => {
+    const list = yumPackageList('rocky')
+    expect(list.map((p) => p.name)).toEqual([...list.map((p) => p.name)].sort((a, b) => a.localeCompare(b)))
+    const found = yumVersionsFor('rocky', 'bash')!
+    expect(found.package.arches).toEqual(['aarch64', 'x86_64'])
+    expect(found.versions[0]!.evr).toBe('5.2.26-6.el10')
+    expect(found.versions[0]!.path).toBe('10/BaseOS/aarch64/os/Packages/b/bash-5.2.26-6.el10.aarch64.rpm')
+    expect(found.versions.at(-1)!.evr < found.versions[0]!.evr || found.versions.length === 2).toBe(true)
+    expect(yumVersionsFor('rocky', 'nope')).toBeNull()
   })
 
   it('serves apt suites per archive', () => {

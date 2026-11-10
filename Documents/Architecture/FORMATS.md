@@ -319,11 +319,44 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   package with no entry looks up the closest enclosing directory with a cached `repomd.xml`, ensures and indexes its
   `primary` (waiting for it), then validates; otherwise it is served and recorded `unverified` and dropped if a later
   listing disagrees (or uses another algorithm). Other paths (`.treeinfo`, keys) are metadata by path, so files
-  over 128 MiB outside `repodata/` and packages (installer images) are not supported. Real clients: dnf 4 on Rocky
-  Linux 10 and AlmaLinux 10 against their `extras` repositories (`tests/clients/yum/`). Browse: the generic folder
-  tree only (no yum package view yet). Not yet: hosted, group, Oracle Linux 9 / EPEL / Fedora / zypper in the
-  harness, dnf 5, the `components` collection, a worker-side refresh of `primary` and re-verification of unverified
-  packages.
+  over 128 MiB outside `repodata/` and packages (installer images) are not supported.
+- Built (T-P2-YUM full, 2026-11-10): **verified `repomd.xml`** (option `repomd_keys`: the upstream's armored public
+  keys, validated when saved): right before a `repomd.xml` is fetched or revalidated upstream (the engine's `expect`
+  hook), its `repomd.xml.asc` is fetched fresh and cached, and the new `repomd.xml` is refused (502, nothing cached;
+  stale-on-error applies) unless that signature verifies with one of the keys (`waystation_common.openpgp`,
+  adr/0006: v4 keys with valid self-signatures, signing-capable, unexpired and unrevoked; SHA-2/SHA-3 data
+  signatures; verification runs in the engine's validation thread); client requests for `.asc` then bring `repomd.xml` up to date and serve the `.asc` stored with it (never
+  revalidated on its own). Rocky Linux and AlmaLinux sign `repomd.xml`; EPEL and Oracle Linux do not. **RPM version
+  order**: `formats.yum.evr` encodes `rpmvercmp` (digit/letter runs, numeric newer than alphabetic, `~` before the
+  end, `^` after it) and epoch:version-release as a sortable string, written as `version_sort` with every listing.
+  **Browse**: `GET /api/v1/repositories/{name}/yum/packages` (names with the newest EVR, architectures, distinct
+  EVRs; listed packages only) and `/yum/versions?package=` (files newest first with directory, checksum, size,
+  cached), UI renderer with packages / files (folder tree) views. **Real clients** (`tests/clients/yum/`): dnf 4 on
+  Rocky Linux 10 (`extras` with `repomd_keys`, then EPEL 10 `Everything` with the EPEL key fetched through the proxy
+  as `gpgkey`), AlmaLinux 10 (`extras`), Oracle Linux 9 (`addons`, `getPackage/` locations, filelists fetched by
+  dnf 4.14), dnf 5 on Fedora 43 and zypper on openSUSE Leap 16 (smoke: makecache/refresh with the `.asc` verified by
+  the client, download, `rpm -K`); fixtures about 8.7 MB (EPEL's primary and updateinfo), budget 16 MiB. The create
+  dialog offers yum (proxy) with Rocky/AlmaLinux/Oracle/EPEL presets and the options. Not yet: hosted (T-P5-YUMH),
+  yum 3 (EL7), the `components` collection, a worker-side refresh of `primary` and re-verification of unverified
+  packages (they are re-checked whenever a newer listing is cached). Group: not supported (SPEC §4.3).
+- Built (T-P5-YUMH, hosted, 2026-11-10): `formats/yum/hosted.py`, header reader `rpm.py`, worker
+  `waystation_worker.yum`. Upload `PUT <path>.rpm` (stored at that path) or `POST <dir>/` with the package as the body
+  (stored as `<dir>/<name>-<version>-<release>.<arch>.rpm`); nothing under `repodata/`. The RPM header (lead, signature
+  header padded to 8, main header; at most 64 MiB of header and 200 000 entries; every offset/count checked against
+  the store; RPMSIGTAG_SHA256 verified when present; name/version/release/arch charset-checked; source RPMs have
+  arch `src`) gives the package's `primary` entry (header range, provides/requires/conflicts/obsoletes and weak
+  dependencies with flags and EVR, `pre`, files in `/etc`, `*bin/*`, `/usr/lib/sendmail`), `filelists` entry (all
+  files, `dir`/`ghost` types) and `other` entry (10 newest changelog entries), rendered at upload with control
+  characters dropped and stored gzip-compressed on the record (at most 8 MiB). Requirements on `rpmlib()` and on what
+  the package provides or contains itself are dropped, as createrepo does. Write policy per SPEC §4.2; the same NEVRA
+  at another path is 409. The record and an `index.yum` job are written in one transaction; the worker rebuilds the
+  whole repodata from the records (records whose file is gone are dropped), streams `primary.xml.gz`,
+  `filelists.xml.gz`, `other.xml.gz` (named `<sha256>-<type>.xml.gz`, `packages` count exact), writes `repomd.xml`
+  (sha256 checksum and open-checksum, sizes, revision = build time), signs it (`repomd.xml.asc`, detached, SHA-512,
+  RSA 3072 repository key from `waystation_common.signing`) and switches `repomd.xml`, `.asc`, `RPM-GPG-KEY` and
+  `repodata/repomd.xml.key` in one transaction; repodata files older than the previous generation are removed.
+  Hosted repositories serve stored files only (404 before the first build). Clients: dnf 4 on Rocky Linux 10 in the
+  harness (`repo_gpgcheck=1`, `gpgcheck=0` for the unsigned test package, API token as the password).
 
 ## PyPI — Phase 5
 Specs: PEP 503 (simple HTML), PEP 691 (JSON simple API, `application/vnd.pypi.simple.v1+json`), PEP 658/714

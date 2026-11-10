@@ -1326,6 +1326,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/yum/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Packages of a yum repository (a proxy's cached primary.xml listings, hosted uploads), by name */
+        get: operations["listYumPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/yum/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One package and its files (newest epoch-version-release first) */
+        get: operations["listYumVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/galaxy/namespaces": {
         parameters: {
             query?: never;
@@ -3222,6 +3260,8 @@ export interface components {
             repo_path: string;
             /** @description `gpgkey` for the "Set me up" `.repo` file. Empty: the distribution key for well-known upstreams */
             gpg_key?: string | null;
+            /** @description Armored OpenPGP public key block(s) of the upstream (e.g. the distribution's `RPM-GPG-KEY-*`). When set, a `repomd.xml` is cached only when its `repomd.xml.asc` verifies with one of these keys, and the verified `.asc` is served with it. Only for upstreams that sign `repomd.xml` (Rocky Linux, AlmaLinux); EPEL and Oracle Linux do not */
+            repomd_keys?: string | null;
         };
         MavenArtifact: {
             group_id: string;
@@ -3884,6 +3924,44 @@ export interface components {
         HelmVersionPage: {
             chart: components["schemas"]["HelmChart"];
             items: components["schemas"]["HelmVersion"][];
+            next_cursor: string | null;
+        };
+        YumPackage: {
+            name: string;
+            /** @description Newest `[epoch:]version-release` (RPM version order) */
+            latest_version: string;
+            arches: string[];
+            /** @description Distinct epoch-version-release values */
+            version_count: number;
+            summary?: string | null;
+        };
+        YumPackagePage: {
+            items: components["schemas"]["YumPackage"][];
+            next_cursor: string | null;
+        };
+        YumVersion: {
+            /** @description `[epoch:]version-release` */
+            evr: string;
+            epoch: string;
+            version: string;
+            release: string;
+            arch: string;
+            /** @description Path of the package file in the repository */
+            path: string;
+            /** @description The yum repository directory (holding `repodata/`) listing it; empty: the root */
+            directory: string;
+            size_bytes?: number | null;
+            /** @description `<algorithm>:<hex>` from the listing or the upload */
+            checksum?: string | null;
+            /** @description The package file is stored (always true in hosted repositories) */
+            cached: boolean;
+            /** Format: date-time */
+            uploaded_at?: string | null;
+            download_url: string;
+        };
+        YumVersionPage: {
+            package: components["schemas"]["YumPackage"];
+            items: components["schemas"]["YumVersion"][];
             next_cursor: string | null;
         };
         GalaxyNamespace: {
@@ -7449,6 +7527,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HelmVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listYumPackages: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["YumPackagePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listYumVersions: {
+        parameters: {
+            query: {
+                /** @description Package name */
+                package: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Files */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["YumVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];

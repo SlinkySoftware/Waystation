@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-Rocky-10"
+  },
+  "response": {
+    "body_sha256": "be8c4f070b696e64d8ce40e59a95a57e8b5c776f0015c2fd64e14b896622bdb4",
+    "body_size": 1688,
+    "headers": [
+      [
+        "content-length",
+        "1688"
+      ],
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "last-modified",
+        "Fri, 30 May 2025 06:25:25 GMT"
+      ],
+      [
+        "etag",
+        "\"68394f55-698\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, no-cache"
+      ]
+    ],
+    "status": 200
+  }
+}

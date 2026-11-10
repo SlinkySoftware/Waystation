@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl.fedoraproject.org/pub/epel/10/Everything/x86_64/repodata/057e2c7d64eff41a538dd887911d8453f10dc087e1a1795e7f4d7664c986a696-updateinfo.xml.zst"
+  },
+  "response": {
+    "body_sha256": "057e2c7d64eff41a538dd887911d8453f10dc087e1a1795e7f4d7664c986a696",
+    "body_size": 3026488,
+    "headers": [
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "3026488"
+      ],
+      [
+        "content-type",
+        "application/zstd"
+      ],
+      [
+        "etag",
+        "\"2e2e38-65fe35456481f\""
+      ],
+      [
+        "last-modified",
+        "Tue, 10 Nov 2026 03:03:57 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

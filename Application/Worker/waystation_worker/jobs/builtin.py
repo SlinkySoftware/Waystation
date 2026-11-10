@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from waystation_common.crypto import Keyring
 from waystation_common.db import galaxy as galaxy_db
 from waystation_common.db import jobs as jobs_db
 from waystation_common.db.blobs import MongoBlobGuard
@@ -24,9 +25,11 @@ from waystation_common.jobs.model import (
     WebhookDeliver,
     WebhookEvent,
     WebhookSweep,
+    YumIndex,
 )
+from waystation_common.signing import KeyStore
 from waystation_common.storage import BlobStore
-from waystation_worker import cleanup, galaxy, gc, helm, quota, rollup, verify, webhooks
+from waystation_worker import cleanup, galaxy, gc, helm, quota, rollup, verify, webhooks, yum
 from waystation_worker.jobs.context import JobContext
 from waystation_worker.jobs.registry import handles
 
@@ -67,6 +70,9 @@ async def cleanup_run(job: CleanupRun, ctx: JobContext) -> dict[str, Any]:
     for outcome in outcomes:  # hosted Helm charts removed: their index must drop them (waystation_worker.helm)
         if outcome.format == 'helm' and outcome.removed.items and outcome.repo_id:
             envelope = JobEnvelope.for_payload(HelmIndex(repo_id=outcome.repo_id), now=now)
+            await jobs_db.outbox_add(ctx.db, envelope, now=now)
+        if outcome.format == 'yum' and outcome.removed.items and outcome.repo_id:  # hosted RPMs removed
+            envelope = JobEnvelope.for_payload(YumIndex(repo_id=outcome.repo_id), now=now)
             await jobs_db.outbox_add(ctx.db, envelope, now=now)
         # hosted Galaxy collection versions whose artifact a policy removed are no longer listed
         if outcome.format == 'galaxy' and outcome.removed.items and outcome.repo_id:
@@ -191,6 +197,23 @@ async def helm_index(job: HelmIndex, ctx: JobContext) -> dict[str, Any]:
     if result is None:
         return {'repo_id': job.repo_id, 'skipped': 'not a hosted Helm repository (deleted?)'}
     await ctx.log(f'published index.yaml: {result.charts} charts, {result.versions} versions, {result.size} bytes')
+    return {'repo_id': job.repo_id, **result.as_dict()}
+
+
+@handles(YumIndex)
+async def yum_index(job: YumIndex, ctx: JobContext) -> dict[str, Any]:
+    """Regenerate, sign and publish a hosted yum repository's repodata (``waystation_worker.yum``)."""
+    if ctx.settings is None:
+        raise RuntimeError('the yum index needs the worker settings (data directory, secret keys)')
+    store = BlobStore.from_settings(ctx.settings)
+    store.guard = MongoBlobGuard(ctx.db)  # the commit claims the blob against GC (ARCHITECTURE §5)
+    keys = KeyStore.in_data_dir(ctx.settings.data_dir, Keyring.from_settings(ctx.settings.secret_keys))
+    result = await yum.rebuild(ctx.db, store, keys, job.repo_id, now=ctx.now())
+    if result is None:
+        return {'repo_id': job.repo_id, 'skipped': 'not a hosted yum repository (deleted?)'}
+    await ctx.log(
+        f'published repodata: {result.packages} packages, revision {result.revision}, key {result.fingerprint}'
+    )
     return {'repo_id': job.repo_id, **result.as_dict()}
 
 
