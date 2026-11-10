@@ -124,7 +124,7 @@ class SetupGuide(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
-def _proxy_view(repo: RepoConfig) -> ProxyConfig | None:
+def proxy_view(repo: RepoConfig) -> ProxyConfig | None:
     if repo.proxy is None:
         return None
     p = repo.proxy
@@ -143,7 +143,7 @@ def _proxy_view(repo: RepoConfig) -> ProxyConfig | None:
     )
 
 
-def _hosted_view(repo: RepoConfig) -> HostedConfig | None:
+def hosted_view(repo: RepoConfig) -> HostedConfig | None:
     if repo.type is not RepoType.HOSTED:
         return None
     if repo.hosted is None:
@@ -153,7 +153,7 @@ def _hosted_view(repo: RepoConfig) -> HostedConfig | None:
     )
 
 
-def _group_view(repo: RepoConfig) -> GroupConfig | None:
+def group_view(repo: RepoConfig) -> GroupConfig | None:
     if repo.type is not RepoType.GROUP or repo.group is None:
         return None
     return GroupConfig(members=list(repo.group.members), writable_member=repo.group.writable_member)
@@ -186,9 +186,9 @@ def to_view(
         description=repo.description,
         status=status,
         url=f'{svc.base_url}/repository/{repo.name}/',
-        proxy=_proxy_view(repo),
-        hosted=_hosted_view(repo),
-        group=_group_view(repo),
+        proxy=proxy_view(repo),
+        hosted=hosted_view(repo),
+        group=group_view(repo),
         storage=StorageConfig(quota_bytes=repo.storage.quota_bytes, quota_mode=repo.storage.quota_mode),
         quota=_quota_view(quota),
         format_options=repo.format_options,

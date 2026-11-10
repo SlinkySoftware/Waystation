@@ -209,7 +209,7 @@ def _view(doc: Document, last: Document | None) -> Webhook:
     )
 
 
-def _audit_view(doc: Document) -> dict[str, Any]:
+def audit_view(doc: Document) -> dict[str, Any]:
     """What the audit trail compares: everything but the encrypted values (``secret`` is reported as redacted)."""
     return {
         'name': doc.get('name'),
@@ -231,7 +231,7 @@ def _target(doc: Document) -> audit.AuditTarget:
     return audit.target('webhook', str(doc['_id']), doc.get('name'))
 
 
-def _validate(svc: Services, body: WebhookWrite, *, creating: bool) -> None:
+def validate(svc: Services, body: WebhookWrite, *, creating: bool) -> None:
     errors: list[FieldError] = []
     problem = wh.check_url(body.url)
     if problem:
@@ -271,12 +271,12 @@ def _validate(svc: Services, body: WebhookWrite, *, creating: bool) -> None:
         raise FieldErrors(errors)
 
 
-def _fields(svc: Services, body: WebhookWrite, webhook_id: str) -> Document:
+def stored_fields(svc: Services, body: WebhookWrite, webhook_id: str) -> Document:
     fields: Document = body.model_dump(mode='python', exclude={'secret', 'headers'})
     fields['repositories'] = list(dict.fromkeys(body.repositories))
     fields['events'] = list(dict.fromkeys(body.events))
     if body.secret:
-        assert svc.keyring is not None  # checked by _validate
+        assert svc.keyring is not None  # checked by validate
         fields['secret_enc'] = svc.keyring.encrypt_str(body.secret, aad=secret_aad(webhook_id))
     if body.headers is not None:
         fields['header_names'] = sorted(body.headers, key=str.lower)
@@ -337,14 +337,14 @@ async def list_webhooks(request: Request, svc: ServicesDep) -> WebhookList:
 @access.requires(Action.ADMIN)
 async def create_webhook(body: WebhookWrite, request: Request, response: Response, svc: ServicesDep) -> Webhook:
     principal = await authenticate(request)
-    _validate(svc, body, creating=True)
+    validate(svc, body, creating=True)
     webhook_id = new_id()
     now = datetime.now(UTC)
     doc: Document = {
         '_id': webhook_id,
         'header_names': [],
         'headers_enc': None,
-        **_fields(svc, body, webhook_id),
+        **stored_fields(svc, body, webhook_id),
         'created_at': now,
         'created_by': principal.id,
         'updated_at': now,
@@ -352,7 +352,7 @@ async def create_webhook(body: WebhookWrite, request: Request, response: Respons
     }
     await webhooks_db.insert_webhook(svc.db, doc)
     svc.webhooks.invalidate()
-    audit.record(AuditAction.WEBHOOK_CREATE, target=_target(doc), changes=audit.diff(None, _audit_view(doc)))
+    audit.record(AuditAction.WEBHOOK_CREATE, target=_target(doc), changes=audit.diff(None, audit_view(doc)))
     response.headers['Location'] = f'/api/v1/webhooks/{webhook_id}'
     return _view(doc, None)
 
@@ -375,13 +375,13 @@ async def get_webhook(webhook_id: WebhookId, request: Request, svc: ServicesDep)
 async def update_webhook(webhook_id: WebhookId, body: WebhookWrite, request: Request, svc: ServicesDep) -> Webhook:
     principal = await authenticate(request)
     before = await _webhook_or_404(svc, webhook_id)
-    _validate(svc, body, creating=False)
-    fields = {**_fields(svc, body, webhook_id), 'updated_at': datetime.now(UTC), 'updated_by': principal.id}
+    validate(svc, body, creating=False)
+    fields = {**stored_fields(svc, body, webhook_id), 'updated_at': datetime.now(UTC), 'updated_by': principal.id}
     doc = await webhooks_db.update_webhook(svc.db, webhook_id, fields)
     if doc is None:
         raise NotFound('Not Found')
     svc.webhooks.invalidate()
-    changes = audit.diff(_audit_view(before), _audit_view(doc))
+    changes = audit.diff(audit_view(before), audit_view(doc))
     if changes:
         audit.record(AuditAction.WEBHOOK_UPDATE, target=_target(doc), changes=changes)
     last = await webhooks_db.last_deliveries(svc.db, [webhook_id])
@@ -395,7 +395,7 @@ async def delete_webhook(webhook_id: WebhookId, request: Request, svc: ServicesD
     if not await webhooks_db.delete_webhook(svc.db, webhook_id):
         raise NotFound('Not Found')
     svc.webhooks.invalidate()
-    audit.record(AuditAction.WEBHOOK_DELETE, target=_target(doc), changes=audit.diff(_audit_view(doc), None))
+    audit.record(AuditAction.WEBHOOK_DELETE, target=_target(doc), changes=audit.diff(audit_view(doc), None))
     return Response(status_code=204)
 
 
