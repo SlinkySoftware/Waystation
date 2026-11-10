@@ -1,4 +1,4 @@
-"""A streaming ``multipart/form-data`` reader for the PyPI upload API (twine, ``uv publish``).
+"""A streaming ``multipart/form-data`` reader for upload APIs (PyPI: twine, ``uv publish``; Ansible Galaxy publish).
 
 The request body is read once, incrementally: text fields are collected (bounded), and a file part is handed to the
 caller as an async iterator of chunks, so a distribution streams straight into the blob store without a temporary
