@@ -8,22 +8,58 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   write policy, refusal of the same package at another path and `DELETE`. The worker job `index.yum` (outbox, dirty
   flag) builds gzip `primary`/`filelists`/`other` and `repomd.xml`, signs it with the repository's own key and
   publishes atomically (previous generation kept); the public key is served at `RPM-GPG-KEY`. Signing sits in
-  `waystation_common.signing` (RSA 3072 per repository, encrypted with `WAYSTATION_SECRET_KEYS` under `keys/`) on the
-  in-house `waystation_common.openpgp`: ADR 0007 drafted, **Proposed** (needs the owner's approval; gpg is the
+  `waystation_common.signing` (RSA 3072 per repository, encrypted with `WAYSTATION_SECRET_KEYS` under `keys/`; packets
+  written in-house, verified by `waystation_common.openpgp`): ADR 0007 drafted, **Proposed** (needs the owner's approval; gpg is the
   fallback). Browse shows uploads, "Set me up" gives the `.repo` file (`repo_gpgcheck=1`, gpgkey, credentials) and
   curl commands, the create dialog offers hosted yum. Harness: rpmbuild in the Rocky client, upload, dnf
   install/upgrade with `repo_gpgcheck=1`, delete.
 - T-P2-YUM (done): the yum proxy can verify `repomd.xml` itself. New option `repomd_keys` (the upstream's armored
   public keys, validated when saved): `repomd.xml.asc` is fetched with every new `repomd.xml`, which is cached only
-  when the signature verifies (else 502; stale-on-error applies); the verified `.asc` is served with it. In-house
-  OpenPGP verification `waystation_common.openpgp` on `cryptography` (v4 RSA/Ed25519 keys, SHA-2 signatures; SHA-1,
-  expired and unknown-critical signatures refused), tested against real Rocky Linux and AlmaLinux signatures. RPM
+  when the signature verifies (else 502; stale-on-error applies); the verified `.asc` is served with it. Verified
+  with `waystation_common.openpgp` (adr/0006), tested against real Rocky Linux and AlmaLinux signatures. RPM
   version order (`rpmvercmp` with `~`/`^`, epoch:version-release) as `yum_packages.version_sort` with index
   `repo_name_sort`. Browse: `GET /api/v1/repositories/{name}/yum/packages` and `/yum/versions` and a yum renderer
   (packages → files, plus the folder tree). yum is offered in the create dialog (proxy) with Rocky, AlmaLinux, Oracle
   Linux and EPEL presets and its options (repository path, gpgkey, repomd keys). Harness: Oracle Linux 9 (`addons`),
   EPEL 10, dnf 5 (Fedora 43) and zypper (openSUSE Leap 16) clients, an API token in the `.repo` (refused once
   revoked), Rocky with `repomd_keys`; fixture budget 16 MiB (EPEL metadata).
+- T-U10: users with few or no permissions. A user allowed to sign in (in the provider's required group) but holding
+  no role got major UI errors: the dashboard asked for statistics, upstream health, activity and storage (all 403),
+  the event stream was refused and retried forever, Activity, Storage and Cleanup showed load errors, Browse showed
+  skeletons for ever, Repositories offered "Create repository", repository pages loaded activity and upstream health,
+  and admin URLs loaded data that was refused. Server: a signed-in principal lacking a permission now gets problem
+  code `permission_required` (403), and `GET /auth/me` adds the capability `repositories.browse`; the answers were
+  already consistent and are now pinned by "signed in, no roles", "anonymous grants" and reader columns in the route
+  matrix (unit and integration). UI: every page route names its capability (guard → "No access to this page"), the
+  rail and command palette show only what the session holds, the live store follows only topics the session may
+  (`stats.read`; `admin` for `tasks`) and re-checks the session (at most every 30 s) instead of spinning when the
+  stream is refused, the dashboard becomes a landing without `stats.read` (your repositories, or "You are signed in,
+  but have no access yet"), repository pages drop live/activity/upstream health without `stats.read` and the
+  Cleanup/Settings tabs without `manage`, empty states offer "create" only to those who can, and a refused load
+  shows "Not available to you" (`LoadFailedState`). Mocks now apply the server's route rules (`mocks/access.ts`)
+  with mock users `nina` (no role), `reed` (reader), `gus` (anonymous grants) and `grace` (viewer); `make ui-smoke`
+  opens every rail page as each of them on the mock build (Playwright) and fails on any console error or refused
+  request (181 problems on the previous UI, none now).
+- ADR 0005 (401 challenge for anonymous requests to hidden repositories on format routes) accepted; implementation queued.
+- T-P5-TFP: Terraform/OpenTofu provider network mirror (`formats/terraform/`, proxy repositories). Clients'
+  network mirror protocol at `/repository/<repo>/<hostname>/<namespace>/<type>/index.json`, `<version>.json` (per
+  platform the archive URL and `zh:` hash, plus `h1:` for archives the repository has cached, computed while they are
+  committed) and the archives (content, X-Accel). The origin is reached like Terraform does: service discovery
+  (`providers.v1`), the version list (metadata, revalidated), the platform download documents, `SHA256SUMS` and the
+  archive from wherever the registry points (redirects followed, SSRF guard on every hop; upstream credentials only
+  to the upstream URL's host). `SHA256SUMS` is cached only after its detached OpenPGP signature verified with the
+  signing keys the registry publishes (option `verify_signatures`) and it names the registry's archive with the same
+  sha256; archives are verified against it before they are committed. Origin allowlist per repository (`origins`,
+  default registry.terraform.io and registry.opentofu.org, plus the upstream URL's host). New
+  `waystation_common.openpgp` (v4 RSA/ECDSA/EdDSA detached-signature verification on `cryptography`, Terraform's
+  key policy; adr/0006, accepted 2026-11-10), `terraform_providers` collection, browse API `terraform/providers` and
+  `terraform/versions`, search (kind `package`), SemVer cleanup order. UI: Terraform tile in the create flow
+  (proxy), options (origin registries, signature verification), browse renderer (providers → versions → archives
+  with `zh:`/`h1:`), "Set me up" (CLI configuration with `network_mirror` and a `credentials` block, `TF_TOKEN_*`),
+  mocks. Real-client harness `tests/clients/terraform/` (terraform 1.17 and tofu 1.13 through a TLS front: init and
+  apply of `hashicorp/null` 3.1.0 from both registries, anonymous and with an API token; a token limited to other
+  repositories is refused), recorded (fixture budget raised to 11 MiB / 5 MiB per file: two provider archives) and
+  replayed. Client guide `Documents/Operations/clients/terraform.md`.
 - T-O09: declarative provisioning. A YAML file (`WAYSTATION_PROVISION_FILE`, `Documents/Operations/PROVISIONING.md`,
   full example `provisioning.example.yaml`, JSON Schema `provisioning.schema.json` from the pydantic models) declares
   repositories (every format, type and option; cleanup attachments; groups whose members the same file creates),

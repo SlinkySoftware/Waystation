@@ -180,7 +180,7 @@ async def test_keycloak_sign_in_groups_and_logout(
         me = (await browser.get('/api/v1/auth/me')).json()
         assert me['user']['username'] == 'alice' and me['user']['source'] == f'oidc:{pid}'
         assert me['user']['email'] == 'alice@example.com' and me['user']['display_name'] == 'Alice Example'
-        assert me['capabilities'] == ['stats.read']  # /platform/ops → "ops" → viewer
+        assert me['capabilities'] == ['repositories.browse', 'stats.read']  # /platform/ops → "ops" → viewer
         user = await services.db[USERS].find_one({'username': 'alice'})
         assert user is not None
         assert {g['id'] for g in user['external_groups']} == {'/developers', '/platform/ops'}
@@ -365,7 +365,7 @@ async def test_authentik_discovery_sign_in_and_logout(
         assert callback.headers['location'] == '/ui/browse'
         me = (await browser.get('/api/v1/auth/me')).json()
         assert me['user']['username'] == 'alice' and me['user']['email'] == 'alice@example.com'
-        assert me['capabilities'] == ['stats.read']  # authentik group "ops" → viewer
+        assert me['capabilities'] == ['repositories.browse', 'stats.read']  # authentik group "ops" → viewer
         out = await browser.post('/api/v1/auth/logout', headers={'X-CSRF-Token': me['csrf_token']})
         url = out.json()['end_session_url']
         assert url and url.startswith(f'{issuer}end-session/') and query_of(url)['client_id'] == 'waystation'

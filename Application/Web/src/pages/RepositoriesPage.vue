@@ -99,9 +99,9 @@
         </template>
 
         <template #no-data>
-          <EmptyState class="full-width" :illustration="filtered ? 'search' : 'repositories'" :title="filtered ? t('repos.noMatch') : t('repos.emptyTitle')" :text="filtered ? t('repos.noMatchText') : t('repos.emptyText')">
+          <EmptyState class="full-width" :illustration="filtered ? 'search' : 'repositories'" :title="filtered ? t('repos.noMatch') : t('repos.emptyTitle')" :text="filtered ? t('repos.noMatchText') : auth.can('repositories.create') ? t('repos.emptyText') : t('repos.emptyNoAccessText')">
             <q-btn v-if="filtered" flat no-caps :label="t('repos.clearFilters')" @click="clearFilters" />
-            <q-btn v-else unelevated no-caps color="primary" :label="t('repos.create')" @click="creating = true" />
+            <q-btn v-else-if="auth.can('repositories.create')" unelevated no-caps color="primary" :label="t('repos.create')" @click="creating = true" />
           </EmptyState>
         </template>
       </q-table>

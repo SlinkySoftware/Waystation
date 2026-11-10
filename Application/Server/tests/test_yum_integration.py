@@ -12,7 +12,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from ws_fake_upstream import FakeUpstream, Respond
 
-from waystation_common import openpgp
+from waystation_common import signing
 from waystation_common.db.collections import ASSETS, REPOSITORIES, YUM_PACKAGES
 from waystation_common.settings import Settings
 from waystation_server.formats.yum.plugin import YumPlugin
@@ -319,11 +319,10 @@ async def test_other_paths_and_methods(client: httpx.AsyncClient, upstream: Fake
 
 
 # ---------------------------------------------------------------------------- verified repomd.xml (repomd_keys)
-def _signer() -> tuple[rsa.RSAPrivateKey, openpgp.PublicKey, str]:
+def _signer() -> tuple[rsa.RSAPrivateKey, signing.PublicPart, str]:
     private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    key = openpgp.parse_public_key(openpgp.rsa_key_body(private.public_key(), 1_700_000_000))
-    assert key is not None
-    return private, key, openpgp.certificate(private, key, 'upstream test key', created=1_700_000_000)
+    key = signing.PublicPart.of(private, 1_700_000_000)
+    return private, key, signing.certificate(private, key, 'upstream test key', created=1_700_000_000)
 
 
 async def test_repomd_keys_verify_repomd_against_its_signature(
@@ -334,8 +333,8 @@ async def test_repomd_keys_verify_repomd_against_its_signature(
     await services.db[REPOSITORIES].update_one({'_id': repo}, {'$set': {'format_options': {'repomd_keys': cert}}})
     services.catalog.invalidate()
 
-    def sign(directory: str, doc: bytes, signer: rsa.RSAPrivateKey, public: openpgp.PublicKey) -> None:
-        asc = openpgp.sign_detached(signer, public, doc).encode()
+    def sign(directory: str, doc: bytes, signer: rsa.RSAPrivateKey, public: signing.PublicPart) -> None:
+        asc = signing.sign_detached(signer, public, doc).encode()
         upstream.routes[f'/{directory}/repodata/repomd.xml.asc'] = Respond(200, {}, asc)
 
     doc = publish(upstream, dict([by_checksum('primary', primary())]))

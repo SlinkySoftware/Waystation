@@ -15,7 +15,6 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from waystation_common import openpgp
-from waystation_common.errors import ValidationFailed
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, UiHints
 from waystation_server.formats.common.setup import TOKEN, USERNAME, snippet
 from waystation_server.repos.model import RepoType
@@ -71,9 +70,11 @@ class YumOptions(BaseModel):
         if not text:
             return None
         try:
-            openpgp.read_public_keys(text)
-        except ValidationFailed as exc:
-            raise ValueError(exc.detail) from None
+            certs = openpgp.read_certs(text.encode())
+        except openpgp.OpenPgpError as exc:
+            raise ValueError(f'not a valid OpenPGP public key block: {exc}') from None
+        if not any(key.valid and key.public is not None for cert in certs for key in cert.all_keys()):
+            raise ValueError('no usable OpenPGP public key (version 4 RSA, ECDSA or EdDSA, self-signed) found')
         return text + '\n'
 
 

@@ -41,7 +41,8 @@
   `ldap3`, `joserfc` (OIDC ID tokens; the OAuth code flow is in-house on the upstream client, adr/0004),
   `cryptography`. OpenPGP signing for apt/yum hosted repos sits behind
   `waystation_common.signing`; the implementation (a Python OpenPGP library or `gpg` inside the worker image only)
-  is chosen in task T-P5-APTH with an ADR.
+  is chosen in task T-P5-APTH with an ADR. OpenPGP signature *verification* (provider `SHA256SUMS`, later apt/yum
+  proxy metadata) is in-house in `waystation_common.openpgp` on `cryptography` (adr/0006).
 - Frontend: Quasar 2, Vue 3, TypeScript strict, Pinia, vue-router, `openapi-fetch` + `openapi-typescript`.
   Charts are in-house SVG components (no heavyweight chart library), following DeviceVault's `components/charts`.
 - nginx (official image, unprivileged variant) for `web`.

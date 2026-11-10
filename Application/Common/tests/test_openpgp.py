@@ -1,241 +1,270 @@
-"""waystation_common.openpgp: armor, packets, keys, detached signature verification and the encoders."""
+"""OpenPGP detached-signature verification (``waystation_common.openpgp``): generated keys of every supported
+algorithm, the policy checks, malformed input, and the real HashiCorp and OpenTofu signatures recorded for the
+Terraform client harness."""
 
-from __future__ import annotations
-
-import base64
+import json
 from pathlib import Path
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
+from ws_openpgp import NOW, PgpKey, Sub, armor, cert, detached, packet, signature, subpacket
 
 from waystation_common import openpgp
-from waystation_common.openpgp import OpenPgpError
+from waystation_common.openpgp import OpenPgpError, dearmor, packets, read_certs, verify_detached
 
-FIXTURES = Path(__file__).parent / 'fixtures' / 'openpgp'
-NOW = 1_800_000_000
-
-
-def _rsa() -> tuple[rsa.RSAPrivateKey, openpgp.PublicKey]:
-    private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    key = openpgp.parse_public_key(openpgp.rsa_key_body(private.public_key(), NOW - 100))
-    assert key is not None
-    return private, key
+DATA = b'0123abcd  terraform-provider-demo_1.0.0_linux_amd64.zip\n'
+FIXTURES = Path(__file__).resolve().parents[3] / 'tests' / 'fixtures' / 'upstreams' / 'terraform'
 
 
-def _ed() -> tuple[ed25519.Ed25519PrivateKey, openpgp.PublicKey]:
-    private = ed25519.Ed25519PrivateKey.generate()
-    key = openpgp.parse_public_key(openpgp.ed25519_key_body(private.public_key(), NOW - 100))
-    assert key is not None
-    return private, key
+@pytest.fixture(scope='module')
+def rsa_key() -> PgpKey:
+    return PgpKey('rsa')
 
 
-RSA = _rsa()
-ED = _ed()
-
-
-# ---------------------------------------------------------------------------- real upstream signatures
-@pytest.mark.parametrize(
-    ('key', 'doc'), [('RPM-GPG-KEY-Rocky-10', 'rocky-10-extras'), ('RPM-GPG-KEY-AlmaLinux-10', 'alma-10-extras')]
-)
-def test_verifies_real_distribution_repomd_signatures(key: str, doc: str) -> None:
-    keys = openpgp.read_public_keys((FIXTURES / key).read_text())
-    data = (FIXTURES / f'{doc}-repomd.xml').read_bytes()
-    signature = (FIXTURES / f'{doc}-repomd.xml.asc').read_bytes()
-    signer = openpgp.verify_detached(data, signature, keys)
-    assert signer in keys
+@pytest.mark.parametrize('algorithm', ['ed25519', 'ed25519v6', 'ed448', 'p256'])
+def test_primary_key_signatures_verify(algorithm: str) -> None:
+    key = PgpKey(algorithm)
+    certs = read_certs(armor(cert(key)))
+    assert len(certs) == 1
+    assert certs[0].fingerprint == key.fingerprint.hex().upper()
+    found = verify_detached(DATA, armor(detached(key, DATA), 'SIGNATURE'), certs)
+    assert found.key_fingerprint == key.fingerprint.hex().upper()
+    assert found.created > 0
     with pytest.raises(OpenPgpError, match='does not verify'):
-        openpgp.verify_detached(data + b' ', signature, keys)
+        verify_detached(DATA + b'x', detached(key, DATA), certs)
 
 
-def test_a_distribution_signature_needs_its_own_key() -> None:
-    other = openpgp.read_public_keys((FIXTURES / 'RPM-GPG-KEY-AlmaLinux-10').read_text())
-    data = (FIXTURES / 'rocky-10-extras-repomd.xml').read_bytes()
-    signature = (FIXTURES / 'rocky-10-extras-repomd.xml.asc').read_bytes()
-    with pytest.raises(OpenPgpError, match='no configured key'):
-        openpgp.verify_detached(data, signature, other)
-
-
-# ---------------------------------------------------------------------------- round trips
-@pytest.mark.parametrize('pair', [RSA, ED], ids=['rsa', 'ed25519'])
-def test_sign_and_verify_round_trip(pair: tuple[openpgp.SigningKey, openpgp.PublicKey]) -> None:
-    private, key = pair
-    asc = openpgp.sign_detached(private, key, b'<repomd/>', created=NOW)
-    assert asc.startswith('-----BEGIN PGP SIGNATURE-----\n')
-    assert openpgp.verify_detached(b'<repomd/>', asc, [key], now=NOW) == key
-    with pytest.raises(OpenPgpError):
-        openpgp.verify_detached(b'<repomd />', asc, [key], now=NOW)
-
-
-def test_certificate_reads_back_and_its_fingerprint_matches() -> None:
-    private, key = RSA
-    cert = openpgp.certificate(private, key, 'Waystation repository signing key (test)', created=NOW)
-    keys = openpgp.read_public_keys(cert)
-    assert [k.fingerprint for k in keys] == [key.fingerprint]
-    assert len(key.fingerprint_hex) == 40
-    assert key.key_id == key.fingerprint[-8:]
-    found = openpgp.packets(openpgp.dearmor(cert)[0])
-    assert [p.tag for p in found] == [openpgp.TAG_PUBLIC_KEY, openpgp.TAG_USER_ID, openpgp.TAG_SIGNATURE]
-    sig = openpgp.parse_signature(found[2].body)
-    assert sig is not None and sig.sig_type == openpgp.SIG_POSITIVE_CERT
-
-
-def test_binary_signature_and_key_inputs() -> None:
-    private, key = ED
-    asc = openpgp.sign_detached(private, key, b'data', created=NOW)
-    binary = openpgp.dearmor(asc)[0]
-    assert openpgp.verify_detached(b'data', binary, [key], now=NOW) == key
-    cert = openpgp.dearmor(openpgp.certificate(private, key, 'k', created=NOW))[0]
-    assert openpgp.read_public_keys(cert)[0].fingerprint == key.fingerprint
+def test_rsa_subkey_signature_and_hashes(rsa_key: PgpKey) -> None:
+    primary = PgpKey('ed25519')
+    certs = read_certs(cert(primary, subkeys=(Sub(rsa_key),)))
+    for hash_id in (8, 9, 10, 11, 12, 14):
+        found = verify_detached(DATA, detached(rsa_key, DATA, hash_id=hash_id), certs)
+        assert found.cert_fingerprint == primary.fingerprint.hex().upper()
+        assert found.key_fingerprint == rsa_key.fingerprint.hex().upper()
+    with pytest.raises(OpenPgpError):  # SHA-1 is refused for data signatures
+        verify_detached(DATA, detached(rsa_key, DATA, hash_id=2), certs)
 
 
 def test_text_signature_canonicalises_line_endings() -> None:
-    private, key = RSA
-    packet = openpgp.make_signature(private, key, openpgp.SIG_TEXT, b'a\r\nb\r\n', created=NOW)
-    assert openpgp.verify_detached(b'a\nb\n', packet, [key], now=NOW) == key
-    assert openpgp.canonical_text(b'a\r\nb\nc') == b'a\r\nb\r\nc'
+    key = PgpKey()
+    certs = read_certs(cert(key))
+    sig = detached(key, DATA, sig_type=0x01)
+    assert verify_detached(DATA.replace(b'\n', b'\r\n'), sig, certs)
+    assert verify_detached(DATA, sig, certs)
 
 
-def test_picks_the_right_key_among_several_and_skips_other_algorithms() -> None:
-    private, key = RSA
-    asc = openpgp.sign_detached(private, key, b'x', created=NOW)
-    assert openpgp.verify_detached(b'x', asc, [ED[1], _rsa()[1], key], now=NOW) == key
+def test_policy_refusals(rsa_key: PgpKey) -> None:
+    key = PgpKey()
+    good = read_certs(cert(key))
+    cases = {
+        'expired signature': detached(key, DATA, created=NOW - 100, hashed=[subpacket(3, (10).to_bytes(4, 'big'))]),
+        'unknown critical': detached(key, DATA, hashed=[subpacket(99, b'x', critical=True)]),
+        'no creation time': detached(key, DATA, created=-1),
+        'other issuer': detached(key, DATA, issuer=False, unhashed=[subpacket(16, b'\x01' * 8)]),
+        'unknown hash': packet(2, signature(key, DATA, 0, hash_id=8)[:3] + b'\x63' + signature(key, DATA, 0)[4:]),
+    }
+    for name, sig in cases.items():
+        with pytest.raises(OpenPgpError):
+            verify_detached(DATA, sig, good)
+        assert name
+    # a non-critical unknown subpacket and a signature without issuer subpackets are fine
+    assert verify_detached(DATA, detached(key, DATA, hashed=[subpacket(99, b'x')]), good)
+    assert verify_detached(DATA, detached(key, DATA, issuer=False), good)
+    # not a data signature, or not version 4
+    with pytest.raises(OpenPgpError, match='no version 4 data signature'):
+        verify_detached(DATA, packet(2, signature(key, DATA, 0x13)), good)
+    with pytest.raises(OpenPgpError, match='no version 4 data signature'):
+        verify_detached(DATA, packet(2, signature(key, DATA, 0x00, version=3)), good)
+    with pytest.raises(OpenPgpError, match='no version 4 data signature'):
+        verify_detached(DATA, packet(13, b'not a signature'), good)
+    # a key that is too small, or of an unsupported algorithm, signs nothing
+    small = PgpKey('rsa', bits=1024)
+    with pytest.raises(OpenPgpError):
+        verify_detached(DATA, detached(small, DATA), read_certs(cert(small)))
+    dsa = PgpKey('dsa')
+    assert read_certs(cert(dsa, self_signed=False))[0].primary.public is None
+    with pytest.raises(OpenPgpError):
+        verify_detached(DATA, detached(dsa, DATA), read_certs(cert(dsa, self_signed=False)))
+    # a signature by another key
+    with pytest.raises(OpenPgpError):
+        verify_detached(DATA, detached(rsa_key, DATA), good)
 
 
-# ---------------------------------------------------------------------------- refusals
-def _sig(private: openpgp.SigningKey, key: openpgp.PublicKey, **kw: object) -> bytes:
-    return openpgp.make_signature(private, key, openpgp.SIG_BINARY, b'x', created=NOW, **kw)  # type: ignore[arg-type]
+def test_key_validity() -> None:
+    key = PgpKey()
+    sig = detached(key, DATA)
+    refused = {
+        'no self-signature': cert(key, self_signed=False),
+        'revoked': cert(key, revoked=True),
+        'expired': cert(key, expires_after=10),
+        'not for signing': cert(key, flags=0x01),
+    }
+    for name, data in refused.items():
+        with pytest.raises(OpenPgpError):
+            verify_detached(DATA, sig, read_certs(data))
+        assert name
+    assert verify_detached(DATA, sig, read_certs(cert(key, flags=None)))  # no key flags: any use
+    assert verify_detached(DATA, sig, read_certs(cert(key, expires_after=10 * 365 * 86_400)))
+    direct_only = cert(key, direct=True, self_signed=False)
+    assert verify_detached(DATA, sig, read_certs(direct_only))
+    # SHA-1 self-signatures (old keys) are accepted
+    assert verify_detached(DATA, sig, read_certs(cert(key, hash_id=2)))
+    assert verify_detached(DATA, sig, read_certs(cert(key, uid=b'\x00' * 2)))
 
 
-def test_refuses_weak_hashes_expired_and_unknown_critical() -> None:
-    private, key = RSA
-    with pytest.raises(KeyError):
-        _sig(private, key, hash_algorithm=2)
-    expired = _sig(private, key, hashed_extra=openpgp.subpacket(openpgp.SUB_SIG_EXPIRES, (10).to_bytes(4, 'big')))
-    assert openpgp.verify_detached(b'x', expired, [key], now=NOW + 5) == key
-    with pytest.raises(OpenPgpError, match='expired'):
-        openpgp.verify_detached(b'x', expired, [key], now=NOW + 11)
-    critical = _sig(private, key, hashed_extra=openpgp.subpacket(100, b'?', critical=True))
-    with pytest.raises(OpenPgpError, match='critical'):
-        openpgp.verify_detached(b'x', critical, [key], now=NOW)
-    # A non-critical unknown subpacket is fine.
-    assert openpgp.verify_detached(b'x', _sig(private, key, hashed_extra=openpgp.subpacket(100, b'?')), [key], now=NOW)
+def test_subkey_validity() -> None:
+    primary, sub = PgpKey(), PgpKey()
+    sig = detached(sub, DATA)
+    refused = {
+        'no binding': Sub(sub, binding=False),
+        'bad binding': Sub(sub, bad_binding=True),
+        'revoked': Sub(sub, revoked=True),
+        'encryption only': Sub(sub, flags=0x0C),
+        'expired': Sub(sub, expires_after=10),
+    }
+    for name, item in refused.items():
+        with pytest.raises(OpenPgpError):
+            verify_detached(DATA, sig, read_certs(cert(primary, subkeys=(item,))))
+        assert name
+    with pytest.raises(OpenPgpError):  # the primary key is revoked: so are its subkeys
+        verify_detached(DATA, sig, read_certs(cert(primary, revoked=True, subkeys=(Sub(sub),))))
+    assert verify_detached(DATA, sig, read_certs(cert(primary, subkeys=(Sub(sub, hash_id=2),))))
+    certs = read_certs(cert(primary, subkeys=(Sub(PgpKey('dsa')), Sub(sub))))
+    assert verify_detached(DATA, sig, certs).key_fingerprint == sub.fingerprint.hex().upper()
 
 
-def _with_hash(packet: bytes, hash_algorithm: int) -> bytes:
-    body = bytearray(openpgp.packets(packet)[0].body)
-    body[3] = hash_algorithm
-    return openpgp.encode_packet(openpgp.TAG_SIGNATURE, bytes(body))
+def test_newest_self_signature_wins() -> None:
+    key = PgpKey()
+    uid = b'Test <t@example.com>'
+    body = packet(6, key.body) + packet(13, uid)
+    signed = key.prefix() + b'\xb4' + len(uid).to_bytes(4, 'big') + uid
+    newer = signature(key, signed, 0x13, created=NOW - 10, hashed=[subpacket(27, b'\x01')])
+    older = signature(key, signed, 0x13, created=NOW - 1000, hashed=[subpacket(27, b'\x02')])
+    with pytest.raises(OpenPgpError):  # the newer one says "certify only"
+        verify_detached(DATA, detached(key, DATA), read_certs(body + packet(2, newer) + packet(2, older)))
+    # signatures by other keys are skipped; a user attribute is certified like a user ID
+    other = PgpKey()
+    attribute = b'\x01photo'
+    attr_signed = key.prefix() + b'\xd1' + len(attribute).to_bytes(4, 'big') + attribute
+    extra = packet(2, signature(other, signed, 0x13)) + packet(2, older)
+    extra += packet(17, attribute) + packet(2, signature(key, attr_signed, 0x13))
+    assert verify_detached(DATA, detached(key, DATA), read_certs(body + extra))
 
 
-def test_refuses_sha1_and_non_document_signatures() -> None:
-    private, key = RSA
-    with pytest.raises(OpenPgpError, match='weak hash'):
-        openpgp.verify_detached(b'x', _with_hash(_sig(private, key), 2), [key], now=NOW)
-    cert = openpgp.make_signature(private, key, openpgp.SIG_POSITIVE_CERT, b'x', created=NOW)
-    with pytest.raises(OpenPgpError, match='not a document signature'):
-        openpgp.verify_detached(b'x', cert, [key], now=NOW)
+def test_several_keys_and_old_format_packets() -> None:
+    a, b = PgpKey(), PgpKey()
+    block = armor(cert(a)) + b'\n' + armor(cert(b))
+    certs = read_certs(block)
+    assert [c.fingerprint for c in certs] == [a.fingerprint.hex().upper(), b.fingerprint.hex().upper()]
+    assert verify_detached(DATA, detached(b, DATA), certs).cert_fingerprint == b.fingerprint.hex().upper()
+    old = packet(2, signature(a, DATA, 0), old=True)
+    assert verify_detached(DATA, old, certs)
+    assert list(packets(bytes([0x88 | 3]) + b'xyz')) == [(2, b'xyz')]  # old format, indeterminate length
+    assert list(packets(bytes([0x88]) + b'\x02ab')) == [(2, b'ab')]
+    assert list(packets(bytes([0x89]) + b'\x00\x02ab')) == [(2, b'ab')]
+    long_body = b'z' * 300
+    assert list(packets(packet(13, long_body))) == [(13, long_body)]
+    huge = b'z' * 9000
+    assert list(packets(packet(13, huge))) == [(13, huge)]
+    assert read_certs(packet(13, b'orphan user id')) == []
+    v5 = packet(6, b'\x05' + a.body[1:])
+    assert read_certs(v5 + packet(13, b'uid'))[0:0] == []
 
 
-def test_wrong_issuer_and_bad_values_do_not_verify() -> None:
-    _, key = RSA
-    other_private, other = _rsa()
-    sig = _sig(other_private, other)
-    with pytest.raises(OpenPgpError, match='no configured key'):
-        openpgp.verify_detached(b'x', sig, [key], now=NOW)
-    # A signature value longer than the key, and a corrupted EdDSA value.
-    assert not key.verify(b'\x01' * 1024, b'\x00' * 32, openpgp.HASHES[8][1])
-    assert not ED[1].verify((b'\x01' * 32, b'\x02' * 32), b'\x00' * 32, openpgp.HASHES[8][1])
-
-
-def test_unsupported_packets_are_skipped() -> None:
-    assert openpgp.parse_public_key(bytes([3]) + b'\x00' * 10) is None
-    assert openpgp.parse_public_key(bytes([4]) + b'\x00' * 4 + bytes([19]) + b'\x00' * 4) is None
-    bad_oid = bytes([4]) + b'\x00' * 4 + bytes([22, 3]) + b'\x2b\x06\x01' + openpgp.mpi(b'\x40' + b'\x01' * 32)
-    assert openpgp.parse_public_key(bad_oid) is None
-    v6 = bytes([4]) + b'\x00' * 4 + bytes([27]) + b'\x07' * 32
-    assert openpgp.parse_public_key(v6) is not None
-    assert openpgp.parse_signature(bytes([3]) + b'\x00' * 10) is None
-    unknown = bytes([4, 0, 19, 8]) + b'\x00\x00' + b'\x00\x00' + b'\x00\x00'
-    assert openpgp.parse_signature(unknown) is None
-    with pytest.raises(OpenPgpError, match='no supported OpenPGP signature'):
-        openpgp.read_signatures(openpgp.encode_packet(openpgp.TAG_SIGNATURE, unknown))
-    with pytest.raises(OpenPgpError, match='no supported OpenPGP public key'):
-        openpgp.read_public_keys(openpgp.encode_packet(openpgp.TAG_USER_ID, b'only a user id'))
-
-
-def test_ed25519_v4_native_signature() -> None:
-    private = ed25519.Ed25519PrivateKey.generate()
-    raw = private.public_key().public_bytes_raw()
-    key = openpgp.parse_public_key(bytes([4]) + NOW.to_bytes(4, 'big') + bytes([27]) + raw)
-    assert key is not None
-    hashed_area = openpgp.subpacket(openpgp.SUB_CREATED, NOW.to_bytes(4, 'big'))
-    hashed = bytes([4, 0, 27, 10]) + len(hashed_area).to_bytes(2, 'big') + hashed_area
-    import hashlib
-
-    digest = hashlib.sha512(b'doc' + openpgp.trailer(hashed)).digest()
-    body = hashed + b'\x00\x00' + digest[:2] + private.sign(digest)
-    assert openpgp.verify_detached(b'doc', openpgp.encode_packet(2, body), [key], now=NOW) == key
-
-
-# ---------------------------------------------------------------------------- armor and packet framing
-def test_armor_headers_checksum_and_several_blocks() -> None:
-    _, key = RSA
-    cert = openpgp.certificate(RSA[0], key, 'a', created=NOW)
-    with_headers = cert.replace('\n\n', '\nVersion: test\nComment: two blocks\n\n', 1)
-    two = 'leading text\n' + with_headers + '\n' + openpgp.certificate(ED[0], ED[1], 'b', created=NOW)
-    assert [k.fingerprint for k in openpgp.read_public_keys(two)] == [key.fingerprint, ED[1].fingerprint]
-    no_blank = cert.replace('\n\n', '\n', 1)
-    assert openpgp.read_public_keys(no_blank)[0].fingerprint == key.fingerprint
-    lines = cert.splitlines()
-    no_crc = '\n'.join(line for line in lines if not (line.startswith('=') and len(line) == 5))
-    assert openpgp.read_public_keys(no_crc)[0].fingerprint == key.fingerprint
-    bad_crc = '\n'.join('=AAAA' if line.startswith('=') and len(line) == 5 else line for line in lines)
-    with pytest.raises(OpenPgpError, match='checksum'):
-        openpgp.read_public_keys(bad_crc)
-    with pytest.raises(OpenPgpError, match='not valid base64'):
-        openpgp.dearmor('-----BEGIN PGP SIGNATURE-----\n\n!!!!\n-----END PGP SIGNATURE-----\n')
-    with pytest.raises(OpenPgpError, match='not terminated'):
-        openpgp.dearmor('-----BEGIN PGP SIGNATURE-----\n\nAAAA\n')
-    with pytest.raises(OpenPgpError, match='no armored'):
-        openpgp.dearmor('-----BEGIN NOTHING-----\n')
-    with pytest.raises(OpenPgpError, match='no armored'):
-        openpgp.dearmor(cert, 'SIGNATURE')
-    with pytest.raises(OpenPgpError, match='no OpenPGP data'):
-        openpgp.dearmor(b'')
-    with pytest.raises(OpenPgpError, match='too large'):
-        openpgp.dearmor(b'x' * (openpgp.MAX_INPUT + 1))
-
-
-def test_packet_framing() -> None:
-    for size in (0, 191, 192, 8383, 8384, 70000):
-        body = b'\x01' * size
-        assert openpgp.packets(openpgp.encode_packet(13, body)) == [openpgp.Packet(13, body)]
-    # Old-format headers with one-, two- and four-octet lengths.
-    assert openpgp.packets(bytes([0x80 | (13 << 2), 2]) + b'ab') == [openpgp.Packet(13, b'ab')]
-    assert openpgp.packets(bytes([0x80 | (13 << 2) | 1, 0, 2]) + b'ab') == [openpgp.Packet(13, b'ab')]
-    assert openpgp.packets(bytes([0x80 | (13 << 2) | 2, 0, 0, 0, 2]) + b'ab') == [openpgp.Packet(13, b'ab')]
-    with pytest.raises(OpenPgpError, match='indeterminate'):
-        openpgp.packets(bytes([0x80 | (13 << 2) | 3]) + b'ab')
-    with pytest.raises(OpenPgpError, match='partial'):
-        openpgp.packets(bytes([0xC0 | 13, 224]) + b'ab')
-    with pytest.raises(OpenPgpError, match='not an OpenPGP packet'):
-        openpgp.packets(b'\x00')
-    with pytest.raises(OpenPgpError, match='truncated'):
-        openpgp.packets(bytes([0xC0 | 13, 5]) + b'ab')
+def test_malformed_input() -> None:
+    key = PgpKey()
+    good = cert(key)
+    bad = [
+        b'\x00\x01',  # not a packet
+        b'\xc2',  # truncated length
+        b'\xc2\xc5',  # truncated two-octet length
+        b'\xc2\x05ab',  # body shorter than its length
+        b'\xc2\xe1ab',  # partial length
+        packet(5, b'secret'),  # secret key
+        packet(6, b'\x04\x00'),  # truncated key
+        packet(6, key.body[:-3]),
+        b'\xc2' * 10_001,
+    ]
+    for data in bad:
+        with pytest.raises(OpenPgpError):
+            read_certs(data)
+    with pytest.raises(OpenPgpError):
+        read_certs(b'x' * (openpgp.MAX_INPUT + 1))
+    many = packet(13, b'u') * (openpgp.MAX_PACKETS + 1)
     with pytest.raises(OpenPgpError, match='too many'):
-        openpgp.packets(bytes([0xC0 | 13, 0]) * (openpgp.MAX_PACKETS + 1))
+        list(packets(many))
+    armored = armor(good).decode()
+    broken = {
+        'no end': armored.replace('-----END PGP PUBLIC KEY BLOCK-----', ''),
+        'not base64': armored.replace('Comment: test\n\n', 'Comment: test\n\n!!!!\n'),
+        'bad crc': armored[: armored.index('\n=') + 2] + 'AAAA' + armored[armored.index('\n=') + 6 :],
+        'none': '-----BEGIN PGP SOMETHING\nxx\n',
+        'unicode': '-----BEGIN PGP PUBLIC KEY BLOCK-----\né\n',
+    }
+    for name, text in broken.items():
+        with pytest.raises(OpenPgpError):
+            dearmor(text.encode())
+        assert name
+    assert dearmor(armor(good, checksum=False)) == good
+    assert dearmor(good) == good
+    # invalid key material
+    for body in (
+        b'\x04\x00\x00\x00\x01\x13\x08' + bytes.fromhex('2a8648ce3d030107') + b'\x00\x08\x04',  # bad P-256 point
+        b'\x04\x00\x00\x00\x01\x16\x09' + bytes.fromhex('2b06010401da470f01') + b'\x00\x08\x40',  # short EdDSA
+        b'\x04\x00\x00\x00\x01\x13\x00',  # empty OID
+        b'\x04\x00\x00\x00\x01\x01' + b'\x08\x00' + b'\xff' * 256 + b'\x00\x01\x00',  # RSA e = 0
+    ):
+        with pytest.raises(OpenPgpError):
+            read_certs(packet(6, body))
+    unknown_curve = b'\x04\x00\x00\x00\x01\x13\x03\x2b\x65\x70\x00\x08\x04'
+    assert read_certs(packet(6, unknown_curve))[0].primary.public is None
+    other_eddsa = b'\x04\x00\x00\x00\x01\x16\x03\x2b\x65\x71\x00\x08\x40'
+    assert read_certs(packet(6, other_eddsa))[0].primary.public is None
+    # malformed signatures
+    sig = signature(key, DATA, 0)
+    for body in (sig[:5], b'\x04\x00\x16\x08\x00\x01\x00', b'\x04\x00\x16\x08\x00\x02\x00\x00\x00\x00'):
+        with pytest.raises(OpenPgpError):
+            verify_detached(DATA, packet(2, body), read_certs(good))
+    with pytest.raises(OpenPgpError):  # a subpacket of length 0
+        verify_detached(DATA, packet(2, b'\x04\x00\x16\x08\x00\x01\x00\x00\x00\x00\x00'), read_certs(good))
+    long_sub = subpacket(20, b'n' * 300)
+    assert verify_detached(DATA, detached(key, DATA, hashed=[long_sub]), read_certs(good))
+    five = b'\xff' + (2).to_bytes(4, 'big') + b'\x14n'
+    assert verify_detached(DATA, detached(key, DATA, hashed=[five]), read_certs(good))
+    # oversized signature values never verify
+    rsa_key = PgpKey('rsa')
+    rsa_certs = read_certs(cert(rsa_key))
+    rsa_parsed = openpgp.parse_signature(signature(rsa_key, DATA, 0))
+    assert rsa_parsed is not None
+    oversized = rsa_parsed.hashed_part + b'\x00\x00\x00\x00' + (2056).to_bytes(2, 'big') + b'\x01' * 257
+    with pytest.raises(OpenPgpError):
+        verify_detached(DATA, packet(2, oversized), rsa_certs)
+    parsed = openpgp.parse_signature(signature(key, DATA, 0))
+    assert parsed is not None
+    too_long = parsed.hashed_part + b'\x00\x00' + b'\x00\x00' + b'\x01\x08' + b'\x01' * 33 + b'\x01\x00' + b'\x01' * 32
+    with pytest.raises(OpenPgpError):
+        verify_detached(DATA, packet(2, too_long), read_certs(good))
 
 
-def test_subpacket_lengths_and_empty_subpackets() -> None:
-    for size in (10, 300, 9000):
-        encoded = openpgp.subpacket(20, b'n' * size)
-        assert list(openpgp._subpackets(encoded)) == [(20, False, b'n' * size)]
-    with pytest.raises(OpenPgpError, match='empty'):
-        list(openpgp._subpackets(b'\x00'))
+def fixture_body(url: str) -> bytes:
+    """A recorded upstream body by URL (a GitHub release asset is recorded under its redirect target)."""
+    host, name = url.split('/')[2], url.rsplit('/', 1)[-1]
+    folder = FIXTURES / ('release-assets.githubusercontent.com' if host == 'github.com' else host)
+    for meta in sorted(folder.glob('*.json')):
+        recorded = str(json.loads(meta.read_text())['request']['url'])
+        if recorded == url or f'filename%3D{name}&' in recorded:
+            return meta.with_suffix('.body').read_bytes()
+    raise AssertionError(f'no recorded body for {url}')
 
 
-def test_mpi_and_crc() -> None:
-    assert openpgp.mpi(0) == b'\x00\x00'
-    assert openpgp.mpi(1) == b'\x00\x01\x01'
-    assert openpgp.mpi(b'\x00\x80') == b'\x00\x08\x80'
-    assert base64.b64encode(openpgp.crc24(b'').to_bytes(3, 'big')) == b'twTO'
+@pytest.mark.parametrize('origin', ['registry.terraform.io', 'registry.opentofu.org'])
+def test_real_registry_signatures(origin: str) -> None:
+    """The recorded download document's keys verify the recorded SHA256SUMS signature (HashiCorp signs with an RSA
+    subkey whose binding was renewed after the signature was made; OpenTofu with an RSA primary key)."""
+    doc = json.loads(next((FIXTURES / origin).glob('get-amd64-*.body')).read_bytes())
+    sums = fixture_body(doc['shasums_url'])
+    sig = fixture_body(doc['shasums_signature_url'])
+    certs = [c for k in doc['signing_keys']['gpg_public_keys'] for c in read_certs(k['ascii_armor'].encode())]
+    found = verify_detached(sums, sig, certs)
+    assert found.cert_fingerprint in {c.fingerprint for c in certs}
+    with pytest.raises(OpenPgpError):
+        verify_detached(sums + b'\n', sig, certs)

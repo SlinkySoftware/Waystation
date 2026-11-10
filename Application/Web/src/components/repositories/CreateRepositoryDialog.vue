@@ -68,7 +68,7 @@ const FORMATS: { format: Format; available: boolean; phase?: number }[] = [
   { format: 'helm', available: true },
   { format: 'galaxy', available: true },
   { format: 'yum', available: true },
-  { format: 'terraform', available: false, phase: 5 },
+  { format: 'terraform', available: true },
   { format: 'swift', available: false, phase: 5 },
 ]
 const TYPES: RepositoryType[] = ['proxy', 'hosted', 'group']

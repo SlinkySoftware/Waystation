@@ -39,13 +39,15 @@ describe('palette ranking', () => {
 
 describe('palette items', () => {
   it('offers built pages the user may open, never planned ones', () => {
-    const user = pageItems(navigation, () => false).map((i) => i.id)
-    expect(user).toContain('page:search')
-    expect(user).toContain('page:repositories')
-    expect(user).not.toContain('page:admin-auth')
-    expect(user).not.toContain('page:tasks')
-    expect(user).toContain('page:cleanup')
-    expect(user).toContain('page:activity')
+    const reader = pageItems(navigation, (c) => c === 'repositories.browse').map((i) => i.id)
+    expect(reader).toContain('page:search')
+    expect(reader).toContain('page:repositories')
+    expect(reader).not.toContain('page:admin-auth')
+    expect(reader).not.toContain('page:tasks')
+    expect(reader).not.toContain('page:cleanup') // repositories.manage
+    expect(reader).not.toContain('page:activity') // stats.read
+    // signed in without any role: only the dashboard (its "no access yet" landing)
+    expect(pageItems(navigation, () => false).map((i) => i.id)).toEqual(['page:dashboard'])
     expect(pageItems(navigation, () => true).map((i) => i.id)).toContain('page:admin-auth')
   })
 
