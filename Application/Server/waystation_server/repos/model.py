@@ -117,6 +117,7 @@ class RepoConfig(_Stored):
     storage: StoredStorage = Field(default_factory=StoredStorage)  # quota (proxy and hosted repositories)
     format_options: dict[str, Any] = Field(default_factory=dict)
     cleanup_policy_ids: tuple[str, ...] = ()  # attached cleanup policies, in run order
+    managed_by: str | None = None  # ``provisioning``: declared in the provisioning file (shown read-only in the UI)
     created_at: datetime
     updated_at: datetime
     created_by: str | None = None

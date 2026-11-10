@@ -84,6 +84,9 @@ class AuditAction(StrEnum):
     CONTENT_DELETE = 'content.delete'
     CONTENT_UPDATE = 'content.update'  # stored content changed in place (PyPI yank / un-yank)
     CLEANUP_RUN = 'cleanup.run'
+    CLEANUP_POLICY_CREATE = 'cleanup_policy.create'
+    CLEANUP_POLICY_UPDATE = 'cleanup_policy.update'
+    CLEANUP_POLICY_DELETE = 'cleanup_policy.delete'
     TASK_UPDATE = 'task.update'  # a scheduled task's schedule or enabled flag (Tasks page)
     TASK_RUN = 'task.run'  # a scheduled task run now
     TASK_RETRY = 'task.retry'  # a dead-lettered job queued again
@@ -133,6 +136,7 @@ SPEC_ACTIONS: dict[str, tuple[AuditAction, ...]] = {
     'uploads on hosted repos': (A.CONTENT_UPLOAD, A.CONTENT_UPDATE),
     'deletes on hosted repos': (A.CONTENT_DELETE,),
     'cleanup runs': (A.CLEANUP_RUN,),
+    'cleanup policy changes': (A.CLEANUP_POLICY_CREATE, A.CLEANUP_POLICY_UPDATE, A.CLEANUP_POLICY_DELETE),
     'task changes': (A.TASK_UPDATE, A.TASK_RUN, A.TASK_RETRY, A.TASK_DISCARD),
     'settings changes': (A.SETTINGS_UPDATE,),
     'webhook changes': (A.WEBHOOK_CREATE, A.WEBHOOK_UPDATE, A.WEBHOOK_DELETE, A.WEBHOOK_TEST, A.WEBHOOK_REDELIVER),
