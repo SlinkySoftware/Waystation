@@ -31,6 +31,12 @@ case "$HARNESS_CLIENT" in
   rocky)
     create rocky https://dl.rockylinux.org/pub/rocky/ "$(key_option /etc/pki/rpm-gpg/RPM-GPG-KEY-Rocky-10)"
     create epel https://dl.fedoraproject.org/pub/epel/
+    if ! ws_api GET /repositories/yum-hosted >/dev/null 2>&1; then
+      step 'create hosted yum repository yum-hosted'
+      ws_api POST /repositories '{"name": "yum-hosted", "format": "yum", "type": "hosted", "online": true,
+        "description": "hosted yum (client harness)", "hosted": {"write_policy": "allow_redeploy"}}' >/dev/null \
+        || fail 'could not create the repository yum-hosted'
+    fi
     ;;
   alma) create almalinux https://repo.almalinux.org/almalinux/ ;;
   oracle) create oracle https://yum.oracle.com/repo/OracleLinux/ ;;
