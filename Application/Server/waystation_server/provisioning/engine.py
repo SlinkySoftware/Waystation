@@ -36,6 +36,7 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -543,7 +544,7 @@ async def _plan_repositories(
                 p.errors.append(Problem(f'{prefix}.cleanup_policies.{j}', f'is a {fmt} policy'))
         resolved = p.secrets.get(f'{prefix}.proxy.auth.secret')
         stored_secret = _stored_secret(svc, existing) if existing is not None else None
-        body = _attempt(lambda spec=spec, resolved=resolved: spec.write(resolved), prefix, p.errors)
+        body = _attempt(partial(spec.write, resolved), prefix, p.errors)
         if body is None:
             continue
         group_pending = [m for m in (spec.group.members if spec.group else []) if m.lower() in pending]
