@@ -1,3 +1,4 @@
+import asyncio
 import json
 import math
 from datetime import UTC, datetime
@@ -22,6 +23,9 @@ class FakePipe:
     async def execute(self) -> None:
         if self.owner.fail:
             raise ConnectionError('valkey down')
+        hold, self.owner.hold = self.owner.hold, None
+        if hold is not None:  # this pipeline is slow to reach Valkey
+            await hold.wait()
         self.owner.batches.append(self.cmds)
 
     async def __aenter__(self) -> FakePipe:
@@ -35,6 +39,7 @@ class FakeRedis:
     def __init__(self) -> None:
         self.batches: list[list[tuple[Any, ...]]] = []
         self.fail = False
+        self.hold: asyncio.Event | None = None
 
     def pipeline(self, transaction: bool = True) -> FakePipe:
         assert transaction is False
@@ -146,6 +151,25 @@ async def test_progress_is_coalesced_per_flush() -> None:
     assert len(by_name(redis.batches[1], 'publish')) == 1
     await em.flush()  # nothing dirty, nothing sent
     assert len(redis.batches) == 2
+
+
+async def test_concurrent_flushes_land_in_order() -> None:
+    """A flush that starts while another is in flight (the background loop and an explicit ``flush``) must not
+    overtake it: the older state written last would stay in ``transfers`` for good once the transfer stalls."""
+    redis, clock = FakeRedis(), Clock()
+    em = EventEmitter(redis, clock=clock)  # type: ignore[arg-type]
+    em.transfer_started(make_transfer(clock))
+    em.transfer_progress('t1', 1)
+    redis.hold = slow = asyncio.Event()
+    first = asyncio.create_task(em.flush())
+    await asyncio.sleep(0)  # the first pipeline is in flight
+    em.transfer_progress('t1', 2)
+    second = asyncio.create_task(em.flush())
+    await asyncio.sleep(0.01)
+    slow.set()
+    await asyncio.gather(first, second)
+    last = by_name(redis.cmds, 'hset')[-1]
+    assert json.loads(last[3])['bytes_done'] == 2
 
 
 @pytest.mark.parametrize(
