@@ -268,6 +268,7 @@ export const en = {
     clearFilters: 'Clear filters',
     emptyTitle: 'No repositories yet',
     emptyText: 'Create a proxy for Docker Hub, npm, Debian or any file server to start caching.',
+    emptyNoAccessText: 'No repository is shared with you yet. Ask an administrator for access to the ones you need.',
     col: {
       name: 'Name',
       type: 'Type',
@@ -1943,5 +1944,23 @@ export const en = {
   notFound: {
     title: 'Page not found',
     text: 'The page does not exist, or you do not have access to it.',
+  },
+  noAccess: {
+    title: 'No access to this page',
+    text: 'Your account cannot open {page}. Ask an administrator if you need it.',
+    textGeneric: 'Your account cannot open this page. Ask an administrator if you need it.',
+    sectionTitle: 'Not available to you',
+    sectionText: 'Your account does not have access to this. Ask an administrator if you need it.',
+  },
+  landing: {
+    caption: 'Signed in as {name}',
+    noRolesTitle: 'You are signed in, but have no access yet',
+    noRolesText: 'Your account has no roles, so there is nothing to show yet. Ask an administrator to give you access to the repositories you need.',
+    profile: 'Open your profile',
+    reposTitle: 'Your repositories',
+    reposCaption: '{count} repository you can use|{count} repositories you can use',
+    browse: 'Browse',
+    search: 'Search packages',
+    statsNote: 'Statistics, live transfers and activity need the statistics permission.',
   },
 }

@@ -9,9 +9,7 @@
     </PageHeader>
 
     <q-card v-if="error && !data" class="q-pa-lg">
-      <EmptyState :icon="iconError" :title="t('storage.loadFailed')" :text="errorMessage(error)">
-        <q-btn unelevated no-caps color="primary" :label="t('common.retry')" @click="reload" />
-      </EmptyState>
+      <LoadFailedState :error="error" :title="t('storage.loadFailed')" @retry="reload" />
     </q-card>
 
     <template v-else>
@@ -81,7 +79,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 
-import { api, call, errorMessage } from '@/api/client'
+import { api, call } from '@/api/client'
 import type { Format } from '@/api/types'
 import BarList from '@/components/charts/BarList.vue'
 import GcCard from '@/components/cleanup/GcCard.vue'
@@ -89,6 +87,7 @@ import DonutChart from '@/components/charts/DonutChart.vue'
 import KpiTile from '@/components/dashboard/KpiTile.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
+import LoadFailedState from '@/components/LoadFailedState.vue'
 import PageCard from '@/components/PageCard.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import GuardCard from '@/components/storage/GuardCard.vue'
@@ -102,7 +101,7 @@ import { useLiveStore } from '@/stores/live'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { formatColor, formatLabel, formatMark } from '@/utils/domain'
 import { formatBytes, formatCount, formatPercent } from '@/utils/format'
-import { iconError, iconRefresh, iconStorage, iconTrend } from '@/utils/icons'
+import { iconRefresh, iconStorage, iconTrend } from '@/utils/icons'
 import { dedupFigures, largest, repoRows, volumeBreakdown } from '@/utils/storageStats'
 
 const isAdmin = computed(() => useAuthStore().can('admin'))

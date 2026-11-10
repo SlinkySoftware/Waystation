@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Left rail items (UI_DESIGN §3). `capability` hides items the user cannot use (a hint; the server decides).
+// Left rail items (UI_DESIGN §3). `capability` hides items the user cannot use (a hint; the server decides); it is
+// the same as the route's `meta.capability` (router/routes.ts; navigation.spec.ts keeps them in step).
 import type { MessageKey } from '@/i18n'
 import {
   iconActivity,
@@ -42,12 +43,12 @@ export const navigation: NavGroup[] = [
   {
     items: [
       { label: 'nav.dashboard', icon: iconDashboard, to: '/', name: 'dashboard' },
-      { label: 'nav.repositories', icon: iconRepositories, to: '/repositories', name: 'repositories' },
-      { label: 'nav.browse', icon: iconBrowse, to: '/browse', name: 'browse' },
-      { label: 'nav.search', icon: iconSearch, to: '/search', name: 'search' },
-      { label: 'nav.activity', icon: iconActivity, to: '/activity', name: 'activity' },
-      { label: 'nav.storage', icon: iconStorage, to: '/storage', name: 'storage' },
-      { label: 'nav.cleanup', icon: iconCleanup, to: '/cleanup', name: 'cleanup' },
+      { label: 'nav.repositories', icon: iconRepositories, to: '/repositories', name: 'repositories', capability: 'repositories.browse' },
+      { label: 'nav.browse', icon: iconBrowse, to: '/browse', name: 'browse', capability: 'repositories.browse' },
+      { label: 'nav.search', icon: iconSearch, to: '/search', name: 'search', capability: 'repositories.browse' },
+      { label: 'nav.activity', icon: iconActivity, to: '/activity', name: 'activity', capability: 'stats.read' },
+      { label: 'nav.storage', icon: iconStorage, to: '/storage', name: 'storage', capability: 'stats.read' },
+      { label: 'nav.cleanup', icon: iconCleanup, to: '/cleanup', name: 'cleanup', capability: 'repositories.manage' },
       { label: 'nav.tasks', icon: iconTasks, to: '/tasks', name: 'tasks', capability: 'admin' },
     ],
   },
@@ -67,3 +68,8 @@ export const navigation: NavGroup[] = [
     ],
   },
 ]
+
+/** The rail for a session: items whose capability it holds, groups that keep at least one item. */
+export function visibleNavigation(can: (capability: string) => boolean, groups: NavGroup[] = navigation): NavGroup[] {
+  return groups.map((g) => ({ ...g, items: g.items.filter((i) => !i.capability || can(i.capability)) })).filter((g) => g.items.length)
+}

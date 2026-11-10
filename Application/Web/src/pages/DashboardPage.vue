@@ -1,17 +1,20 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <!-- Dashboard (UI_DESIGN §4.2): KPIs, live transfers (centrepiece), traffic, storage by format, upstream health,
-     recent activity. Everything updates from the event stream. -->
+     recent activity. Everything updates from the event stream. Without `stats.read` the user gets the landing
+     (DashboardLanding) instead: no statistics or stream requests that would only be refused. -->
 <template>
   <q-page class="ws-page dash">
-    <PageHeader :title="t('dashboard.title')" :caption="t('dashboard.caption')">
-      <template #actions>
+    <PageHeader :title="t('dashboard.title')" :caption="stats ? t('dashboard.caption') : t('landing.caption', { name: auth.user?.display_name || auth.user?.username || '' })">
+      <template v-if="stats" #actions>
         <q-btn-toggle v-model="range" no-caps unelevated dense toggle-color="primary" class="range" :options="rangeOptions" :aria-label="t('dashboard.range')" />
       </template>
     </PageHeader>
 
-    <KpiStrip :summary="summary.data.value" :range="range" />
+    <DashboardLanding v-if="!stats" />
 
-    <div class="dash__grid">
+    <KpiStrip v-if="stats" :summary="summary.data.value" :range="range" />
+
+    <div v-if="stats" class="dash__grid">
       <PageCard class="dash__live" :title="t('live.title')" :caption="t('live.caption')" flush>
         <template #title>
           <span class="dash__pulse" aria-hidden="true" />
@@ -34,6 +37,7 @@ import { computed, ref } from 'vue'
 import { api, call } from '@/api/client'
 import type { StatsRange } from '@/api/types'
 import ActivityFeed from '@/components/dashboard/ActivityFeed.vue'
+import DashboardLanding from '@/components/dashboard/DashboardLanding.vue'
 import KpiStrip from '@/components/dashboard/KpiStrip.vue'
 import StorageCard from '@/components/dashboard/StorageCard.vue'
 import TrafficCard from '@/components/dashboard/TrafficCard.vue'
@@ -43,6 +47,7 @@ import PageCard from '@/components/PageCard.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAsync } from '@/composables/useAsync'
 import { t } from '@/i18n'
+import { useAuthStore } from '@/stores/auth'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { readString, writeString } from '@/utils/storage'
 
@@ -52,12 +57,16 @@ const stored = readString('ws.dashboard.range') as StatsRange | null
 const range = ref<StatsRange>(stored && RANGES.includes(stored) ? stored : '24h')
 const rangeOptions = computed(() => RANGES.map((r) => ({ label: t(`ranges.short.${r}`), value: r })))
 
+const auth = useAuthStore()
+const stats = computed(() => auth.can('stats.read'))
+
 const summary = useAsync(() => {
+  if (!stats.value) return Promise.resolve(null)
   writeString('ws.dashboard.range', range.value)
   return call(api.GET('/stats/summary', { params: { query: { range: range.value } } }))
-}, [range])
+}, [range, stats])
 
-void useRepositoriesStore().load().catch(() => undefined)
+if (auth.can('repositories.browse')) void useRepositoriesStore().load().catch(() => undefined)
 </script>
 
 <style scoped>

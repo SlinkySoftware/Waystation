@@ -217,11 +217,25 @@ export class AdminWorld {
     return user ? this.userGrants(user) : this.grantsOf(new Map([['admin', ['direct']]]))
   }
 
+  /** The server's `access.check`: may the user perform `action` (on `repo`; without one: on some repository)? */
+  check(username: string | null, action: Action, repo?: RepoRef): boolean {
+    const g = this.callerGrants(username)
+    if (g.admin) return true
+    if (isGlobalAction(action)) return g.global.has(action)
+    return g.permissions.some((p) => p.action === action && (!repo || scopeMatches(p.scope, repo)))
+  }
+
+  /** A repository the user can neither browse nor read is hidden (404 everywhere). */
+  canSee(username: string | null, repo: RepoRef): boolean {
+    return this.check(username, 'browse', repo) || this.check(username, 'read', repo)
+  }
+
   /** Session capabilities of a mock user, like the server's `access.capabilities` (UI hints only). */
   capabilities(username: string | null): string[] {
     const g = this.callerGrants(username)
     const caps: string[] = g.admin ? ['admin', 'repositories.create'] : []
     if (g.admin || g.permissions.some((p) => p.action === 'manage')) caps.push('repositories.manage')
+    if (g.admin || g.permissions.some((p) => p.action === 'browse' || p.action === 'read')) caps.push('repositories.browse')
     const map: [Action, string][] = [
       ['stats-read', 'stats.read'],
       ['audit-read', 'audit.read'],
