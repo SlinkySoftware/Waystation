@@ -62,6 +62,23 @@ jobs:
         continue-on-error: true
         run: make --no-print-directory budgets
 
+  ui-smoke:
+    name: UI role smoke (Playwright, mock build)
+    # Every rail page as no-role, reader, anonymous-grants and viewer users; fails on any console or API error.
+    # Pulls the Playwright image, so it runs after the check job. Skip with the org variable WAYSTATION_CI_UI_SMOKE=false.
+    needs: check
+    if: ${{ vars.WAYSTATION_CI_UI_SMOKE != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Dev image
+        run: docker build -q -t "$DEV_IMAGE" -f Build/Containers/dev/Dockerfile Build/Containers/dev
+      - name: Role smoke
+        run: make ui-smoke
+
   integration:
     name: integration tests
     # About 6 GB of memory (MongoDB, Valkey, OpenLDAP, Samba AD, Keycloak), so not on pull requests and not
