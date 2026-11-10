@@ -3,6 +3,16 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-10
+- T-S03: ADR 0005 implemented. On `/repository/<repo>/...` a request without credentials for a repository anonymous
+  cannot see answers `401` + `WWW-Authenticate: Basic realm="Waystation"` instead of `404`, and a repository that
+  does not exist answers identically (status, headers, body), so names stay non-enumerable; requests with
+  credentials keep `404`; `/v2/`, the REST API, search and browse are unchanged. One decision point,
+  `security.access.hidden_repo`, also used for rejected paths and for failed npm logins on hidden repositories
+  (which now answer like a missing repository whatever failed). Maven and Gradle work with plain credentials: the
+  Maven harness drops `-Daether.connector.http.preemptiveAuth=true`, the pip harness takes credentials from a
+  keyring that pip asks only after the challenge, the raw harness checks `curl --anyauth`; helm, go and galaxy
+  harnesses expect the challenge. Set me up and `Documents/Operations/clients/` keep preemptive auth as an optional
+  tip. SPECIFICATION §4.9/§4.10, ARCHITECTURE §7 and the ADR updated.
 - ADR 0005 (401 challenge for anonymous requests to hidden repositories on format routes) accepted; implementation queued.
 - T-P5-TFP: Terraform/OpenTofu provider network mirror (`formats/terraform/`, proxy repositories). Clients'
   network mirror protocol at `/repository/<repo>/<hostname>/<namespace>/<type>/index.json`, `<version>.json` (per
