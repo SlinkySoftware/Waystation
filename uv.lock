@@ -1421,7 +1421,7 @@ wheels = [
 
 [[package]]
 name = "waystation"
-version = "0.2.0"
+version = "0.2.1"
 source = { virtual = "." }
 dependencies = [
     { name = "waystation-common" },
@@ -1470,7 +1470,7 @@ dev = [
 
 [[package]]
 name = "waystation-common"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "Application/Common" }
 dependencies = [
     { name = "cryptography" },
@@ -1495,7 +1495,7 @@ requires-dist = [
 
 [[package]]
 name = "waystation-server"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "Application/Server" }
 dependencies = [
     { name = "argon2-cffi" },
@@ -1526,7 +1526,7 @@ requires-dist = [
 
 [[package]]
 name = "waystation-worker"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "Application/Worker" }
 dependencies = [
     { name = "httpx", extra = ["http2"] },
