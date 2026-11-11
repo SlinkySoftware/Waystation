@@ -11,7 +11,7 @@ import httpx
 import pytest
 from ws_fake_upstream import FakeUpstream, Respond
 
-from waystation_common.db.collections import APT_POOL_INDEX, ASSETS, REPOSITORIES
+from waystation_common.db.collections import APT_PACKAGES, APT_POOL_INDEX, ASSETS, REPOSITORIES
 from waystation_common.settings import Settings
 from waystation_server.formats.apt.plugin import AptPlugin
 from waystation_server.problems import ResponseAborted
@@ -388,3 +388,45 @@ async def test_multi_segment_suite(
     deep = '/'.join('abcdefghi')
     assert (await client.get(f'/repository/debian/dists/{deep}/InRelease')).status_code == 404
     assert upstream.hits(f'/dists/{deep}/InRelease') == 0
+
+
+async def test_package_files_listed_under_dists(
+    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, plugin: AptPlugin, repo: str
+) -> None:
+    """Some vendors keep the .debs next to the index: ``Filename: dists/<suite>/main/binary-amd64/x.deb``."""
+    suite = 'bookworm/mongodb-org/8.0'
+    directory = f'dists/{suite}/main/binary-amd64'
+    good, bad, big, unlisted = (f'{directory}/{n}_1_amd64.deb' for n in ('good', 'bad', 'big', 'unlisted'))
+    index = packages((good, DEB), (bad, b'the listed bytes'), (big, b'small'))
+    publish(upstream, suite, {'main/binary-amd64/Packages.xz': index})
+    for path, data in ((good, DEB), (bad, b'tampered bytes!!'), (big, b'small but larger'), (unlisted, b'x')):
+        upstream.routes[f'/{path}'] = Respond(200, {}, data)
+    assert (await client.get(f'/repository/debian/dists/{suite}/InRelease')).status_code == 200
+    assert (await client.get(f'/repository/debian/{directory}/Packages.xz')).status_code == 200
+    await plugin.drain()
+    listed = await services.db[APT_POOL_INDEX].find_one({'repo_id': repo, 'filename': good})
+    assert listed is not None
+    assert (listed['verified'], listed['suite']) == (True, suite)
+    assert await services.db[APT_PACKAGES].find_one({'repo_id': repo, 'filename': good}) is not None
+    # Listed: verified against the listing, cached, then a cache hit served by X-Accel.
+    response = await client.get(f'/repository/debian/{good}')
+    assert response.status_code == 200
+    assert response.content == DEB
+    hit = await client.get(f'/repository/debian/{good}')
+    assert hit.headers['x-ws-cache'] == 'HIT'
+    assert blob_of(hit) == DEB_SHA
+    assert upstream.hits(f'/{good}') == 1
+    asset = await services.db[ASSETS].find_one({'repo_id': repo, 'path': good})
+    assert asset is not None
+    assert (asset['kind'], asset['blob_sha256']) == ('content', DEB_SHA)
+    # Wrong hash: aborted mid-stream; larger than listed: refused before the first byte (502). Nothing cached.
+    with pytest.raises(ResponseAborted):
+        await client.get(f'/repository/debian/{bad}')
+    assert (await client.get(f'/repository/debian/{big}')).status_code == 502
+    for path in (bad, big):
+        assert await services.db[ASSETS].find_one({'repo_id': repo, 'path': path}) is None
+    # Not listed: served and recorded unverified, like a pool file.
+    assert (await client.get(f'/repository/debian/{unlisted}')).content == b'x'
+    entry = await services.db[APT_POOL_INDEX].find_one({'repo_id': repo, 'filename': unlisted})
+    assert entry is not None
+    assert (entry['sha256'], entry['verified']) == (sha(b'x'), False)
