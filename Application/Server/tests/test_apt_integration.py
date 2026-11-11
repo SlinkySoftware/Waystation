@@ -339,3 +339,52 @@ async def test_flat_repository(services: Services, client: httpx.AsyncClient, up
     assert isinstance(plugin, AptPlugin)
     await plugin.drain()
     assert (await client.get('/repository/flat/hello_1_amd64.deb')).content == DEB
+
+
+async def test_multi_segment_suite(
+    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, plugin: AptPlugin, repo: str
+) -> None:
+    """``deb <url> bookworm/mongodb-org/8.0 main``: the suite is three segments deep."""
+    suite = 'bookworm/mongodb-org/8.0'
+    base = f'dists/{suite}'
+    arm_path = 'pool/main/h/hello/hello_2.10-5_arm64.deb'
+    amd64, arm64 = packages((DEB_PATH, DEB)), packages((arm_path, b'arm'))
+    contents = b'Contents of the suite\n'
+    files = {'main/binary-amd64/Packages.xz': amd64, 'main/binary-arm64/Packages.xz': arm64, 'Contents-amd64': contents}
+    publish(upstream, suite, files)
+    upstream.routes[f'/{base}/by-hash/SHA256/{sha(contents)}'] = Respond(200, {}, contents)
+    upstream.routes[f'/{DEB_PATH}'] = Respond(200, {}, DEB)
+    assert (await client.get(f'/repository/debian/{base}/InRelease')).status_code == 200
+    assert await services.db[ASSETS].find_one({'repo_id': repo, 'path': f'{base}/InRelease'}) is not None
+    # Plain index path: served by the nested suite's Release hash, fetched by-hash from the nested directory.
+    response = await client.get(f'/repository/debian/{base}/main/binary-amd64/Packages.xz')
+    assert response.status_code == 200
+    assert blob_of(response) == sha(amd64)
+    key = f'{base}/main/binary-amd64/by-hash/SHA256/{sha(amd64)}'
+    assert upstream.hits(f'/{key}') == 1
+    assert await services.db[ASSETS].find_one({'repo_id': repo, 'path': key}) is not None
+    # A by-hash path requested directly, and a suite-level index outside any component.
+    arm_key = f'{base}/main/binary-arm64/by-hash/SHA256/{sha(arm64)}'
+    assert (await client.get(f'/repository/debian/{arm_key}')).content == arm64
+    assert blob_of(await client.get(f'/repository/debian/{base}/Contents-amd64')) == sha(contents)
+    assert upstream.hits('/dists/bookworm/InRelease') == 0  # the one-segment prefix is never taken for the suite
+    await plugin.drain()
+    entry = await services.db[APT_POOL_INDEX].find_one({'repo_id': repo, 'filename': DEB_PATH})
+    assert entry is not None
+    assert (entry['sha256'], entry['verified']) == (DEB_SHA, True)
+    assert (entry['suite'], entry['component'], entry['arch']) == (suite, 'main', 'amd64')
+    arm_entry = await services.db[APT_POOL_INDEX].find_one({'repo_id': repo, 'filename': arm_path})
+    assert arm_entry is not None
+    assert (arm_entry['suite'], arm_entry['arch'], arm_entry['verified']) == (suite, 'arm64', True)
+    # The pool file is verified against the nested suite's listing, then served as a cache hit.
+    response = await client.get(f'/repository/debian/{DEB_PATH}')
+    assert response.status_code == 200
+    assert response.content == DEB
+    assert (await client.get(f'/repository/debian/{DEB_PATH}')).headers['x-ws-cache'] == 'HIT'
+    assert upstream.hits(f'/{DEB_PATH}') == 1
+    again = await client.get(f'/repository/debian/{base}/main/binary-amd64/Packages.xz')
+    assert again.headers['x-ws-cache'] == 'HIT'
+    # Too deep a suite is refused without asking upstream.
+    deep = '/'.join('abcdefghi')
+    assert (await client.get(f'/repository/debian/dists/{deep}/InRelease')).status_code == 404
+    assert upstream.hits(f'/dists/{deep}/InRelease') == 0
