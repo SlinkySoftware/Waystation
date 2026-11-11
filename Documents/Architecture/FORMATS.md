@@ -284,6 +284,18 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
      been cached, fetch it and record its computed hash, mark it `unverified`, and verify on the next index refresh.
 - Multiple suites (`trixie`, `trixie-updates`, `trixie-backports`, `trixie-security`) through one proxy repo is
   normal; the repo's `distribution` field is informational.
+- **Suites may be several segments deep**: `deb https://repo.example.com/apt/debian bookworm/mongodb-org/8.0 main`
+  (third-party vendor repositories) means `dists/bookworm/mongodb-org/8.0/InRelease`,
+  `dists/bookworm/mongodb-org/8.0/main/binary-amd64/Packages.gz`; old Debian security used `buster/updates`.
+  Components may be several segments too (`main/debian-installer`, `updates/main`). Built 2026-11-11
+  (`formats/apt/suites.py`): `InRelease`/`Release`/`Release.gpg` directly in a directory below `dists/` are the
+  release of that suite, whatever its depth (not below a `binary-<arch>`/`source`/`i18n`/`dep11`/`cnf` directory:
+  `main/binary-amd64/Release` is an index). For an index or `by-hash` path the suite is the longest directory with
+  a cached `InRelease`/`Release` (one indexed lookup on `assets`; apt always fetches the release first), else the
+  layout decides: the suite ends before the component, the directory preceding the deepest
+  `binary-<arch>`/`source`/`i18n`/`dep11`/`cnf` (`<component>/debian-installer` is one component), else after the
+  first segment. Suites are at most 8 segments deep; deeper or non-normal paths answer 404 without an upstream
+  request. `apt_pool_index`/`apt_packages` and browse record the full suite name (`bookworm/mongodb-org/8.0`).
 - Hosted: upload `.deb` (`PUT /repository/<repo>/pool/...` or `POST` multipart); worker regenerates
   `Packages`/`Release`/`InRelease` per suite/component/arch, signs with the repo key (`InRelease` clearsigned +
   `Release.gpg`), publishes atomically (write new index blobs, then swap metadata assets).

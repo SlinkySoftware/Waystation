@@ -3,6 +3,15 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-11
+- **Release 0.2.1**: apt proxies support multi-segment suites (e.g. `bookworm/mongodb-org/8.0`), found while proxying
+  third-party apt repositories in a real deployment. Docs and examples point at the 0.2.1 images.
+- T-P2-APT: multi-segment apt suites. A proxy of a vendor repository such as
+  `deb <url> bookworm/mongodb-org/8.0 main` now works: `dists/bookworm/mongodb-org/8.0/InRelease` is that suite's
+  release (it was taken for an index of suite `bookworm`), and index and `by-hash` paths are split at the longest
+  suite directory whose `Release` is cached, else by the layout (the component precedes
+  `binary-<arch>`/`source`/`i18n`/`dep11`/`cnf`). `Packages` listings, pool-file verification and browse record the
+  full suite name. Suites deeper than 8 segments and non-normal paths answer 404. Single-segment suites behave as
+  before. No real-client case: it would need a new live recording.
 - **Release 0.2.0, the first public preview.** Public multi-arch images on GHCR
   (`ghcr.io/slinkysoftware/waystation-{server,worker,web}:0.2.0`, linux/amd64 and linux/arm64, SBOM and SLSA
   provenance). `release.yml` now publishes every `vX.Y.Z` tag (also pre-releases) with `X.Y.Z`, `X.Y`, `sha-<commit>`

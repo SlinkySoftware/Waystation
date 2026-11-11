@@ -72,16 +72,16 @@ Released images are public on GitHub Container Registry, for `linux/amd64` and `
 signed build provenance:
 
 ```sh
-for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:0.2.0; done
+for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:0.2.1; done
 ```
 
-Use them in the env file (`WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware`, `WAYSTATION_IMAGE_TAG=0.2.0`). Pin an
+Use them in the env file (`WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware`, `WAYSTATION_IMAGE_TAG=0.2.1`). Pin an
 exact release, never `latest`, so an upgrade is always an explicit change. To check the provenance:
-`gh attestation verify oci://ghcr.io/slinkysoftware/waystation-server:0.2.0 --owner SlinkySoftware`.
+`gh attestation verify oci://ghcr.io/slinkysoftware/waystation-server:0.2.1 --owner SlinkySoftware`.
 
 You also need `Build/Containers/compose.yaml` (and for backups `Build/Containers/backup/waystation-backup.sh`) from
 the same release: take them from the release's source archive or the tag
-(`https://github.com/SlinkySoftware/Waystation/tree/v0.2.0`).
+(`https://github.com/SlinkySoftware/Waystation/tree/v0.2.1`).
 
 **Build from source instead** (an unreleased commit, a fork, or a host without access to GHCR). Build on the target
 if it has the CPU and network for it, otherwise on any machine with Docker and copy the images over (about 650 MB):
@@ -136,7 +136,7 @@ and a database backup is only partly usable without it (BACKUP.md).
 
 ```sh
 WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware   # waystation for images built from source
-WAYSTATION_IMAGE_TAG=0.2.0
+WAYSTATION_IMAGE_TAG=0.2.1
 WAYSTATION_HTTP_BIND=127.0.0.1        # 127.0.0.1 when the reverse proxy runs on this host; else the host's address
 WAYSTATION_HTTP_PORT=8080
 WAYSTATION_DATA_MOUNT_TYPE=bind

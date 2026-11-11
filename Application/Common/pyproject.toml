@@ -1,6 +1,6 @@
 [project]
 name = "waystation-common"
-version = "0.2.0"
+version = "0.2.1"
 description = "Waystation shared core: settings, logging, ids, crypto, events, jobs, storage."
 requires-python = ">=3.14"
 license = "GPL-3.0-or-later"
