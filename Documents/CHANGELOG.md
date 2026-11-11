@@ -3,6 +3,14 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-11
+- **Release 0.2.2**: apt proxies serve package files that a `Packages` index lists under `dists/` (MongoDB's layout)
+  like pool files. Docs and examples point at the 0.2.2 images.
+- T-P2-APT: package files listed under `dists/`. Some vendor repositories (MongoDB) list
+  `Filename: dists/<suite>/main/binary-amd64/<name>.deb`; the apt proxy answered 404 for them because every path under
+  `dists/` was taken for an index. A package or source artefact (`.deb`, `.udeb`, `.ddeb`, `.dsc`, `*.orig.*`,
+  `*.debian.*`) anywhere in a repository is now handled like a pool file: verified against the listing that names it,
+  cached, served by X-Accel and indexed for browse (unlisted: served and recorded unverified). Index and release
+  names are never taken for packages.
 - **Release 0.2.1**: apt proxies support multi-segment suites (e.g. `bookworm/mongodb-org/8.0`), found while proxying
   third-party apt repositories in a real deployment. Docs and examples point at the 0.2.1 images.
 - T-P2-APT: multi-segment apt suites. A proxy of a vendor repository such as

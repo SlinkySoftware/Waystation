@@ -164,11 +164,11 @@ async def test_user_lifecycle(services: Services, admin: httpx.AsyncClient) -> N
     assert (await admin.get(f'{API}/users', params={'cursor': '!!!'})).status_code == 400
 
     # update, disable (sessions end), enable
-    zoe_client = await sign_in(services, 'dana', 'dana-first-password')
+    dana_client = await sign_in(services, 'dana', 'dana-first-password')
     patched = await admin.patch(f'{API}/users/{dana["id"]}', json={'email': None, 'disabled': True})
     assert patched.status_code == 200 and patched.json()['email'] is None and patched.json()['disabled'] is True
-    assert (await zoe_client.get(f'{API}/auth/me')).status_code == 401
-    await zoe_client.aclose()
+    assert (await dana_client.get(f'{API}/auth/me')).status_code == 401
+    await dana_client.aclose()
     async with asgi_client(services) as anon:
         refused = await anon.post(f'{API}/auth/login', json={'username': 'dana', 'password': 'dana-first-password'})
         assert refused.status_code == 401
@@ -184,9 +184,9 @@ async def test_user_lifecycle(services: Services, admin: httpx.AsyncClient) -> N
     assert unlocked.status_code == 200 and unlocked.json()['locked'] is False
     reset = await admin.post(f'{API}/users/{dana["id"]}/password', json={'password': 'dana-second-password'})
     assert reset.status_code == 204
-    zoe_client = await sign_in(services, 'dana', 'dana-second-password')
-    assert (await zoe_client.get(f'{API}/auth/me')).json()['must_change_password'] is True
-    await zoe_client.aclose()
+    dana_client = await sign_in(services, 'dana', 'dana-second-password')
+    assert (await dana_client.get(f'{API}/auth/me')).json()['must_change_password'] is True
+    await dana_client.aclose()
     assert (await admin.delete(f'{API}/users/{dana["id"]}')).status_code == 204
     assert (await admin.get(f'{API}/users/{dana["id"]}')).status_code == 404
     assert (await admin.delete(f'{API}/users/{dana["id"]}')).status_code == 404

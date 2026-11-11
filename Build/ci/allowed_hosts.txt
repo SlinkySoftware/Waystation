@@ -17,9 +17,8 @@ example.com
 example.net
 example.org
 
-# The two source-control URLs (CLAUDE.md "Source control", SPECIFICATION §13.1)
+# The source-control host (CLAUDE.md "Source control", SPECIFICATION §13.1)
 github.com
-url https://git.example.com/SlinkySoftware/Waystation
 
 # Public upstreams: container registries
 docker.io

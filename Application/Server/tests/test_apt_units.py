@@ -11,7 +11,13 @@ import pytest
 from waystation_common.errors import ValidationFailed
 from waystation_server.formats.apt import deb822, suites
 from waystation_server.formats.apt.descriptor import DESCRIPTOR
-from waystation_server.formats.apt.plugin import Target, classify, packages_target, suite_segments
+from waystation_server.formats.apt.plugin import (
+    Target,
+    classify,
+    is_package_file,
+    packages_target,
+    suite_segments,
+)
 from waystation_server.formats.base import SetupContext
 from waystation_server.repos.model import RepoConfig
 
@@ -312,6 +318,55 @@ KNOWN = {MONGO}
 )
 def test_classify_nested_suites(path: str, known: set[str], expected: Target) -> None:
     assert classify(path, flat=False, known=known) == expected
+
+
+DISTS_DEB = f'{MONGO}/main/binary-amd64/mongodb-org-mongos_8.0.37_amd64.deb'
+
+
+@pytest.mark.parametrize('known', [(), KNOWN])
+@pytest.mark.parametrize(
+    ('path', 'expected'),
+    [
+        # Package files a Packages index lists under dists/ are pool files, whatever the suite.
+        (DISTS_DEB, Target('pool')),
+        (f'{MONGO}/main/debian-installer/binary-amd64/x_1_amd64.udeb', Target('pool')),
+        (f'{MONGO}/main/binary-amd64/x-dbgsym_1_amd64.ddeb', Target('pool')),
+        (f'{MONGO}/main/source/x_1.dsc', Target('pool')),
+        (f'{MONGO}/main/source/x_1.orig.tar.gz', Target('pool')),
+        (f'{MONGO}/main/source/x_1-1.debian.tar.xz', Target('pool')),
+        ('dists/trixie/main/binary-amd64/hello_2.10-5_amd64.deb', Target('pool')),
+        ('vendor/hello_1_amd64.deb', Target('pool')),
+        # Index and release names are never packages.
+        (f'{MONGO}/main/binary-amd64/Packages.gz', Target('index', MONGO, 'main/binary-amd64/Packages.gz')),
+        (f'{MONGO}/main/source/Sources.xz', Target('index', MONGO, 'main/source/Sources.xz')),
+        (f'{MONGO}/main/binary-amd64/Release', Target('index', MONGO, 'main/binary-amd64/Release')),
+        (f'{MONGO}/InRelease', Target('release', MONGO, 'InRelease')),
+        # Unsafe paths stay refused.
+        ('dists/bookworm/../main/binary-amd64/x_1_amd64.deb', Target('invalid')),
+    ],
+)
+def test_classify_package_files_under_dists(path: str, expected: Target, known: set[str]) -> None:
+    assert classify(path, flat=False, known=known) == expected
+
+
+def test_is_package_file() -> None:
+    for name in ('x_1_amd64.deb', 'x_1_amd64.udeb', 'x_1_amd64.ddeb', 'x_1.dsc', 'x_1.orig.tar.gz', 'x.debian.tar.xz'):
+        assert is_package_file(name), name
+    for name in (
+        'Packages',
+        'Packages.xz',
+        'Sources.gz',
+        'Translation-en.bz2',
+        'Contents-amd64.gz',
+        'Release',
+        'InRelease',
+        'Release.gpg',
+        'Packages.debian.gz',
+        'Release.orig.deb',
+        'README',
+    ):
+        assert not is_package_file(name), name
+    assert suite_segments(DISTS_DEB, flat=False) is None  # no suite lookup for a package file
 
 
 def test_classify_eight_segments_is_the_limit() -> None:
