@@ -1,6 +1,6 @@
 [project]
 name = "waystation-worker"
-version = "0.2.1"
+version = "0.2.2"
 description = "Waystation worker: background and scheduled jobs."
 requires-python = ">=3.14"
 license = "GPL-3.0-or-later"

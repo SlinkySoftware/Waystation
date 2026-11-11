@@ -1,6 +1,6 @@
 [project]
 name = "waystation"
-version = "0.2.1"
+version = "0.2.2"
 description = "Waystation workspace root (not a package)."
 requires-python = ">=3.14"
 license = "GPL-3.0-or-later"

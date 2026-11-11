@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-11
+- **Release 0.2.2**: apt proxies serve package files that a `Packages` index lists under `dists/` (MongoDB's layout)
+  like pool files. Docs and examples point at the 0.2.2 images.
 - T-P2-APT: package files listed under `dists/`. Some vendor repositories (MongoDB) list
   `Filename: dists/<suite>/main/binary-amd64/<name>.deb`; the apt proxy answered 404 for them because every path under
   `dists/` was taken for an index. A package or source artefact (`.deb`, `.udeb`, `.ddeb`, `.dsc`, `*.orig.*`,

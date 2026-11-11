@@ -23,8 +23,8 @@ To try it on your own machine, use `localhost`.
 The release images are public on GitHub Container Registry (linux/amd64 and linux/arm64):
 
 ```sh
-git clone --branch v0.2.1 https://github.com/SlinkySoftware/Waystation.git && cd Waystation
-for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:0.2.1; done
+git clone --branch v0.2.2 https://github.com/SlinkySoftware/Waystation.git && cd Waystation
+for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:0.2.2; done
 ```
 
 To run an unreleased commit instead, build the images from the checkout (`make images IMAGE_TAG=dev`, Docker only)
@@ -38,7 +38,7 @@ cd ~/waystation
 umask 077
 cat > .env <<EOF
 WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware
-WAYSTATION_IMAGE_TAG=0.2.1
+WAYSTATION_IMAGE_TAG=0.2.2
 WAYSTATION_HTTP_PORT=8080
 # The URL clients use: it appears in "Set me up" snippets, docker pull names and registry tokens.
 WAYSTATION_BASE_URL=http://registry.example.com:8080

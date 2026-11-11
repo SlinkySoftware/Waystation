@@ -11,7 +11,7 @@ Run it on a home lab server, a NAS, a small office box or a CI fleet, point your
 your own disk, at LAN speed, even when Docker Hub rate-limits you or the upstream is down.
 
 ```sh
-docker pull ghcr.io/slinkysoftware/waystation-server:0.2.1     # multi-arch: linux/amd64 and linux/arm64
+docker pull ghcr.io/slinkysoftware/waystation-server:0.2.2     # multi-arch: linux/amd64 and linux/arm64
 ```
 
 ## Why Waystation
@@ -88,7 +88,7 @@ before anything destructive.
 
 ## Status
 
-**0.2 is the first public preview series** (latest: 0.2.1). It is used in production to replace a Nexus Repository instance in a home lab
+**0.2 is the first public preview series** (latest: 0.2.2). It is used in production to replace a Nexus Repository instance in a home lab
 (Docker Hub and GHCR mirrors, apt, yum and npm for a mixed fleet of Debian, Ubuntu, Raspberry Pi OS, Rocky, Alma and
 Oracle Linux machines), but it is pre-1.0: interfaces may still change between minor releases, and the 1.0 security
 review is still to come. See [`Documents/SPECIFICATION.md`](Documents/SPECIFICATION.md) for exactly what it does
