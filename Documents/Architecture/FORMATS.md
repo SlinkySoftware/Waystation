@@ -296,6 +296,12 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   `binary-<arch>`/`source`/`i18n`/`dep11`/`cnf` (`<component>/debian-installer` is one component), else after the
   first segment. Suites are at most 8 segments deep; deeper or non-normal paths answer 404 without an upstream
   request. `apt_pool_index`/`apt_packages` and browse record the full suite name (`bookworm/mongodb-org/8.0`).
+- **Package files outside `pool/`**: a `Packages` `Filename` is a path relative to the repository root and need not
+  start with `pool/` (MongoDB lists `dists/bookworm/mongodb-org/8.0/main/binary-amd64/<name>.deb`). Built
+  2026-11-11: a package or source artefact name (`.deb`, `.udeb`, `.ddeb`, `.dsc`, `*.orig.*`, `*.debian.*`)
+  anywhere in the repository, `dists/` included, is a pool file (content, verified against the listing that names
+  it, else served and recorded `unverified`); index and release names (`Packages*`, `Sources*`, `Translation-*`,
+  `Contents-*`, `Release*`, `InRelease`) are never taken for packages.
 - Hosted: upload `.deb` (`PUT /repository/<repo>/pool/...` or `POST` multipart); worker regenerates
   `Packages`/`Release`/`InRelease` per suite/component/arch, signs with the repo key (`InRelease` clearsigned +
   `Release.gpg`), publishes atomically (write new index blobs, then swap metadata assets).

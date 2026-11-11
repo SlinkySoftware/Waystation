@@ -15,8 +15,10 @@ Three kinds of file, all under ``/repository/<repo>/``:
    When a ``Packages`` file is cached its ``Filename → (SHA256, Size)`` entries are written to ``apt_pool_index``
    and its stanzas (name, version, architecture, section) to ``apt_packages`` for browsing (parsed and decompressed
    in a thread, bounded; in the background, so the response is not delayed).
-3. **Pool files** (``pool/...``): content, validated against their ``apt_pool_index`` listing; fetched before any
-   listing they are served and recorded ``unverified`` (computed hash), and checked when a listing arrives.
+3. **Pool files** (``pool/...``, and package files anywhere else, ``dists/`` included: some vendors list
+   ``Filename: dists/<suite>/main/binary-amd64/x.deb``): content, validated against their ``apt_pool_index``
+   listing (``Filename`` is the repository-relative path); fetched before any listing they are served and recorded
+   ``unverified`` (computed hash), and checked when a listing arrives.
 
 Several suites (``trixie``, ``trixie-updates``, ``trixie-security``...) through one repository work: everything is
 keyed by path. A suite may be several segments deep (``dists/bookworm/mongodb-org/8.0/``): an index path belongs to
@@ -77,6 +79,18 @@ class Target:
     digest: str = ''
 
 
+PACKAGE_SUFFIXES = ('.deb', '.udeb', '.ddeb', '.dsc')
+
+
+def is_package_file(name: str) -> bool:
+    """A package or source artefact file name (``.deb``, ``.udeb``, ``.ddeb``, ``.dsc``, ``*.orig.*``,
+    ``*.debian.*``), never an index or release file (``Packages*``, ``Sources*``, ``Translation-*``,
+    ``Release*``...)."""
+    if name in RELEASE_FILES or name.startswith((*INDEX_PREFIXES, 'Release')):
+        return False
+    return name.endswith(PACKAGE_SUFFIXES) or '.orig.' in name or '.debian.' in name
+
+
 def _join(*parts: str) -> str:
     return '/'.join(p for p in parts if p)
 
@@ -89,6 +103,8 @@ def suite_segments(path: str, *, flat: bool) -> list[str] | None:
     parts = path.split('/')
     if parts[0] != suites.DISTS or len(parts) < 3 or suites.release_suite_dir(path) is not None:
         return None
+    if is_package_file(parts[-1]):
+        return None
     if len(parts) >= 5 and parts[-3] == 'by-hash':
         return parts[1:-3]
     return parts[1:-1]
@@ -98,6 +114,8 @@ def _dists_target(parts: list[str], known: Collection[str]) -> Target:
     path = '/'.join(parts)
     if not suites.safe(path):
         return Target('invalid')
+    if is_package_file(parts[-1]):
+        return Target('pool')  # a package file a Packages index lists under dists/ (Filename: dists/...)
     suite_dir = suites.release_suite_dir(path)
     if suite_dir is not None:
         return Target('release', suite_dir=suite_dir, rel=parts[-1])
@@ -135,7 +153,7 @@ def classify(path: str, *, flat: bool, known: Collection[str] = ()) -> Target:
     if not flat:
         if parts[0] == suites.DISTS and len(parts) >= 3:
             return _dists_target(parts, known)
-        if parts[0] == 'pool':
+        if parts[0] == 'pool' or is_package_file(name):
             return Target('pool')
         return Target('other')
     directory = '/'.join(parts[:-1])
@@ -143,7 +161,7 @@ def classify(path: str, *, flat: bool, known: Collection[str] = ()) -> Target:
         return Target('release', suite_dir=directory, rel=name)
     if name.startswith(INDEX_PREFIXES):
         return Target('index', suite_dir=directory, rel=name)
-    if name.endswith(('.deb', '.udeb', '.ddeb', '.dsc')) or '.orig.' in name or '.debian.' in name:
+    if is_package_file(name):
         return Target('pool')
     return Target('other')
 
