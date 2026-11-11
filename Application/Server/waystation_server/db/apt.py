@@ -11,6 +11,9 @@ Entries come from two places:
 Lookups use ``repo_filename_unique``; listing writes are unordered bulk upserts in batches. Only written on cache fills,
 never per cache hit (ARCHITECTURE §8).
 
+``known_suites`` tells the apt proxy which suite directories (``dists/bookworm/mongodb-org/8.0``) have a cached
+``Release`` (``assets``, ``repo_path_unique``), so an index path is split at the right suite.
+
 ``apt_packages`` (browse) holds one document per stanza of every cached ``Packages`` index: ``(suite, component,
 arch)`` identify the index, ``name``/``version``/``architecture``/``section`` come from the stanza. Each index's
 documents are replaced when a new generation of it is indexed (``gen`` = the index blob's sha256). Pages are read
@@ -30,6 +33,7 @@ from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db.client import Database
 from waystation_common.db.collections import APT_PACKAGES, APT_POOL_INDEX, ASSETS
+from waystation_common.db.retry import read_retry
 from waystation_common.searchkeys import name_keys
 from waystation_server.db import assets as assets_db
 
@@ -63,6 +67,16 @@ def _record(doc: dict[str, object]) -> PoolRecord:
 async def lookup(db: Database, repo_id: str, filename: str) -> PoolRecord | None:
     doc = await db[APT_POOL_INDEX].find_one({'repo_id': repo_id, 'filename': filename})
     return _record(doc) if doc else None
+
+
+@read_retry  # on the request path of every index request with a choice of suite
+async def known_suites(db: Database, repo_id: str, suite_dirs: Sequence[str]) -> set[str]:
+    """The directories among ``suite_dirs`` whose ``InRelease`` or ``Release`` is cached (``repo_path_unique``)."""
+    paths = [f'{d}/{name}' for d in suite_dirs for name in ('InRelease', 'Release')]
+    if not paths:
+        return set()
+    cursor = db[ASSETS].find({'repo_id': repo_id, 'path': {'$in': paths}}, {'path': 1, '_id': 0})
+    return {str(doc['path']).rpartition('/')[0] async for doc in cursor}
 
 
 async def record_listing(

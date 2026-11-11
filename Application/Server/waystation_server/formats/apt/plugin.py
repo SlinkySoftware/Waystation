@@ -19,8 +19,10 @@ Three kinds of file, all under ``/repository/<repo>/``:
    listing they are served and recorded ``unverified`` (computed hash), and checked when a listing arrives.
 
 Several suites (``trixie``, ``trixie-updates``, ``trixie-security``...) through one repository work: everything is
-keyed by path. Flat repositories (``flat: true``) keep ``Release`` and indexes next to each other; the ``Release``
-of an index is the one in the same directory.
+keyed by path. A suite may be several segments deep (``dists/bookworm/mongodb-org/8.0/``): an index path belongs to
+the longest suite directory with a cached ``Release``, else the layout decides (``suites``). Flat repositories
+(``flat: true``) keep ``Release`` and indexes next to each other; the ``Release`` of an index is the one in the same
+directory.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ import asyncio
 import logging
 import posixpath
 from collections import OrderedDict
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from starlette.responses import Response
@@ -36,7 +39,7 @@ from starlette.responses import Response
 from waystation_common.errors import DigestMismatch, NotFound, UpstreamError, ValidationFailed
 from waystation_server.db import apt as apt_db
 from waystation_server.db import assets as assets_db
-from waystation_server.formats.apt import deb822
+from waystation_server.formats.apt import deb822, suites
 from waystation_server.formats.apt.browse import AptBrowse, browse_suite
 from waystation_server.formats.apt.descriptor import DESCRIPTOR, AptOptions
 from waystation_server.formats.base import FormatRequest
@@ -68,7 +71,7 @@ class Target:
     """What a request path is."""
 
     kind: str  # 'release', 'index', 'by-hash', 'pool', 'other'
-    suite_dir: str = ''  # 'dists/<suite>' (or the flat directory, '' = root)
+    suite_dir: str = ''  # 'dists/<suite>' ('dists/bookworm/mongodb-org/8.0'; or the flat directory, '' = root)
     rel: str = ''  # index path relative to suite_dir
     algorithm: str = ''  # by-hash: 'sha256' / 'sha512'
     digest: str = ''
@@ -78,7 +81,44 @@ def _join(*parts: str) -> str:
     return '/'.join(p for p in parts if p)
 
 
-def classify(path: str, *, flat: bool) -> Target:
+def suite_segments(path: str, *, flat: bool) -> list[str] | None:
+    """For an index or ``by-hash`` path below ``dists/``: the directories below ``dists/`` that hold its suite
+    (``classify`` needs to know which of them are cached suites); None for every other path."""
+    if flat:
+        return None
+    parts = path.split('/')
+    if parts[0] != suites.DISTS or len(parts) < 3 or suites.release_suite_dir(path) is not None:
+        return None
+    if len(parts) >= 5 and parts[-3] == 'by-hash':
+        return parts[1:-3]
+    return parts[1:-1]
+
+
+def _dists_target(parts: list[str], known: Collection[str]) -> Target:
+    path = '/'.join(parts)
+    if not suites.safe(path):
+        return Target('invalid')
+    suite_dir = suites.release_suite_dir(path)
+    if suite_dir is not None:
+        return Target('release', suite_dir=suite_dir, rel=parts[-1])
+    if parts[-1] in RELEASE_FILES and len(parts) - 2 > suites.MAX_SUITE_DEPTH:
+        return Target('invalid')  # a suite's release, too deep
+    by_hash = len(parts) >= 3 and parts[-3] == 'by-hash'
+    segments = parts[1:-3] if by_hash else parts[1:-1]  # never empty: classify checked the length
+    depth = suites.suite_depth(segments, known)
+    if depth > suites.MAX_SUITE_DEPTH:
+        return Target('invalid')
+    suite_dir = '/'.join(parts[: depth + 1])
+    if by_hash:
+        alg = BY_HASH_ALGS[parts[-2]]
+        return Target('by-hash', suite_dir=suite_dir, algorithm=alg[0], digest=parts[-1].lower())
+    return Target('index', suite_dir=suite_dir, rel='/'.join(parts[depth + 1 :]))
+
+
+def classify(path: str, *, flat: bool, known: Collection[str] = ()) -> Target:
+    """What ``path`` is. ``known`` = the repository's cached suite directories among ``suite_segments(path)``'s
+    candidates (``dists/bookworm/mongodb-org/8.0``): the suite of an index is the longest of them, else the layout
+    decides (``suites``)."""
     parts = path.split('/')
     name = parts[-1]
     if len(parts) >= 3 and parts[-3] == 'by-hash':
@@ -88,18 +128,13 @@ def classify(path: str, *, flat: bool) -> Target:
             return Target('invalid')
         base = parts[:-3]
         if flat:
-            suite_dir = '/'.join(base)
-        elif base[:1] == ['dists'] and len(base) >= 2:
-            suite_dir = '/'.join(base[:2])
-        else:
+            return Target('by-hash', suite_dir='/'.join(base), algorithm=alg[0], digest=digest)
+        if base[:1] != [suites.DISTS] or len(base) < 2:
             return Target('invalid')
-        return Target('by-hash', suite_dir=suite_dir, algorithm=alg[0], digest=digest)
+        return _dists_target(parts, known)
     if not flat:
-        if parts[0] == 'dists' and len(parts) >= 3:
-            suite_dir = '/'.join(parts[:2])
-            if len(parts) == 3 and name in RELEASE_FILES:
-                return Target('release', suite_dir=suite_dir, rel=name)
-            return Target('index', suite_dir=suite_dir, rel='/'.join(parts[2:]))
+        if parts[0] == suites.DISTS and len(parts) >= 3:
+            return _dists_target(parts, known)
         if parts[0] == 'pool':
             return Target('pool')
         return Target('other')
@@ -159,7 +194,7 @@ class AptPlugin:
         if not req.path:
             raise NotFound('Not Found')
         opts = AptOptions.model_validate(req.repo.format_options)
-        target = classify(req.path, flat=opts.flat)
+        target = classify(req.path, flat=opts.flat, known=await self._known_suites(req, opts.flat))
         match target.kind:
             case 'release':
                 return await req.proxy.serve(req, self._release_spec(_join(target.suite_dir, target.rel)))
@@ -172,6 +207,15 @@ class AptPlugin:
             case 'other':
                 return await req.proxy.serve(req, AssetSpec(path=req.path, kind=AssetKind.METADATA))
         raise NotFound('Not Found')
+
+    @staticmethod
+    async def _known_suites(req: FormatRequest, flat: bool) -> set[str]:
+        """The cached suites an index/by-hash path could belong to (one indexed query; none when the path leaves
+        no choice)."""
+        segments = suite_segments(req.path, flat=flat)
+        if segments is None or len(segments) < 2:
+            return set()
+        return await apt_db.known_suites(req.proxy.db, req.repo.id, suites.candidates(segments))
 
     async def drain(self) -> None:
         """Wait for background indexing (tests, shutdown)."""
