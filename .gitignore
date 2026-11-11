@@ -50,3 +50,6 @@ tests/perf/.results/
 
 # The original brief stays local only (never committed).
 /appidea.txt
+
+# Developer-local agent instructions (private remotes, machine details); never committed
+CLAUDE.local.md

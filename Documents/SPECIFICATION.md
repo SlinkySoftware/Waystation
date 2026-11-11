@@ -994,11 +994,10 @@ rate limit, API latency triggers). Not exported yet: process CPU/memory, sign-in
 cd ~/development/Waystation
 git init -b main
 git remote add origin https://github.com/SlinkySoftware/Waystation.git
-git remote add gitea https://git.example.com/SlinkySoftware/Waystation.git
 git add -A && git commit -m "T-F01: plan and repository skeleton"
-git push -u origin main && git push gitea main
+git push -u origin main
 ```
-Both remote repositories must exist first (the owner creates them; empty, no README/licence).
+The remote repository must exist first (the owner creates it; empty, no README/licence).
 
 ### 13.2 Layout
 ```
@@ -1099,9 +1098,9 @@ Waystation/
 ## 15. Open decisions (owner)
 | # | Question | Proposal |
 |---|---|---|
-| D1 | Licence | **Decided 2026-11-08 (the owner):** GPL-3.0-or-later (same as DeviceVault). |
+| D1 | Licence | **Decided 2026-11-08 (owner):** GPL-3.0-or-later (same as DeviceVault). |
 | D2 | Bundled MongoDB vs an existing shared MongoDB | Bundled single-node replica set by default; external URI supported. |
-| D3 | Format priority after Phase 2; do PyPI/Maven gate cutover? | **Decided 2026-11-08 (the owner):** cutover needs only today's Nexus formats (docker, apt, yum, npm, raw); PyPI and Maven come after, then Helm, Go, Terraform, Galaxy, Swift, then Phase 6 formats. |
+| D3 | Format priority after Phase 2; do PyPI/Maven gate cutover? | **Decided 2026-11-08 (owner):** cutover needs only today's Nexus formats (docker, apt, yum, npm, raw); PyPI and Maven come after, then Helm, Go, Terraform, Galaxy, Swift, then Phase 6 formats. |
 | D4 | Vulnerability scanning (Trivy/Grype on cached images and packages) | Post-v1 (Phase 7) as an optional `scanner` worker queue. |
 | D5 | S3/MinIO blob storage driver | Post-v1; the storage API is designed for it (ARCHITECTURE §5). |
 | D6 | Docker Hub default route name | Setting `default_docker_repo`, initially the Docker Hub proxy. |

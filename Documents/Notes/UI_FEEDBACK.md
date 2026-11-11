@@ -1,6 +1,6 @@
 # UI feedback log (M0 onwards)
 
-the owner's feedback on the running UI, one section per page. Screenshots of every page are in
+The owner's feedback on the running UI, one section per page. Screenshots of every page are in
 [UI_TOUR_M0.md](UI_TOUR_M0.md). To run the build yourself, see `Documents/Operations/TRY_IT.md`.
 
 How to add an entry: add a bullet under the page, in this form:

@@ -24,7 +24,7 @@ someone's environment. Everything below is for working on the code.
 - **No environment details in this repo.** It is public. No real hostnames, IP addresses, domains, usernames,
   registry URLs or credentials anywhere: code, docs, tests, fixtures, lockfiles, commit messages. Use
   `example.com` / `registry.example.com` / RFC 5737 / RFC 3849 addresses. Deployment specifics live outside the repo.
-  The only exception: the two source-control URLs in "Source control" below (and SPECIFICATION §13.1).
+  The only exception: the repository URL in "Source control" below (and SPECIFICATION §13.1).
 - **Only the server and workers talk to MongoDB and Valkey.** The web tier talks only to the server (and reads the
   blob store read-only for `X-Accel-Redirect`). The UI talks only to `/api/v1/*` and the event stream.
 - **Every request is authorised by the RBAC engine** (`waystation_server.security.access`). Never rely on the UI
@@ -39,9 +39,9 @@ someone's environment. Everything below is for working on the code.
 - Never commit secrets. `.env` is gitignored.
 
 ## Source control
-- Primary repo: `https://github.com/SlinkySoftware/Waystation` (remote `origin`). Every push also goes to the
-  secondary `https://git.example.com/SlinkySoftware/Waystation` (remote `gitea`), whose runners build on
-  commit. Push to both: `git push origin <ref> && git push gitea <ref>`.
+- Repository: `https://github.com/SlinkySoftware/Waystation` (remote `origin`). A developer may also push to
+  private mirrors; any extra remote and how to push to it is described in the developer's own untracked
+  `CLAUDE.local.md` (gitignored). Read it if it exists and follow it.
 - Authentication comes from the developer's git credential helpers. Never put credentials in remote URLs or `.git/config`.
 - Commit messages: `T-XXX: summary` (task ID first), imperative mood. No AI or tool attribution in commits.
 - The git repo is created in task T-F01 (SPECIFICATION §13.1).
