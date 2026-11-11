@@ -492,6 +492,34 @@ async def test_apt_suites_and_packages(
     assert [p['name'] for p in amd['items']] == ['hello']
 
 
+async def test_apt_nested_suite(
+    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, recorder: Recorder
+) -> None:
+    """A multi-segment suite (``deb <url> bookworm/mongodb-org/8.0 main``) is one suite in browse."""
+    await insert_repo(services, 'mongodb', 'apt', upstream.url, distribution='bookworm')
+    suite = 'bookworm/mongodb-org/8.0'
+    deb = 'pool/main/h/hello/hello_2.10-5_amd64.deb'
+    publish_suite(upstream, suite, {'main/binary-amd64/Packages.xz': packages_index([deb])})
+    publish_suite(upstream, 'bookworm', {'main/binary-amd64/Packages.xz': packages_index([])})
+    assert (await client.get(f'/repository/mongodb/dists/{suite}/InRelease')).status_code == 200
+    assert (await client.get('/repository/mongodb/dists/bookworm/InRelease')).status_code == 200
+    recorder.on = True  # the suite lookup on the request path uses an index too
+    response = await client.get(f'/repository/mongodb/dists/{suite}/main/binary-amd64/Packages.xz')
+    assert response.status_code == 200
+    await drain(services, 'apt')
+    assert (await client.get(f'/repository/mongodb/{deb}')).status_code == 200
+    suites = (await client.get(f'{API}/mongodb/apt/suites')).json()
+    assert [(s['suite'], s['package_count'], s['cached_package_count']) for s in suites] == [
+        ('bookworm', 0, 0),
+        (suite, 1, 1),
+    ]
+    page = (await client.get(f'{API}/mongodb/apt/packages', params={'suite': suite})).json()
+    assert [(p['name'], p['component'], p['cached'], p['verified']) for p in page['items']] == [
+        ('hello', 'main', True, True)
+    ]
+    await assert_indexed(services.db, recorder)
+
+
 # ---------------------------------------------------------------------------- docker
 OCI_INDEX = 'application/vnd.oci.image.index.v1+json'
 OCI_MANIFEST = 'application/vnd.oci.image.manifest.v1+json'

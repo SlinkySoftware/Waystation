@@ -9,9 +9,9 @@ from datetime import UTC, datetime
 import pytest
 
 from waystation_common.errors import ValidationFailed
-from waystation_server.formats.apt import deb822
+from waystation_server.formats.apt import deb822, suites
 from waystation_server.formats.apt.descriptor import DESCRIPTOR
-from waystation_server.formats.apt.plugin import Target, classify, packages_target
+from waystation_server.formats.apt.plugin import Target, classify, packages_target, suite_segments
 from waystation_server.formats.base import SetupContext
 from waystation_server.repos.model import RepoConfig
 
@@ -253,6 +253,99 @@ def test_packages_target() -> None:
     assert packages_target('dists/trixie', 'main/binary-amd64/Packages.diff/Index') is None
     assert packages_target('dists/trixie', 'main/i18n/Translation-en.xz') is None
     assert packages_target('dists/trixie', 'main/source/Packages') is None
+
+
+MONGO = 'dists/bookworm/mongodb-org/8.0'
+KNOWN = {MONGO}
+
+
+@pytest.mark.parametrize(
+    ('path', 'known', 'expected'),
+    [
+        # Release files directly in a suite directory of any depth.
+        (f'{MONGO}/InRelease', (), Target('release', MONGO, 'InRelease')),
+        (f'{MONGO}/Release', (), Target('release', MONGO, 'Release')),
+        (f'{MONGO}/Release.gpg', (), Target('release', MONGO, 'Release.gpg')),
+        ('dists/buster/updates/InRelease', (), Target('release', 'dists/buster/updates', 'InRelease')),
+        # Index files: the known suite first, the layout otherwise.
+        (f'{MONGO}/main/binary-amd64/Packages.gz', KNOWN, Target('index', MONGO, 'main/binary-amd64/Packages.gz')),
+        (f'{MONGO}/main/binary-amd64/Packages.gz', (), Target('index', MONGO, 'main/binary-amd64/Packages.gz')),
+        (f'{MONGO}/main/binary-amd64/Release', (), Target('index', MONGO, 'main/binary-amd64/Release')),
+        (f'{MONGO}/main/i18n/Translation-en.xz', (), Target('index', MONGO, 'main/i18n/Translation-en.xz')),
+        (f'{MONGO}/main/source/Sources.xz', (), Target('index', MONGO, 'main/source/Sources.xz')),
+        (f'{MONGO}/main/dep11/icons-64x64.tar.gz', (), Target('index', MONGO, 'main/dep11/icons-64x64.tar.gz')),
+        (
+            f'{MONGO}/main/debian-installer/binary-amd64/Packages',
+            (),
+            Target('index', MONGO, 'main/debian-installer/binary-amd64/Packages'),
+        ),
+        # Suite-level and component-level files carry no marker: the known suite decides.
+        (f'{MONGO}/Contents-amd64.gz', KNOWN, Target('index', MONGO, 'Contents-amd64.gz')),
+        (f'{MONGO}/main/Contents-amd64.gz', KNOWN, Target('index', MONGO, 'main/Contents-amd64.gz')),
+        (f'{MONGO}/Contents-amd64.gz', (), Target('index', 'dists/bookworm', 'mongodb-org/8.0/Contents-amd64.gz')),
+        # The longest known suite wins (dists/buster and dists/buster/updates both cached).
+        (
+            'dists/buster/updates/main/binary-amd64/Packages.xz',
+            {'dists/buster', 'dists/buster/updates'},
+            Target('index', 'dists/buster/updates', 'main/binary-amd64/Packages.xz'),
+        ),
+        # Multi-segment components (updates/main) below a known single-segment suite.
+        (
+            'dists/stretch/updates/main/binary-amd64/Packages.xz',
+            {'dists/stretch'},
+            Target('index', 'dists/stretch', 'updates/main/binary-amd64/Packages.xz'),
+        ),
+        # by-hash below a nested suite.
+        (f'{MONGO}/main/binary-amd64/by-hash/SHA256/{H1}', (), Target('by-hash', MONGO, algorithm='sha256', digest=H1)),
+        (f'{MONGO}/main/by-hash/SHA512/{H512}', KNOWN, Target('by-hash', MONGO, algorithm='sha512', digest=H512)),
+        (f'{MONGO}/by-hash/SHA256/{H1}', KNOWN, Target('by-hash', MONGO, algorithm='sha256', digest=H1)),
+        ('pool/main/m/mongodb-org/mongodb-org_8.0.4_amd64.deb', KNOWN, Target('pool')),
+        # Refused: unsafe segments, absolute, too deep.
+        ('dists/bookworm/../8.0/InRelease', (), Target('invalid')),
+        ('dists/bookworm//8.0/InRelease', (), Target('invalid')),
+        ('dists/bookworm/./main/binary-amd64/Packages', (), Target('invalid')),
+        (f'dists/bookworm/../main/binary-amd64/by-hash/SHA256/{H1}', (), Target('invalid')),
+        (f'dists/{"/".join("abcdefghi")}/InRelease', (), Target('invalid')),
+        (f'dists/{"/".join("abcdefghi")}/main/binary-amd64/Packages', (), Target('invalid')),
+        (f'dists/{"/".join("abcdefghi")}/main/binary-amd64/by-hash/SHA256/{H1}', (), Target('invalid')),
+    ],
+)
+def test_classify_nested_suites(path: str, known: set[str], expected: Target) -> None:
+    assert classify(path, flat=False, known=known) == expected
+
+
+def test_classify_eight_segments_is_the_limit() -> None:
+    deep = f'dists/{"/".join("abcdefgh")}'
+    assert classify(f'{deep}/InRelease', flat=False) == Target('release', deep, 'InRelease')
+    assert classify(f'{deep}/main/binary-amd64/Packages', flat=False) == Target(
+        'index', deep, 'main/binary-amd64/Packages'
+    )
+
+
+def test_suite_segments_and_candidates() -> None:
+    nested = ['bookworm', 'mongodb-org', '8.0']
+    assert suite_segments(f'{MONGO}/main/binary-amd64/Packages.gz', flat=False) == [*nested, 'main', 'binary-amd64']
+    assert suite_segments(f'{MONGO}/main/by-hash/SHA256/{H1}', flat=False) == [*nested, 'main']
+    assert suite_segments(f'{MONGO}/InRelease', flat=False) is None
+    assert suite_segments('pool/main/x.deb', flat=False) is None
+    assert suite_segments('dists/trixie/main/binary-amd64/Packages', flat=True) is None
+    assert suites.candidates(nested) == ['dists/bookworm', 'dists/bookworm/mongodb-org', MONGO]
+    assert len(suites.candidates(list('abcdefghijk'))) == suites.MAX_SUITE_DEPTH
+    assert not suites.safe('/dists/x/InRelease')
+
+
+def test_packages_target_nested_suite() -> None:
+    target = packages_target(MONGO, 'main/binary-amd64/Packages.gz')
+    assert target is not None
+    assert (target.suite, target.component, target.arch, target.suffix) == (
+        'bookworm/mongodb-org/8.0',
+        'main',
+        'amd64',
+        '.gz',
+    )
+    updates = packages_target('dists/stretch', 'updates/main/binary-arm64/Packages.xz')
+    assert updates is not None
+    assert (updates.suite, updates.component, updates.arch) == ('stretch', 'updates/main', 'arm64')
 
 
 def _setup_text(upstream: str, suite: str) -> dict[str, str]:
