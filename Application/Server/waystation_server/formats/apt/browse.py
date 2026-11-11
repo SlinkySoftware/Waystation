@@ -1,6 +1,7 @@
 """apt browse views (OpenAPI ``listAptSuites`` / ``listAptPackages``).
 
-- **Suites**: one per cached ``dists/<suite>/InRelease`` (else ``Release``); flat repositories: one per directory
+- **Suites**: one per cached ``dists/<suite>/InRelease`` (else ``Release``; a suite may be several segments deep,
+  ``bookworm/mongodb-org/8.0``); flat repositories: one per directory
   holding a cached ``Release`` (the root is suite ``.``). Origin, codename, date, components and architectures come
   from the cached file itself; ``last_refreshed_at`` is when the upstream last confirmed it. ``package_count`` counts
   the entries of the suite's cached ``Packages`` indexes (``apt_packages``; a package listed for two architectures
@@ -32,6 +33,7 @@ from waystation_server.browse.models import (
 from waystation_server.db import apt as apt_db
 from waystation_server.db import assets as assets_db
 from waystation_server.db import browse as browse_db
+from waystation_server.formats.apt import suites
 from waystation_server.formats.apt.descriptor import AptOptions
 
 if TYPE_CHECKING:
@@ -43,7 +45,8 @@ _RELEASE = r'(InRelease|Release)$'
 
 
 def browse_suite(suite: str) -> str:
-    """The suite id browse uses: ``trixie`` for ``dists/trixie``; a flat repository's directory, ``.`` for its root."""
+    """The suite id browse uses: ``trixie`` for ``dists/trixie``, ``bookworm/mongodb-org/8.0`` for
+    ``dists/bookworm/mongodb-org/8.0``; a flat repository's directory, ``.`` for its root."""
     return suite or FLAT_ROOT
 
 
@@ -70,12 +73,15 @@ class AptBrowse:
         if flat:
             docs = await browse_db.matching(ctx.db, ctx.repo.id, '', f'(^|/){_RELEASE}', browse_db.PATH_ONLY)
         else:
+            depth = f'{{1,{suites.MAX_SUITE_DEPTH}}}'
             docs = await browse_db.matching(
-                ctx.db, ctx.repo.id, 'dists/', f'^dists/[^/]+/{_RELEASE}', browse_db.PATH_ONLY
+                ctx.db, ctx.repo.id, 'dists/', f'^dists/(?:[^/]+/){depth}{_RELEASE}', browse_db.PATH_ONLY
             )
         found: dict[str, str] = {}
         for doc in docs:
             path = str(doc['path'])
+            if not flat and suites.release_suite_dir(path) is None:
+                continue
             directory, _, name = path.rpartition('/')
             suite = browse_suite(directory if flat else directory.split('/', 1)[1])
             if name == 'InRelease' or suite not in found:
