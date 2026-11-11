@@ -121,7 +121,7 @@ Minimal `/srv/waystation/waystation.env`:
 ```bash
 # Compose
 WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware
-WAYSTATION_IMAGE_TAG=0.2.0
+WAYSTATION_IMAGE_TAG=0.2.1
 WAYSTATION_HTTP_BIND=0.0.0.0
 WAYSTATION_HTTP_PORT=8080
 

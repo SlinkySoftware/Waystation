@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-11
+- **Release 0.2.1**: apt proxies support multi-segment suites (e.g. `bookworm/mongodb-org/8.0`), found while proxying
+  third-party apt repositories in a real deployment. Docs and examples point at the 0.2.1 images.
 - T-P2-APT: multi-segment apt suites. A proxy of a vendor repository such as
   `deb <url> bookworm/mongodb-org/8.0 main` now works: `dists/bookworm/mongodb-org/8.0/InRelease` is that suite's
   release (it was taken for an index of suite `bookworm`), and index and `by-hash` paths are split at the longest
