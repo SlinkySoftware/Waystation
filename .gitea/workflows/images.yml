@@ -74,4 +74,6 @@ jobs:
           provenance: false
           sbom: false
           cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache
-          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max
+          # web: mode=min. Its SPA build stage (node_modules) exports as one blob over 100 MB, which proxies in front
+          # of a registry often refuse (413); the final image's layers are small.
+          cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=${{ matrix.role == 'web' && 'min' || 'max' }}

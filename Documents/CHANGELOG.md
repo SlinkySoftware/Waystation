@@ -3,6 +3,21 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-11
+- **Release 0.2.0, the first public preview.** Public multi-arch images on GHCR
+  (`ghcr.io/slinkysoftware/waystation-{server,worker,web}:0.2.0`, linux/amd64 and linux/arm64, SBOM and SLSA
+  provenance). `release.yml` now publishes every `vX.Y.Z` tag (also pre-releases) with `X.Y.Z`, `X.Y`, `sha-<commit>`
+  and, for stable releases, `latest`. TRY_IT.md and DEPLOYMENT.md use the released images; building from source stays
+  documented.
+- Docs: `Documents/Operations/AGENT_DEPLOYMENT.md`, a runbook for AI agents (and people) deploying Waystation into
+  someone else's environment: questions for the owner, preflight checks, images, layout, provisioning, TLS and the
+  trusted-proxy address, LDAP/OIDC (the provider-id callback), Nexus import, client tests in throwaway containers,
+  DNS cutover with a stale-cache fallback, monitoring, backups, the report back, an API cheat sheet and the problems
+  found in a real deployment. `AGENTS.md` and `CLAUDE.md` point deploy requests at it. README rewritten (formats
+  table, quick start from GHCR, "deploy it with an AI agent", status).
+- Build: `make test-integration` no longer passes its `--network` to the `sync` prerequisite (`private` target
+  variable): on a fresh checkout the sync ran before the test network existed (first Gitea run). Gitea `images.yml`
+  exports the web image's build cache with `mode=min` (its SPA stage exported a blob over 100 MB, refused with 413 by
+  a proxy in front of the registry).
 - T-P2-NPM: per-version npm documents. `GET /<pkg>/<version>` and `/<pkg>/<dist-tag>` (scoped: `@scope/name/...` and
   `@scope%2fname/...`) answer the version object of the full packument (`versions[<v>]`, else the version the tag
   names), as the public registry does; corepack bootstraps pnpm/Yarn with these (`<registry>/@pnpm/exe.linux-x64/<v>`).

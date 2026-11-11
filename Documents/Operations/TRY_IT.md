@@ -1,9 +1,10 @@
-# Try Waystation (M0 feedback build)
+# Try Waystation in ten minutes
 
-This guide gets the M0 feedback build running on one Docker host in about ten minutes. You sign in, create proxy
-repositories for Docker Hub, npm, Debian and GitHub releases, point real clients at them, and watch the traffic on
-the dashboard. It is a try-out build: one admin account, no TLS in the web tier, local and anonymous access only.
-Production deployment is covered in [DEPLOYMENT.md](DEPLOYMENT.md).
+This guide gets Waystation running on one Docker host in about ten minutes. You sign in, create proxy repositories
+for Docker Hub, npm, Debian and GitHub releases, point real clients at them, and watch the traffic on the dashboard.
+It is a try-out setup: plain HTTP, one admin account, anonymous reads. Production deployment (TLS, LDAP/OIDC
+sign-in, backups, monitoring) is covered in [DEPLOYMENT.md](DEPLOYMENT.md), and an AI agent can do it for you with
+[AGENT_DEPLOYMENT.md](AGENT_DEPLOYMENT.md).
 
 The examples use `registry.example.com` for the Docker host and port 8080. Replace both with your own values.
 To try it on your own machine, use `localhost`.
@@ -15,15 +16,19 @@ To try it on your own machine, use `localhost`.
   (default 5 GiB).
 - Outbound HTTPS to the upstreams you proxy (registry-1.docker.io, auth.docker.io, registry.npmjs.org,
   deb.debian.org, security.debian.org, github.com and its download CDN).
-- A checkout of this repository, used to build the images. No released images are published until the first tagged
-  release. After that you can set `WAYSTATION_IMAGE_PREFIX` to the GHCR namespace and skip the build.
+- A copy of `Build/Containers/compose.yaml` from the release (a checkout of the tag, or the release's source archive).
 
-## 2. Build the images
+## 2. Get the images
+
+The release images are public on GitHub Container Registry (linux/amd64 and linux/arm64):
 
 ```sh
-git clone https://github.com/SlinkySoftware/Waystation.git && cd Waystation
-make images IMAGE_TAG=0.1.0-m0       # waystation/waystation-{server,worker,web}:0.1.0-m0
+git clone --branch v0.2.0 https://github.com/SlinkySoftware/Waystation.git && cd Waystation
+for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:0.2.0; done
 ```
+
+To run an unreleased commit instead, build the images from the checkout (`make images IMAGE_TAG=dev`, Docker only)
+and use `WAYSTATION_IMAGE_PREFIX=waystation` and `WAYSTATION_IMAGE_TAG=dev` below.
 
 ## 3. Create a directory and an env file outside the repository
 
@@ -32,8 +37,8 @@ mkdir -p ~/waystation && cp Build/Containers/compose.yaml ~/waystation/
 cd ~/waystation
 umask 077
 cat > .env <<EOF
-WAYSTATION_IMAGE_PREFIX=waystation
-WAYSTATION_IMAGE_TAG=0.1.0-m0
+WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware
+WAYSTATION_IMAGE_TAG=0.2.0
 WAYSTATION_HTTP_PORT=8080
 # The URL clients use: it appears in "Set me up" snippets, docker pull names and registry tokens.
 WAYSTATION_BASE_URL=http://registry.example.com:8080
@@ -69,7 +74,7 @@ docker compose logs init | grep 'one-time password'
 ```
 
 **Save the password now** (in a password manager or a mode-600 file). Recreating the `init` container, which
-happens when you upgrade the images, discards these logs, and the M0 build has no change-password page yet.
+happens when you upgrade the images, discards these logs. Change it after signing in (avatar menu > Profile).
 To choose the password yourself, set `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE` before the first start. It is only
 used while there are no users.
 
@@ -137,22 +142,22 @@ internet access and takes a few minutes the first time.
 ```sh
 docker compose stop                 # stop; start again with: docker compose up -d --wait
 docker compose down                 # remove the containers; data volumes are kept
-make images IMAGE_TAG=0.1.0-m0 && docker compose up -d --wait   # rebuild from a newer checkout (data kept)
+docker compose up -d --wait         # after setting a newer WAYSTATION_IMAGE_TAG in .env (data kept)
 docker compose down -v              # remove everything, including the cache, users and repositories
 ```
 
 After `down -v` the next start is a fresh install with a new one-time admin password.
 
-## Known limits of the M0 build
+## Where to go next
 
-- One local admin account to start with. You can add an LDAP sign-in provider (Administration > Auth providers).
-  User, group and role management pages, and OIDC, come later.
-- Personal API tokens are on your profile page (avatar menu > Profile). Format clients that send credentials (basic
-  or bearer auth on `/repository/...`) must use a token, not your password. The proxies in this guide allow anonymous
-  reads, so the examples need no credentials.
-- Proxy repositories only, for Docker, npm, apt, yum/dnf and raw. Hosted and group repositories, and the other
-  formats, come later.
-- No TLS in the web tier. Put a reverse proxy in front for HTTPS ([REVERSE_PROXIES.md](REVERSE_PROXIES.md)).
+- **More formats**: PyPI, Maven, Helm, Go modules, Terraform providers, Ansible Galaxy, yum/dnf; hosted (private)
+  and group repositories for most of them. Client setup per format: [clients/](clients/).
+- **Users and sign-in**: Administration > Users, Groups, Roles and Auth providers (LDAP / Active Directory, OIDC).
+  Format clients that send credentials (basic or bearer auth on `/repository/...`) use an API token from your
+  profile page, not your password. The proxies in this guide allow anonymous reads, so the examples need none.
+- **HTTPS**: the web tier speaks plain HTTP; put a reverse proxy in front ([REVERSE_PROXIES.md](REVERSE_PROXIES.md)).
+- **Production**: [DEPLOYMENT.md](DEPLOYMENT.md), [BACKUP.md](BACKUP.md), [MONITORING.md](MONITORING.md),
+  [PROVISIONING.md](PROVISIONING.md); moving from Nexus: [MIGRATING_FROM_NEXUS.md](MIGRATING_FROM_NEXUS.md).
 - Menu items marked "soon" are placeholders.
 
 Send feedback in `Documents/Notes/UI_FEEDBACK.md`.
