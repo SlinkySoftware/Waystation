@@ -3,6 +3,10 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-15
+- T-F03: explicit network subnets moved to the optional override `Build/Containers/compose.subnets.yaml`
+  (`COMPOSE_FILE=compose.yaml:compose.subnets.yaml`). `compose.yaml` passed an empty `subnet` when
+  `WAYSTATION_SUBNET` was unset, which some Docker engines (the GitHub runners) refuse, so no harness network could
+  be created there. The allowlist test now expects no source-control URL (the private mirror is no longer named).
 - T-S07 marked DONE: its last open item (pass-through when the low-disk guard trips) shipped with T-O03 on
   2026-11-10; fills that outlive their client shipped 2026-11-11.
 - T-F06: migration lock. `apply_migrations` holds a lease lock (`{_id: '_lock'}` in `migrations`, 60 s, renewed

@@ -52,8 +52,9 @@ EOF
 (for example `WAYSTATION_SECRET_KEYS_FILE`). Keep `WAYSTATION_SECRET_KEYS` safe: stored upstream credentials are
 encrypted with it, and they cannot be read without it.
 
-If the default Docker address pools clash with your network, set `WAYSTATION_SUBNET` and `WAYSTATION_BACKEND_SUBNET`
-(for example `192.0.2.0/24` and `198.51.100.0/24`).
+If the default Docker address pools clash with your network, add the override `compose.subnets.yaml`
+(`COMPOSE_FILE=compose.yaml:compose.subnets.yaml` in `.env`) and set `WAYSTATION_SUBNET` and
+`WAYSTATION_BACKEND_SUBNET` (for example `192.0.2.0/24` and `198.51.100.0/24`).
 
 ## 4. Start the stack
 

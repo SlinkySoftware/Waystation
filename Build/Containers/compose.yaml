@@ -218,16 +218,12 @@ services:
       start_period: 5s
       retries: 6
 
+# Docker picks the subnets. To choose them (Docker's default pools collide with routed networks), add
+# compose.subnets.yaml: COMPOSE_FILE=compose.yaml:compose.subnets.yaml (an empty subnet is invalid on some engines).
 networks:
-  frontend:
-    ipam:
-      config:
-        - subnet: ${WAYSTATION_SUBNET:-}
+  frontend: {}
   backend:
     internal: true
-    ipam:
-      config:
-        - subnet: ${WAYSTATION_BACKEND_SUBNET:-}
 
 volumes:
   data:

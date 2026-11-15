@@ -1,0 +1,11 @@
+# Optional override: explicit subnets for Waystation's networks, for when Docker's default address pools collide
+# with routed networks. Use it with compose.yaml, e.g. in .env: COMPOSE_FILE=compose.yaml:compose.subnets.yaml
+networks:
+  frontend:
+    ipam:
+      config:
+        - subnet: ${WAYSTATION_SUBNET:?set WAYSTATION_SUBNET to an unused subnet, e.g. a /24}
+  backend:
+    ipam:
+      config:
+        - subnet: ${WAYSTATION_BACKEND_SUBNET:?set WAYSTATION_BACKEND_SUBNET to another unused subnet}

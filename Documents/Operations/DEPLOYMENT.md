@@ -206,7 +206,7 @@ Compose-only variables (used for interpolation in `compose.yaml`, not read by th
 | `WAYSTATION_HTTP_BIND`, `WAYSTATION_HTTP_PORT` | `0.0.0.0`, `8080` | Published address and port of `web` (bind `127.0.0.1` when a proxy on the same host is the only client) |
 | `WAYSTATION_DATA_MOUNT_TYPE`, `WAYSTATION_DATA_SOURCE` | `volume`, `data` | Blob store mount |
 | `WAYSTATION_MONGO_MOUNT_TYPE`, `WAYSTATION_MONGO_DIR` | `volume`, `mongodb` | MongoDB mount |
-| `WAYSTATION_SUBNET`, `WAYSTATION_BACKEND_SUBNET` | Docker picks | Explicit subnets for `frontend` / `backend` when Docker's default pools collide with routed networks |
+| `WAYSTATION_SUBNET`, `WAYSTATION_BACKEND_SUBNET` | Docker picks | Explicit subnets for `frontend` / `backend` when Docker's default pools collide with routed networks; only read through the override `compose.subnets.yaml` (`COMPOSE_FILE=compose.yaml:compose.subnets.yaml`) |
 
 The web image reads `WAYSTATION_SERVER_ADDR` (default `waystation-server:8000`) and `WAYSTATION_WEB_PORT` (default
 `8080`) from its own environment; the defaults match `compose.yaml`.

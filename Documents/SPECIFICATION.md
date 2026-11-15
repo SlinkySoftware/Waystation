@@ -856,8 +856,9 @@ as root with `CHOWN`, `FOWNER`, `DAC_OVERRIDE`, `SETUID`, `SETGID` to fix data-d
 - Healthchecks on every service; `depends_on` with `condition: service_healthy`; web restarts with server.
 - Reverse-proxy integration (Traefik labels, extra networks, TLS) lives in a site override file **outside** the
   repo; the repo ships `Build/Containers/examples/traefik.override.example.yaml` with `example.com` names.
-- Explicit subnet for the project network is configurable (`WAYSTATION_SUBNET`, and `WAYSTATION_BACKEND_SUBNET`
-  for the backend network), because Docker's default pools can collide with routed networks. Unset = Docker picks.
+- Explicit subnets for the networks are configurable with the optional override `compose.subnets.yaml`
+  (`WAYSTATION_SUBNET` for `frontend`, `WAYSTATION_BACKEND_SUBNET` for `backend`), because Docker's default pools can
+  collide with routed networks. Without it Docker picks.
 - Dev stack (`make dev-up`): `compose.yaml` + `compose.dev.yaml` as project `waystation-dev` (containers
   `waystation-dev-*`), images built locally, Python source bind-mounted read-only with hot reload, throwaway secrets
   generated once into the gitignored `.dev-data/dev.env`; `compose.dev-spa.yaml` is added automatically to serve a

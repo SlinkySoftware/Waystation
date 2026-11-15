@@ -143,7 +143,9 @@ WAYSTATION_DATA_MOUNT_TYPE=bind
 WAYSTATION_DATA_SOURCE=/srv/waystation/data
 WAYSTATION_MONGO_MOUNT_TYPE=bind
 WAYSTATION_MONGO_DIR=/srv/waystation/mongodb
-# WAYSTATION_SUBNET=<an unused /24>          # only when Docker's default pools could collide with routed networks
+# Only when Docker's default pools could collide with routed networks (copy compose.subnets.yaml next to compose.yaml):
+# COMPOSE_FILE=compose.yaml:compose.subnets.yaml
+# WAYSTATION_SUBNET=<an unused /24>
 # WAYSTATION_BACKEND_SUBNET=<another unused /24>
 
 WAYSTATION_BASE_URL=https://registry.example.com
