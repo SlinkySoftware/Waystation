@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-15
+- T-S07 marked DONE: its last open item (pass-through when the low-disk guard trips) shipped with T-O03 on
+  2026-11-10; fills that outlive their client shipped 2026-11-11.
 - T-F06: migration lock. `apply_migrations` holds a lease lock (`{_id: '_lock'}` in `migrations`, 60 s, renewed
   while it runs, taken over once expired if its holder died), so two `init` jobs started together apply each
   migration once: the second waits up to 10 minutes, then finds nothing pending. The audit TTL item was already done
