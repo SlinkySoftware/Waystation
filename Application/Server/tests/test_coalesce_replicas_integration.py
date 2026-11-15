@@ -137,7 +137,7 @@ class Replica:
         )
         stream.close()
         async with httpx.AsyncClient() as http:
-            for _ in range(300):
+            for _ in range(1200):  # 120 s: a loaded CI runner can take over 30 s to import and start the app
                 if self.proc.returncode is not None:
                     raise AssertionError(f'replica exited: {self.log.read_text()[-2000:]}')
                 with contextlib.suppress(httpx.HTTPError):

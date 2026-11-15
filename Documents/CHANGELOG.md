@@ -2,6 +2,13 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-16
+- **Release 0.2.3**: migration lock for concurrent `init`, Galaxy proxy checksums kept when details are indexed before
+  the version list, CI fixes. **Upgrade note:** deployments that set `WAYSTATION_SUBNET`/`WAYSTATION_BACKEND_SUBNET`
+  must add `compose.subnets.yaml` (`COMPOSE_FILE=compose.yaml:compose.subnets.yaml`), else the networks are recreated
+  with Docker-picked subnets (check `WAYSTATION_TRUSTED_PROXIES`). Docs and examples point at the 0.2.3 images.
+- T-F03: the replica integration tests wait up to 120 s (was 30 s) for a replica to start on a loaded runner.
+
 ## 2026-11-15
 - T-P5-GALAXY: a proxied version's checksum, size and description are kept when its details are indexed before the
   version list that names it (both index in the background; the details update matched nothing and was lost, so
