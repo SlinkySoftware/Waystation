@@ -196,6 +196,6 @@ def test_svg_path_data_is_not_an_address() -> None:
 def test_repository_allowlist_is_well_formed() -> None:
     allow = read_allowlist(Path(__file__).parents[4] / DEFAULT_ALLOWLIST)
     assert 'example.com' in allow.hosts
-    assert len(allow.urls) == 1  # the secondary source-control URL only
+    assert len(allow.urls) == 0  # private mirrors are never named in the public repository
     for host in allow.hosts:
         assert not host_allowed(host + '.lan', allow.hosts)  # internal suffixes can never be allowlisted
