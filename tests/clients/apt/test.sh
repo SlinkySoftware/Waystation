@@ -42,6 +42,11 @@ Acquire::Retries "0";
 APT::Get::Assume-Yes "true";
 APT::Install-Recommends "false";
 CONF
+# Replayed fixtures are a snapshot: their Release files pass Valid-Until within days of recording. Only replay skips
+# that check (signatures are still verified); record and live keep it.
+if [ "${HARNESS_MODE:-}" = replay ]; then
+  echo 'Acquire::Check-Valid-Until "false";' >> /etc/apt/apt.conf.d/99waystation-harness
+fi
 
 update() {  # update [apt options]: apt-get update that fails on any warning or error
   rm -rf /var/lib/apt/lists/*

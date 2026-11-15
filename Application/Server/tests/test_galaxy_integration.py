@@ -22,6 +22,7 @@ from waystation_common.db import galaxy as galaxy_common_db
 from waystation_common.db.collections import ASSETS, AUDIT, GALAXY_COLLECTIONS, GALAXY_IMPORTS, JOB_OUTBOX, REPO_USAGE
 from waystation_common.settings import Settings
 from waystation_server.bootstrap import ensure_bootstrap_admin
+from waystation_server.db import galaxy as galaxy_db
 from waystation_server.formats.galaxy.descriptor import DEFAULT_COLLECTIONS_PATH
 from waystation_server.formats.galaxy.plugin import GalaxyPlugin
 from waystation_server.problems import ResponseAborted
@@ -315,6 +316,15 @@ async def test_proxy_collections(
         '/api/v1/repositories/gal/galaxy/versions', params={'namespace': 'ns', 'collection': 'nope'}
     )
     assert missing.status_code == 404
+
+
+async def test_details_indexed_before_their_version_list_are_kept(services: Services) -> None:
+    db, key = services.db, ('r1', 'ns', 'coll')
+    await galaxy_db.update_details(db, *key, '1.0.0', {'sha256': sha(b'a'), 'size': 1})
+    await galaxy_db.update_details(db, *key, '0.9.0', {'sha256': sha(b'b'), 'size': 1})  # not in the list below
+    await galaxy_db.replace_listing(db, *key, 'g1', [{'version': '1.0.0', 'version_sort': '1'}])
+    docs = [d async for d in db[GALAXY_COLLECTIONS].find({'repo_id': 'r1'})]
+    assert [(d['version'], d['sha256'], d['gen']) for d in docs] == [('1.0.0', sha(b'a'), 'g1')]
 
 
 async def test_proxy_roles(services: Services, client: httpx.AsyncClient, repos: None) -> None:

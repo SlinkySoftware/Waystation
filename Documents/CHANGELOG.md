@@ -3,6 +3,11 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-15
+- T-P5-GALAXY: a proxied version's checksum, size and description are kept when its details are indexed before the
+  version list that names it (both index in the background; the details update matched nothing and was lost, so
+  browse showed no sha256). Found by the first GitHub CI run.
+- T-F03: the apt real-client harness skips `Valid-Until` in replay mode only: replayed `Release` files expire days
+  after recording, which failed `apt-get update` (signatures are still verified; record and live keep the check).
 - T-F03: explicit network subnets moved to the optional override `Build/Containers/compose.subnets.yaml`
   (`COMPOSE_FILE=compose.yaml:compose.subnets.yaml`). `compose.yaml` passed an empty `subnet` when
   `WAYSTATION_SUBNET` was unset, which some Docker engines (the GitHub runners) refuse, so no harness network could

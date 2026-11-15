@@ -52,10 +52,13 @@ async def replace_listing(
 async def update_details(
     db: Database, repo_id: str, namespace: str, name: str, version: str, fields: dict[str, Any]
 ) -> None:
-    """A proxy repository cached a version's details: remember its checksum, size and description."""
+    """A proxy repository cached a version's details: remember its checksum, size and description. Upserted: the
+    details may be indexed before the version list that lists them (both run in the background); the list fills in
+    the rest, and a record no list names goes with the next list's generation sweep."""
     await db[GALAXY_COLLECTIONS].update_one(
         {'repo_id': repo_id, 'namespace': namespace, 'name': name, 'version': version},
         {'$set': {**fields, 'updated_at': datetime.now(UTC)}},
+        upsert=True,
     )
 
 
