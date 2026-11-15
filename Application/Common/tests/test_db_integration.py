@@ -1,16 +1,21 @@
+import asyncio
 import os
+from datetime import UTC, datetime
 
 import pytest
 
 from waystation_common.db import collections as c
 from waystation_common.db.client import Database
 from waystation_common.db.migrations import (
+    LOCK_ID,
     MIGRATIONS,
     Migration,
+    MigrationLockTimeout,
     SchemaMismatch,
     applied_ids,
     apply_migrations,
     check_schema,
+    migration_lock,
 )
 from waystation_common.db.replset import ensure_replica_set
 from waystation_common.db.schema import ensure_schema
@@ -103,3 +108,31 @@ async def test_default_migrations(mongo_db: Database) -> None:
     assert await apply_migrations(mongo_db) == [m.id for m in MIGRATIONS]
     assert await applied_ids(mongo_db) == [m.id for m in MIGRATIONS]
     await check_schema(mongo_db)
+
+
+async def test_concurrent_apply_runs_each_migration_once(mongo_db: Database) -> None:
+    calls: list[str] = []
+
+    async def slow(db: Database) -> None:
+        calls.append('0001_slow')
+        await asyncio.sleep(0.3)
+
+    migrations = [Migration('0001_slow', 'slow', slow)]
+    first, second = await asyncio.gather(apply_migrations(mongo_db, migrations), apply_migrations(mongo_db, migrations))
+    assert sorted([first, second]) == [[], ['0001_slow']]
+    assert calls == ['0001_slow']
+    assert await applied_ids(mongo_db) == ['0001_slow']
+    assert await mongo_db[c.MIGRATIONS].find_one({'_id': LOCK_ID}) is None
+
+
+async def test_migration_lock_waits_times_out_and_expires(mongo_db: Database) -> None:
+    async with migration_lock(mongo_db, lease_s=30):
+        with pytest.raises(MigrationLockTimeout):
+            async with migration_lock(mongo_db, wait_s=0.2, poll_s=0.05):
+                pass
+    # A lock left by a dead holder (no renewal) is taken over once its lease ends.
+    await mongo_db[c.MIGRATIONS].insert_one(
+        {'_id': LOCK_ID, 'owner': 'dead', 'expires_at': datetime(2000, 1, 1, tzinfo=UTC)}
+    )
+    async with migration_lock(mongo_db, wait_s=1):
+        assert (await mongo_db[c.MIGRATIONS].find_one({'_id': LOCK_ID}))['owner'] != 'dead'

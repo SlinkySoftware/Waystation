@@ -8,18 +8,24 @@ data transforms and for changing an existing index.
 ``check_schema`` is for processes that only *use* the database (server, worker): it refuses to run against a
 database migrated by a newer release (an applied id this code does not know) or one with pending migrations.
 
-Concurrency: migrations are run by the single ``init`` container; running two ``init`` jobs at once is unsupported.
+Concurrency: ``apply_migrations`` holds a lease lock (``{_id: '_lock'}`` in the ``migrations`` collection, renewed
+while it runs) so two ``init`` jobs started together apply each migration once: the second waits, then finds nothing
+pending. A lock left by a killed ``init`` expires after ``LOCK_LEASE_S``.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+import secrets
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pymongo import UpdateOne
+from pymongo.errors import DuplicateKeyError
 
 from waystation_common.db import usage
 from waystation_common.db.client import Database
@@ -94,12 +100,72 @@ MIGRATIONS: tuple[Migration, ...] = (
 )
 
 
+LOCK_ID = '_lock'
+LOCK_LEASE_S = 60.0
+LOCK_WAIT_S = 600.0
+LOCK_POLL_S = 1.0
+
+
+class MigrationLockTimeout(ConfigError):  # noqa: N818 - reads as a state, like the other config errors
+    code = 'migration_lock_timeout'
+
+
 async def applied_ids(db: Database) -> list[str]:
-    return sorted([doc['_id'] async for doc in db[MIGRATIONS_COLLECTION].find({}, {'_id': 1})])
+    query = {'_id': {'$ne': LOCK_ID}}
+    return sorted([doc['_id'] async for doc in db[MIGRATIONS_COLLECTION].find(query, {'_id': 1})])
+
+
+async def _try_lock(db: Database, owner: str, lease_s: float) -> bool:
+    now = datetime.now(UTC)
+    try:
+        await db[MIGRATIONS_COLLECTION].update_one(
+            {'_id': LOCK_ID, '$or': [{'expires_at': {'$lt': now}}, {'owner': owner}]},
+            {'$set': {'owner': owner, 'expires_at': now + timedelta(seconds=lease_s)}},
+            upsert=True,
+        )
+    except DuplicateKeyError:  # held by another live owner: the upsert's insert collided
+        return False
+    return True
+
+
+async def _renew(db: Database, owner: str, lease_s: float) -> None:
+    while True:
+        await asyncio.sleep(lease_s / 3)
+        await _try_lock(db, owner, lease_s)
+
+
+@contextlib.asynccontextmanager
+async def migration_lock(
+    db: Database, *, lease_s: float = LOCK_LEASE_S, wait_s: float = LOCK_WAIT_S, poll_s: float = LOCK_POLL_S
+) -> AsyncIterator[None]:
+    """Hold the cluster-wide migration lock, waiting up to ``wait_s`` for it. The lease is renewed in the
+    background and expires on its own if the holder dies."""
+    owner = secrets.token_hex(8)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + wait_s
+    while not await _try_lock(db, owner, lease_s):
+        if loop.time() >= deadline:
+            raise MigrationLockTimeout(f'another init is applying migrations (waited {wait_s:.0f} s)')
+        log.info('waiting for the migration lock')
+        await asyncio.sleep(poll_s)
+    renewer = asyncio.create_task(_renew(db, owner, lease_s))
+    try:
+        yield
+    finally:
+        renewer.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await renewer
+        await db[MIGRATIONS_COLLECTION].delete_one({'_id': LOCK_ID, 'owner': owner})
 
 
 async def apply_migrations(db: Database, migrations: Sequence[Migration] = MIGRATIONS) -> list[str]:
-    """Apply pending migrations in id order. Returns the ids applied by this call (empty on a re-run)."""
+    """Apply pending migrations in id order, under the migration lock. Returns the ids applied by this call (empty
+    on a re-run, or when a concurrent ``init`` applied them first)."""
+    async with migration_lock(db):
+        return await _apply(db, migrations)
+
+
+async def _apply(db: Database, migrations: Sequence[Migration]) -> list[str]:
     known = {m.id for m in migrations}
     done = set(await applied_ids(db))
     unknown = sorted(done - known)
