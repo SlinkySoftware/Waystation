@@ -44,7 +44,7 @@
   (provider `SHA256SUMS`, apt/yum proxy metadata) is in-house in `waystation_common.openpgp` on `cryptography` (adr/0006).
 - Frontend: Quasar 2, Vue 3, TypeScript strict, Pinia, vue-router, `openapi-fetch` + `openapi-typescript`.
   Charts are in-house SVG components (no heavyweight chart library), following DeviceVault's `components/charts`.
-- nginx (official image, unprivileged variant) for `web`.
+- nginx (official image, run as the unprivileged `nginx` user, uid 101) for `web`.
 
 ## 3. Package boundaries (import-linter contracts, CI-enforced)
 - `waystation_common` imports nothing from server/worker; no FastAPI imports; no network or DB clients at import time.

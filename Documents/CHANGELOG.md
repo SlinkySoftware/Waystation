@@ -2,6 +2,13 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-19
+- T-F05: the web image is built on `nginx:1.30.7-alpine` (official image, run as uid 101) instead of
+  `nginxinc/nginx-unprivileged:1.30-alpine`, which was still on nginx 1.30.6 with no patched build. 1.30.7 fixes
+  CVE-2026-123007 and CVE-2026-123633 (HTTP/2 heap overflow and use-after-free). The web tier serves HTTP/1.1 only,
+  so it was not reachable through these, but the image no longer ships the vulnerable nginx. The reverse-proxy
+  check uses nginx 1.30.7, and `REVERSE_PROXIES.md` tells operators who enable `http2` on their own nginx to upgrade.
+
 ## 2026-11-16
 - **Release 0.2.3**: migration lock for concurrent `init`, Galaxy proxy checksums kept when details are indexed before
   the version list, CI fixes. **Upgrade note:** deployments that set `WAYSTATION_SUBNET`/`WAYSTATION_BACKEND_SUBNET`

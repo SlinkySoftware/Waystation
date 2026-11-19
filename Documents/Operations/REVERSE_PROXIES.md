@@ -132,7 +132,8 @@ server {
 }
 ```
 
-`http2 on` needs nginx 1.25.1 or later (older versions: `listen 443 ssl http2;`). If nginx and Waystation share a
+`http2 on` needs nginx 1.25.1 or later (older versions: `listen 443 ssl http2;`). With HTTP/2 on, run nginx 1.30.7 /
+1.31.9 or later: earlier releases are open to CVE-2026-123007 and CVE-2026-123633 in the HTTP/2 module. If nginx and Waystation share a
 Docker network, set `WAYSTATION_HTTP_BIND=127.0.0.1` or drop the published port so clients cannot bypass the proxy.
 
 ## 4. Traefik v3

@@ -1,7 +1,9 @@
 # Waystation web tier: nginx (unprivileged) serving the SPA under /ui/, proxying dynamic paths to the server and
 # serving cached blobs via X-Accel-Redirect. Build context: repository root.
 ARG NODE_IMAGE=node:26-trixie-slim
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30-alpine
+# Official nginx run as uid 101 (nginx.conf keeps the pid and temp files in /tmp). Pinned to a patch release: 1.30.7
+# fixes CVE-2026-123007 and CVE-2026-123633 (HTTP/2); nginx-unprivileged had no 1.30.7 build when this was set.
+ARG NGINX_IMAGE=nginx:1.30.7-alpine
 
 # ---- SPA build (Quasar/Vite; output Application/Web/dist/spa, public path /ui/). Until the SPA exists the image
 # ships a placeholder page.

@@ -11,7 +11,7 @@ Examples use `registry.example.com` as the public host name and `/srv/waystation
 
 | Container | Image | Role | Publishes a port |
 |---|---|---|---|
-| `waystation-web` | `waystation-web` (nginx, unprivileged) | Serves the UI under `/ui/`, proxies dynamic paths to the server, serves cached files from the blob store via `X-Accel-Redirect` | yes: `WAYSTATION_HTTP_PORT` (default 8080), plain HTTP |
+| `waystation-web` | `waystation-web` (nginx, non-root) | Serves the UI under `/ui/`, proxies dynamic paths to the server, serves cached files from the blob store via `X-Accel-Redirect` | yes: `WAYSTATION_HTTP_PORT` (default 8080), plain HTTP |
 | `waystation-server` | `waystation-server` | Format protocols, REST API, live event stream, Docker token service | no (port 8000 on the compose network) |
 | `waystation-worker` | `waystation-worker` | Background jobs (stats rollups, indexing; more job types arrive with later tasks) | no (no HTTP listener at all) |
 | `waystation-init` | `waystation-server` (one-shot) | Fixes data-dir ownership and modes, initiates the MongoDB replica set, applies schema and migrations, creates the first administrator | no; exits 0 |
