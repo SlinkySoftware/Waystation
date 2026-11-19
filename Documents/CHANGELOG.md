@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-19
+- **Release 0.2.4**: the web image moves to nginx 1.30.7 (CVE-2026-123007, CVE-2026-123633). Docs and examples
+  point at the 0.2.4 images.
 - T-F05: the web image is built on `nginx:1.30.7-alpine` (official image, run as uid 101) instead of
   `nginxinc/nginx-unprivileged:1.30-alpine`, which was still on nginx 1.30.6 with no patched build. 1.30.7 fixes
   CVE-2026-123007 and CVE-2026-123633 (HTTP/2 heap overflow and use-after-free). The web tier serves HTTP/1.1 only,
