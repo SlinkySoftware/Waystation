@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-19
+- T-F05: the perf origin (`tests/perf/compose.perf.yaml`) runs `nginx:1.30.7-alpine` as uid 101 with its own
+  `tests/perf/origin/nginx.conf` (pid and temp files in `/tmp`), replacing the unpatched nginx-unprivileged 1.30.6 digest.
 - **Release 0.2.4**: the web image moves to nginx 1.30.7 (CVE-2026-123007, CVE-2026-123633). Docs and examples
   point at the 0.2.4 images.
 - T-F05: the web image is built on `nginx:1.30.7-alpine` (official image, run as uid 101) instead of
