@@ -155,10 +155,11 @@ services:
       dockerfile_inline: |
         FROM oven/bun:1.4.5-debian AS bun
         FROM node:24-trixie-slim
-        RUN npm install -g --no-fund --no-audit --loglevel=error pnpm@12.21.0 yarn@1.22.22 \
+        # Yarn 1.22.22 (classic) ships with the node image.
+        RUN npm install -g --no-fund --no-audit --loglevel=error pnpm@12.21.0 \
             && mkdir -p /opt/berry && cd /opt/berry && npm pack --silent @yarnpkg/cli-dist@4.18.1 \
             && tar -xzf yarnpkg-cli-dist-4.18.1.tgz && mv package/bin/yarn.js yarn.cjs && rm -rf package *.tgz \
-            && npm cache clean --force
+            && npm cache clean --force && yarn --version | grep -qx 1.22.22
         COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
     image: waystation-harness-nodepm:24-1  # bump the suffix when the Dockerfile above changes
   client-debian:  # apt on Debian 13
