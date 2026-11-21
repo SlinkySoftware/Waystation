@@ -47,6 +47,7 @@ RESPONSE_HEADERS = frozenset(
         'oci-subject',
         'ratelimit-limit',
         'ratelimit-remaining',
+        'x-terraform-get',  # a Terraform module registry's download answer (a go-getter source address)
     }
 )
 
@@ -140,6 +141,10 @@ def scrub_response(
             continue
         if lname == 'location':
             value = scrub_url(value)
+        elif lname == 'x-terraform-get':
+            forced, sep, rest = value.rpartition('::')
+            if rest.startswith(('http://', 'https://')):
+                value = forced + sep + scrub_url(rest)
         kept.append((lname, value))
     ctype = next((v for k, v in kept if k == 'content-type'), '')
     if body and 'json' in ctype.lower():

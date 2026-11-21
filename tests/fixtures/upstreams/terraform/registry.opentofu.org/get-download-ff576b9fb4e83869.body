@@ -1,0 +1,3 @@
+{
+  "location": "git::https://github.com/hashicorp/terraform-cidr-subnets?ref=beecd22f4a686b0ffc847229168d7d19aae647c9"
+}

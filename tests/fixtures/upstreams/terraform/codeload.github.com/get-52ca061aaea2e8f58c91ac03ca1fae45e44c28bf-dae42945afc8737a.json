@@ -1,0 +1,37 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://codeload.github.com/hashicorp/terraform-cidr-subnets/tar.gz/52ca061aaea2e8f58c91ac03ca1fae45e44c28bf"
+  },
+  "response": {
+    "body_sha256": "a337c6c4d8e320ab5b0cca72f95fc4dbadaa09b41335d77e68367a2ac0ec023c",
+    "body_size": 9808,
+    "headers": [
+      [
+        "content-disposition",
+        "attachment; filename=terraform-cidr-subnets-52ca061aaea2e8f58c91ac03ca1fae45e44c28bf.tar.gz"
+      ],
+      [
+        "content-type",
+        "application/x-gzip"
+      ],
+      [
+        "etag",
+        "\"4b48d1b18a52a94f3497d15eee5cababc35d6347ec75670cae2d62d63fa51fce\""
+      ],
+      [
+        "vary",
+        "Authorization,Accept-Encoding"
+      ]
+    ],
+    "status": 200
+  }
+}

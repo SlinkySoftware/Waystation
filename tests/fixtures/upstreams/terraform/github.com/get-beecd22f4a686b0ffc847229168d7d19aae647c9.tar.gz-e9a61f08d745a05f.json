@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://github.com/hashicorp/terraform-cidr-subnets/archive/beecd22f4a686b0ffc847229168d7d19aae647c9.tar.gz"
+  },
+  "response": {
+    "body_sha256": null,
+    "body_size": 0,
+    "headers": [
+      [
+        "content-type",
+        "text/html; charset=utf-8"
+      ],
+      [
+        "vary",
+        "X-PJAX, X-PJAX-Container, Turbo-Visit, Turbo-Frame, X-Requested-With, X-GitHub-Client-Version, Sec-Fetch-Site,Accept-Encoding, Accept, X-Requested-With"
+      ],
+      [
+        "location",
+        "https://codeload.github.com/hashicorp/terraform-cidr-subnets/tar.gz/beecd22f4a686b0ffc847229168d7d19aae647c9"
+      ],
+      [
+        "cache-control",
+        "max-age=0, private"
+      ],
+      [
+        "content-length",
+        "0"
+      ]
+    ],
+    "status": 302
+  }
+}

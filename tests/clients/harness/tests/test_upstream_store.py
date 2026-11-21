@@ -68,6 +68,14 @@ def test_scrub_response_drops_unlisted_headers_and_redacts_json_tokens() -> None
     doc = json.loads(out.body)
     assert doc == {'token': REDACTED, 'nested': {'access_token': REDACTED}, 'expires_in': 300}
     assert dict(out.headers)['content-length'] == str(len(out.body))
+
+
+def test_scrub_response_keeps_terraform_module_locations() -> None:
+    headers = [('X-Terraform-Get', 's3::https://s3.example.com/bucket/m.zip?X-Amz-Signature=s&x=1')]
+    out = scrub_response(204, headers, b'')
+    assert out.headers == [('x-terraform-get', f's3::https://s3.example.com/bucket/m.zip?X-Amz-Signature={REDACTED}&x=1')]
+    git = scrub_response(204, [('X-Terraform-Get', 'git::https://github.com/a/b?ref=v1')], b'')
+    assert git.headers == [('x-terraform-get', 'git::https://github.com/a/b?ref=v1')]
     assert b'secret' not in out.body
 
 

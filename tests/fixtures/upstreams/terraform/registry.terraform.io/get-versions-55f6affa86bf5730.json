@@ -1,0 +1,37 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.terraform.io/v1/modules/hashicorp/subnets/cidr/versions"
+  },
+  "response": {
+    "body_sha256": "167411effb01fe110e2043d3383aac2018d755183c2538d55212c5bc85d02ad6",
+    "body_size": 160,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "160"
+      ],
+      [
+        "cache-control",
+        "max-age=30, stale-while-revalidate=1800, stale-if-error=31536000, public"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ]
+    ],
+    "status": 200
+  }
+}
