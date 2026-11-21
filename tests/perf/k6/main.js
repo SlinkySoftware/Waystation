@@ -42,7 +42,10 @@ const metrics = {
   errors: new Counter('ws_errors'),
   not_hit: new Counter('ws_not_hit'),
 };
-const API_ENDPOINTS = ['search', 'search_repo', 'search_page2', 'search_all', 'browse_root', 'browse_folder', 'repositories'];
+const API_ENDPOINTS = [
+  'search', 'search_repo', 'search_page2', 'search_all', 'search_substring', 'search_substring_common',
+  'browse_root', 'browse_folder', 'repositories',
+];
 const apiTrends = Object.fromEntries(API_ENDPOINTS.map((e) => [e, new Trend(`ws_api_${e}`, true)]));
 
 // ---------------------------------------------------------------------------- scenarios
@@ -254,9 +257,17 @@ export function api(data) {
       apiGet(data, 'search_all', '/api/v1/search?limit=50');
       break;
     case 4:
-      apiGet(data, 'browse_root', '/api/v1/repositories/perf-bulk/browse?limit=50');
+      // five digits from the middle of a file number: a few dozen names hold them after their start
+      apiGet(data, 'search_substring', `/api/v1/search?q=${String(n).padStart(7, '0').slice(1, 6)}&limit=50`);
       break;
     case 5:
+      // in every name, never at the start: substring matches only, facet counts capped
+      apiGet(data, 'search_substring_common', '/api/v1/search?q=tar.gz&limit=50');
+      break;
+    case 6:
+      apiGet(data, 'browse_root', '/api/v1/repositories/perf-bulk/browse?limit=50');
+      break;
+    case 7:
       apiGet(data, 'browse_folder', `/api/v1/repositories/perf-bulk/browse?path=group-${group}/pkg-${pkg}/&limit=50`);
       break;
     default:

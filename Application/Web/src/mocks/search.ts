@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Mock global search (GET /search) over the fixture content, modelled on the server engine (SPEC §4.6):
-// name prefix on the full name or its last "/" segment, optional version prefix, digest lookup, disjunctive facets.
+// name prefix on the full name or its last "/" segment, then (3+ characters) substring matches ordered by the name from
+// the match on (adr/0009), optional version prefix, digest lookup, disjunctive facets.
 import type { Repository, SearchFacets, SearchFacetValue, SearchHit, SearchKind, SearchPage } from '@/api/types'
 
 import { aptPackagesFor, aptSuiteNames, aptSuitesFor } from './fixtures/apt'
@@ -157,15 +158,24 @@ export function searchAll(repos: Repository[], p: SearchParams): { mode: SearchP
   const [rawName = '', ...rest] = text.split(/\s+/)
   const name = rawName.toLowerCase()
   const version = rest.join(' ') || null
-  const found: { key: string; rank: number; hit: SearchHit }[] = []
+  const found: { phase: number; key: string; rank: number; hit: SearchHit }[] = []
   for (const e of entries) {
     if (p.cached && e.hit.kind === 'package' && (e.hit.format === 'apt' || e.hit.format === 'yum')) continue
     if (version !== null && !(e.hit.version ?? '').startsWith(version)) continue
     if (version !== null && e.hit.kind === 'file') continue
     const key = e.keys.find((k) => k.startsWith(name))
-    if (key !== undefined) found.push({ key, rank: e.rank + (key === e.keys[0] ? 0 : 1), hit: e.hit })
+    if (key !== undefined) found.push({ phase: 0, key, rank: e.rank + (key === e.keys[0] ? 0 : 1), hit: e.hit })
+    else if (name.length >= 3) {
+      const full = e.keys[0] ?? ''
+      let sub: string | undefined
+      for (let i = full.indexOf(name, 1); i > 0; i = full.indexOf(name, i + 1)) {
+        const suffix = full.slice(i, i + 16)
+        if (sub === undefined || suffix < sub) sub = suffix
+      }
+      if (sub !== undefined) found.push({ phase: 1, key: sub, rank: e.rank, hit: e.hit })
+    }
   }
-  found.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.rank - b.rank || a.hit.repository.localeCompare(b.hit.repository)))
+  found.sort((a, b) => a.phase - b.phase || (a.key < b.key ? -1 : a.key > b.key ? 1 : a.rank - b.rank || a.hit.repository.localeCompare(b.hit.repository)))
   return { mode: 'name', matches: found.map((f) => f.hit) }
 }
 

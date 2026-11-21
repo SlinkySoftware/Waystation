@@ -31,8 +31,8 @@ BUDGET_RULES = {
     'origin',
     'cache_miss_throughput_loss_pct': '1 - median MB/s of large never-cached files through Waystation / from the '
     'origin',
-    'api_list_search_p95_ms': 'p95 over search (prefix, per repository, page 2, everything), browse (root, folder) and '
-    'the repository list',
+    'api_list_search_p95_ms': 'p95 over search (prefix, per repository, page 2, everything, substring), browse '
+    '(root, folder) and the repository list',
     'live_event_latency_ms': 'p95 of transfer events (arrival - event ts) or transfer.started (arrival - request), '
     'whichever is higher',
     'concurrent_download_errors': 'failed downloads (status, timeout, reset) in the concurrency scenario',

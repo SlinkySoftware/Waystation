@@ -302,12 +302,15 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   Now (T-U06, 2026-11-09): `GET /api/v1/search?q=&format=&repository=&kind=&type=&cached=&cursor=&limit=` searches
   only the repositories the principal may `browse` (`access.filter_repos`; a hidden repository never appears in a
   hit, a facet value or a count, and naming it as a filter yields an empty result). `q` is
-  `<name prefix>[ <version prefix>]`, case-insensitive, matched on the full name or its last `/` segment (`nginx`
-  finds `library/nginx`, `node` finds `@types/node`); empty lists everything. Sources: docker tags (kind `image`),
+  `<name>[ <version prefix>]`, case-insensitive, matched as a prefix of the full name or of its last `/` segment
+  (`nginx` finds `library/nginx`, `node` finds `@types/node`) and, from three characters on, anywhere in the name
+  (2026-11-21, adr/0009: `setup` finds `nginx-setup.sh`); prefix matches come first (by name), then substring matches
+  (by the name from the match on); empty lists everything. Sources: docker tags (kind `image`),
   npm packages, PyPI projects and apt/yum index listings (kind `package`; `cached` says whether the listed file is in the cache),
   and cached files of every format but docker (kind `file`). `cached=true` leaves out the apt/yum listings. A digest
   (`sha256:<8-64 hex>` or 64 hex digits) finds every cached file with that blob and the docker tags pointing at it,
-  in any visible repository. Results come straight from per-collection `(name_lc, repo_id, _id)` indexes, merged
+  in any visible repository. Results come straight from per-collection `(name_lc, repo_id, _id)` indexes (substring
+  matches: the multikey `(name_sfx, repo_id, _id)` index of name suffixes), merged
   with exact keyset cursor paging; facet counts (format, repository, kind, repository type) are disjunctive (each
   ignores its own filter), on the first page only, and lower bounds when `capped`. Every hit carries a Browse deep
   link. Substring (non-prefix) matching and the 1M-asset p95 measurement are still to do.

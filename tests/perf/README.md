@@ -70,7 +70,7 @@ TTFB plus one bridge hop).
 | `miss_small` | each never-cached 4 KiB file once straight from the origin, then through Waystation | `cache_miss_added_ttfb_ms`: median TTFB difference |
 | `miss_large` | each never-cached large file (CI 128 MiB, full 1 GiB) from the origin, then through Waystation | `cache_miss_throughput_loss_pct`: 1 - median MiB/s ratio |
 | `sse` | subscribes to `/api/v1/events/stream?topics=transfers`, downloads rate-limited uncached files (about 4 s each) | `live_event_latency_ms`: the higher p95 of (arrival - event `ts`) and (arrival of `transfer.started` - request) |
-| `api` | search (name prefix, per repository, page 2 by cursor, everything), browse (root, a package folder), repository list, as the admin | `api_list_search_p95_ms` (seeded: CI 100 000 assets, full 1 000 000; the SPEC states 1M) |
+| `api` | search (name prefix, per repository, page 2 by cursor, everything, substring: rare and in every name), browse (root, a package folder), repository list, as the admin | `api_list_search_p95_ms` (seeded: CI 100 000 assets, full 1 000 000; the SPEC states 1M) |
 | `concurrent` | CI 100 / full 500 clients downloading cached 4 KiB and 1 MiB files without pause | `concurrent_download_errors` |
 
 Every hit scenario also counts responses whose `X-Ws-Cache` is not `HIT` (`not_hit` in the report).

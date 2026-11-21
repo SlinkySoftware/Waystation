@@ -2029,10 +2029,12 @@ export interface paths {
         };
         /**
          * Search packages, images and files across every repository the principal can browse
-         * @description Name search: `q` is `<name prefix>[ <version prefix>]`, case-insensitive; the name prefix matches a full name
-         *     or its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`). Sources: docker tags,
-         *     npm packages, apt and yum index listings, cached files (by file name; not docker layers). Results are ordered
-         *     by the matched name. An empty `q` lists everything.
+         * @description Name search: `q` is `<name>[ <version prefix>]`, case-insensitive; the name matches as a prefix of a full name
+         *     or of its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`) and, from three
+         *     characters on, anywhere in the name (`setup` finds `nginx-setup.sh`). Sources: docker tags, npm packages,
+         *     apt and yum index listings, cached files (by file name; not docker layers). Prefix matches come first, ordered
+         *     by the matched name, then substring matches, ordered by the name from the match on. An empty `q` lists
+         *     everything.
          *     Digest search: `sha256:<8-64 hex digits>` or 64 hex digits finds every cached file with that blob in any
          *     repository and format, and the docker tags pointing at it.
          *     Hidden repositories are never searched: they appear in no result, count or facet value.
