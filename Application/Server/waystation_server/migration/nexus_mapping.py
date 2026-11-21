@@ -311,7 +311,9 @@ def _format_options(m: Mapped, cfg: dict[str, Any], body: dict[str, Any], *, ali
     if fmt == 'yum' and _dict(cfg.get('yumSigning')):
         m.differ('yumSigning', 'set', None, 'the Nexus yum signing key is not imported')
     if fmt == 'terraform' and m.type == 'hosted':  # T-P5-TFM
-        m.notes.append('an instance has one hosted Terraform repository (/.well-known/terraform.json): a second is refused')
+        m.notes.append(
+            'an instance has one hosted Terraform repository (/.well-known/terraform.json): a second is refused'
+        )
     return {}
 
 

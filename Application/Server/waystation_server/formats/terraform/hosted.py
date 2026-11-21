@@ -105,7 +105,7 @@ class TerraformHosted:
             case RegistryOp.MODULE_DOWNLOAD if reading:
                 return await self.module_download(req, _module(route), route.version)
             case RegistryOp.MODULE_ARCHIVE if reading:
-                return await self.serve_file(req, req.path)
+                return await self.serve_file(req, paths.module_archive_key(_module(route), route.version))
             case RegistryOp.MODULE_VERSION if method == 'PUT':
                 return await self.upload_module(req, _module(route), route.version)
             case RegistryOp.MODULE_VERSION if method == 'DELETE':
@@ -115,7 +115,8 @@ class TerraformHosted:
             case RegistryOp.PROVIDER_DOWNLOAD if reading:
                 return await self.provider_download(req, route)
             case RegistryOp.PROVIDER_FILE if reading:
-                return await self.serve_file(req, req.path)
+                key = paths.provider_file_key(_provider(route), route.version, route.filename)
+                return await self.serve_file(req, key)
             case RegistryOp.PROVIDER_VERSION if method == 'POST':
                 return await self.upload_provider(req, _provider(route), route.version)
             case RegistryOp.PROVIDER_VERSION if method == 'DELETE':
@@ -148,8 +149,8 @@ class TerraformHosted:
         entry = next((v for v in (doc or {}).get('versions') or [] if v.get('version') == version), None)
         if entry is None:
             raise NotFound(f'not found: {module.key} has no version {version}')
-        key = paths.module_archive_key(module, version)
-        location = f'./archive.tar.gz{req.download_query(key)}'
+        # the grant names the path the client will ask for (the download URL's, as it was written)
+        location = f'./archive.tar.gz{req.download_query(sibling(req.path, paths.ARCHIVES[0]))}'
         req.hosted.account(req, CacheState.HIT, 204, 0, started)
         return Response(status_code=204, headers={'X-Terraform-Get': location, 'Cache-Control': 'no-store'})
 
@@ -184,8 +185,10 @@ class TerraformHosted:
         sums = paths.provider_filename(provider, version, sums='SHA256SUMS')
         sig = paths.provider_filename(provider, version, sums='SHA256SUMS.sig')
 
+        release_path = req.path.rsplit('/', 3)[0]  # .../<version>, as the client wrote it
+
         def url(filename: str) -> str:  # relative to .../<version>/download/<os>/<arch>
-            return f'../../{filename}{req.download_query(paths.provider_file_key(provider, version, filename))}'
+            return f'../../{filename}{req.download_query(f"{release_path}/{filename}")}'
 
         body = {
             'protocols': list(release.get('protocols') or DEFAULT_PROTOCOLS),
@@ -471,6 +474,11 @@ class TerraformHosted:
         )
         req.hosted.account(req, CacheState.HIT, 204, 0, time.perf_counter())
         return Response(status_code=204)
+
+
+def sibling(path: str, name: str) -> str:
+    """``path`` with its last segment replaced by ``name`` (``.../<version>/download`` -> ``.../<version>/<name>``)."""
+    return f'{path.rsplit("/", 1)[0]}/{name}'
 
 
 def _module(route: RegistryRoute) -> Module:

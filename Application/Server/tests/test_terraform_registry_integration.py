@@ -256,6 +256,11 @@ async def test_hosted_modules(
     assert (await client.delete(archive_path)).status_code == 401  # a grant only reads
     with_token = await client.get(plain, headers=bearer(token))
     assert with_token.status_code == 200
+    # names are case-insensitive: the grant follows the path as the client wrote it
+    upper = '/repository/tf-hosted/v1/modules/ACME/Net/aws/1.0.0/download'
+    mixed = await client.get(upper, headers=bearer(token))
+    mixed_path, _ = resolve(upper, mixed.headers['x-terraform-get'])
+    assert '/ACME/Net/' in mixed_path and served(await client.get(mixed_path)) == sha(HOSTED_MODULE)
 
     await drain(services)
     page = await admin.get('/api/v1/repositories/tf-hosted/terraform/modules')

@@ -51,7 +51,7 @@ from waystation_server.formats.terraform.descriptor import (
     origin_scheme,
     upstream_host,
 )
-from waystation_server.formats.terraform.hosted import TerraformHosted
+from waystation_server.formats.terraform.hosted import TerraformHosted, sibling
 from waystation_server.formats.terraform.paths import Module, Op, Provider, RegistryOp, RegistryRoute, Route
 from waystation_server.problems import native_error
 from waystation_server.proxy.engine import (
@@ -508,7 +508,7 @@ class TerraformPlugin:
         spec = self._archive_spec(req, module, version, source, location)
         asset = await req.proxy.ensure(req, spec)  # cached now, so the module's directory inside it is known
         top = await self._top(req, asset, source) if source.strip_top else None
-        query = req.download_query(spec.path)
+        query = req.download_query(sibling(req.path, source.filename))  # the path as the client will ask for it
         target = modules.client_location(f'./{source.filename}{query}', source, top)
         req.hosted.account(req, CacheState.HIT, 204, 0, started)
         return Response(status_code=204, headers={'X-Terraform-Get': target, 'Cache-Control': 'no-store'})
