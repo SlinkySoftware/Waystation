@@ -83,4 +83,24 @@ async def flush_assets(db: Database, seen_entries: dict[str, str], counts: dict[
     return result.modified_count
 
 
-__all__ = ['DL_ASSETS', 'SEEN_ASSETS', 'SEEN_SESSIONS', 'SEEN_TOKENS', 'flush_assets', 'flush_sessions', 'flush_tokens']
+def downloads(seen_entries: dict[str, str], counts: dict[str, str]) -> dict[str, tuple[int, datetime | None]]:
+    """Asset id → (downloads since the last flush, last download time) from the drained hashes."""
+    out: dict[str, tuple[int, datetime | None]] = {}
+    for asset_id, raw in counts.items():
+        n = int(raw) if raw.isdigit() else 0
+        if n > 0:
+            parsed = parse(seen_entries[asset_id]) if asset_id in seen_entries else None
+            out[asset_id] = (n, parsed[0] if parsed else None)
+    return out
+
+
+__all__ = [
+    'DL_ASSETS',
+    'SEEN_ASSETS',
+    'SEEN_SESSIONS',
+    'SEEN_TOKENS',
+    'downloads',
+    'flush_assets',
+    'flush_sessions',
+    'flush_tokens',
+]

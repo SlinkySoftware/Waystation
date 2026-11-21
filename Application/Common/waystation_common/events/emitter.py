@@ -225,15 +225,38 @@ class EventEmitter:
         count_request: bool = True,
         error: str | None = None,
         latency_ms: float | None = None,
+        repo: str | None = None,
         ts: float | None = None,
     ) -> None:
-        """Count one request sent to an upstream (``upstream_requests``; failures also ``upstream_errors``) and
-        update the repository's upstream health hash (``upstream:<repo_id>:health``)."""
+        """Count one request sent to an upstream (``upstream_requests``; failures also ``upstream_errors``; its
+        latency in the ``ulat:`` histogram) and update the repository's upstream health hash
+        (``upstream:<repo_id>:health``). The first failure after a success and the first success after a failure
+        are announced as ``upstream.state`` activity events (``degraded`` at most once a minute; ``ok`` only after
+        an announced ``degraded``), atomically across replicas (``keys.UPSTREAM_HEALTH_SCRIPT``)."""
         now = self._clock() if ts is None else ts
         minute = keys.minute_of(now)
         cnt = keys.cnt_key(minute, repo_id)
+        ulat = keys.ulat_key(minute, repo_id)
         health = keys.upstream_health_key(repo_id)
         stamp = _dt(now).isoformat()
+        name = repo or repo_id
+        reason = (error or 'error')[:300]
+        degraded = ActivityEvent(
+            type=EventType.UPSTREAM_STATE,
+            ts=_dt(now),
+            repo_id=repo_id,
+            repo=repo,
+            format=format,
+            detail={'state': 'degraded', 'summary': f'Upstream of {name} is failing: {reason}', 'error': reason},
+        ).model_dump_json()
+        recovered = ActivityEvent(
+            type=EventType.UPSTREAM_STATE,
+            ts=_dt(now),
+            repo_id=repo_id,
+            repo=repo,
+            format=format,
+            detail={'state': 'ok', 'summary': f'Upstream of {name} is answering again'},
+        ).model_dump_json()
 
         def op(pipe: Pipeline) -> None:
             if count_request:
@@ -242,21 +265,24 @@ class EventEmitter:
                 pipe.hincrby(cnt, 'upstream_errors', 1)
             pipe.hsetnx(cnt, 'format', format)
             pipe.expire(cnt, keys.COUNTER_TTL_S)
+            if latency_ms is not None and count_request:
+                pipe.hincrby(ulat, keys.latency_bucket(latency_ms), 1)
+                pipe.expire(ulat, keys.COUNTER_TTL_S)
             pipe.sadd(keys.STATS_PENDING, keys.pending_member(minute, repo_id))
-            if ok:
-                fields: dict[Any, Any] = {'last_ok_at': stamp, 'consecutive_failures': '0'}
-                if latency_ms is not None:
-                    fields['last_latency_ms'] = f'{latency_ms:.1f}'
-                pipe.hset(health, mapping=fields)
-            else:
-                pipe.hset(
-                    health,
-                    mapping={
-                        'last_error': (error or 'error')[:300],
-                        'last_error_at': stamp,
-                    },
-                )
-                pipe.hincrby(health, 'consecutive_failures', 1)
+            pipe.eval(
+                keys.UPSTREAM_HEALTH_SCRIPT,
+                2,
+                health,
+                keys.ACTIVITY,
+                '1' if ok else '0',
+                stamp,
+                reason,
+                f'{latency_ms:.1f}' if ok and latency_ms is not None else '',
+                str(int(now * 1000)),
+                degraded,
+                recovered,
+                str(keys.ACTIVITY_MAXLEN),
+            )
 
         self._enqueue(op)
 

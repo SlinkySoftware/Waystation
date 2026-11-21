@@ -49,6 +49,10 @@ REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
 AUDIT = 'audit'
 STATS_MINUTE = 'stats_minute'
+STATS_HOUR = 'stats_hour'  # closed hours rolled up from stats_minute (T-F09)
+STATS_DAY = 'stats_day'  # closed days rolled up from stats_hour
+STORAGE_SNAPSHOTS = 'storage_snapshots'  # hourly per-repository (and instance-wide) storage figures
+DOWNLOADS_DAILY = 'downloads_daily'  # downloads per component per day (top artifacts over a window)
 MIGRATIONS = 'migrations'
 # --- jobs (ARCHITECTURE §10)
 JOB_DEFINITIONS = 'job_definitions'
@@ -59,6 +63,10 @@ WEBHOOK_DELIVERIES = 'webhook_deliveries'  # one per (event, webhook), test or r
 
 DAY_S = 86_400
 STATS_MINUTE_RETENTION_DAYS = 7  # per-minute statistics (time-series TTL)
+STATS_HOUR_RETENTION_DAYS = 90  # hourly statistics (SPECIFICATION §4.7)
+STATS_DAY_RETENTION_DAYS = 730  # daily statistics: 2 years
+STORAGE_SNAPSHOT_RETENTION_DAYS = 730
+DOWNLOADS_DAILY_RETENTION_DAYS = 400
 CASE_INSENSITIVE = {'locale': 'en', 'strength': 2}
 
 
@@ -81,6 +89,12 @@ def _ix(name: str, keys: list[tuple[str, Any]], **kwargs: Any) -> IndexModel:
 # Global search (SPECIFICATION §4.6, ``waystation_common.searchkeys``): prefix ranges on the lower-cased name, results
 # in (key, repo_id, _id) order straight from the index; ``base_lc`` (last ``/`` segment) carries ``name_lc`` so the
 # "name did not match already" filter is evaluated on index keys. Partial: only searchable documents are indexed.
+def _ts_indexes() -> tuple[IndexModel, ...]:
+    """Secondary indexes of the stats time-series collections: a repository's documents in time order (the stats
+    API's per-repository ranges) and every repository's in time order (instance-wide ranges, rollups)."""
+    return (_ix('repo_ts', [('m.repo_id', ASCENDING), ('ts', ASCENDING)]), _ix('ts', [('ts', ASCENDING)]))
+
+
 def _search_indexes(*, base: bool) -> tuple[IndexModel, ...]:
     indexes = [
         _ix(
@@ -158,7 +172,7 @@ SPECS: tuple[CollectionSpec, ...] = (
     CollectionSpec(
         COMPONENTS,
         (
-            # "unique-ish" in DATA_MODEL: docker components carry tag sets, so uniqueness is not enforced here.
+            # Versions of a component in order (``version_sort``, waystation_common.versionsort).
             _ix(
                 'repo_coordinates',
                 [('repo_id', ASCENDING), ('namespace', ASCENDING), ('name', ASCENDING), ('version_sort', ASCENDING)],
@@ -173,6 +187,23 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('format_name_ci', [('format', ASCENDING), ('name', ASCENDING)], collation=CASE_INSENSITIVE),
             _ix('last_downloaded_at', [('last_downloaded_at', ASCENDING)]),
             _ix('text', [('name', TEXT), ('attributes.description', TEXT)]),
+            # T-S09: one component per (repository, format, namespace, name, version) for every format.
+            _ix(
+                'component_key_unique',
+                [
+                    ('repo_id', ASCENDING),
+                    ('format', ASCENDING),
+                    ('namespace', ASCENDING),
+                    ('name', ASCENDING),
+                    ('version', ASCENDING),
+                ],
+                unique=True,
+            ),
+            # Top artifacts (stats API): per repository, best first; a `$in` of visible repositories merges them.
+            _ix('repo_downloads', [('repo_id', ASCENDING), ('download_count', DESCENDING)]),
+            _ix('repo_bytes_served', [('repo_id', ASCENDING), ('bytes_served', DESCENDING)]),
+            _ix('repo_size', [('repo_id', ASCENDING), ('size_bytes', DESCENDING)]),
+            _ix('repo_created', [('repo_id', ASCENDING), ('created_at', DESCENDING)]),
         ),
     ),
     CollectionSpec(
@@ -392,10 +423,43 @@ SPECS: tuple[CollectionSpec, ...] = (
     ),
     CollectionSpec(
         STATS_MINUTE,
+        _ts_indexes(),
         options={
             'timeseries': {'timeField': 'ts', 'metaField': 'm', 'granularity': 'minutes'},
             'expireAfterSeconds': STATS_MINUTE_RETENTION_DAYS * DAY_S,
         },
+    ),
+    CollectionSpec(
+        STATS_HOUR,
+        _ts_indexes(),
+        options={
+            'timeseries': {'timeField': 'ts', 'metaField': 'm', 'granularity': 'hours'},
+            'expireAfterSeconds': STATS_HOUR_RETENTION_DAYS * DAY_S,
+        },
+    ),
+    CollectionSpec(
+        STATS_DAY,
+        _ts_indexes(),
+        options={
+            'timeseries': {'timeField': 'ts', 'metaField': 'm', 'granularity': 'hours'},
+            'expireAfterSeconds': STATS_DAY_RETENTION_DAYS * DAY_S,
+        },
+    ),
+    CollectionSpec(
+        STORAGE_SNAPSHOTS,
+        _ts_indexes(),
+        options={
+            'timeseries': {'timeField': 'ts', 'metaField': 'm', 'granularity': 'hours'},
+            'expireAfterSeconds': STORAGE_SNAPSHOT_RETENTION_DAYS * DAY_S,
+        },
+    ),
+    CollectionSpec(
+        DOWNLOADS_DAILY,
+        (
+            _ix('repo_day', [('repo_id', ASCENDING), ('day', ASCENDING)]),
+            _ix('component_day', [('component_id', ASCENDING), ('day', ASCENDING)]),
+            _ix('day_ttl', [('day', ASCENDING)], expireAfterSeconds=DOWNLOADS_DAILY_RETENTION_DAYS * DAY_S),
+        ),
     ),
     CollectionSpec(MIGRATIONS),
     CollectionSpec(JOB_DEFINITIONS),
