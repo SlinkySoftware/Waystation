@@ -3,6 +3,15 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- **Release 0.2.6** (milestone M2, Nexus parity and cutover): client-auth matrix for docker, npm, apt, dnf and raw
+  with LDAP and OIDC users (T-A04); registry refresh tokens, OAuth2 `POST /auth/token` and revocation of issued
+  tokens (T-S12); invalid credentials never downgraded to anonymous; referrers API for proxies and upstream tokens
+  shared across server processes (T-P2-DOCKERP); hour/day stats, storage history, top artifacts and repositories,
+  latency percentiles (T-F09, T-S11); component index with version ordering, download counters and digest "where
+  used" (T-S09); substring search (adr/0009); apt worker refresh; repository clone; UI: density, card grid,
+  Packages/Activity/Members tabs, two-pane tree, README rendering, accessibility pass and Playwright suites
+  (T-U01..U09); more harness clients (pnpm, Yarn, Bun, podman, containerd) and an opt-in run against Nexus 3.
+  Docs and examples point at the 0.2.6 images.
 - T-S12: presented-but-invalid credentials are never downgraded to anonymous on the format routes: an
   `Authorization` header outside `/v2/` that does not resolve to a principal (a Bearer/Token value not shaped like an
   API token, an empty or unknown scheme, a password instead of a token) answers the `401` Basic challenge before any
