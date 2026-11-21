@@ -99,12 +99,13 @@ class AptHosted:
     async def _receive(self, req: FormatRequest) -> BlobRef:
         """Stream the package (raw body, or the first file part of a multipart form) into the blob store."""
         content_type = req.request.headers.get('content-type', '')
+        multipart = content_type.lower().startswith('multipart/form-data')
         body: AsyncIterator[bytes] | None = None
-        total = self._length(req)
+        total = None if multipart else self._length(req)  # a form's length is not the package's
+        await req.hosted.admit(req.repo, total)  # a hard quota refuses before any byte is stored
         artifact = req.path.rsplit('/', 1)[-1] or 'package.deb'
-        reader: MultipartReader | None = None
         parts: AsyncIterator[Any] | None = None
-        if content_type.lower().startswith('multipart/form-data'):
+        if multipart:
             reader = MultipartReader(req.request.stream(), boundary_of(content_type))
             parts = reader.parts()
             async for part in parts:
@@ -115,8 +116,6 @@ class AptHosted:
                 await reader.drain()
             if body is None:
                 raise ValidationFailed('the form has no file part (send the package as a file)')
-            total = None  # the form's length is not the package's
-        await req.hosted.admit(req.repo, total)  # a hard quota refuses before any byte is stored
         async with await req.hosted.blobs.open_writer(expected_size=total) as writer:
             await req.hosted.receive(req, writer, path=req.path or artifact, artifact=artifact, total=total, body=body)
             ref = await req.hosted.blobs.commit(writer)

@@ -14,8 +14,8 @@ What maps (SPECIFICATION §4.12):
 - docker: ``dockerProxy.indexType`` ``HUB`` (or a Docker Hub remote) → ``docker_hub``; the upstream host becomes an
   upstream alias (``docker.io`` for Docker Hub) unless disabled; connector ports/subdomains are reported (clients use
   ``/v2/<name>/`` or an alias instead; dedicated connectors are T-P6-DOCKERC);
-- apt: ``apt.distribution``/``apt.flat`` (hosted: the distribution, component ``main``); raw: ``raw.contentDisposition``; maven: ``maven.versionPolicy``/
-  ``maven.layoutPolicy``; yum and npm need no options;
+- apt: ``apt.distribution``/``apt.flat`` (hosted: the distribution, component ``main``); raw:
+  ``raw.contentDisposition``; maven: ``maven.versionPolicy``/``maven.layoutPolicy``; yum and npm need no options;
 - hosted: ``storage.writePolicy`` (``ALLOW``/``ALLOW_ONCE``/``DENY``) → ``hosted.write_policy``; group:
   ``group.memberNames``/``group.writableMember`` → ``group`` (only when the server's repository model has them).
 
