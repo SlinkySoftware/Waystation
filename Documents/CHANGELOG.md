@@ -2,7 +2,31 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-22
+- T-S12: presented-but-invalid credentials are never downgraded to anonymous on the format routes: an
+  `Authorization` header outside `/v2/` that does not resolve to a principal (a Bearer/Token value not shaped like an
+  API token, an empty or unknown scheme, a password instead of a token) answers the `401` Basic challenge before any
+  repository lookup, so a repository anonymous may read is not served to it and hidden and missing repositories still
+  get identical answers (ADR 0005, amended note). Matrix tests in `test_access.py`.
+- T-U06 (done): 1M-asset search benchmark (`test_search_bench_integration.py`; 20 000 assets in every integration
+  run, `WAYSTATION_SEARCH_BENCH_ASSETS=1000000` for the full size). At 1M assets, sequential, query cost against
+  MongoDB: prefix + facets p95 5.2 ms, prefix page 2 7.3 ms, everything 10.9 ms, rare substring + facets 4.8 ms,
+  common substring (`tar.gz`) + facets 32.0 ms, digest prefix 0.5 ms (budget 150 ms). Index sizes: `search_sfx`
+  1450 MiB, `search_name` 94 MiB.
+
 ## 2026-11-21
+- T-U06: substring search (adr/0009, proposed: owner approval pending): every searchable document carries
+  `name_sfx` (its name's suffixes, ≥ 3 characters, cut to 16) under the multikey index `search_sfx`; a term of 3+
+  characters also matches inside names, prefix matches first, then substring matches, each document once (facet
+  counts too); keyset paging over index bounds, `explain()`-checked as index scans. Migration `0004_search_suffixes`
+  backfills older documents.
+- T-P2-APT: worker job `apt.refresh` (hourly, queue `prefetch`) revalidates stale apt `Release` files, fetches and
+  verifies (by-hash, SHA256 + size) the `Packages` indexes clients used or that could list an unverified pool file,
+  indexes cached `Packages` files whose background indexing was lost, and re-verifies unverified pool files
+  (confirmed → verified, contradicted → dropped); its upstream requests honour the SSRF guard, CA bundle, outbound
+  proxy, credentials (origin only) and pass and feed the shared auto-block breaker (`waystation_common.breaker`).
+  apt parsers, suite rules and pool-index writes moved to `waystation_common.apt` / `waystation_common.db.apt`.
+  Tasks page label for `apt.refresh`.
 - T-S12 (done): `docker login` gets a refresh token (`GET /auth/token?offline_token=true`, 90 days), which the
   Docker CLI stores instead of the password or API token; `POST /auth/token` implements the token spec's OAuth2
   endpoint (`grant_type=password` with `access_type=offline`, as containerd tries first, and
