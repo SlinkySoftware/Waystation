@@ -106,6 +106,12 @@ server {
         add_header X-Ws-Digest $upstream_http_x_ws_digest always;
         add_header X-Ws-Cache $upstream_http_x_ws_cache always;
         add_header X-Ws-Group-Member $upstream_http_x_ws_group_member always;
+        # Swift Package Registry (SE-0292 §4.3, §4.4): API version, manifest alternates, archive digest, signature.
+        add_header Content-Version $upstream_http_content_version always;
+        add_header Link $upstream_http_link always;
+        add_header Digest $upstream_http_digest always;
+        add_header X-Swift-Package-Signature-Format $upstream_http_x_swift_package_signature_format always;
+        add_header X-Swift-Package-Signature $upstream_http_x_swift_package_signature always;
         add_header X-Request-Id $upstream_http_x_request_id always;
         add_header X-Content-Type-Options nosniff always;
     }

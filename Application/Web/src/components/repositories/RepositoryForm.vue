@@ -124,7 +124,7 @@
     </section>
 
     <section
-      v-if="!(model.format === 'yum' && model.type !== 'proxy') && model.format !== 'helm' && !(model.format === 'maven' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy') && model.type !== 'proxy')"
+      v-if="!(model.format === 'yum' && model.type !== 'proxy') && model.format !== 'helm' && !(model.format === 'maven' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy' || model.format === 'swift') && model.type !== 'proxy')"
       class="repo-form__section"
     >
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
@@ -208,6 +208,34 @@
           :error-message="errors['format_options.collections_path']"
         />
         <q-toggle v-model="model.galaxyRoles" :label="t('repoForm.galaxyRoles')" />
+      </template>
+      <template v-else-if="model.format === 'swift'">
+        <q-select
+          v-model="model.swiftLayout"
+          outlined
+          dense
+          emit-value
+          map-options
+          :options="swiftLayouts"
+          :label="t('repoForm.swiftLayout')"
+          :hint="t('repoForm.swiftLayoutHint')"
+          :error="!!errors['format_options.archive_layout']"
+          :error-message="errors['format_options.archive_layout']"
+        />
+        <q-input
+          v-model="model.swiftScopes"
+          outlined
+          dense
+          autogrow
+          type="textarea"
+          :label="t('repoForm.swiftScopes')"
+          :hint="t('repoForm.swiftScopesHint')"
+          class="mono-input"
+          spellcheck="false"
+          :error="!!errors['format_options.scopes']"
+          :error-message="errors['format_options.scopes']"
+        />
+        <q-toggle v-model="model.swiftMappedOnly" :label="t('repoForm.swiftMappedOnly')" />
       </template>
       <template v-else-if="model.format === 'terraform'">
         <q-select
@@ -465,6 +493,9 @@ const authOptions = computed(() => [
   { label: t('repoForm.authBasic'), value: 'basic' },
   { label: t('repoForm.authBearer'), value: 'bearer' },
 ])
+const swiftLayouts = computed(() =>
+  (['github', 'gitlab', 'gitea'] as const).map((value) => ({ label: t(`repoForm.swiftLayouts.${value}`), value })),
+)
 const versionPolicyOptions = computed(() => [
   { label: t('repoForm.versionPolicies.release'), value: 'release' },
   { label: t('repoForm.versionPolicies.snapshot'), value: 'snapshot' },

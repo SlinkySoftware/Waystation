@@ -146,6 +146,24 @@ function galaxy(repo: Repository): SetupClient[] {
   return [{ id: 'ansible-galaxy', label: 'ansible-galaxy', snippets }]
 }
 
+function swift(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const snippet = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupSnippet => ({ id, title, description, language, filename, os: null, content })
+  const snippets = [
+    snippet('swift-set', 'Use this registry (per project, or --global for every project)', `swift package-registry set ${url}\n# or only for one scope\nswift package-registry set --scope mona ${url}\n# for every package on this machine\nswift package-registry set --global ${url}`, 'shell', null, 'Writes .swiftpm/configuration/registries.json (with --global: ~/.swiftpm/configuration/). Swift Package Manager talks to registries over HTTPS only.'),
+    snippet('swift-login', 'Sign in with an API token (needed to publish, and to read when anonymous access is off)', `swift package-registry login ${url} --token {{TOKEN}} --no-confirm`, 'shell', null, 'Swift sends the token as "Authorization: Bearer ...". On Linux it is stored in ~/.netrc; --username and --password sign in with a password instead.'),
+    snippet('swift-dependency', 'Depend on a package by its registry identity (Package.swift)', 'dependencies: [\n    .package(id: "apple.swift-argument-parser", from: "1.5.0"),\n],', 'swift', 'Package.swift', repo.type === 'proxy' ? 'The identity is <scope>.<name>: for this proxy, the owner and the repository name on the Git host.' : 'The identity is <scope>.<name>, as published.'),
+    snippet('swift-resolve', 'Resolve dependencies through the registry', 'swift package resolve\n# keep url: dependencies and let the registry serve them where it knows the URL\nswift package resolve --replace-scm-with-registry', 'shell', null, '--replace-scm-with-registry asks the registry which identity a Git URL has (/identifiers) and downloads that package from the registry instead of cloning it.'),
+  ]
+  if (repo.type === 'hosted') {
+    snippets.push(
+      snippet('swift-publish', 'Publish a release', `swift package-registry publish mona.LinkedList 1.0.0 --url ${url}\n# with release metadata (package-metadata.json in the package directory is picked up by default)\nswift package-registry publish mona.LinkedList 1.0.1 --url ${url} --metadata-path ./metadata.json`, 'shell', null, 'Publishing needs the write permission. Releases are immutable: a version cannot be published twice, nor again after it was removed.'),
+      snippet('swift-unpublish', 'Remove a release', `curl -fS -X DELETE -H "Authorization: Bearer {{TOKEN}}" ${url}mona/LinkedList/1.0.0`, 'shell', null, 'Needs the delete permission. Clients then see the release as gone (410); the version stays reserved.'),
+    )
+  }
+  return [{ id: 'swiftpm', label: 'Swift Package Manager', snippets }]
+}
+
 function apt(repo: Repository): SetupClient[] {
   const opts = (repo.format_options ?? {}) as AptOptions
   const upstream = repo.proxy?.upstream_url ?? ''
@@ -377,7 +395,7 @@ function terraform(repo: Repository): SetupClient[] {
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {

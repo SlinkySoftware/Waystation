@@ -260,6 +260,9 @@ class AssetSpec:
     on_upstream: OnUpstream | None = None  # sees every final upstream response's headers (rate limits); sync, cheap
     artifact: str | None = None  # display name in live transfers (default: last path segment)
     component: str | None = None
+    # Upstream statuses that mean "does not exist" (native 404, negative-cached). Git hosts answer 401 for a
+    # repository that does not exist (or is private) on their smart-HTTP endpoints.
+    missing_statuses: frozenset[int] = GONE_CODES
 
 
 def _origin(url: str) -> tuple[str, str, int]:
@@ -525,7 +528,7 @@ class ProxyEngine:
             if asset is not None and proxy.stale_on_error:
                 await lease.fail(error)
                 return asset
-            if info.status in GONE_CODES:
+            if info.status in spec.missing_statuses:
                 await self._remember_missing(req.repo, spec, proxy)
                 raise NotFound('Not Found')
             raise error
@@ -932,7 +935,7 @@ class ProxyEngine:
         except UpstreamError, DigestMismatch:
             self._account_error(req, started)
             raise
-        if info.status in GONE_CODES:
+        if info.status in spec.missing_statuses:
             await response.aclose()
             await self._remember_missing(req.repo, spec, proxy)
             self._account(req, CacheState.FETCHING, 404, 0, started)
@@ -955,7 +958,7 @@ class ProxyEngine:
             self._account_error(req, started)
             raise
         await response.aclose()
-        if info.status in GONE_CODES:
+        if info.status in spec.missing_statuses:
             await self._remember_missing(req.repo, spec, proxy)
             self._account(req, CacheState.FETCHING, 404, 0, started)
             raise NotFound('Not Found')
@@ -1189,7 +1192,7 @@ class ProxyEngine:
             response, info = await self._open(req, spec, proxy)
             if info.status != 200:
                 await response.aclose()
-                if info.status in GONE_CODES:
+                if info.status in spec.missing_statuses:
                     raise NotFound('Not Found')
                 raise UpstreamError(f'upstream answered {info.status}')
             fill = await self._open_fill(req, spec, response, info)

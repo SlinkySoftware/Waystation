@@ -1,9 +1,10 @@
 """Which component an asset belongs to (DATA_MODEL ``components``; T-S09).
 
 A component is what a user thinks of as one artifact of a repository: a package version (npm, apt, yum, PyPI, Go,
-Galaxy, Terraform, Helm), a Maven ``groupId:artifactId:version``, a docker image tag, or a raw file. Its assets are the
-files that make it up; only the files a client downloads to *get* the artifact link to it (a ``.tgz``, a ``.deb``, a
-wheel, a docker tag's manifest...), never checksums, signatures or index metadata, so download counts are honest.
+Galaxy, Terraform, Helm, Swift), a Maven ``groupId:artifactId:version``, a docker image tag, or a raw file. Its assets
+are the files that make it up; only the files a client downloads to *get* the artifact link to it (a ``.tgz``, a
+``.deb``, a wheel, a docker tag's manifest, a Swift source archive...), never checksums, signatures or index metadata,
+so download counts are honest.
 
 Fields: ``namespace`` (npm scope, Maven groupId, Galaxy namespace, raw folder; '' when the format has none),
 ``name`` (the full name a client uses: ``@scope/pkg``, the artifactId, ``ns.collection``, the module or provider
@@ -21,6 +22,7 @@ import re
 from dataclasses import dataclass
 
 from waystation_common.cleanup.plan import coordinates
+from waystation_common.swift import parse_archive_path
 from waystation_common.versionsort import version_sort
 
 MAVEN_SKIP = ('.md5', '.sha1', '.sha256', '.sha512', '.asc', 'maven-metadata.xml')
@@ -97,6 +99,9 @@ def key_for(fmt: str, path: str, *, content: bool = True) -> ComponentKey | None
         return _maven(path)
     if fmt == 'helm':
         return _helm(path) if content else None
+    if fmt == 'swift':
+        found = parse_archive_path(path) if content else None
+        return ComponentKey('swift', found[0], f'{found[0]}.{found[1]}', found[2]) if found else None
     if fmt == 'raw':
         if not content:
             return None

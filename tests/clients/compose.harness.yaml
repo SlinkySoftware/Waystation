@@ -247,6 +247,20 @@ services:
         COPY --from=front /tlsfront /usr/local/bin/tlsfront
     image: waystation-harness-terraform:1.17.1-1  # bump the suffix when the Dockerfile above changes
     user: "0:0"
+  client-swift:  # the official Swift toolchain (SwiftPM), curl and the TLS front of the go harness (swift format)
+    <<: *client
+    build:
+      context: ${HARNESS_CLIENTS_DIR}/go
+      dockerfile_inline: |
+        FROM golang:1.25-alpine AS front
+        COPY tlsfront.go /src/tlsfront.go
+        RUN cd /src && CGO_ENABLED=0 GOTOOLCHAIN=local go build -o /tlsfront tlsfront.go
+        FROM swift:6.4.3-noble
+        RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates zip unzip \
+            && rm -rf /var/lib/apt/lists/*
+        COPY --from=front /tlsfront /usr/local/bin/tlsfront
+    image: waystation-harness-swift:6.4.3-1  # bump the suffix when the Dockerfile above changes
+    user: "0:0"
   client-skopeo:  # registry API pulls without a daemon (docker format)
     <<: *client
     image: quay.io/skopeo/stable:v1.20

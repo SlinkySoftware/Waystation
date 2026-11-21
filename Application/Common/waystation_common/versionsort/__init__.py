@@ -1,8 +1,8 @@
 """The ``version_sort`` contract (DATA_MODEL ``components``): per format, a plain string whose byte order is the
 format's version order, so "latest N" and "versions newest first" are index sorts.
 
-- npm, go, galaxy, terraform, helm: SemVer 2.0 precedence (``waystation_common.galaxy.version_sort``; go and other
-  ``v``-prefixed versions drop the ``v``); anything that is not SemVer sorts before every SemVer version;
+- npm, go, galaxy, terraform, helm, swift: SemVer 2.0 precedence (``waystation_common.galaxy.version_sort``; go and
+  other ``v``-prefixed versions drop the ``v``); anything that is not SemVer sorts before every SemVer version;
 - pypi: PEP 440 (``waystation_common.cleanup.versions.pep440_sort_string``);
 - maven: Maven ``ComparableVersion`` (``versionsort.maven.sort_key``);
 - yum: RPM ``rpmvercmp`` on ``version-release`` (``versionsort.rpm``; an ``epoch:`` prefix is honoured);
@@ -23,7 +23,7 @@ from waystation_common.versionsort import maven, rpm
 MAX_KEY = 400
 _RUNS = re.compile(r'\d+|\D+')
 _DPKG_RUNS = re.compile(r'(\D*)(\d*)')
-SEMVER_FORMATS = frozenset({'npm', 'go', 'galaxy', 'terraform', 'helm'})
+SEMVER_FORMATS = frozenset({'npm', 'go', 'galaxy', 'terraform', 'helm', 'swift'})
 
 
 def _num(digits: str) -> str:

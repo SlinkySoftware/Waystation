@@ -16,6 +16,7 @@ import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
 import { dockerImagesFor, dockerManifestFor, dockerReferrersFor, dockerTagsFor } from './fixtures/docker'
 import { galaxyCollectionList, galaxyNamespaceList, galaxyVersionsFor } from './fixtures/galaxy'
+import { swiftPackageList, swiftReleasesFor, swiftScopeList } from './fixtures/swift'
 import { helmChartList, helmVersionsFor } from './fixtures/helm'
 import { npmPackageList, npmReadme, npmVersionsFor } from './fixtures/npm'
 import { goModuleList, goVersionsFor } from './fixtures/go'
@@ -140,9 +141,9 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
     if (body.format === 'go' && body.type === 'hosted') {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
-    } else if (body.format === 'yum' && body.type === 'group') {
-      errors.push({ field: 'type', message: 'yum supports: proxy, hosted', code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum'].includes(body.format)) {
+    } else if ((body.format === 'yum' || body.format === 'swift') && body.type === 'group') {
+      errors.push({ field: 'type', message: `${body.format} supports: proxy, hosted`, code: 'unsupported' })
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'swift'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -694,6 +695,38 @@ export const handlers = [
     const found = galaxyVersionsFor(repo.name, repo.type === 'hosted', url.searchParams.get('namespace') ?? '', url.searchParams.get('collection') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ collection: found.collection, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/swift/scopes`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'swift')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    return HttpResponse.json(paginate(swiftScopeList().filter((s) => !q || s.scope.includes(q)), url))
+  }),
+  http.get(`${API}/repositories/:name/swift/packages`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'swift')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    const items = swiftPackageList(url.searchParams.get('scope')).filter((p) => !q || p.id.toLowerCase().includes(q))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/swift/releases`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'swift')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const found = swiftReleasesFor(repo.name, repo.type === 'hosted', url.searchParams.get('scope') ?? '', url.searchParams.get('package') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ package: found.package, ...paginate(found.releases, url) })
   }),
   http.get(`${API}/repositories/:name/maven/artifacts`, async ({ request, params }) => {
     const denied = guard(request)
