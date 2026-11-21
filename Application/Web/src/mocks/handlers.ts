@@ -14,16 +14,16 @@ import { auditHandlers, recordAudit } from './audit'
 import { ADMIN_USER_ID, CUSTOM_ROLES } from './fixtures/admin'
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
-import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
+import { dockerImagesFor, dockerManifestFor, dockerReferrersFor, dockerTagsFor } from './fixtures/docker'
 import { galaxyCollectionList, galaxyNamespaceList, galaxyVersionsFor } from './fixtures/galaxy'
 import { helmChartList, helmVersionsFor } from './fixtures/helm'
-import { npmPackageList, npmVersionsFor } from './fixtures/npm'
+import { npmPackageList, npmReadme, npmVersionsFor } from './fixtures/npm'
 import { goModuleList, goVersionsFor } from './fixtures/go'
 import { terraformProviderList, terraformVersionsFor } from './fixtures/terraform'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { yumPackageList, yumVersionsFor } from './fixtures/yum'
-import { genericTree, rawListing } from './fixtures/raw'
+import { genericListing, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
 import { nexusImportHandlers } from './nexusImport'
@@ -465,7 +465,7 @@ export const handlers = [
     if (!repo) return error
     const url = new URL(request.url)
     const path = url.searchParams.get('path') ?? ''
-    const entries = repo.format === 'raw' ? rawListing(repo.name, path) : repo.format === 'maven' && path ? mavenListing(repo, path) : path ? [] : genericTree(repo.format)
+    const entries = repo.format === 'raw' ? rawListing(repo.name, path) : repo.format === 'maven' && path ? mavenListing(repo, path) : genericListing(repo.format, path)
     if (!entries) return notFound()
     const page = paginate(entries, url)
     return HttpResponse.json({ path, entries: page.items, next_cursor: page.next_cursor })
@@ -503,6 +503,18 @@ export const handlers = [
     const manifest = dockerManifestFor(repo.name, url.searchParams.get('image') ?? '', url.searchParams.get('reference') ?? '', url.searchParams.get('platform') ?? undefined)
     return manifest ? HttpResponse.json(manifest) : notFound()
   }),
+  http.get(`${API}/repositories/:name/docker/referrers`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'docker')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const digest = url.searchParams.get('digest') ?? ''
+    if (!/^sha(256:[a-f0-9]{64}|512:[a-f0-9]{128})$/.test(digest)) return problem(400, 'Bad Request', 'digest must be sha256:<64 hex> or sha512:<128 hex>')
+    const list = dockerReferrersFor(repo.name, url.searchParams.get('image') ?? '', digest)
+    return list ? HttpResponse.json(list) : notFound()
+  }),
   http.get(`${API}/repositories/:name/npm/packages`, async ({ request, params }) => {
     const denied = guard(request)
     if (denied) return denied
@@ -523,7 +535,8 @@ export const handlers = [
     const url = new URL(request.url)
     const found = npmVersionsFor(url.searchParams.get('package') ?? '')
     if (!found) return notFound()
-    return HttpResponse.json({ package: found.pkg, dist_tags: found.distTags, ...paginate(found.versions, url) })
+    const readme = url.searchParams.get('cursor') ? null : npmReadme(found.pkg.name)
+    return HttpResponse.json({ package: found.pkg, dist_tags: found.distTags, ...paginate(found.versions, url), readme })
   }),
   http.get(`${API}/repositories/:name/helm/charts`, async ({ request, params }) => {
     const denied = guard(request)

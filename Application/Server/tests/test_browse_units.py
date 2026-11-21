@@ -112,6 +112,19 @@ def test_parse_abbreviated_packument_keeps_stored_description() -> None:
     assert 'license' not in parsed.summary()
 
 
+def test_parse_packument_readme() -> None:
+    def readme_of(doc: dict[str, object]) -> str | None:
+        return parse_packument(json.dumps({'name': 'x', 'versions': {'1.0.0': {}}, **doc}).encode(), 'x').readme
+
+    assert readme_of({'readme': '# x\n\nHello'}) == '# x\n\nHello'
+    assert readme_of({}) is None
+    assert readme_of({'readme': 'ERROR: No README data found!'}) is None  # npm's placeholder
+    assert readme_of({'readme': 42}) is None
+    # an abbreviated or readme-less packument: the latest version's own readme
+    assert readme_of({'versions': {'1.0.0': {'readme': 'From the version'}}}) == 'From the version'
+    assert len(readme_of({'readme': 'x' * 300_000}) or '') == 256 * 1024  # bounded
+
+
 @pytest.mark.parametrize('data', [b'nope', b'[]'])
 def test_parse_packument_rejects(data: bytes) -> None:
     with pytest.raises(ValidationFailed):

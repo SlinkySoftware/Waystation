@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Docker images, tags and manifests for the docker proxies. Real public image names; sizes are plausible,
 // digests are seeded fakes.
-import type { DockerImage, DockerLayer, DockerManifest, DockerTag, Platform } from '@/api/types'
+import type { DockerImage, DockerLayer, DockerManifest, DockerReferrerList, DockerTag, Platform } from '@/api/types'
 
 import { fakeSha256, hash, KiB, MiB, rng } from '../rng'
 import { REGISTRY_HOST } from './repositories'
@@ -168,6 +168,27 @@ export function dockerManifestFor(repo: string, image: string, reference: string
     pull_by_tag: `docker pull ${REGISTRY_HOST}/${PULL_PREFIX[repo] ?? `${repo}/`}${image.replace(/^library\//, '')}:${tag.tag}`,
     pull_by_digest: `docker pull ${REGISTRY_HOST}/${PULL_PREFIX[repo] ?? `${repo}/`}${image.replace(/^library\//, '')}@${tag.digest}`,
   }
+}
+
+/** Referrers (T-U05): the GHCR images are signed with cosign and carry an SPDX SBOM on their index, and an in-toto
+ * provenance attestation on each platform manifest; the Docker Hub mirror has none. */
+export function dockerReferrersFor(repo: string, image: string, digest: string): DockerReferrerList | null {
+  if (!findSeed(repo, image)) return null
+  const items: DockerReferrerList['items'] = []
+  if (repo === 'ghcr-proxy') {
+    const created = new Date(NOW - (2 + (hash(digest) % 40)) * 24 * HOUR).toISOString()
+    const tags = dockerTagsFor(repo, image) ?? []
+    if (tags.some((t) => t.digest === digest)) {
+      items.push(
+        { digest: `sha256:${fakeSha256(`sig:${digest}`)}`, media_type: 'application/vnd.oci.image.manifest.v1+json', artifact_type: 'application/vnd.dev.cosign.artifact.sig.v1+json', size: 1_140, annotations: { 'org.opencontainers.image.created': created } },
+        { digest: `sha256:${fakeSha256(`sbom:${digest}`)}`, media_type: 'application/vnd.oci.image.manifest.v1+json', artifact_type: 'application/spdx+json', size: 742, annotations: { 'org.opencontainers.image.created': created } },
+      )
+    } else {
+      items.push({ digest: `sha256:${fakeSha256(`prov:${digest}`)}`, media_type: 'application/vnd.oci.image.manifest.v1+json', artifact_type: 'application/vnd.in-toto+json', size: 1_623, annotations: { 'in-toto.io/predicate-type': 'https://slsa.dev/provenance/v1' } })
+    }
+  }
+  items.sort((a, b) => a.digest.localeCompare(b.digest))
+  return { image, subject: digest, items }
 }
 
 /** Layer sizes of a tag's amd64 image (used by the live generator for realistic pulls). */

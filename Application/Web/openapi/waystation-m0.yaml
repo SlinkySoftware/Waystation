@@ -1477,6 +1477,29 @@ paths:
               schema: { $ref: '#/components/schemas/DockerManifest' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/docker/referrers:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listDockerReferrers
+      summary: Referrers of a manifest stored in the repository (signatures, SBOMs, attestations; OCI `subject`)
+      parameters:
+        - $ref: '#/components/parameters/DockerImage'
+        - name: digest
+          in: query
+          required: true
+          description: Subject digest (`sha256:...`)
+          schema: { type: string, maxLength: 140 }
+      responses:
+        '200':
+          description: Referrers (up to 1000), by digest
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DockerReferrerList' }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/npm/packages:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4624,6 +4647,26 @@ components:
           additionalProperties: { type: string }
         pull_by_tag: { type: string }
         pull_by_digest: { type: string }
+    DockerReferrer:
+      type: object
+      required: [digest, media_type]
+      properties:
+        digest: { type: string }
+        media_type: { type: string }
+        artifact_type: { type: [string, 'null'], description: '`artifactType`, else the config media type' }
+        size: { type: [integer, 'null'], description: "The referrer manifest's size in bytes" }
+        annotations:
+          type: object
+          additionalProperties: { type: string }
+    DockerReferrerList:
+      type: object
+      required: [image, subject, items]
+      properties:
+        image: { type: string }
+        subject: { type: string, description: Digest the referrers point at (`subject`) }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DockerReferrer' }
     NpmPackage:
       type: object
       required: [name, latest, version_count, cached_versions, size_bytes]
@@ -4673,6 +4716,9 @@ components:
           type: array
           items: { $ref: '#/components/schemas/NpmVersion' }
         next_cursor: { type: [string, 'null'] }
+        readme:
+          type: [string, 'null']
+          description: The package README (Markdown, at most 256 KiB; first page only), untrusted text
     PypiProject:
       type: object
       required: [name, display_name, version_count, files, size_bytes]

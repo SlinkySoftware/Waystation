@@ -517,6 +517,25 @@ async def test_referrers(services: Services, admin: httpx.AsyncClient, v2: httpx
     none = await reg.request('GET', name, f'referrers/{digest(b"nothing")}', actions='pull')
     assert none.status_code == 200 and none.json()['manifests'] == []
 
+    # the browse API lists the same referrers for the UI (T-U05)
+    browse = await admin.get('/api/v1/repositories/apps/docker/referrers', params={'image': name, 'digest': subject})
+    assert browse.status_code == 200, browse.text
+    page = browse.json()
+    assert page['image'] == name and page['subject'] == subject
+    shown = {m['digest']: m for m in page['items']}
+    assert shown[digest(referrer)] == {
+        'digest': digest(referrer),
+        'media_type': OCI_MANIFEST,
+        'artifact_type': 'application/vnd.example.signature',
+        'size': len(referrer),
+        'annotations': {'org.example.kind': 'test'},
+    }
+    assert shown[digest(sbom)]['artifact_type'] == 'application/vnd.example.sbom.config'
+    bad = await admin.get('/api/v1/repositories/apps/docker/referrers', params={'image': name, 'digest': 'v1'})
+    assert bad.status_code == 400
+    hidden = await admin.get('/api/v1/repositories/nope/docker/referrers', params={'image': name, 'digest': subject})
+    assert hidden.status_code == 404
+
 
 async def test_mount_catalog_and_rbac(services: Services, admin: httpx.AsyncClient, v2: httpx.AsyncClient) -> None:
     await create_hosted(admin, 'source')

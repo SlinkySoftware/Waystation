@@ -1117,6 +1117,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/docker/referrers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Referrers of a manifest stored in the repository (signatures, SBOMs, attestations; OCI `subject`) */
+        get: operations["listDockerReferrers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/npm/packages": {
         parameters: {
             query?: never;
@@ -3724,6 +3743,23 @@ export interface components {
             pull_by_tag?: string;
             pull_by_digest?: string;
         };
+        DockerReferrer: {
+            digest: string;
+            media_type: string;
+            /** @description `artifactType`, else the config media type */
+            artifact_type?: string | null;
+            /** @description The referrer manifest's size in bytes */
+            size?: number | null;
+            annotations?: {
+                [key: string]: string;
+            };
+        };
+        DockerReferrerList: {
+            image: string;
+            /** @description Digest the referrers point at (`subject`) */
+            subject: string;
+            items: components["schemas"]["DockerReferrer"][];
+        };
         NpmPackage: {
             name: string;
             description?: string | null;
@@ -3764,6 +3800,8 @@ export interface components {
             };
             items: components["schemas"]["NpmVersion"][];
             next_cursor: string | null;
+            /** @description The package README (Markdown, at most 256 KiB; first page only), untrusted text */
+            readme?: string | null;
         };
         PypiProject: {
             /** @description Normalised project name (PEP 503) */
@@ -7214,6 +7252,35 @@ export interface operations {
                     "application/json": components["schemas"]["DockerManifest"];
                 };
             };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listDockerReferrers: {
+        parameters: {
+            query: {
+                /** @description Image name within the repository, e.g. `library/nginx` */
+                image: components["parameters"]["DockerImage"];
+                /** @description Subject digest (`sha256:...`) */
+                digest: string;
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Referrers (up to 1000), by digest */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DockerReferrerList"];
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
             404: components["responses"]["NotFound"];
         };
     };

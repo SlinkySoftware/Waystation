@@ -38,6 +38,8 @@ from waystation_server.formats.npm.metadata import packument_key, tarball_filena
 
 PARSED_CACHE = 16
 MAX_TEXT = 1024
+MAX_README = 256 * 1024  # characters
+NO_README = 'ERROR: No README data found!'
 MAX_TAGS = 100
 MAX_SHORT = 256
 _SEMVER = re.compile(r'^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$')
@@ -97,6 +99,7 @@ class Parsed:
     license: str | None
     modified: datetime | None
     rows: list[VersionRow] = field(default_factory=list)  # newest first
+    readme: str | None = None
 
     def summary(self) -> dict[str, Any]:
         """The ``npm_packages`` fields this packument provides (description/licence only when present)."""
@@ -150,6 +153,10 @@ def parse_packument(data: bytes, package: str) -> Parsed:
     if licence is None:
         latest_meta = versions.get(latest)
         licence = _license(latest_meta.get('license')) if isinstance(latest_meta, dict) else None
+    readme = doc.get('readme')
+    if not (isinstance(readme, str) and readme.strip()):
+        latest_meta = versions.get(latest)
+        readme = latest_meta.get('readme') if isinstance(latest_meta, dict) else None
     return Parsed(
         name=package,
         latest=latest,
@@ -158,7 +165,16 @@ def parse_packument(data: bytes, package: str) -> Parsed:
         license=licence,
         modified=modified,
         rows=rows,
+        readme=_readme(readme),
     )
+
+
+def _readme(value: Any) -> str | None:
+    """The package README as the registry gives it (Markdown, rendered safely by the UI), bounded; npm's
+    placeholder for "none" counts as none."""
+    if not isinstance(value, str) or not value.strip() or value.strip() == NO_README:
+        return None
+    return value[:MAX_README]
 
 
 # ---------------------------------------------------------------------------- views
@@ -233,6 +249,7 @@ class NpmBrowse:
             dist_tags=parsed.dist_tags,
             items=items,
             next_cursor=encode_cursor(offset + limit) if more else None,
+            readme=parsed.readme if offset == 0 else None,
         )
 
     async def _packument(self, ctx: BrowseContext, package: str) -> tuple[Parsed, datetime]:
