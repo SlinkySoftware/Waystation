@@ -26,6 +26,8 @@
       <UpstreamHealthCard class="dash__upstreams" />
       <ActivityFeed class="dash__activity" :limit="7" />
       <StorageCard class="dash__storage" />
+      <TopArtifactsCard class="dash__top" mode="top" />
+      <TopArtifactsCard class="dash__recent" mode="recent" />
     </div>
   </q-page>
 </template>
@@ -40,6 +42,7 @@ import ActivityFeed from '@/components/dashboard/ActivityFeed.vue'
 import DashboardLanding from '@/components/dashboard/DashboardLanding.vue'
 import KpiStrip from '@/components/dashboard/KpiStrip.vue'
 import StorageCard from '@/components/dashboard/StorageCard.vue'
+import TopArtifactsCard from '@/components/dashboard/TopArtifactsCard.vue'
 import TrafficCard from '@/components/dashboard/TrafficCard.vue'
 import UpstreamHealthCard from '@/components/dashboard/UpstreamHealthCard.vue'
 import LiveTransfers from '@/components/live/LiveTransfers.vue'
@@ -52,7 +55,7 @@ import { useRepositoriesStore } from '@/stores/repositories'
 import { readString, writeString } from '@/utils/storage'
 
 const $q = useQuasar()
-const RANGES: StatsRange[] = ['15m', '1h', '24h', '7d', '30d']
+const RANGES: StatsRange[] = ['15m', '1h', '24h', '7d', '30d', '90d', '1y']
 const stored = readString('ws.dashboard.range') as StatsRange | null
 const range = ref<StatsRange>(stored && RANGES.includes(stored) ? stored : '24h')
 const rangeOptions = computed(() => RANGES.map((r) => ({ label: t(`ranges.short.${r}`), value: r })))
@@ -108,6 +111,11 @@ if (auth.can('repositories.browse')) void useRepositoriesStore().load().catch(()
   grid-column: span 8;
 }
 
+.dash__top,
+.dash__recent {
+  grid-column: span 6;
+}
+
 .dash__pulse {
   width: 8px;
   height: 8px;
@@ -140,7 +148,9 @@ if (auth.can('repositories.browse')) void useRepositoriesStore().load().catch(()
 
 @media (max-width: 1023px) {
   .dash__upstreams,
-  .dash__storage {
+  .dash__storage,
+  .dash__top,
+  .dash__recent {
     grid-column: span 12;
   }
 }

@@ -46,6 +46,8 @@ export interface RepoStorageRow {
   share: number
   /** Mean artifact size, or null without artifacts. */
   average: number | null
+  /** Bytes de-duplication saves this repository (shared blobs, from the last hourly snapshot). */
+  dedup: number
 }
 
 export function repoRows(s: Pick<StorageSummary, 'by_repository'>): RepoStorageRow[] {
@@ -57,6 +59,7 @@ export function repoRows(s: Pick<StorageSummary, 'by_repository'>): RepoStorageR
     artifacts: r.artifacts,
     share: total ? Math.max(0, r.bytes) / total : 0,
     average: r.artifacts > 0 ? r.bytes / r.artifacts : null,
+    dedup: Math.max(0, r.dedup_saved_bytes ?? 0),
   }))
 }
 
