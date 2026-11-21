@@ -1,11 +1,17 @@
-# Nightly live-upstream smoke for the real-client harness (SPECIFICATION §11, tests/clients/README.md).
-# Runs every format's client script against the live upstreams through the fake upstream in `live` mode (forward,
-# store nothing). PR-time replay runs are in ci.yml.
+# Live-upstream smoke for the real-client harness (SPECIFICATION §11, tests/clients/README.md, Operations/CI.md).
+# Runs every format's client scripts against the live upstreams through the fake upstream in `live` mode (forward,
+# store nothing), arm64 clients included (QEMU on the runner, ARM64=1). PR-time replay runs are in ci.yml. The
+# nightly schedule runs on the Gitea mirror (.gitea/workflows/clients-live.yml), where runners cost nothing.
 name: clients-live
 
 on:
-  # Manual only: GitHub Actions cost money (no nightly schedule).
-  workflow_dispatch: {}
+  # Manual only: GitHub Actions cost money (no nightly schedule here).
+  workflow_dispatch:
+    inputs:
+      format:
+        description: 'Format to run (a directory of tests/clients, or all)'
+        required: false
+        default: all
 
 permissions:
   contents: read
@@ -13,10 +19,16 @@ permissions:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Live-upstream client smoke (all formats)
-        run: make clients-test FORMAT=all MODE=live
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+      - name: Live-upstream client smoke
+        env:
+          FORMAT: ${{ inputs.format || 'all' }}
+          ARM64: '1'
+        run: make clients-test FORMAT="$FORMAT" MODE=live
