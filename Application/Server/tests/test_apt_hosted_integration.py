@@ -15,13 +15,13 @@ from ws_deb import build_deb
 from ws_testing import asgi_client
 
 from waystation_common import openpgp
+from waystation_common.apt import deb822
 from waystation_common.crypto import Keyring
 from waystation_common.db import components as components_db
 from waystation_common.db.collections import APT_HOSTED, APT_PACKAGES, ASSETS, AUDIT, COMPONENTS, JOB_OUTBOX
 from waystation_common.settings import Settings
 from waystation_common.signing import KeyStore
 from waystation_server.bootstrap import ensure_bootstrap_admin
-from waystation_server.formats.apt import deb822
 from waystation_server.services import Services
 from waystation_worker import apt_index as worker_apt
 
