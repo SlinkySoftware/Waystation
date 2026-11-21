@@ -138,7 +138,7 @@ export function npmReadme(name: string): string | null {
     '',
     `> ${seed.description}`,
     '',
-    `[![npm](https://img.shields.io/npm/v/${name}.svg)](https://www.npmjs.com/package/${name}) **${seed.license}** licensed · latest \`${seed.latest}\``,
+    `[![version](https://example.com/badges/${base}.svg)](https://example.com/packages/${base}) **${seed.license}** licensed · latest \`${seed.latest}\``,
     '',
     '## Install',
     '',

@@ -184,7 +184,7 @@ export function dockerReferrersFor(repo: string, image: string, digest: string):
         { digest: `sha256:${fakeSha256(`sbom:${digest}`)}`, media_type: 'application/vnd.oci.image.manifest.v1+json', artifact_type: 'application/spdx+json', size: 742, annotations: { 'org.opencontainers.image.created': created } },
       )
     } else {
-      items.push({ digest: `sha256:${fakeSha256(`prov:${digest}`)}`, media_type: 'application/vnd.oci.image.manifest.v1+json', artifact_type: 'application/vnd.in-toto+json', size: 1_623, annotations: { 'in-toto.io/predicate-type': 'https://slsa.dev/provenance/v1' } })
+      items.push({ digest: `sha256:${fakeSha256(`prov:${digest}`)}`, media_type: 'application/vnd.oci.image.manifest.v1+json', artifact_type: 'application/vnd.in-toto+json', size: 1_623, annotations: { 'org.opencontainers.image.created': created } })
     }
   }
   items.sort((a, b) => a.digest.localeCompare(b.digest))
