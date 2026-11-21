@@ -31,18 +31,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import posixpath
 from collections import OrderedDict
 from collections.abc import Collection
 from dataclasses import dataclass
 
 from starlette.responses import Response
 
+from waystation_common.apt import deb822, suites
+from waystation_common.apt.indexes import (
+    INDEX_MAX,
+    RELEASE_GPG_MAX,
+    SIGNED_RELEASES,
+    PackagesTarget,
+    by_hash_key,
+    packages_target,
+)
 from waystation_common.errors import DigestMismatch, NotFound, UpstreamError, ValidationFailed
 from waystation_server.db import apt as apt_db
 from waystation_server.db import assets as assets_db
-from waystation_server.formats.apt import deb822, suites
-from waystation_server.formats.apt.browse import AptBrowse, browse_suite
+from waystation_server.formats.apt.browse import AptBrowse
 from waystation_server.formats.apt.descriptor import DESCRIPTOR, AptOptions
 from waystation_server.formats.base import FormatRequest
 from waystation_server.problems import native_error
@@ -59,10 +66,7 @@ from waystation_server.proxy.engine import (
 log = logging.getLogger('waystation.formats.apt')
 
 RELEASE_FILES = ('InRelease', 'Release', 'Release.gpg')
-SIGNED_RELEASES = ('InRelease', 'Release')
 FOREVER = 100 * 365 * 86_400  # hash-keyed assets never need revalidation
-RELEASE_GPG_MAX = 1024 * 1024
-INDEX_MAX = 256 * 1024 * 1024
 PARSED_CACHE = 32
 BY_HASH_ALGS = {'SHA256': ('sha256', 64), 'SHA512': ('sha512', 128)}
 INDEX_PREFIXES = ('Packages', 'Sources', 'Translation-', 'Contents-', 'Components-', 'icons-', 'Commands-', 'Index')
@@ -166,30 +170,6 @@ def classify(path: str, *, flat: bool, known: Collection[str] = ()) -> Target:
     return Target('other')
 
 
-@dataclass(frozen=True)
-class PackagesTarget:
-    suite: str
-    component: str
-    arch: str
-    suffix: str
-
-
-def packages_target(suite_dir: str, rel: str) -> PackagesTarget | None:
-    """``<component...>/binary-<arch>/Packages[.ext]`` (or flat ``Packages[.ext]``) → what it lists."""
-    directory, name = posixpath.split(rel)
-    base, dot, ext = name.partition('.')
-    if base != 'Packages':
-        return None
-    suffix = deb822.compression_of(name)
-    if suffix is None or (dot and f'.{ext}' != suffix):
-        return None
-    suite = suite_dir.split('/', 1)[1] if suite_dir.startswith('dists/') else suite_dir
-    comp_dir, _, arch_dir = directory.rpartition('/')
-    if directory and not arch_dir.startswith('binary-'):
-        return None
-    return PackagesTarget(suite=suite, component=comp_dir, arch=arch_dir.removeprefix('binary-'), suffix=suffix)
-
-
 def _validate_release(data: bytes, info: UpstreamInfo) -> None:
     try:
         deb822.parse_release(data)
@@ -290,7 +270,7 @@ class AptPlugin:
     def _index_spec(
         self, req: FormatRequest, suite_dir: str, rel: str, entry: deb822.IndexEntry, release: deb822.Release
     ) -> AssetSpec:
-        key = _join(suite_dir, posixpath.dirname(rel), 'by-hash', 'SHA256', entry.sha256)
+        key = by_hash_key(suite_dir, rel, entry.sha256)
         return AssetSpec(
             path=key,
             kind=AssetKind.METADATA,  # buffered: verified before the first byte, so a mismatch can be retried
@@ -375,27 +355,10 @@ class AptPlugin:
     ) -> None:
         try:
             raw = data if data is not None else await engine.read(asset, max_bytes=INDEX_MAX)
-            entries = await asyncio.to_thread(deb822.parse_packages_file, raw, what.suffix)
-            listings = [apt_db.Listing(e.filename, e.sha256, e.size) for e in entries]
-            mismatched = await apt_db.record_listing(
-                engine.db, repo_id, listings, suite=what.suite, component=what.component, arch=what.arch
-            )
-            for filename in mismatched:
+            indexed = await apt_db.index_packages(engine.db, repo_id, raw, what, gen=asset.blob_sha256)
+            for filename in indexed.dropped:
                 log.warning('cached pool file does not match its listing; dropped', extra={'path': filename})
-            stanzas = [
-                apt_db.Stanza(e.filename, e.sha256, e.size, e.package, e.version, e.architecture, e.section)
-                for e in entries
-            ]
-            await apt_db.record_packages(
-                engine.db,
-                repo_id,
-                stanzas,
-                suite=browse_suite(what.suite),
-                component=what.component,
-                arch=what.arch,
-                gen=asset.blob_sha256,
-            )
-            log.info('indexed Packages', extra={'path': asset.path, 'entries': len(listings)})
+            log.info('indexed Packages', extra={'path': asset.path, 'entries': indexed.entries})
         except Exception as exc:
             log.warning('Packages indexing failed', extra={'path': asset.path, 'error': type(exc).__name__})
 
@@ -414,7 +377,7 @@ class AptPlugin:
             listed = await apt_db.record_unverified(engine.db, repo_id, asset.path, asset.blob_sha256, asset.size)
             if listed is not None and (listed.sha256 != asset.blob_sha256 or listed.size != asset.size):
                 log.warning('pool file does not match its listing; dropped', extra={'path': asset.path})
-                await apt_db.drop_cached(engine.db, repo_id, asset.path)
+                await apt_db.drop_cached(engine.db, repo_id, asset.path, sha256=asset.blob_sha256)
 
         log.info('pool file not listed in any cached Packages; serving unverified', extra={'path': req.path})
         return await engine.serve(req, AssetSpec(path=req.path, kind=AssetKind.CONTENT, on_stored=unverified))

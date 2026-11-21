@@ -212,6 +212,22 @@ class YumIndex(JobPayload):
         return f'index.yum:{self.repo_id}'
 
 
+class AptRefresh(JobPayload):
+    """Refresh apt proxy repositories (FORMATS.md "apt"; ``waystation_worker.apt``): revalidate each cached suite's
+    ``Release`` that is older than ``metadata_max_age_s``, fetch and verify the ``Packages`` indexes of the new
+    ``Release`` that clients already used, index cached ``Packages`` files that were never indexed, and re-verify
+    unverified pool files against the listings. ``repo_id`` None = every apt proxy (the hourly schedule)."""
+
+    kind: ClassVar[str] = 'apt.refresh'
+    queue: ClassVar[Queue] = 'prefetch'
+    max_attempts: ClassVar[int] = 3
+
+    repo_id: str | None = None
+
+    def dedupe_key(self) -> str | None:
+        return f'apt.refresh:{self.repo_id or "*"}'
+
+
 class GalaxyImport(JobPayload):
     """Import an uploaded Ansible collection into its hosted repository (FORMATS.md "Ansible Galaxy";
     ``waystation_worker.galaxy``): validate the artifact (``MANIFEST.json``, ``FILES.json`` and every file's sha256,
