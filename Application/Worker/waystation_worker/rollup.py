@@ -13,10 +13,14 @@ Also sweeps ``transfers`` entries not updated for ``STALE_TRANSFER_S`` (their pr
 batched API token "last used", session "last seen" and asset "last downloaded" times (plus download counts)
 from Valkey to MongoDB (``flush_last_seen``).
 
+Then (``waystation_worker.history``): closed hours into ``stats_hour`` and closed days into ``stats_day`` (each
+exactly once), the hourly ``storage_snapshots``, and a batch of the component index (``waystation_common.db.
+components``: new assets linked to their components, a rolling recompute of the existing ones). The component index
+runs before the download flush, so the downloads of a just-cached file reach its component.
+
 Runs as the scheduled job ``stats.rollup`` (``waystation_worker.jobs.builtin``, every 10 s on the ``stats``
 queue). The job system already runs one rollup at a time; the lease stays as a second guard because two concurrent
-rollups could both insert a minute (the existence check is not atomic). Hour/day rollups and snapshots are T-F09
-(full).
+rollups could both insert a minute (the existence check is not atomic).
 """
 
 from __future__ import annotations
@@ -30,11 +34,13 @@ from typing import Any
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
+from waystation_common.db import components as components_db
 from waystation_common.db import seen
 from waystation_common.db import stats as stats_db
 from waystation_common.db.client import Database
 from waystation_common.events import keys
 from waystation_common.leases import hold_lease, release_lease
+from waystation_worker import history
 
 log = logging.getLogger('waystation.worker.rollup')
 
@@ -52,7 +58,9 @@ async def _hgetall(redis: Redis, key: str) -> dict[str, str]:
     return {_str(k): _str(v) for k, v in (await redis.hgetall(key)).items()}
 
 
-def build_minute_doc(minute: int, repo_id: str, cnt: dict[str, str], lat: dict[str, str]) -> dict[str, Any]:
+def build_minute_doc(
+    minute: int, repo_id: str, cnt: dict[str, str], lat: dict[str, str], ulat: dict[str, str] | None = None
+) -> dict[str, Any]:
     doc: dict[str, Any] = {
         'ts': datetime.fromtimestamp(minute * 60, UTC),
         'm': {'repo_id': repo_id, 'format': cnt.get('format', '')},
@@ -60,6 +68,8 @@ def build_minute_doc(minute: int, repo_id: str, cnt: dict[str, str], lat: dict[s
     for field in keys.COUNTERS:
         doc[field] = int(cnt.get(field, 0))
     doc['lat_hist'] = {field: int(lat[field]) for field in keys.LATENCY_FIELDS if field in lat}
+    upstream = ulat or {}
+    doc['ulat_hist'] = {field: int(upstream[field]) for field in keys.LATENCY_FIELDS if field in upstream}
     return doc
 
 
@@ -72,14 +82,16 @@ async def rollup_closed_minutes(redis: Redis, db: Database, *, now: float | None
         if (minute + 1) * 60 + GRACE_S > now:
             continue
         cnt_key, lat_key = keys.cnt_key(minute, repo_id), keys.lat_key(minute, repo_id)
+        ulat_key = keys.ulat_key(minute, repo_id)
         cnt = await _hgetall(redis, cnt_key)
         lat = await _hgetall(redis, lat_key)
-        if cnt or lat:
-            doc = build_minute_doc(minute, repo_id, cnt, lat)
+        ulat = await _hgetall(redis, ulat_key)
+        if cnt or lat or ulat:
+            doc = build_minute_doc(minute, repo_id, cnt, lat, ulat)
             if not await stats_db.minute_exists(db, repo_id, doc['ts']):
                 await stats_db.insert_minute(db, doc)
                 inserted += 1
-        await redis.delete(cnt_key, lat_key)
+        await redis.delete(cnt_key, lat_key, ulat_key)
         await redis.srem(keys.STATS_PENDING, member)
     return inserted
 
@@ -125,6 +137,7 @@ async def flush_last_seen(redis: Redis, db: Database) -> int:
     counts = await _drain(redis, seen.DL_ASSETS)
     if last or counts:
         updated += await seen.flush_assets(db, last, counts)
+        await components_db.count_downloads(db, seen.downloads(last, counts))
     await redis.delete(f'{seen.SEEN_ASSETS}:flushing', f'{seen.DL_ASSETS}:flushing')
     return updated
 
@@ -133,12 +146,27 @@ async def rollup_once(redis: Redis, db: Database, owner: str, *, now: float | No
     """One cycle if we hold the lease (released afterwards); None when another worker holds it."""
     if not await hold_lease(redis, owner, key=LEASE_KEY, ttl_ms=LEASE_TTL_MS):
         return None
+    now = time.time() if now is None else now
     try:
         inserted = await rollup_closed_minutes(redis, db, now=now)
         swept = await sweep_stale_transfers(redis, now=now)
+        indexed = await history.index_components(redis, db)
         flushed = await flush_last_seen(redis, db)
+        periods = await history.rollup_periods(redis, db, now=now)
+        snapshot = await history.snapshot_storage(redis, db, now=now)
     finally:
         await release_lease(redis, owner, key=LEASE_KEY)
-    if inserted or swept or flushed:
-        log.info('stats rolled up', extra={'minutes': inserted, 'stale_transfers': swept, 'last_seen': flushed})
+    if inserted or swept or flushed or periods.hours or periods.days or snapshot or indexed.assets:
+        log.info(
+            'stats rolled up',
+            extra={
+                'minutes': inserted,
+                'hours': periods.hours,
+                'days': periods.days,
+                'snapshot': snapshot,
+                'stale_transfers': swept,
+                'last_seen': flushed,
+                'components_linked': indexed.linked,
+            },
+        )
     return inserted

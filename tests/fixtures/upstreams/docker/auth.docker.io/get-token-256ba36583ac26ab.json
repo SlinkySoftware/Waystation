@@ -12,7 +12,7 @@
     "url": "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/hello-world:pull"
   },
   "response": {
-    "body_sha256": "58f133cd7fae0b2ce3f3c440f821a565915ac959a768514ba342d44d53fae414",
+    "body_sha256": "f2142a5e48579232ba3880deca544487eb47293455f0129baf764f5439e4d347",
     "body_size": 124,
     "headers": [
       [

@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, SetupSnippet, UiHints
-from waystation_server.formats.common.setup import TOKEN, USERNAME, snippet
+from waystation_server.formats.common.setup import TOKEN, USERNAME, on, snippet
 from waystation_server.repos.model import RepoType
 
 
@@ -36,6 +36,14 @@ def _check_options(options: BaseModel, repo_type: RepoType) -> list[tuple[str, s
     if repo_type is not RepoType.PROXY and options.metadata_path_regex:
         return [('metadata_path_regex', 'only proxy repositories revalidate metadata from an upstream')]
     return []
+
+
+WINDOWS_CURL = frozenset({'curl-get', 'curl-auth'})
+
+
+def _windows(base: SetupSnippet) -> SetupSnippet:
+    """On Windows, ``curl.exe`` (in Windows PowerShell 5.1 ``curl`` is an alias of ``Invoke-WebRequest``)."""
+    return on('windows', base, content=base.content.replace('curl ', 'curl.exe ', 1), language='powershell')
 
 
 def _download(url: str) -> list[SetupSnippet]:
@@ -91,6 +99,7 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
         )
         if repo.group.writable_member:
             curl += _upload(url, into=repo.group.writable_member)
+    curl += [_windows(s) for s in curl if s.id in WINDOWS_CURL]
     wget = [snippet('wget-get', 'Download a file', f'wget {url}path/to/file')]
     if repo.type is not RepoType.PROXY:
         wget.append(

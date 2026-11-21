@@ -50,6 +50,10 @@ The same is available to scripts: `POST /api/v1/import/nexus/preview` and `POST 
 body `url`, `username`, `password`, `allow_private`, `ca_pem`, `docker_aliases`, `default_docker_repo`; apply also
 takes `repositories`, the names to import).
 
+The importer is checked against a real Nexus 3 Community Edition container by the opt-in `make test-nexus`
+(`Documents/Operations/CI.md`). Community Edition has no writable group members (a Pro feature): such a group
+imports without one; set it on the Waystation group if you want to publish through the group.
+
 ## 3. Re-enter credentials and access
 
 1. **Upstream credentials.** Proxies whose Nexus repository used authentication (a Docker Hub account for higher pull

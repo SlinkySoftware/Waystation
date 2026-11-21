@@ -40,8 +40,9 @@ describe('navigation by capability', () => {
     }
   })
 
-  it('needs a capability for every page except the dashboard, profile and the fallbacks', () => {
+  it('needs a capability for every page except the dashboard, profile, the fallbacks and the dev-only showcase', () => {
     const open = [...named.values()].filter((r) => !r.meta?.public && !r.meta?.capability && r.component).map((r) => r.name)
-    expect(open.sort()).toEqual(['dashboard', 'no-access', 'not-found', 'profile'])
+    // The component showcase exists only in dev and mock builds (no data, no API calls).
+    expect(open.filter((n) => n !== 'showcase').sort()).toEqual(['dashboard', 'no-access', 'not-found', 'profile'])
   })
 })

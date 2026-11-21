@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 import pytest
 from redis.asyncio import Redis
+from ws_query_audit import AUDIT, install
 from ws_testing import asgi_client, make_settings, static_catalog
 
 from waystation_common.db.client import Database
@@ -26,6 +27,15 @@ from waystation_common.settings import Settings
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security.rbac import RbacState
 from waystation_server.services import Services
+
+# Record request-path queries for the index-coverage check (test_zz_index_coverage_integration); registered before
+# any MongoDB client is created.
+install()
+
+
+@pytest.fixture(autouse=True)
+def _query_origin(request: pytest.FixtureRequest) -> None:
+    AUDIT.current_test = request.node.nodeid
 
 
 @pytest.fixture

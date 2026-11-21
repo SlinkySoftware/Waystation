@@ -288,7 +288,8 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   - Clients verified (harness, recorded registry.npmjs.org fixtures): npm 11 `login --auth-type=legacy`, `whoami`,
     `publish` (to the group and to the hosted repository, republish refused), install of a hosted and a proxied
     package through the group, `dist-tag add/ls/rm`, `deprecate`, `unpublish <pkg>@<v>` and `--force`, `logout`.
-    pnpm/Yarn/Bun publish use the same requests and are not in the harness yet.
+    pnpm/Yarn/Bun publish use the same requests and are not in the harness yet; their installs and audits through a
+    proxy are (pnpm 12, Yarn 1, Yarn 4, Bun 1.4; `tests/clients/npm/pm.sh`).
 
 ## apt (Debian, Ubuntu, Raspberry Pi OS) — Phase 2 (proxy), Phase 5 (hosted)
 - Layout under the upstream base: `dists/<suite>/{InRelease,Release,Release.gpg}`,
@@ -342,8 +343,8 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   unverified pool file whose recorded hash disagrees with a new listing is dropped from the cache (only the copy with
   that hash: a verified copy stored meanwhile stays). Parsed `Release`
   files are kept in a small in-process LRU keyed by blob digest. Real clients: apt on Debian 13 and Ubuntu 26.04
-  (`tests/clients/apt/`). Not yet: hosted, `Release` signature checks by Waystation (clients verify),
-  Raspberry Pi OS / arm64 clients, components (`components` collection).
+  (`tests/clients/apt/`); Raspberry Pi OS arm64 opt-in (`ARM64=1`, needs arm64 emulation). Not yet: hosted,
+  `Release` signature checks by Waystation (clients verify), components (`components` collection).
 - Worker refresh (2026-11-21, job `apt.refresh`, queue `prefetch`, `waystation_worker.apt`; built-in schedule
   `41 * * * *` over every apt proxy, or one repository by `repo_id`; dedupe `apt.refresh:<repo id|*>`). Per suite
   with a cached `InRelease`/`Release` (flat: per directory): (1) when the cached copy is older than

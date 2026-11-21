@@ -24,18 +24,20 @@
 
     <q-btn outline no-caps class="act-toolbar__time" :icon="iconCalendar" :label="timeLabel" :aria-label="`${t('activity.rangeLabel')}: ${timeLabel}`">
       <q-menu anchor="bottom right" self="top right" @before-show="seedCustom">
-        <q-list dense class="act-toolbar__menu">
+        <div class="act-toolbar__menu">
+        <q-list dense>
           <q-item v-for="opt in rangeOptions" :key="opt.label" v-close-popup clickable :active="isRange(opt.value)" @click="set({ range: opt.value, from: null, to: null })">
             <q-item-section>{{ opt.label }}</q-item-section>
           </q-item>
+        </q-list>
           <q-separator />
-          <q-item-label header>{{ t('activity.customRange') }}</q-item-label>
+          <div class="q-item__label q-item__label--header">{{ t('activity.customRange') }}</div>
           <div class="act-toolbar__custom">
             <q-input v-model="customFrom" dense outlined type="datetime-local" step="1" :label="t('activity.from')" stack-label />
             <q-input v-model="customTo" dense outlined type="datetime-local" step="1" :label="t('activity.to')" stack-label />
             <q-btn v-close-popup unelevated no-caps color="primary" :label="t('activity.apply')" :disable="!customValid" @click="applyCustom" />
           </div>
-        </q-list>
+        </div>
       </q-menu>
     </q-btn>
 

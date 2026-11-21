@@ -18,7 +18,7 @@ All notable changes, newest first. Each entry: date, task ID, summary.
 - T-U06: substring search (adr/0009, proposed: owner approval pending): every searchable document carries
   `name_sfx` (its name's suffixes, ≥ 3 characters, cut to 16) under the multikey index `search_sfx`; a term of 3+
   characters also matches inside names, prefix matches first, then substring matches, each document once (facet
-  counts too); keyset paging over index bounds, `explain()`-checked as index scans. Migration `0004_search_suffixes`
+  counts too); keyset paging over index bounds, `explain()`-checked as index scans. Migration `0005_search_suffixes`
   backfills older documents.
 - T-P2-APT: worker job `apt.refresh` (hourly, queue `prefetch`) revalidates stale apt `Release` files, fetches and
   verifies (by-hash, SHA256 + size) the `Packages` indexes clients used or that could list an unverified pool file,
@@ -50,6 +50,76 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `repository.create` with `cloned_from`. "Clone" action on the repository page (contract, generated client, MSW).
   Repository status beyond online/offline (`ok`/`degraded`/`blocked`/`offline`) was already served and shown; SPEC
   §4.12 now describes it.
+- T-A04: client-auth matrix in the real-client harness (`tests/clients/auth/`): with the `make test-integration`
+  OpenLDAP directory and Keycloak realm next to the stack and anonymous access off, docker login with an LDAP
+  password and with an OIDC user's API token, npm login (LDAP) and `_authToken` (OIDC), apt `auth.conf`, dnf basic
+  auth and curl basic/bearer pass, and anonymous requests, wrong passwords, account passwords where only tokens
+  count, unknown and revoked tokens and a user without a mapped group are refused. The Keycloak test realm also
+  allows the harness's callback URL.
+- T-P2-NPM: pnpm 12, Yarn 1, Yarn 4 and Bun in the harness (`client-nodepm`): frozen installs from their own
+  committed lockfiles and their audit commands through the npm proxy. `clients/npm.md`: Yarn 1 fetches the
+  lockfile's tarball URLs verbatim (rewrite them to Waystation); Yarn 4 over plain HTTP needs `unsafeHttpWhitelist`.
+- T-P2-DOCKERP: podman 6.2 (registries.conf mirror, prefix, alias) and containerd 2.4 (`ctr` with `hosts.toml`
+  mirrors for Docker Hub and GHCR, prefix, alias) in the harness; docker fixtures re-recorded.
+- T-P2-APT: a Raspberry Pi OS arm64 client in the harness, opt-in (`ARM64=1`) and skipped with a message where the
+  host cannot run linux/arm64 containers; its fixtures await a host with arm64 emulation.
+- T-P2-HARNESS: format options `SERVICES`, `STACK_ENV` and `CLIENT_ARM64`, a per-run directory shared by a run's
+  clients, `ws_login <user> <password> [<provider>]` and `ws_revoke_any` in `lib.sh`; the nightly live client smoke
+  runs on Gitea (`.gitea/workflows/clients-live.yml`, arm64 clients behind `WAYSTATION_CI_ARM64`); the manual
+  GitHub workflow takes a format and registers QEMU for the arm64 clients.
+- T-M01 (done): opt-in `make test-nexus` runs the Nexus importer against a real `sonatype/nexus3` Community Edition
+  container (`Build/Containers/compose.nexus.yaml`, about 3 GB of memory, not in `make check` or CI). The test seeds
+  Nexus with the repositories of the hand-written fixtures, requires the same import plan from the real Nexus as from
+  the fixtures, applies it and re-applies idempotently. The first run passed without importer changes; Community
+  Edition refuses writable group members (a Pro feature), which the test allows.
+- T-F09: hour and day rollups: the stats rollup writes every closed hour to `stats_hour` (90 days) and every closed
+  day to `stats_day` (2 years), each exactly once (progress in `stats:rollup:hour`/`:day`, else resumed after the
+  newest rolled-up document); hourly `storage_snapshots` (2 years) per repository (stored bytes, assets, artifacts,
+  components, de-duplication savings: a blob shared by n repositories counts 1/n in each) and instance-wide (blob
+  bytes and count); `downloads_daily` (400 days). Minute documents also carry `ulat_hist` (upstream response time).
+  The 10k events/s check is an integration test (`test_events_load_integration.py`: 200 transfers, 10,000 progress
+  events and 1,000 counted requests a second against Valkey; event-loop lateness, no drops, ≤ 4 Hz publishes, exact
+  counters).
+- T-S11: 7d and 30d series read the hourly rollups and the new 90d and 1y ranges the daily ones (then minutes and the
+  live counters for the rest, never counted twice); p50/p95 request latency in `GET /stats/summary`, upstream p95 in
+  `GET /stats/upstreams`; `GET /stats/top/artifacts` (by downloads, bytes served, size or recency; downloads over
+  24h/7d/30d from the daily counters), `GET /stats/top/repositories`, `GET /stats/storage/history`; per-repository
+  `dedup_saved_bytes` and `components` in `GET /stats/storage`; storage sparklines from the snapshots. Upstreams
+  that start or stop failing are announced as `upstream.state` (at most once a minute per repository, atomically
+  across replicas). Multi-replica SSE fan-out and resume after a replica stops are tested. 15m stays at one-minute
+  buckets (documented in SPECIFICATION §7).
+- T-S09: the component index: the worker links every asset to its component (npm, apt, yum, PyPI, Go, Galaxy,
+  Terraform, Helm package versions, Maven GAVs, docker tags, raw files; never checksums, signatures or index
+  metadata), creating `components` with `version_sort` (`waystation_common.versionsort`: SemVer, PEP 440, Maven,
+  RPM, dpkg, natural order) and their size and download figures; content cached before is indexed the same way
+  (backfill), a rolling sweep keeps the figures current and removes components left without files. Downloads reach
+  components and `downloads_daily` in the batched flush. Browse shows download counters (npm packages and versions,
+  apt packages, docker images and tags) and folder `child_count` (up to 100). `GET /digests/{digest}/usage` lists
+  where a blob is used (assets, docker manifests). Migration `0004_component_ids` gives older Maven components
+  string ids.
+- T-U03, T-U07: the dashboard has Top artifacts (downloads/bytes, window) and Recently added, 90d/1y in the range
+  picker and p95 latency on the Requests tile; the Storage page has the growth chart, Largest artifacts with a
+  "Where used" dialog and a per-repository de-duplication column.
+- T-U01: density toggle (comfortable/compact; user menu and profile; saved in the account preferences); `GaugeChart`
+  (SVG, `role=meter` with a value text; the dashboard's Docker Hub pull limit uses it); dev-only component showcase
+  `/dev/showcase` (dev and mock builds) with every base component in the light and the dark theme side by side.
+- T-U04: repositories list table/card-grid toggle (`?view=grid`, remembered per browser); repository tabs Packages,
+  Browse (file tree), Activity, Members; Set me up Linux/macOS/Windows switch. Server: snippets with `os` replace the
+  snippet of the same id on that system (`formats/common/setup.py` `on()`); variants for the docker mirror
+  (Docker Desktop), pip.conf/pip.ini, uv credentials (PowerShell), .netrc/_netrc, Terraform/OpenTofu CLI config and
+  token, curl.exe. Old `browse?image=...` links forward to the Packages tab.
+- T-U05: two-pane virtualised file tree (keyboard accessible, pages of 500, 100,000-file folder in the mocks);
+  `GET /api/v1/repositories/{name}/docker/referrers` (signatures, SBOMs, attestations) shown on the manifest page;
+  `NpmVersionPage.readme` (≤ 256 KiB) rendered as safe Markdown (markdown-it, raw HTML off, VNodes, safe links only,
+  images not loaded).
+- T-U03: `test_ui_wiring.py` checks every API call, live topic and live event type of the SPA against the real
+  server app; Playwright measures the dashboard with 200 live transfers (median frame 16.7 ms).
+- T-U09: profile page (edit display name and e-mail, appearance, sessions); accessibility fixes from axe on every
+  page (text contrast tokens: `--status-ok`, `--cache-hit`, `--cache-miss`, `--text-tertiary`, dark
+  `--status-blocked`; sign-in field labels; search and live indicator names; cards with buttons inside are no longer
+  buttons; activity rows are articles in a region); `make e2e` (Playwright on the mock build: E2E flows, axe with zero
+  serious/critical, visual baseline 2 themes × 3 widths, UI perf) is part of `make check`; `make e2e-update`
+  regenerates the screenshots.
 - **Release 0.2.5**: containerd `?ns=` mirror routing (GitHub #5): pulls for other registries through a mirror
   without `override_path` no longer get Docker Hub's image of the same name. Docs and examples point at the 0.2.5
   images.

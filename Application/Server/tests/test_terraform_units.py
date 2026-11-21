@@ -306,6 +306,8 @@ def test_descriptor_and_setup_snippets() -> None:
     config = clients[0].snippets[0].content
     assert 'url = "https://ws.example.com/repository/tf-mirror/"' in config
     assert 'credentials "ws.example.com"' in config and '{{TOKEN}}' in config
-    assert 'TF_TOKEN_ws_example_com={{TOKEN}}' in clients[0].snippets[2].content
+    assert 'TF_TOKEN_ws_example_com={{TOKEN}}' in next(
+        s.content for s in clients[0].snippets if s.id == 'terraform-token-env' and s.os is None
+    )
     plain = SetupContext(repo=repo, base_url='http://ws.example.com', registry_host='ws.example.com', username=None)
     assert 'only https://' in (DESCRIPTOR.setup_snippets(plain)[1].snippets[0].description or '')

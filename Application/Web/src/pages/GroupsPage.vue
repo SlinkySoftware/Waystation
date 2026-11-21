@@ -61,7 +61,7 @@
         </template>
 
         <template #item="{ row }">
-          <div class="groups__card" role="button" tabindex="0" @click="edit(row)" @keydown.enter="edit(row)">
+          <div class="groups__card" @click="edit(row)">
             <div class="groups__card-head">
               <GroupName :group="row" class="col" />
               <SourceBadge :source="row.source" />
@@ -69,6 +69,7 @@
             </div>
             <RoleChips :roles="row.roles" />
             <div class="groups__card-actions" @click.stop>
+              <q-btn outline dense no-caps :icon="iconEdit" :label="t('common.edit')" @click="edit(row)" />
               <q-btn v-if="row.source === 'local'" outline dense no-caps :icon="iconGroups" :label="`${t('admin.groups.members')} (${row.member_count ?? 0})`" @click="showMembers(row)" />
               <q-btn v-if="row.source === 'local' && !isManaged(row)" flat dense no-caps color="negative" :icon="iconDelete" :label="t('admin.groups.delete')" @click="confirmDelete(row)" />
             </div>

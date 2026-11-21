@@ -32,6 +32,7 @@ from waystation_common.db.client import Database
 from waystation_common.db.collections import (
     APT_PACKAGES,
     ASSETS,
+    COMPONENTS,
     DOCKER_TAGS,
     GO_MODULES,
     NPM_PACKAGES,
@@ -41,6 +42,7 @@ from waystation_common.db.collections import (
 )
 from waystation_common.db.collections import MIGRATIONS as MIGRATIONS_COLLECTION
 from waystation_common.errors import ConfigError
+from waystation_common.ids import new_id
 from waystation_common.searchkeys import SearchKeys, file_keys, name_keys, suffixes
 
 log = logging.getLogger('waystation.db.migrations')
@@ -125,11 +127,22 @@ async def _usage_artifacts(db: Database) -> None:
     await usage.reconcile(db, [repo.repo_id for repo in await usage.repositories(db)])
 
 
+async def _component_ids(db: Database) -> None:
+    """Component ``_id`` values become ULID strings (T-S09): Maven components written before had ObjectIds. Nothing
+    referenced them yet (assets get ``component_id`` from the component indexer), so each is re-inserted under a new
+    id. Idempotent: only non-string ids are touched."""
+    async for doc in db[COMPONENTS].find({'_id': {'$not': {'$type': 'string'}}}):
+        old_id = doc['_id']
+        await db[COMPONENTS].delete_one({'_id': old_id})
+        await db[COMPONENTS].insert_one({**doc, '_id': new_id()})
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration('0001_baseline', 'baseline schema', _baseline),
     Migration('0002_search_keys', 'search keys on searchable content (T-U06)', _search_keys),
     Migration('0003_usage_artifacts', 'artifact counts in repo_usage (T-S05)', _usage_artifacts),
-    Migration('0004_search_suffixes', 'suffix keys for substring search (T-U06)', _search_suffixes),
+    Migration('0004_component_ids', 'string ids for components (T-S09)', _component_ids),
+    Migration('0005_search_suffixes', 'suffix keys for substring search (T-U06)', _search_suffixes),
 )
 
 

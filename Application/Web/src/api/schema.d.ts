@@ -1143,6 +1143,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/docker/referrers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Referrers of a manifest stored in the repository (signatures, SBOMs, attestations; OCI `subject`) */
+        get: operations["listDockerReferrers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/npm/packages": {
         parameters: {
             query?: never;
@@ -2135,6 +2154,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stats/top/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Top artifacts (components) of the visible repositories - most downloaded, most bytes served, largest or most recently added */
+        get: operations["getTopArtifacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stats/top/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Busiest repositories over the range (requests, bytes served or bytes saved), with hit ratio and latency */
+        get: operations["getTopRepositories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stats/storage/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Storage growth from the hourly storage snapshots (blob bytes on disk, stored bytes, artifacts) */
+        get: operations["getStorageHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/digests/{digest}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `sha256:<64 hex>` or the bare 64-character hex digest */
+                digest: string;
+            };
+            cookie?: never;
+        };
+        /** Where a content digest is used - assets holding the blob and docker manifests referencing it (visible repositories only) */
+        get: operations["getDigestUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/transfers": {
         parameters: {
             query?: never;
@@ -2384,7 +2474,7 @@ export interface components {
          * @default 24h
          * @enum {string}
          */
-        StatsRange: "15m" | "1h" | "24h" | "7d" | "30d";
+        StatsRange: "15m" | "1h" | "24h" | "7d" | "30d" | "90d" | "1y";
         RepositoryName: string;
         /** Format: date-time */
         Timestamp: string;
@@ -3760,6 +3850,23 @@ export interface components {
             pull_by_tag?: string;
             pull_by_digest?: string;
         };
+        DockerReferrer: {
+            digest: string;
+            media_type: string;
+            /** @description `artifactType`, else the config media type */
+            artifact_type?: string | null;
+            /** @description The referrer manifest's size in bytes */
+            size?: number | null;
+            annotations?: {
+                [key: string]: string;
+            };
+        };
+        DockerReferrerList: {
+            image: string;
+            /** @description Digest the referrers point at (`subject`) */
+            subject: string;
+            items: components["schemas"]["DockerReferrer"][];
+        };
         NpmPackage: {
             name: string;
             description?: string | null;
@@ -3800,6 +3907,8 @@ export interface components {
             };
             items: components["schemas"]["NpmVersion"][];
             next_cursor: string | null;
+            /** @description The package README (Markdown, at most 256 KiB; first page only), untrusted text */
+            readme?: string | null;
         };
         PypiProject: {
             /** @description Normalised project name (PEP 503) */
@@ -4212,6 +4321,10 @@ export interface components {
             bytes_saved: number;
             /** @description Bytes fetched from upstreams in the range */
             bytes_upstream: number;
+            /** @description Median request duration in the range (upper bound of its latency bucket); null without requests */
+            latency_p50_ms: number | null;
+            /** @description 95th percentile request duration in the range (upper bound of its latency bucket) */
+            latency_p95_ms: number | null;
             storage: {
                 /** @description Bytes held by blobs */
                 used_bytes: number;
@@ -4225,7 +4338,7 @@ export interface components {
         };
         TimeSeries: {
             range: components["schemas"]["StatsRange"];
-            /** @description Bucket width: 15m→10 s, 1h→1 min, 24h→10 min, 7d→1 h, 30d→6 h */
+            /** @description Bucket width: 15m→1 min, 1h→1 min, 24h→10 min, 7d→1 h, 30d→6 h, 90d→1 d, 1y→1 d */
             step_s: number;
             /** @enum {string} */
             unit: "bytes" | "requests";
@@ -4254,6 +4367,10 @@ export interface components {
                 format: components["schemas"]["Format"];
                 bytes: number;
                 artifacts: number;
+                /** @description Bytes this repository does not add to the disk because its blobs are shared (within it or with other repositories; a blob shared by n repositories is attributed 1/n to each). From the last hourly storage snapshot; 0 before the first */
+                dedup_saved_bytes: number;
+                /** @description Components (package versions, image tags, files) at the last storage snapshot */
+                components?: number | null;
             }[];
         };
         RateLimit: {
@@ -4284,6 +4401,94 @@ export interface components {
              */
             blocked_until?: string | null;
             rate_limit?: components["schemas"]["RateLimit"] | null;
+        };
+        /**
+         * @default 7d
+         * @enum {string}
+         */
+        TopWindow: "24h" | "7d" | "30d" | "all";
+        /** @description One component (a package version, an image tag, a file) of a repository */
+        TopArtifact: {
+            component_id: string;
+            repository: string;
+            format: components["schemas"]["Format"];
+            /** @description Scope, group, image or folder, when the format has one */
+            namespace: string | null;
+            name: string;
+            version: string | null;
+            /** @description e.g. `library/nginx:1.27`, `lodash@4.17.21`, `curl 8.14.1-2` */
+            display: string;
+            /** @description Bytes of the component's cached files */
+            size_bytes: number;
+            /** @description Downloads in the window (by `downloads`/`bytes`), else since cached */
+            downloads: number;
+            /** @description Bytes served in the window (or since cached) */
+            bytes_served: number;
+            /** Format: date-time */
+            last_downloaded_at: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            /** @description A file of the component (a browse path), when known */
+            path: string | null;
+            /** @description Content digest (hex) of that file: what `/digests/{digest}/usage` looks up */
+            sha256: string | null;
+        };
+        TopArtifacts: {
+            /** @enum {string} */
+            by: "downloads" | "bytes" | "size" | "recent";
+            window: components["schemas"]["TopWindow"];
+            items: components["schemas"]["TopArtifact"][];
+        };
+        TopRepository: {
+            repository: string;
+            format: components["schemas"]["Format"];
+            requests: number;
+            bytes_served: number;
+            bytes_saved: number;
+            hit_ratio: number | null;
+            latency_p95_ms: number | null;
+        };
+        TopRepositories: {
+            range: components["schemas"]["StatsRange"];
+            /** @enum {string} */
+            by: "requests" | "bytes" | "saved";
+            items: components["schemas"]["TopRepository"][];
+        };
+        /**
+         * @default 30d
+         * @enum {string}
+         */
+        HistoryRange: "7d" | "30d" | "90d" | "1y";
+        /** @description Buckets: 7d → 1 h, 30d → 6 h, 90d and 1y → 1 d (the last snapshot in each). Stored bytes and artifacts cover the visible repositories; `used_bytes` (blob bytes on disk) is instance-wide */
+        StorageHistory: {
+            range: components["schemas"]["HistoryRange"];
+            step_s: number;
+            /** @description Bucket start times, oldest first */
+            timestamps: components["schemas"]["Timestamp"][];
+            used_bytes: (number | null)[];
+            /** @description Sum of the repositories' stored bytes (before de-duplication) */
+            stored_bytes: (number | null)[];
+            artifacts: (number | null)[];
+        };
+        DigestUse: {
+            repository: string;
+            format: components["schemas"]["Format"];
+            /**
+             * @description `asset`: a file holding the blob; `docker_layer`/`docker_config`: a docker manifest referencing it
+             * @enum {string}
+             */
+            kind: "asset" | "docker_layer" | "docker_config";
+            /** @description Asset path (kind `asset`) */
+            path: string | null;
+            image: string | null;
+            manifest_digest: string | null;
+        };
+        DigestUsage: {
+            /** @description `sha256:<hex>` */
+            digest: string;
+            /** @description Blob size when the blob is stored */
+            size: number | null;
+            items: components["schemas"]["DigestUse"][];
+            truncated: boolean;
         };
         /** @description One in-flight (or just finished) transfer */
         Transfer: {
@@ -7286,6 +7491,35 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    listDockerReferrers: {
+        parameters: {
+            query: {
+                /** @description Image name within the repository, e.g. `library/nginx` */
+                image: components["parameters"]["DockerImage"];
+                /** @description Subject digest (`sha256:...`) */
+                digest: string;
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Referrers (up to 1000), by digest */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DockerReferrerList"];
+                };
+            };
+            400: components["responses"]["ValidationFailed"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listNpmPackages: {
         parameters: {
             query?: {
@@ -8818,6 +9052,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpstreamHealth"][];
+                };
+            };
+        };
+    };
+    getTopArtifacts: {
+        parameters: {
+            query?: {
+                by?: "downloads" | "bytes" | "size" | "recent";
+                /** @description Download window for `downloads`/`bytes` (from the daily download counters; `all` = since cached). Ignored by `size` and `recent` */
+                window?: components["schemas"]["TopWindow"];
+                /** @description Restrict to one repository */
+                repo?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Top artifacts, best first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopArtifacts"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getTopRepositories: {
+        parameters: {
+            query?: {
+                range?: components["parameters"]["Range"];
+                by?: "requests" | "bytes" | "saved";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Top repositories, busiest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopRepositories"];
+                };
+            };
+        };
+    };
+    getStorageHistory: {
+        parameters: {
+            query?: {
+                range?: components["schemas"]["HistoryRange"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One value per bucket (the last snapshot in it; null = no snapshot) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StorageHistory"];
+                };
+            };
+        };
+    };
+    getDigestUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `sha256:<64 hex>` or the bare 64-character hex digest */
+                digest: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Uses, at most 500 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestUsage"];
+                };
+            };
+            /** @description Not a sha256 digest */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };

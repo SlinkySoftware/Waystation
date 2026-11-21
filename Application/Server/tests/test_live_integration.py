@@ -98,7 +98,16 @@ async def test_summary_traffic_storage_and_upstreams(admin: httpx.AsyncClient, s
 
     storage = (await admin.get('/api/v1/stats/storage')).json()
     assert storage['blob_count'] == 1
-    assert storage['by_repository'] == [{'repository': 'files', 'format': 'raw', 'bytes': len(DATA), 'artifacts': 1}]
+    assert storage['by_repository'] == [
+        {
+            'repository': 'files',
+            'format': 'raw',
+            'bytes': len(DATA),
+            'artifacts': 1,
+            'dedup_saved_bytes': 0,  # no storage snapshot yet
+            'components': None,
+        }
+    ]
     assert storage['by_format'] == [{'format': 'raw', 'bytes': len(DATA), 'artifacts': 1}]
 
     upstreams = (await admin.get('/api/v1/stats/upstreams')).json()

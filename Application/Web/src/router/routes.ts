@@ -21,6 +21,7 @@ declare module 'vue-router' {
 }
 
 const BROWSE = 'repositories.browse'
+const { DEV: DEV_BUILD } = import.meta.env
 
 const routes: RouteRecordRaw[] = [
   {
@@ -36,7 +37,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'repositories', name: 'repositories', component: () => import('@/pages/RepositoriesPage.vue'), meta: { title: 'nav.repositories', capability: BROWSE } },
       { path: 'repositories/import/nexus', name: 'import-nexus', component: () => import('@/pages/NexusImportPage.vue'), meta: { title: 'nexusImport.title', capability: 'admin' } },
       {
-        path: 'repositories/:name/:tab(overview|browse|cleanup|settings)?',
+        path: 'repositories/:name/:tab(overview|packages|browse|activity|cleanup|members|settings)?',
         name: 'repository',
         component: () => import('@/pages/RepositoryDetailPage.vue'),
         meta: { title: 'nav.repositories', capability: BROWSE },
@@ -59,6 +60,10 @@ const routes: RouteRecordRaw[] = [
       { path: 'admin/provisioning', name: 'admin-provisioning', component: () => import('@/pages/ProvisioningPage.vue'), meta: { title: 'nav.provisioning', capability: 'admin' } },
       { path: 'admin/system', name: 'admin-system', component: () => import('@/pages/SystemPage.vue'), meta: { title: 'nav.system', capability: 'admin' } },
       { path: 'profile', name: 'profile', component: () => import('@/pages/ProfilePage.vue'), meta: { title: 'nav.profile' } },
+      // Dev-only component showcase (T-U01): dev server and mock builds; dropped from production builds.
+      ...(DEV_BUILD || import.meta.env.WAYSTATION_MOCK === '1'
+        ? [{ path: 'dev/showcase', name: 'showcase', component: () => import('@/pages/ShowcasePage.vue'), meta: { title: 'ui.showcase.title' as const } }]
+        : []),
       { path: 'no-access', name: 'no-access', component: () => import('@/pages/NoAccessPage.vue'), meta: { title: 'noAccess.title' } },
       { path: ':catchAll(.*)*', name: 'not-found', component: () => import('@/pages/NotFoundPage.vue'), meta: { title: 'notFound.title' } },
     ],

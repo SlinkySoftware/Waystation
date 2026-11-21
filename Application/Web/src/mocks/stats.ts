@@ -12,6 +12,8 @@ export const RANGES: Record<StatsRange, { seconds: number; step: number }> = {
   '24h': { seconds: 86400, step: 600 },
   '7d': { seconds: 7 * 86400, step: 3600 },
   '30d': { seconds: 30 * 86400, step: 6 * 3600 },
+  '90d': { seconds: 90 * 86400, step: 86400 },
+  '1y': { seconds: 365 * 86400, step: 86400 },
 }
 
 const FORMAT_SHARE: [string, string, number][] = [
@@ -112,6 +114,9 @@ export function statsSummary(world: MockWorld, range: StatsRange): StatsSummary 
     bytes_served: Math.round(sum(hit) + sum(up)),
     bytes_saved: Math.round(sum(hit)),
     bytes_upstream: Math.round(sum(up)),
+    // Log-scale bucket bounds, as the server reports them (upper bound of the bucket holding the percentile).
+    latency_p50_ms: 5,
+    latency_p95_ms: range === '15m' || range === '1h' ? 200 : 100,
     storage: { used_bytes: used, free_bytes: world.storageTotal - used - 312 * 1024 * MiB, total_bytes: world.storageTotal },
     artifacts_cached: world.artifacts,
     active_transfers: live.length,

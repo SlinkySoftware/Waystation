@@ -1,0 +1,60 @@
+# Opt-in Nexus import check (T-M01): `make test-nexus` runs the importer against a real Nexus Repository 3
+# Community Edition container, plus a throwaway MongoDB + Valkey for Waystation. Not part of `make check` or CI by
+# default: Nexus needs about 3 GB of memory and one to three minutes to start. The test
+# (Application/Server/tests/test_nexus_live.py) seeds the repositories through the Nexus REST API; nothing is
+# downloaded by Nexus (proxies only store their upstream URL). Project name unique per checkout; `down -v` removes
+# everything.
+services:
+  mongodb:
+    image: mongo:8
+    user: "999:999"
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--quiet"]
+    ulimits:
+      nofile: {soft: 65536, hard: 65536}
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    networks:
+      default:
+        aliases: [waystation-mongodb]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--norc", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 1)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    user: "999:1000"
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      default:
+        aliases: [waystation-valkey]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  nexus:
+    image: sonatype/nexus3:3.98.3-alpine
+    environment:
+      # Fixed initial admin password (admin123); the test changes it to a throwaway value before importing.
+      NEXUS_SECURITY_RANDOMPASSWORD: "false"
+      INSTALL4J_ADD_VM_PARAMS: >-
+        -Xms1200m -Xmx1600m -XX:MaxDirectMemorySize=1g -Djava.util.prefs.userRoot=/nexus-data/javaprefs
+    mem_limit: 3g
+    tmpfs: ["/nexus-data:uid=200,gid=200,mode=0755"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      default:
+        aliases: [nexus.example.com]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:8081/service/rest/v1/status/writable"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 60s

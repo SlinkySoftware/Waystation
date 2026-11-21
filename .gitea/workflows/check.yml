@@ -63,13 +63,13 @@ jobs:
         run: make --no-print-directory budgets
 
   ui-smoke:
-    name: UI role smoke (Playwright, mock build)
+    name: UI role smoke and E2E (Playwright, mock build)
     # Every rail page as no-role, reader, anonymous-grants and viewer users; fails on any console or API error.
     # Pulls the Playwright image, so it runs after the check job. Skip with the org variable WAYSTATION_CI_UI_SMOKE=false.
     needs: check
     if: ${{ vars.WAYSTATION_CI_UI_SMOKE != 'false' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -78,6 +78,18 @@ jobs:
         run: docker build -q -t "$DEV_IMAGE" -f Build/Containers/dev/Dockerfile Build/Containers/dev
       - name: Role smoke
         run: make ui-smoke
+      - name: E2E, accessibility, visual and UI perf (Playwright, mock build)
+        run: make e2e
+      - name: Playwright report
+        if: ${{ failure() }}
+        # v3: Gitea's artifact API does not support upload-artifact v4 and later (GHESNotSupportedError).
+        uses: actions/upload-artifact@c6a366c94c3e0affe28c06c8df20a878f24da3cf # v3.2.2
+        with:
+          name: playwright-report
+          path: |
+            Application/Web/playwright-report
+            Application/Web/test-results
+          retention-days: 14
 
   integration:
     name: integration tests

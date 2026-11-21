@@ -15,7 +15,7 @@ contains ``q`` after its start iff one of its suffixes starts with ``q``, so the
 multikey ``name_sfx`` index finds exactly those names (``q`` cut to ``SFX`` characters; longer terms are checked
 exactly on ``name_lc``), adr/0009.
 The format index writers set the keys when they write a document; migrations ``0002_search_keys`` and
-``0004_search_suffixes`` backfill documents written before the keys existed. Pure functions only: the writers, the
+``0005_search_suffixes`` backfill documents written before the keys existed. Pure functions only: the writers, the
 migrations and the query side share them.
 """
 

@@ -136,7 +136,12 @@ class AptBrowse:
         )
         more = len(docs) > limit
         docs = docs[:limit]
-        files = await browse_db.by_paths(ctx.db, ctx.repo.id, (str(d['filename']) for d in docs))
+        files = await browse_db.by_paths(
+            ctx.db,
+            ctx.repo.id,
+            (str(d['filename']) for d in docs),
+            {'size': 1, 'blob_sha256': 1, 'download_count': 1, 'last_downloaded_at': 1, '_id': 0},
+        )
         items = [self._package(doc, files.get(str(doc['filename']))) for doc in docs]
         next_cursor = None
         if more and docs:
@@ -157,4 +162,6 @@ class AptBrowse:
             sha256=doc.get('sha256'),
             cached=asset is not None,
             verified=None if asset is None else asset.get('blob_sha256') == doc.get('sha256'),
+            downloads=int((asset or {}).get('download_count') or 0),
+            last_downloaded_at=(asset or {}).get('last_downloaded_at'),
         )

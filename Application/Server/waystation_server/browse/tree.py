@@ -1,14 +1,18 @@
 """Generic folder listing of a repository's cached assets (``GET /repositories/{name}/browse``), for every format.
 
 The tree is the asset keys (``assets.path``) split on ``/``. A page lists folders first, then files; each group in
-path byte order (that is name order, except that a folder sorts as ``<name>/``). Folders carry no size or child count
-(``child_count`` is null: counting would mean scanning the subtree). The cursor is ``(phase, last key)``.
+path byte order (that is name order, except that a folder sorts as ``<name>/``). Folders carry no size; their
+``child_count`` (direct children: files and sub-folders) is counted up to ``CHILD_COUNT_CAP`` and null beyond: one
+read of at most ``CHILD_COUNT_SPAN`` paths covers the small folders of a page, the others are walked one by one (one
+index seek per sub-folder at most, ``CHILD_COUNT_CONCURRENCY`` at a time).
+The cursor is ``(phase, last key)``.
 
 A path that has no assets under it answers 404 (a file path is not a folder).
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any
@@ -21,6 +25,9 @@ from waystation_server.db import browse as browse_db
 if TYPE_CHECKING:
     from waystation_common.db.client import Database
 
+CHILD_COUNT_CAP = 100
+CHILD_COUNT_CONCURRENCY = 8
+CHILD_COUNT_SPAN = 2048  # paths read at once to count the children of small folders
 FILE_FIELDS: dict[str, int] = {
     'path': 1,
     'size': 1,
@@ -91,11 +98,35 @@ async def list_folder(db: Database, repo_id: str, path: str, *, cursor: str | No
         more = await _later_page(db, repo_id, prefix, phase, after, limit, entries)
     if prefix and not entries and cursor is None:
         raise NotFound('folder not found')
+    await _child_counts(db, repo_id, prefix, entries)
     next_cursor = None
     if more:
         last = entries[-1]
         next_cursor = encode_cursor('d' if last.kind == 'folder' else 'f', last.name)
     return FolderListing(path=prefix.rstrip('/'), entries=entries, next_cursor=next_cursor)
+
+
+async def _child_counts(db: Database, repo_id: str, prefix: str, entries: list[FolderEntry]) -> None:
+    """``child_count`` of the page's folders: one bounded read over the range they span counts the small ones; each
+    folder that did not fit is walked on its own, up to ``CHILD_COUNT_CAP`` children."""
+    folders = [e for e in entries if e.kind == 'folder']
+    if not folders:
+        return
+    small = await browse_db.span_children(db, repo_id, prefix, [e.name for e in folders], limit=CHILD_COUNT_SPAN)
+    gate = asyncio.Semaphore(CHILD_COUNT_CONCURRENCY)
+
+    async def count(entry: FolderEntry) -> None:
+        async with gate:
+            entry.child_count = await browse_db.count_children(db, repo_id, entry.path + '/', cap=CHILD_COUNT_CAP)
+
+    rest = []
+    for entry in folders:
+        found = small.get(entry.name)
+        if found is None:
+            rest.append(count(entry))
+        else:
+            entry.child_count = len(found) if len(found) <= CHILD_COUNT_CAP else None
+    await asyncio.gather(*rest)
 
 
 async def _later_page(

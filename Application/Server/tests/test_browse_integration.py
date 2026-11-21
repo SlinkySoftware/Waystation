@@ -16,6 +16,7 @@ from pydantic import SecretStr
 from pymongo import monitoring
 from redis.asyncio import Redis
 from ws_fake_upstream import FakeUpstream, Respond
+from ws_query_audit import plan_stages
 from ws_testing import add_repo, asgi_client
 
 from waystation_common.db.client import Database, create_client
@@ -61,19 +62,6 @@ class Recorder(monitoring.CommandListener):
         pass
 
 
-def _stages(node: Any, out: list[str]) -> None:
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if key == 'rejectedPlans':
-                continue
-            if key == 'stage' and isinstance(value, str):
-                out.append(value)
-            _stages(value, out)
-    elif isinstance(node, list):
-        for item in node:
-            _stages(item, out)
-
-
 async def assert_indexed(db: Database, recorder: Recorder) -> None:
     """Explain every recorded browse query: none may scan a whole collection."""
     assert recorder.commands, 'no browse queries were recorded'
@@ -81,8 +69,7 @@ async def assert_indexed(db: Database, recorder: Recorder) -> None:
         if 'aggregate' in command:
             command = {**command, 'cursor': {}}
         plan = await db.command({'explain': command, 'verbosity': 'queryPlanner'})
-        stages: list[str] = []
-        _stages(plan, stages)
+        stages = plan_stages(plan)
         assert 'COLLSCAN' not in stages, f'collection scan: {command}'
         assert any(s in stages for s in ('IXSCAN', 'COUNT_SCAN', 'DISTINCT_SCAN', 'EXPRESS_IXSCAN')), command
     recorder.commands.clear()

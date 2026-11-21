@@ -33,7 +33,7 @@ Options considered:
 ## Decision
 Option 4.
 - Writers set `name_sfx` with `name_lc` through `waystation_common.searchkeys` (`name_keys`, `file_keys`); migration
-  `0004_search_suffixes` backfills documents that have `name_lc` and no `name_sfx` (batched, idempotent). Index
+  `0005_search_suffixes` backfills documents that have `name_lc` and no `name_sfx` (batched, idempotent). Index
   `search_sfx` (partial on `name_sfx` existing) on the same collections as `search_name`.
 - A search for a term of at least 3 characters runs the prefix streams first (unchanged) and then one substring
   stream per source: prefix matches come first, then substring matches. A regex on `name_lc` drops what a prefix

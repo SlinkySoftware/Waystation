@@ -4,6 +4,10 @@
 set -eu
 . /harness/lib.sh
 
+if [ "${HARNESS_CLIENT:-node}" = nodepm ]; then  # pnpm, Yarn 1, Yarn 4 and Bun: their own script
+  exec sh /harness/npm/pm.sh
+fi
+
 registry="$WAYSTATION_URL/repository/npm/"
 export npm_config_registry="$registry"
 export npm_config_audit=false npm_config_fund=false npm_config_update_notifier=false npm_config_loglevel=warn

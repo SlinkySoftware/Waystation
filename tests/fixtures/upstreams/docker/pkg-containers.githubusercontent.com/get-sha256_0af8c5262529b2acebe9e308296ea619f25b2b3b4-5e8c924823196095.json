@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://pkg-containers.githubusercontent.com/ghcr1/blobs/sha256:0af8c5262529b2acebe9e308296ea619f25b2b3b47c632f7ff154e931d18064c?se=harness-redacted&sig=harness-redacted&ske=harness-redacted&skoid=harness-redacted&sks=harness-redacted&skt=harness-redacted&sktid=harness-redacted&skv=harness-redacted&sp=harness-redacted&spr=https&sr=b&sv=harness-redacted&hmac=77e83be94546dade4b98a0f01f7b8244ced3aa5b2fb0ff18cc676e7a7c5c136f"
+  },
+  "response": {
+    "body_sha256": "0af8c5262529b2acebe9e308296ea619f25b2b3b47c632f7ff154e931d18064c",
+    "body_size": 1457,
+    "headers": [
+      [
+        "content-length",
+        "1457"
+      ],
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "last-modified",
+        "Wed, 04 Jan 2023 01:08:13 GMT"
+      ],
+      [
+        "etag",
+        "\"0x8DAEDF027381698\""
+      ],
+      [
+        "content-disposition",
+        ""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

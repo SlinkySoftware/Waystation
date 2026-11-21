@@ -114,3 +114,14 @@ export { symOutlinedDataObject as iconProvisioning } from '@quasar/extras/materi
 
 // Repository clone (T-S05).
 export { symOutlinedFileCopy as iconClone } from '@quasar/extras/material-symbols-outlined'
+// M2 UI completion (T-U01/U04/U05).
+export {
+  symOutlinedGridView as iconGridView,
+  symOutlinedTableRows as iconTableView,
+  symOutlinedAccountTree as iconTree,
+  symOutlinedMenuBook as iconReadme,
+  symOutlinedSignature as iconSignature,
+  symOutlinedAttachFile as iconAttachment,
+  symOutlinedSell as iconTag,
+  symOutlinedVerified as iconVerified,
+} from '@quasar/extras/material-symbols-outlined'

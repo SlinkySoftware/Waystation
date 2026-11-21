@@ -17,9 +17,29 @@
         <q-select v-model="format" dense outlined clearable emit-value map-options options-dense :options="formatOptions" :label="t('repos.format')" class="repos__filter" />
         <q-select v-model="type" dense outlined clearable emit-value map-options options-dense :options="typeOptions" :label="t('repos.type')" class="repos__filter" />
         <q-select v-model="status" dense outlined clearable emit-value map-options options-dense :options="statusOptions" :label="t('repos.status')" class="repos__filter" />
+        <q-space />
+        <q-btn-toggle
+          v-if="$q.screen.gt.xs"
+          v-model="view"
+          dense
+          no-caps
+          unelevated
+          toggle-color="primary"
+          class="repos__view"
+          :aria-label="t('ui.repoList.view')"
+          :options="viewOptions"
+        >
+          <template #table><q-icon :name="iconTableView" size="18px" /><span class="visually-hidden">{{ t('ui.repoList.table') }}</span><q-tooltip>{{ t('ui.repoList.table') }}</q-tooltip></template>
+          <template #grid><q-icon :name="iconGridView" size="18px" /><span class="visually-hidden">{{ t('ui.repoList.grid') }}</span><q-tooltip>{{ t('ui.repoList.grid') }}</q-tooltip></template>
+        </q-btn-toggle>
+      </div>
+
+      <div v-if="gridView && rows.length" class="repos__grid" role="list" :aria-label="t('nav.repositories')">
+        <RepoCard v-for="row in sortedRows" :key="row.name" :repo="row" rich role="listitem" />
       </div>
 
       <q-table
+        v-else
         class="ws-table"
         flat
         :rows="rows"
@@ -79,23 +99,7 @@
         </template>
 
         <template #item="{ row }">
-          <div class="repos__card" role="link" tabindex="0" @click="open(row)" @keydown.enter="open(row)">
-            <div class="repos__name">
-              <FormatIcon :mark="repoMark(row)" :size="22" brand />
-              <div class="repos__name-text">
-                <div class="repos__link">{{ row.name }} <ManagedBadge :item="row" /></div>
-                <div class="repos__desc">{{ row.description }}</div>
-              </div>
-              <StatusPill :status="row.status" :tooltip="false" />
-            </div>
-            <div class="repos__card-stats">
-              <span><SizeCell :bytes="row.stats.size_bytes" /></span>
-              <span v-if="row.quota">{{ t('quota.title') }} {{ quotaMeta(row.quota).percent }}</span>
-              <span>{{ formatCount(row.stats.artifact_count) }} {{ t('repos.artifactsShort') }}</span>
-              <span>{{ formatPercent(row.stats.hit_ratio_24h) }} {{ t('repos.hitShort') }}</span>
-              <span><TimeCell :value="row.stats.last_activity_at" /></span>
-            </div>
-          </div>
+          <RepoCard :repo="row" class="repos__card" />
         </template>
 
         <template #no-data>
@@ -112,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import type { QTableColumn } from 'quasar'
+import { type QTableColumn, useQuasar } from 'quasar'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -125,6 +129,7 @@ import ManagedBadge from '@/components/ManagedBadge.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import CreateRepositoryDialog from '@/components/repositories/CreateRepositoryDialog.vue'
 import QuotaMeter from '@/components/repositories/QuotaMeter.vue'
+import RepoCard from '@/components/repositories/RepoCard.vue'
 import SizeCell from '@/components/SizeCell.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import TimeCell from '@/components/TimeCell.vue'
@@ -135,9 +140,10 @@ import { useAuthStore } from '@/stores/auth'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { formatLabel, LISTED_FORMATS, repoMark, statusMeta, typeMeta } from '@/utils/domain'
 import { formatCount, formatPercent } from '@/utils/format'
-import { iconAdd, iconDownload, iconLink, iconSearch } from '@/utils/icons'
-import { quotaMeta } from '@/utils/quota'
+import { iconAdd, iconDownload, iconGridView, iconLink, iconSearch, iconTableView } from '@/utils/icons'
+import { readString, writeString } from '@/utils/storage'
 
+const $q = useQuasar()
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
@@ -151,9 +157,20 @@ const format = ref<Format | null>(str(route.query.format) as Format | null)
 const type = ref<RepositoryType | null>(str(route.query.type) as RepositoryType | null)
 const status = ref<RepositoryStatus | null>(str(route.query.status) as RepositoryStatus | null)
 const creating = ref(route.query.create === '1')
+// Table or card grid (T-U04): `?view=grid` wins, else the last choice on this browser.
+const VIEW_KEY = 'ws.repos.view'
+const view = ref<'table' | 'grid'>((str(route.query.view) ?? readString(VIEW_KEY)) === 'grid' ? 'grid' : 'table')
+const gridView = computed(() => view.value === 'grid' && !$q.screen.lt.sm)
+const viewOptions = [
+  { value: 'table', slot: 'table' },
+  { value: 'grid', slot: 'grid' },
+]
+watch(view, (v) => writeString(VIEW_KEY, v))
 
-watch([q, format, type, status], () => {
-  const query = Object.fromEntries(Object.entries({ q: q.value, format: format.value, type: type.value, status: status.value }).filter(([, v]) => v))
+watch([q, format, type, status, view], () => {
+  const query = Object.fromEntries(
+    Object.entries({ q: q.value, format: format.value, type: type.value, status: status.value, view: view.value === 'grid' ? 'grid' : null }).filter(([, v]) => v),
+  )
   void router.replace({ query: query as Record<string, string> })
 })
 
@@ -167,6 +184,7 @@ const list = useAsync(
   [q, format, type, status],
 )
 const rows = computed(() => list.data.value?.items ?? [])
+const sortedRows = computed(() => [...rows.value].sort((a, b) => a.name.localeCompare(b.name)))
 const filtered = computed(() => Boolean(q.value || format.value || type.value || status.value))
 const caption = computed(() => (list.data.value ? t('repos.caption', { count: list.data.value.total }) : t('common.loading')))
 
@@ -301,21 +319,18 @@ function onCreated(repo: Repository): void {
 
 .repos__card {
   width: calc(100% - 24px);
-  min-width: 0;
   margin: 0 12px 8px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  cursor: pointer;
 }
 
-.repos__card-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin: 8px 0 0 34px;
-  font-size: var(--fs-12);
-  color: var(--text-secondary);
+.repos__view {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.repos__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 12px;
+  padding: 16px;
 }
 </style>

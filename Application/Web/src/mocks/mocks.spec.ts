@@ -57,10 +57,10 @@ describe('mock Set me up', () => {
   const snippet = (repo: string, id: string) => setupGuide(byName(repo)).clients.flatMap((c) => c.snippets).find((s) => s.id === id)?.content ?? ''
 
   it('mirrors Docker Hub through the default repo and addresses ghcr by its upstream name', () => {
-    expect(snippet('dockerhub-proxy', 'mirror')).toContain('registry-mirrors')
+    expect(snippet('dockerhub-proxy', 'docker-mirror')).toContain('registry-mirrors')
     expect(snippet('dockerhub-proxy', 'pull-default')).toBe('docker pull registry.example.com/nginx:latest')
     expect(snippet('ghcr-proxy', 'pull-alias')).toBe('docker pull registry.example.com/ghcr.io/home-assistant/home-assistant:stable')
-    expect(snippet('ghcr-proxy', 'mirror')).toBe('')
+    expect(snippet('ghcr-proxy', 'docker-mirror')).toBe('')
   })
 
   it('gives yum repos a .repo file with gpgcheck on', () => {

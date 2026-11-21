@@ -11,6 +11,7 @@ make clients-test FORMAT=npm MODE=live     # live upstream, store nothing (night
 make clients-check                         # forbidden-strings + size check (part of make check)
 STACK=1 make clients-test FORMAT=echo      # also start the Waystation stack for a format that doesn't need it
 KEEP=1 make clients-test FORMAT=npm        # leave the containers and the run dir for debugging
+ARM64=1 make clients-test FORMAT=apt       # also run the format's arm64 clients (needs arm64 or qemu binfmt)
 ```
 
 Host needs only bash and docker. Each run is its own compose project, `waystation-harness-<checkout>-<format>`,
@@ -49,12 +50,14 @@ Create `tests/clients/<format>/`:
 
 | File | Purpose |
 |---|---|
-| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `debian`, `ubuntu`, `rocky`, `alma`, `oracle` (Oracle Linux 9), `fedora` (dnf 5), `opensuse` (zypper), `skopeo`, `docker`, `conformance` (the OCI distribution-spec conformance suite), `maven` (Maven 3.9; its build plugins are pre-seeded from Maven Central into `/opt/m2-seed` at image build, so fixtures hold only what the test resolves), `python` (pip, uv, twine, Poetry, PDM), `go` (the go command and curl), `ansible` (ansible-core's ansible-galaxy and curl), or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `ORIGINS`, `RECORD_SERVICES`, `DROP_JSON_KEYS` (JSON keys removed from recorded JSON bodies at any depth, e.g. npm readmes and maintainer e-mails), `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
-| `setup.sh` | optional, runs first in the client container: create the repos the test needs through `$WAYSTATION_URL/api/v1/...` as the per-run bootstrap admin: `ws_login`, then `ws_api <METHOD> <path> [json]` from `lib.sh` (curl, or bash `/dev/tcp` in images without curl, e.g. debian/ubuntu; `_ws_http` is the bash request primitive and also leaves the response headers in `/tmp/ws-api.headers`). With several clients it runs once per client: keep it idempotent |
+| `format.env` | `HOSTS` (public upstream names to impersonate, include CDN redirect targets and token hosts), `CLIENT` (`curl`, `node`, `nodepm` (pnpm, Yarn 1, Yarn 4 at `/opt/berry/yarn.cjs` and Bun on Node 24), `debian`, `ubuntu`, `rocky`, `alma`, `oracle` (Oracle Linux 9), `fedora` (dnf 5), `opensuse` (zypper), `skopeo`, `docker`, `podman` (podman 6, privileged), `conformance` (the OCI distribution-spec conformance suite), `maven` (Maven 3.9; its build plugins are pre-seeded from Maven Central into `/opt/m2-seed` at image build, so fixtures hold only what the test resolves), `python` (pip, uv, twine, Poetry, PDM), `go` (the go command and curl), `ansible` (ansible-core's ansible-galaxy and curl), or several separated by spaces, run in turn against one stack, each with `HARNESS_CLIENT` set; add a `client-<x>` service with a pinned tag to `compose.harness.yaml` for more), `NEEDS_STACK=1`, optional `CLIENT_ARM64` (`linux/arm64` clients, e.g. `raspios`, run after `CLIENT` only with `ARM64=1` on a host that runs arm64 containers: an arm64 host, or `qemu-aarch64` registered in `binfmt_misc`; otherwise skipped with a message), `SERVICES` (extra harness services started in every mode, profile `idp`: `openldap`, `keycloak`), `STACK_ENV` (extra `WAYSTATION_*=value` settings for the stack), `ORIGINS`, `RECORD_SERVICES`, `DROP_JSON_KEYS` (JSON keys removed from recorded JSON bodies at any depth, e.g. npm readmes and maintainer e-mails), `FIXTURE_BUDGET_KB`, `FIXTURE_FILE_MAX_KB` |
+| `setup.sh` | optional, runs first in the client container: create the repos the test needs through `$WAYSTATION_URL/api/v1/...` as the per-run bootstrap admin: `ws_login` (or `ws_login <user> <password> [<provider id>]` for another account), then `ws_api <METHOD> <path> [json]`, `ws_token`, `ws_revoke`, `ws_revoke_any` from `lib.sh` (curl, or bash `/dev/tcp` in images without curl, e.g. debian/ubuntu; `_ws_http` is the bash request primitive and also leaves the response headers in `/tmp/ws-api.headers`). With several clients it runs once per client: keep it idempotent |
 | `test.sh` | POSIX sh in the client container: configure the client to use `$WAYSTATION_URL/repository/<repo>/` (or `/v2/`), run real installs/pulls, assert, `exit 1` on failure. Source `/harness/lib.sh` for `step`, `fail`, `pass`, `wait_for`, `trust_harness_ca` |
 | `allowed_hosts.txt` | optional: extra public hosts that legitimately appear in this format's upstream content |
 
-The client container sees `tests/clients` at `/harness` (read-only), the CA at `/harness-ca/ca.crt`, and
+The client container sees `tests/clients` at `/harness` (read-only), the CA at `/harness-ca/ca.crt`, a per-run
+scratch directory shared by the clients of one run at `/harness-shared` (e.g. tokens an earlier client created; deleted
+with the run), the identity providers' throwaway CA at `/harness-idp/ca.crt` (when `SERVICES` starts them), and
 `HARNESS_MODE`, `HARNESS_FORMAT`, `HARNESS_STACK`, `WAYSTATION_URL=http://waystation-web:8080`. The `docker` client
 image is `docker:*-dind` plus curl, skopeo, crane, oras and cosign, with the entrypoint cleared: start `dockerd` in
 `setup.sh` (with the stack in `insecure-registries`/`registry-mirrors`). The `conformance` client runs the OCI
@@ -130,3 +133,46 @@ GitHub release assets behind a redirect for OpenTofu). A provider archive is a G
 smaller real one with plugin protocol 5 exists, so the budget is raised to 11 MiB (5 MiB per file,
 `tests/clients/terraform/format.env`). Both clients accept only `https://` mirrors: `client-terraform` is Alpine with
 terraform, tofu, curl and `go/tlsfront.go` built in.
+npm: after npm 11, `client-nodepm` runs pnpm, Yarn 1, Yarn 4 and Bun (`npm/pm.sh`): frozen installs of `pinned/` from
+each client's committed lockfile (`pnpm-lock.yaml`, `yarn-classic.lock`, `yarn-berry.lock`, `bun.lock`; Yarn 1's
+`resolved` URLs are pointed at Waystation first, as it fetches them verbatim) and each client's audit command. The
+packages are cached by the npm client by then: only the audit POSTs add fixtures.
+docker: containerd (`ctr --local --hosts-dir` against the client's dockerd's containerd, `docker/containerd.sh`)
+and podman (`client-podman`, `docker/podman.sh`) pull the same images by mirror, prefix and alias; `ctr` fetches
+every manifest of an index, so the Docker Hub fixtures include all of `hello-world`'s platform manifests.
+
+### auth: the client-auth matrix
+
+`auth/` (T-A04) runs without upstream content except one apt suite (`trixie-updates`, about 50 KB). Its `SERVICES`
+start OpenLDAP (with `ldap-certs`, StartTLS) and Keycloak, the directory and realm of `make test-integration`
+(`Build/Containers/test/`; the realm also allows the harness callback `http://waystation-web:8080/auth/oidc/*`), on
+the stack's network. `client-curl` configures Waystation (LDAP provider: group `ops` → role `auth-matrix`; OIDC
+provider: group `/developers` → the same role; private repositories `private-raw|docker|npm|apt|yum`; anonymous
+access off), signs the OIDC user in through Keycloak's login form with curl and leaves one API token per client in
+`/harness-shared`. Then, per client, positive and negative cases:
+
+| Client | Accepted | Refused |
+|---|---|---|
+| curl (raw) | LDAP user's API token (basic), OIDC user's token (basic, bearer) | anonymous (401 Basic challenge), the LDAP password as basic, a wrong password, an unknown token, revoked tokens; a user without a mapped group sees 404 |
+| docker | `docker login` with the LDAP password (push, pull), with the OIDC user's token | anonymous push/pull, a wrong password, a user without a role (pull, push), a revoked token (next pull and a new login) |
+| npm | `npm login --auth-type=legacy` with the LDAP password (publish, install, whoami), `_authToken` = OIDC token | anonymous, a wrong login password, a wrong token, a revoked token, the login token after `npm logout` |
+| apt | `auth.conf` with the OIDC and the LDAP user's tokens | anonymous, the LDAP password, a wrong password, a revoked token |
+| dnf | `.repo` `username`/`password` with the LDAP and the OIDC user's tokens (upload with curl, install) | anonymous, the LDAP password, a wrong password, a revoked token |
+
+The format raises the stack's sign-in and token-failure rate limits (`STACK_ENV`): it makes dozens of sign-ins from a
+handful of addresses within minutes.
+
+### arm64 clients
+
+`CLIENT_ARM64` clients (`client-raspios`: Raspberry Pi OS = Debian 13 arm64 + the Raspberry Pi archive, for `apt`)
+run with `ARM64=1` only. The harness never installs emulation: on an x86 host an administrator registers
+`qemu-aarch64` first (e.g. `docker run --privileged --rm tonistiigi/binfmt --install arm64`), otherwise the run
+prints `SKIP arm64 clients` and passes. Their fixtures are not committed yet: record them once on such a host
+(`ARM64=1 make clients-test FORMAT=apt MODE=record`) before replaying with `ARM64=1`. The live workflows run them
+(GitHub registers QEMU on its runner; Gitea when `WAYSTATION_CI_ARM64` is `true`).
+
+### Nightly live run
+
+`.gitea/workflows/clients-live.yml` runs `make clients-test FORMAT=all MODE=live` every night on the Gitea runners
+(manual runs can pick one format); `.github/workflows/clients-live.yml` is the same, manual only.
+Documents/Operations/CI.md.

@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "bearer",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry-1.docker.io/v2/library/hello-world/blobs/sha256:b5ac956fa01fa187fc57ffdbb2ea346d8e78eae15e3db8ca4736e390249f04d2"
+  },
+  "response": {
+    "body_sha256": null,
+    "body_size": 0,
+    "headers": [
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "content-length",
+        "0"
+      ],
+      [
+        "docker-distribution-api-version",
+        "registry/2.0"
+      ],
+      [
+        "location",
+        "https://production.cloudfront.docker.com/registry-v2/docker/registry/v2/blobs/sha256/b5/b5ac956fa01fa187fc57ffdbb2ea346d8e78eae15e3db8ca4736e390249f04d2/data?Expires=harness-redacted&Signature=harness-redacted&Key-Pair-Id=harness-redacted"
+      ],
+      [
+        "ratelimit-limit",
+        "1500;w=60"
+      ],
+      [
+        "ratelimit-remaining",
+        "1481;w=60"
+      ]
+    ],
+    "status": 307
+  }
+}

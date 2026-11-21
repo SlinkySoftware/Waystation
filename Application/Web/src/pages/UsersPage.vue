@@ -58,7 +58,7 @@
         </template>
 
         <template #item="{ row }">
-          <div class="users__card" role="button" tabindex="0" @click="open(row)" @keydown.enter="open(row)">
+          <div class="users__card" @click="open(row)">
             <div class="users__card-head">
               <UserCell :user="row" :self="row.id === auth.user?.id" class="col" />
               <span @click.stop><UserRowMenu :user="row" @edit="editRow(row)" @reset="resetting = row" @changed="list.reload" @deleted="list.reload" /></span>

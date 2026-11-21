@@ -29,12 +29,16 @@ class Figures:
     async def blob_totals(self, db: Any) -> tuple[int, int]:
         return 2, 120
 
+    async def latest_snapshots(self, db: Any) -> dict[str, dict[str, Any]]:
+        return {'': {'blob_bytes': 120}, 'r1': {'dedup_saved_bytes': 30, 'components': 2}}
+
 
 @pytest.fixture
 def figures(monkeypatch: pytest.MonkeyPatch) -> Figures:
     f = Figures()
     monkeypatch.setattr(storage_mod.stats_db, 'repo_totals', f.repo_totals)
     monkeypatch.setattr(storage_mod.stats_db, 'blob_totals', f.blob_totals)
+    monkeypatch.setattr(storage_mod.stats_db, 'latest_snapshots', f.latest_snapshots)
     return f
 
 
@@ -47,6 +51,8 @@ async def test_figures_and_stale_while_refreshing(
     first = await stats.get()
     assert (first.blob_count, first.used_bytes, first.asset_bytes, first.dedup_saved_bytes) == (2, 120, 150, 30)
     assert first.artifacts == 3 and first.by_repo['r1'].bytes == 100
+    assert (first.by_repo['r1'].dedup_saved_bytes, first.by_repo['r1'].components) == (30, 2)
+    assert (first.by_repo['r2'].dedup_saved_bytes, first.by_repo['r2'].components) == (0, None)
     assert await stats.get() is first and figures.loads == 1  # within the TTL
 
     clock[0] += storage_mod.TTL_S

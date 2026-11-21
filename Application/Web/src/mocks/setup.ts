@@ -5,6 +5,13 @@ import type { AptOptions, DockerOptions, Repository, SetupClient, SetupGuide, Se
 
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 
+/** `base` as it reads on `os` (the server's `on()`): same id and title, the given fields replaced. */
+function on(os: 'linux' | 'macos' | 'windows', base: SetupSnippet, patch: Partial<SetupSnippet> = {}): SetupSnippet {
+  return { ...base, ...patch, os }
+}
+
+const psEnv = (lines: [string, string][]) => lines.map(([k, v]) => `$env:${k} = "${v}"`).join('\n')
+
 function dockerHosted(repo: Repository): SetupClient[] {
   const image = `${REGISTRY_HOST}/${repo.name}/myapp`
   const snippet = (id: string, title: string, content: string): SetupClient['snippets'][number] => ({ id, title, language: 'shell', filename: null, os: null, content })
@@ -52,7 +59,9 @@ function docker(repo: Repository): SetupClient[] {
   }
   if (opts.default_repo) {
     dockerSnippets.splice(1, 0, { id: 'pull-default', title: 'Pull without a prefix (default repository)', description: 'Docker Hub names work as they are; single-segment names get library/ like on Docker Hub.', language: 'shell', filename: null, os: null, content: `docker pull ${host}/${hub ? 'nginx:latest' : sample}` })
-    dockerSnippets.unshift({ id: 'mirror', title: 'Use as a Docker Hub mirror', description: 'Every docker pull of a Docker Hub image then goes through Waystation. Restart the daemon afterwards.', language: 'json', filename: '/etc/docker/daemon.json', os: 'linux', content: `{\n  "registry-mirrors": ["${BASE_URL}"]\n}` })
+    const mirror: SetupSnippet = { id: 'docker-mirror', title: 'Use as a Docker Hub mirror', description: 'Every docker pull of a Docker Hub image then goes through Waystation. Restart the daemon afterwards.', language: 'json', filename: '/etc/docker/daemon.json', os: null, content: `{\n  "registry-mirrors": ["${BASE_URL}"]\n}` }
+    const desktop = { filename: 'Docker Desktop: Settings > Docker Engine', description: 'Add the key to the JSON there, then Apply & restart. Mirror mode only ever asks for Docker Hub images.' }
+    dockerSnippets.unshift(mirror, on('macos', mirror, desktop), on('windows', mirror, desktop))
     dockerSnippets.splice(1, 0, { id: 'restart', title: 'Apply the mirror setting', language: 'shell', filename: null, os: 'linux', content: 'sudo systemctl restart docker' })
   }
   const upstreamHost = alias ?? new URL(repo.proxy?.upstream_url ?? BASE_URL).host
@@ -221,6 +230,8 @@ function rawHosted(repo: Repository): SetupClient[] {
     { id: 'curl', label: 'curl', snippets: [
       s('curl-get', 'Download a file', `curl -fSLO ${url}/${file}`),
       s('curl-auth', 'With credentials (when anonymous reads are not allowed)', `curl -fSLO -u {{USERNAME}}:{{TOKEN}} ${url}/${file}`),
+      on('windows', s('curl-get', 'Download a file', `curl.exe -fSLO ${url}/${file}`), { language: 'powershell' }),
+      on('windows', s('curl-auth', 'With credentials (when anonymous reads are not allowed)', `curl.exe -fSLO -u {{USERNAME}}:{{TOKEN}} ${url}/${file}`), { language: 'powershell' }),
       ...(writable ? [
         { ...s('curl-put', 'Upload a file', `curl -fS -u {{USERNAME}}:{{TOKEN}} --upload-file app-1.0.tar.gz ${url}/${file}`), description: 'Uploads need the write permission; an API token is the password.' },
         s('curl-put-checksum', 'Upload with a checksum the server verifies', `curl -fS -u {{USERNAME}}:{{TOKEN}} \\\n  -H "X-Checksum-Sha256: $(sha256sum app-1.0.tar.gz | cut -d' ' -f1)" \\\n  --upload-file app-1.0.tar.gz ${url}/${file}`),
@@ -299,12 +310,15 @@ function pypi(repo: Repository): SetupClient[] {
   const clients: SetupClient[] = [
     { id: 'pip', label: 'pip', snippets: [
       s('pip-install', 'Install a package', `pip install --index-url ${index} requests`),
-      s('pip-conf', 'Use this index for every pip command (pip.conf)', `[global]\nindex-url = ${index}`, 'ini', 'pip.conf'),
+      s('pip-conf', 'Use this index for every pip command (pip.conf)', `[global]\nindex-url = ${index}`, 'ini', '~/.config/pip/pip.conf'),
+      on('macos', s('pip-conf', 'Use this index for every pip command (pip.conf)', `[global]\nindex-url = ${index}`, 'ini', '~/Library/Application Support/pip/pip.conf')),
+      on('windows', s('pip-conf', 'Use this index for every pip command (pip.conf)', `[global]\nindex-url = ${index}`, 'ini', '%APPDATA%\\pip\\pip.ini')),
     ] },
     { id: 'uv', label: 'uv', snippets: [
       s('uv-pip', 'uv pip', `uv pip install --index-url ${index} requests`),
       s('uv-project', 'Per project (pyproject.toml)', `[[tool.uv.index]]\nname = "waystation"\nurl = "${index}"\ndefault = true`, 'toml', 'pyproject.toml'),
       s('uv-auth', 'Credentials (when anonymous reads are not allowed)', 'export UV_INDEX_WAYSTATION_USERNAME={{USERNAME}}\nexport UV_INDEX_WAYSTATION_PASSWORD={{TOKEN}}'),
+      on('windows', s('uv-auth', 'Credentials (when anonymous reads are not allowed)', psEnv([['UV_INDEX_WAYSTATION_USERNAME', '{{USERNAME}}'], ['UV_INDEX_WAYSTATION_PASSWORD', '{{TOKEN}}']]), 'powershell')),
     ] },
     { id: 'poetry', label: 'Poetry', snippets: [s('poetry-source', 'Add this index as the primary source', `poetry source add --priority=primary waystation ${index}\npoetry config http-basic.waystation {{USERNAME}} {{TOKEN}}`)] },
     { id: 'pdm', label: 'PDM', snippets: [s('pdm-config', 'Use this index', `pdm config pypi.url ${index}\npdm config pypi.username {{USERNAME}}\npdm config pypi.password {{TOKEN}}`)] },
@@ -333,7 +347,8 @@ function go(repo: Repository): SetupClient[] {
       s('go-private', 'Private modules (not in the public checksum database)', '# fetched through Waystation, not looked up in the checksum database:\ngo env -w GONOSUMDB=example.com/private/*\n# GOPRIVATE=... would also bypass the proxy (GONOPROXY): use it only for modules fetched directly', 'shell', null, 'Add the same patterns to the repository\'s "nosumdb" option so Waystation does not look them up either.'),
     ] },
     { id: 'go-auth', label: 'Authentication', snippets: [
-      s('netrc', 'Credentials (when anonymous reads are not allowed)', `machine ${host}\nlogin {{USERNAME}}\npassword {{TOKEN}}`, 'text', '.netrc', '~/.netrc (Linux/macOS) or %USERPROFILE%\\_netrc (Windows). The go command sends .netrc credentials over HTTPS only (GOAUTH=netrc, the default). Use an API token as the password; NETRC points to another file.'),
+      s('netrc', 'Credentials (when anonymous reads are not allowed)', `machine ${host}\nlogin {{USERNAME}}\npassword {{TOKEN}}`, 'text', '~/.netrc', 'The go command sends .netrc credentials over HTTPS only (GOAUTH=netrc, the default). Use an API token as the password; NETRC points to another file.'),
+      on('windows', s('netrc', 'Credentials (when anonymous reads are not allowed)', `machine ${host}\nlogin {{USERNAME}}\npassword {{TOKEN}}`, 'text', '%USERPROFILE%\\_netrc', 'The go command sends .netrc credentials over HTTPS only (GOAUTH=netrc, the default). Use an API token as the password; NETRC points to another file.')),
     ] },
   ]
 }
@@ -347,12 +362,14 @@ function terraform(repo: Repository): SetupClient[] {
   const note = 'Every provider is installed through Waystation. The credentials block is needed only when anonymous reads are not allowed: the API token is sent as a bearer token to this host only.'
   return [
     { id: 'terraform', label: 'Terraform', snippets: [
-      s('terraform-cli-config', 'Terraform CLI configuration', config, 'hcl', '~/.terraformrc', `${note} On Windows the file is %APPDATA%\\terraform.rc; TF_CLI_CONFIG_FILE names another.`),
+      s('terraform-cli-config', 'Terraform CLI configuration', config, 'hcl', '~/.terraformrc', `${note} TF_CLI_CONFIG_FILE names another file.`),
+      on('windows', s('terraform-cli-config', 'Terraform CLI configuration', config, 'hcl', '%APPDATA%\\terraform.rc', `${note} TF_CLI_CONFIG_FILE names another file.`)),
       s('terraform-init', 'Install providers', 'terraform init\n# record the hashes of every platform your team uses in .terraform.lock.hcl:\nterraform providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=windows_amd64'),
       s('terraform-token-env', 'Or pass the token in the environment', `export TF_TOKEN_${host.replace(/-/g, '__').replace(/\./g, '_')}={{TOKEN}}`, 'shell', null, 'Instead of the credentials block (host names without a port only).'),
     ] },
     { id: 'tofu', label: 'OpenTofu', snippets: [
-      s('tofu-cli-config', 'OpenTofu CLI configuration', config, 'hcl', '~/.tofurc', `${note} On Windows the file is %APPDATA%\\tofu.rc; TF_CLI_CONFIG_FILE names another.`),
+      s('tofu-cli-config', 'OpenTofu CLI configuration', config, 'hcl', '~/.tofurc', `${note} TF_CLI_CONFIG_FILE names another file.`),
+      on('windows', s('tofu-cli-config', 'OpenTofu CLI configuration', config, 'hcl', '%APPDATA%\\tofu.rc', `${note} TF_CLI_CONFIG_FILE names another file.`)),
       s('tofu-init', 'Install providers', 'tofu init'),
     ] },
   ]

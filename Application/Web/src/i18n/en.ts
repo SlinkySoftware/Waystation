@@ -2,6 +2,7 @@
 // English catalogue. Plurals: "one|other", chosen by the `count` parameter.
 import { admin } from './admin'
 import { provisioning } from './provisioning'
+import { ui } from './ui'
 import { webhooks } from './webhooks'
 
 export const en = {
@@ -148,12 +149,16 @@ export const en = {
     '24h': 'last 24 hours',
     '7d': 'last 7 days',
     '30d': 'last 30 days',
+    '90d': 'last 90 days',
+    '1y': 'last year',
     short: {
       '15m': '15m',
       '1h': '1h',
       '24h': '24h',
       '7d': '7d',
       '30d': '30d',
+      '90d': '90d',
+      '1y': '1y',
     },
   },
   charts: {
@@ -203,6 +208,7 @@ export const en = {
     kpi: {
       requests: 'Requests',
       requestsSub: '{count} in the {range}',
+      requestsSubLatency: '{count} in the {range} · p95 {p95}',
       hitRatio: 'Cache hit ratio',
       hitRatioSub: '{value} in the last minute',
       served: 'Bandwidth served',
@@ -249,6 +255,28 @@ export const en = {
       title: 'Recent activity',
       all: 'View all',
       empty: 'No activity yet',
+    },
+    top: {
+      title: 'Top artifacts',
+      captionDownloads: 'Most downloaded, {window}',
+      captionBytes: 'Most bytes served, {window}',
+      downloads: 'Downloads',
+      bytes: 'Bytes',
+      window: 'Download window',
+      windows: { '24h': '24h', '7d': '7d', '30d': '30d', all: 'All' },
+      windowLong: { '24h': 'last 24 hours', '7d': 'last 7 days', '30d': 'last 30 days', all: 'since cached' },
+      downloadCount: '{count} download|{count} downloads',
+      empty: 'No downloads in this period',
+      emptyText: 'Artifacts appear here once clients download cached content.',
+      loadFailed: 'Could not load top artifacts',
+      aria: 'Top artifacts',
+    },
+    recent: {
+      title: 'Recently added',
+      caption: 'Newest cached or uploaded artifacts',
+      empty: 'Nothing cached yet',
+      emptyText: 'Artifacts appear here as soon as a client pulls or pushes something.',
+      aria: 'Recently added artifacts',
     },
   },
   repos: {
@@ -461,8 +489,11 @@ export const en = {
     tab: {
       overview: 'Overview',
       browse: 'Browse',
+      packages: 'Packages',
+      activity: 'Activity',
       settings: 'Settings',
       cleanup: 'Cleanup',
+      members: 'Members',
     },
     kpi: {
       size: 'Stored',
@@ -1861,12 +1892,43 @@ export const en = {
       viewActivity: 'Show activity for {name}',
       none: 'No repositories yet',
       noMatch: 'No repositories match',
+      dedup: 'Dedup saved',
+      dedupHint: 'Bytes this repository does not add to the disk because its blobs are shared (from the last hourly snapshot)',
     },
     growth: {
       title: 'Growth over time',
-      caption: 'Stored bytes, sampled hourly',
-      pendingTitle: 'History is not recorded yet',
-      pendingText: 'Hourly storage snapshots arrive with the stats rollups; this chart fills in from then on.',
+      caption: 'On disk and saved by de-duplication, from hourly snapshots',
+      captionDelta: '{delta} over the {range}',
+      range: 'History range',
+      used: 'On disk',
+      saved: 'Saved by de-duplication',
+      aria: 'Storage over the {range}',
+      pendingTitle: 'No snapshots yet',
+      pendingText: 'The worker records storage every hour; this chart fills in from the first snapshot.',
+      loadFailed: 'Could not load the storage history',
+    },
+    artifacts: {
+      title: 'Largest artifacts',
+      caption: 'Top {count} by cached bytes',
+      whereUsed: 'Where used',
+      whereUsedFor: 'Where is {name} used?',
+      none: 'No artifacts cached yet',
+      loadFailed: 'Could not load the largest artifacts',
+    },
+    whereUsed: {
+      title: 'Where used',
+      caption: 'Every visible repository holding this content, and docker manifests that reference it',
+      digest: 'Digest',
+      size: 'Size',
+      repository: 'Repository',
+      kind: 'Use',
+      location: 'Path or image',
+      kinds: { asset: 'File', docker_layer: 'Image layer', docker_config: 'Image config' },
+      none: 'Not used by any repository you can see',
+      truncated: 'Showing the first {count} uses',
+      loadFailed: 'Could not look up the digest',
+      close: 'Close',
+      count: '{count} use|{count} uses',
     },
     loadFailed: 'Could not load storage figures',
     guard: {
@@ -1919,6 +1981,7 @@ export const en = {
   admin,
   webhooks,
   provisioning,
+  ui,
   nexusImport: {
     open: 'Import from Nexus',
     title: 'Import from Nexus',

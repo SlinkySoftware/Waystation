@@ -520,11 +520,11 @@ async def test_migration_backfills_search_keys(admin: httpx.AsyncClient, service
     assert doc is not None
     assert (doc['name_lc'], doc['base_lc']) == ('@legacy/pkg', 'pkg')
 
-    # documents with name keys but no suffixes yet (written before 0004_search_suffixes)
+    # documents with name keys but no suffixes yet (written before 0005_search_suffixes)
     await db[ASSETS].update_many({'repo_id': raw}, {'$unset': {'name_sfx': ''}})
     await db[NPM_PACKAGES].update_many({'repo_id': npm}, {'$unset': {'name_sfx': ''}})
     assert (await admin.get(API, params={'q': 'egacy'})).json()['items'] == []
-    suffixes = next(m for m in MIGRATIONS if m.id == '0004_search_suffixes')
+    suffixes = next(m for m in MIGRATIONS if m.id == '0005_search_suffixes')
     await suffixes.apply(db)
     await suffixes.apply(db)  # idempotent
     found = (await admin.get(API, params={'q': 'egacy'})).json()['items']

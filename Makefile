@@ -70,7 +70,7 @@ typecheck: sync ## mypy --strict
 
 .PHONY: test
 test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 100% branch coverage
-	$(DEV_RUN) uv run --frozen pytest -m "not integration" --cov --cov-report=term-missing:skip-covered $(ARGS)
+	$(DEV_RUN) uv run --frozen pytest -m "not integration and not nexus" --cov --cov-report=term-missing:skip-covered $(ARGS)
 	$(DEV_RUN) uv run --frozen coverage report --fail-under=100 $(FULL_COVERAGE)
 
 # One throwaway MongoDB/Valkey project per checkout, so parallel worktrees don't collide.
@@ -99,12 +99,29 @@ test-integration: sync ## Integration tests (pytest -m integration) against real
 	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 
+# Opt-in (not in `make check` or CI): the Nexus importer against a real Nexus 3 CE container (about 3 GB of memory,
+# one to three minutes to start). Takes the same machine-wide lock as test-integration.
+NEXUS_PROJECT := waystation-nexus-$(shell printf '%s' '$(CURDIR)' | md5sum | cut -c1-8)
+COMPOSE_NEXUS  = docker compose -p $(NEXUS_PROJECT) -f Build/Containers/compose.nexus.yaml
+.PHONY: test-nexus
+test-nexus: private DEV_ENV = --network $(NEXUS_PROJECT)_default \
+  -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
+  -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0' \
+  -e WAYSTATION_TEST_NEXUS_URL=http://nexus.example.com:8081
+test-nexus: sync ## Nexus import against a real sonatype/nexus3 container (opt-in, ~3 GB RAM; pytest -m nexus)
+	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
+	  flock -n 9 || { echo "test-nexus: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
+	$(COMPOSE_NEXUS) up -d --wait --wait-timeout 420 --quiet-pull || { $(COMPOSE_NEXUS) logs --no-color --tail 80; \
+	  $(COMPOSE_NEXUS) down -v --remove-orphans >/dev/null 2>&1; exit 1; }; \
+	$(DEV_RUN) uv run --frozen pytest -m nexus -p no:cacheprovider $(ARGS); rc=$$?; \
+	  $(COMPOSE_NEXUS) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
+
 test-integration-authentik: ## OIDC tests against authentik too (opt-in: PostgreSQL + server + worker, a few minutes to start)
 	$(MAKE) test-integration TEST_PROFILES='--profile authentik' TEST_AUTHENTIK_URL=http://authentik.example.com:9000 \
 	  ARGS='Application/Server/tests/test_oidc_providers_integration.py $(ARGS)'
 
 .PHONY: check
-check: forbidden-strings workflow-lint fmt-check lint typecheck test test-integration clients-check frontend-check budgets ## Everything CI runs on a PR (grows as tasks land)
+check: forbidden-strings workflow-lint fmt-check lint typecheck test test-integration clients-check frontend-check e2e budgets ## Everything CI runs on a PR (grows as tasks land)
 
 .PHONY: forbidden-strings budgets workflow-lint
 ACTIONLINT_IMAGE ?= rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
@@ -245,9 +262,15 @@ verify-blobs: ## Run the blob verify task in a running stack and wait for its re
 	$(BACKUP_TOOL) verify --prefix '$(PREFIX)'
 
 ##@ Test suites
-.PHONY: e2e clients-test clients-check perf
-e2e: ## Playwright E2E
-	$(call not_yet,T-U09)
+.PHONY: e2e e2e-update clients-test clients-check perf
+# Playwright suites on the mock build (Application/Web/e2e, T-U09) in the pinned Playwright image (same fonts and
+# rendering as the committed screenshot baselines). ARGS passes options through, e.g. ARGS='a11y.spec.ts' or
+# ARGS='--grep dashboard'.
+E2E_RUN = docker run --rm -i --init --ipc=host --user $(UID):$(GID) -e HOME=/tmp -e CI -v $(CURDIR):/src -w /src/$(WEB_DIR) $(PLAYWRIGHT_IMAGE)
+e2e: frontend-build-mock ## Playwright on the mock build: E2E flows, axe on every page (zero serious), visual baseline (2 themes x 3 widths), UI perf checks [ARGS=...]
+	$(E2E_RUN) npx playwright test $(ARGS)
+e2e-update: frontend-build-mock ## Regenerate the visual-regression baselines (Application/Web/e2e/__screenshots__) after an intended UI change; review the images in the diff
+	$(E2E_RUN) npx playwright test visual.spec.ts --update-snapshots=all $(ARGS)
 .PHONY: e2e-m0 ui-smoke
 e2e-m0: ## M0 end to end with real clients against a RUNNING stack (WAYSTATION_URL, WAYSTATION_ADMIN_PASSWORD[_FILE])
 	tests/e2e/m0/run.sh

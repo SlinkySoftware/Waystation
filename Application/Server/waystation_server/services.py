@@ -216,7 +216,12 @@ class Services:
             failed = next((c for c in result.checks if not c.ok), None)
             error = f'probe: {failed.message}' if failed else f'probe: upstream answered {status}'
         self.emitter.upstream(
-            repo_id=repo.id, format=repo.format, ok=ok, error=error, latency_ms=result.latency_ms if ok else None
+            repo_id=repo.id,
+            repo=repo.name,
+            format=repo.format,
+            ok=ok,
+            error=error,
+            latency_ms=result.latency_ms if ok else None,
         )
         return ok, error
 

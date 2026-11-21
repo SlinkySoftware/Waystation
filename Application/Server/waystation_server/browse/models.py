@@ -6,8 +6,8 @@ below (``NpmBrowser``, ``AptBrowser``, ``DockerBrowser``, ``MavenBrowser``, ``Py
 ``HelmBrowser``, ``GalaxyBrowser``, ``YumBrowser``). The REST API finds it through the format registry and never
 imports the format package (ARCHITECTURE §3).
 
-Download counters (``downloads``, ``pulls``, ``last_downloaded_at``, ``last_pulled_at``) are not recorded yet (T-S09
-full): they answer ``0`` / ``null``.
+Download counters (``downloads``, ``pulls``, ``last_downloaded_at``, ``last_pulled_at``) are the assets' batched
+counters (files, npm tarballs, apt packages) or the component index's (docker tags and images; T-S09).
 """
 
 from __future__ import annotations
@@ -87,6 +87,9 @@ class NpmVersionPage(BaseModel):
     dist_tags: dict[str, str] = Field(default_factory=dict)
     items: list[NpmVersion]
     next_cursor: str | None
+    readme: str | None = Field(
+        default=None, description='The package README (Markdown, at most 256 KiB; first page only), untrusted text'
+    )
 
 
 # ---------------------------------------------------------------------------- apt
@@ -190,6 +193,20 @@ class DockerManifest(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
     pull_by_tag: str = ''
     pull_by_digest: str = ''
+
+
+class DockerReferrer(BaseModel):
+    digest: str
+    media_type: str
+    artifact_type: str | None = Field(default=None, description='`artifactType`, else the config media type')
+    size: int | None = Field(default=None, description="The referrer manifest's size in bytes")
+    annotations: dict[str, str] = Field(default_factory=dict)
+
+
+class DockerReferrerList(BaseModel):
+    image: str
+    subject: str = Field(description='Digest the referrers point at (`subject`)')
+    items: list[DockerReferrer]
 
 
 # ---------------------------------------------------------------------------- helm
@@ -577,6 +594,9 @@ class DockerBrowser(Protocol):
 
     async def manifest(self, ctx: BrowseContext, *, image: str, reference: str, platform: str | None) -> DockerManifest:
         """A cached manifest (tag or digest) with its platforms and layers; raises ``NotFound`` when not cached."""
+
+    async def referrers(self, ctx: BrowseContext, *, image: str, digest: str) -> DockerReferrerList:
+        """Manifests stored in the repository whose ``subject`` is ``digest`` (signatures, SBOMs, attestations)."""
 
 
 @runtime_checkable

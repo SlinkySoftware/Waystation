@@ -31,6 +31,19 @@
               @update:model-value="(mode: ThemeMode) => theme.save({ theme: mode })"
             />
           </div>
+          <q-item-label header class="user-menu__label">{{ t('ui.density.label') }}</q-item-label>
+          <div class="user-menu__themes">
+            <q-btn-toggle
+              :model-value="theme.density"
+              spread
+              no-caps
+              unelevated
+              dense
+              toggle-color="primary"
+              :options="densityOptions"
+              @update:model-value="(density: Density) => theme.save({ density })"
+            />
+          </div>
           <q-separator spaced />
           <q-item v-close-popup clickable @click="signOut">
             <q-item-section avatar><q-icon :name="iconLogout" /></q-item-section>
@@ -49,7 +62,7 @@ import { useRouter } from 'vue-router'
 import { t } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useLiveStore } from '@/stores/live'
-import { type ThemeMode, useThemeStore } from '@/stores/theme'
+import { type Density, type ThemeMode, useThemeStore } from '@/stores/theme'
 import { iconLogout, iconProfile, iconToken } from '@/utils/icons'
 
 const auth = useAuthStore()
@@ -70,6 +83,11 @@ const themeOptions = computed(() => [
   { label: t('theme.light'), value: 'light' },
   { label: t('theme.dark'), value: 'dark' },
   { label: t('theme.system'), value: 'system' },
+])
+
+const densityOptions = computed(() => [
+  { label: t('ui.density.comfortable'), value: 'comfortable' },
+  { label: t('ui.density.compact'), value: 'compact' },
 ])
 
 async function signOut(): Promise<void> {

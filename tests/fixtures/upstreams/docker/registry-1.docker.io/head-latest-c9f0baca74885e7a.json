@@ -25,7 +25,7 @@
       ],
       [
         "docker-content-digest",
-        "sha256:c567b231f65614688711a75f31518a064258a51d442117a3e771a3a8fdba78ef"
+        "sha256:1e4c05b897a751332ce85c7e9449da2d93514ea2dea6dbb0e2753c9e949b2bfa"
       ],
       [
         "docker-distribution-api-version",
@@ -33,7 +33,7 @@
       ],
       [
         "etag",
-        "\"sha256:c567b231f65614688711a75f31518a064258a51d442117a3e771a3a8fdba78ef\""
+        "\"sha256:1e4c05b897a751332ce85c7e9449da2d93514ea2dea6dbb0e2753c9e949b2bfa\""
       ],
       [
         "ratelimit-limit",
@@ -41,7 +41,7 @@
       ],
       [
         "ratelimit-remaining",
-        "84;w=3600"
+        "80;w=3600"
       ]
     ],
     "status": 200

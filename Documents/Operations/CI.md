@@ -8,7 +8,8 @@ Every CI step is a `make` target, so anything CI runs can be reproduced locally 
 |---|---|---|
 | `.github/workflows/ci.yml` | major release tag `vX.0.0`, manual | `make check`; the generated API client is current (`make gen-api` then `git diff --exit-code`); the budget report in the job summary; in a parallel job, `make clients-test FORMAT=all MODE=replay` |
 | `.github/workflows/release.yml` | every release tag `vX.Y.Z` (and `vX.Y.Z-<pre>`) | server, worker and web images for linux/amd64 and linux/arm64 pushed to GHCR as `X.Y.Z`, `X.Y`, `sha-<commit>` and (stable releases) `latest`, with SBOM and SLSA provenance attestations |
-| `.github/workflows/clients-live.yml` | manual | the real-client harness against the live upstreams (`MODE=live`) |
+| `.github/workflows/clients-live.yml` | manual (one format or all) | the real-client harness against the live upstreams (`MODE=live`), arm64 clients included (QEMU registered on the runner, `ARM64=1`) |
+| `.gitea/workflows/clients-live.yml` | nightly (Gitea), manual (one format or all) | the same live client smoke on the Gitea runners; arm64 clients when `WAYSTATION_CI_ARM64` is `true` |
 | `.gitea/workflows/check.yml` | push to `main` and pull requests (Gitea), manual | `make check` without `test-integration`, step by step (`forbidden-strings`, `workflow-lint`, `fmt-check`, `lint`, `typecheck`, `test`, `clients-check`, `frontend-check`), the generated API client diff and the budget report; then, only on push to `main` and manual runs, `make test-integration` in a second job |
 | `.gitea/workflows/images.yml` | push to `main` (Gitea), manual | server, worker and web images pushed to the Gitea container registry |
 | `.gitea/workflows/perf.yml` | push to `main` (Gitea), nightly, manual | `make perf`: the k6 suite, CI profile on push (manual: either profile), full profile nightly; results uploaded as the `perf-results` artifact |
@@ -37,6 +38,19 @@ In CI the dev image is built once per job by `docker/build-push-action` with the
 (`scope=dev-image`), loaded as `waystation-dev:local`, and `SKIP_DEV_IMAGE_BUILD=1` stops make from rebuilding it.
 The buildx builder is not made the default, so make, compose and the harness keep using the normal Docker builder.
 
+### Opt-in: Nexus import against a real Nexus (`make test-nexus`)
+
+Not part of `make check` or any workflow. `make test-nexus` starts `Build/Containers/compose.nexus.yaml` (MongoDB,
+Valkey and `sonatype/nexus3`, pinned, Community Edition, data on tmpfs, about 3 GB of memory, one to three minutes
+to start), then runs `pytest -m nexus` (`Application/Server/tests/test_nexus_live.py`) in the dev image: the test
+sets a throwaway admin password, accepts the EULA, deletes the sample repositories and creates the repositories of
+the hand-written fixtures (`Application/Server/tests/fixtures/nexus3`, each detail document posted back as the create
+request; Nexus contacts no upstream), previews the import against the real Nexus and against the fixtures and
+requires the same plan item by item, then applies it and checks the result and an idempotent re-apply. Two known
+deltas are allowed: Community Edition refuses a writable group member (a Pro feature), and the `npm` fixture has no
+detail document on purpose (the list fallback of older releases). It takes the machine-wide `TEST_LOCK` like
+`test-integration` and always ends with `down -v`. To move to a newer Nexus, change the image tag and run it.
+
 ### Gitea checks
 
 `.gitea/workflows/check.yml` runs the parts of `make check` one step each, so a failure names the part. The dev image
@@ -52,7 +66,7 @@ variable:
 | Kind | Name | Required | Meaning |
 |---|---|---|---|
 | variable | `WAYSTATION_CI_INTEGRATION` | no | `false` skips the integration-test job; anything else (or unset) runs it |
-| variable | `WAYSTATION_CI_UI_SMOKE` | no | `false` skips the UI role smoke job (`make ui-smoke`: every rail page as minimal-permission users on the mock build); anything else (or unset) runs it |
+| variable | `WAYSTATION_CI_UI_SMOKE` | no | `false` skips the UI job (`make ui-smoke`: every rail page as minimal-permission users on the mock build, then `make e2e`: Playwright flows, axe, visual baseline and UI perf; the Playwright report is uploaded when it fails); anything else (or unset) runs it |
 
 The runner needs the `ubuntu-latest` label, Docker (about 6 GB of free memory for
 `integration`) and network access to the package registries. make starts its tools in containers that bind-mount
@@ -62,6 +76,20 @@ in the runner's `config.yaml`: the default (the workspace in a Docker volume) le
 fails with `can't open file '/src/...'`. The workflows pass `make workflow-lint` (actionlint). First runs on the
 Gitea runners (2026-11-10) failed on exactly that, on the unset `REGISTRY_HOST` variable (images) and on
 upload-artifact v4, which Gitea's artifact API does not support (perf now uses v3).
+
+### Gitea live client smoke
+
+`.gitea/workflows/clients-live.yml` runs `make clients-test FORMAT=all MODE=live` every night (03:45 UTC) and on
+manual runs (a single format can be chosen): every format's real clients against the live public upstreams through
+the harness's fake upstream in pass-through mode, so upstream changes the committed fixtures cannot show surface
+within a day (tests/clients/README.md). Formats run one after another, each in its own compose project; a run takes
+about an hour and needs network access to the public registries and about 6 GB of free memory (the `auth` format
+adds Keycloak and OpenLDAP).
+
+| Kind | Name | Required | Meaning |
+|---|---|---|---|
+| variable | `WAYSTATION_CI_CLIENTS_LIVE` | no | `false` skips the nightly live client smoke; anything else (or unset) runs it |
+| variable | `WAYSTATION_CI_ARM64` | no | `true` registers QEMU on the runner host (`docker/setup-qemu-action`, like `images.yml`) and runs the arm64 clients (`ARM64=1`); anything else skips them with a message |
 
 ### Releases (GitHub)
 

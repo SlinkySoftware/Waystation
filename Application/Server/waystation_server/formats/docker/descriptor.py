@@ -8,7 +8,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, SetupSnippet, UiHints
-from waystation_server.formats.common.setup import TOKEN, USERNAME, snippet
+from waystation_server.formats.common.setup import TOKEN, USERNAME, on, snippet
 from waystation_server.repos.model import RepoType
 
 _HOST = re.compile(
@@ -160,16 +160,32 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
         ),
     ]
     if opts.default_repo:
-        docker.append(
-            snippet(
-                'docker-mirror',
-                'Use as a Docker Hub mirror',
-                f'{{\n  "registry-mirrors": ["{ctx.base_url}"]\n}}',
-                language='json',
-                filename='/etc/docker/daemon.json',
-                description='Then restart the Docker daemon. Mirror mode only ever asks for Docker Hub images.',
-            )
+        mirror = snippet(
+            'docker-mirror',
+            'Use as a Docker Hub mirror',
+            f'{{\n  "registry-mirrors": ["{ctx.base_url}"]\n}}',
+            language='json',
+            filename='/etc/docker/daemon.json',
+            description='Then restart the Docker daemon. Mirror mode only ever asks for Docker Hub images.',
         )
+        desktop = 'Docker Desktop: Settings > Docker Engine'
+        docker += [
+            mirror,
+            on(
+                'macos',
+                mirror,
+                filename=desktop,
+                description='Add the key to the JSON there, then Apply & restart. Mirror mode only ever asks for '
+                'Docker Hub images.',
+            ),
+            on(
+                'windows',
+                mirror,
+                filename=desktop,
+                description='Add the key to the JSON there, then Apply & restart (Docker Engine without Desktop: '
+                'C:\\ProgramData\\docker\\config\\daemon.json). Mirror mode only ever asks for Docker Hub images.',
+            ),
+        ]
     upstream_host = 'docker.io' if opts.docker_hub else (opts.aliases[0] if opts.aliases else 'registry.example.com')
     containerd = snippet(
         'containerd-hosts',

@@ -49,6 +49,10 @@ REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
 AUDIT = 'audit'
 STATS_MINUTE = 'stats_minute'
+STATS_HOUR = 'stats_hour'  # closed hours rolled up from stats_minute (T-F09)
+STATS_DAY = 'stats_day'  # closed days rolled up from stats_hour
+STORAGE_SNAPSHOTS = 'storage_snapshots'  # hourly per-repository (and instance-wide) storage figures
+DOWNLOADS_DAILY = 'downloads_daily'  # downloads per component per day (top artifacts over a window)
 MIGRATIONS = 'migrations'
 # --- jobs (ARCHITECTURE §10)
 JOB_DEFINITIONS = 'job_definitions'
@@ -59,6 +63,10 @@ WEBHOOK_DELIVERIES = 'webhook_deliveries'  # one per (event, webhook), test or r
 
 DAY_S = 86_400
 STATS_MINUTE_RETENTION_DAYS = 7  # per-minute statistics (time-series TTL)
+STATS_HOUR_RETENTION_DAYS = 90  # hourly statistics (SPECIFICATION §4.7)
+STATS_DAY_RETENTION_DAYS = 730  # daily statistics: 2 years
+STORAGE_SNAPSHOT_RETENTION_DAYS = 730
+DOWNLOADS_DAILY_RETENTION_DAYS = 400
 CASE_INSENSITIVE = {'locale': 'en', 'strength': 2}
 
 
@@ -76,6 +84,12 @@ class CollectionSpec:
 
 def _ix(name: str, keys: list[tuple[str, Any]], **kwargs: Any) -> IndexModel:
     return IndexModel(keys, name=name, **kwargs)
+
+
+def _ts_indexes() -> tuple[IndexModel, ...]:
+    """Secondary indexes of the stats time-series collections: a repository's documents in time order (the stats
+    API's per-repository ranges) and every repository's in time order (instance-wide ranges, rollups)."""
+    return (_ix('repo_ts', [('m.repo_id', ASCENDING), ('ts', ASCENDING)]), _ix('ts', [('ts', ASCENDING)]))
 
 
 # Global search (SPECIFICATION §4.6, ``waystation_common.searchkeys``): prefix ranges on the lower-cased name, results
@@ -130,6 +144,8 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('username_unique', [('username', ASCENDING)], unique=True),
             _ix('source', [('source', ASCENDING)]),
             _ix('groups', [('groups', ASCENDING)]),
+            # Users holding a role (role delete/usage checks, "is there another administrator").
+            _ix('roles', [('roles', ASCENDING)]),
         ),
     ),
     CollectionSpec(
@@ -159,13 +175,17 @@ SPECS: tuple[CollectionSpec, ...] = (
     # A password accepted, the second factor (TOTP) not yet: read by ``_id`` (sha256 of the cookie) only.
     CollectionSpec(
         LOGIN_CHALLENGES,
-        (_ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),),
+        (
+            _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
+            # A user's pending challenges are dropped at sign-in, password change and when the user is changed.
+            _ix('user_id', [('user_id', ASCENDING)]),
+        ),
     ),
     CollectionSpec(RBAC_STATE),
     CollectionSpec(
         COMPONENTS,
         (
-            # "unique-ish" in DATA_MODEL: docker components carry tag sets, so uniqueness is not enforced here.
+            # Versions of a component in order (``version_sort``, waystation_common.versionsort).
             _ix(
                 'repo_coordinates',
                 [('repo_id', ASCENDING), ('namespace', ASCENDING), ('name', ASCENDING), ('version_sort', ASCENDING)],
@@ -180,6 +200,23 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('format_name_ci', [('format', ASCENDING), ('name', ASCENDING)], collation=CASE_INSENSITIVE),
             _ix('last_downloaded_at', [('last_downloaded_at', ASCENDING)]),
             _ix('text', [('name', TEXT), ('attributes.description', TEXT)]),
+            # T-S09: one component per (repository, format, namespace, name, version) for every format.
+            _ix(
+                'component_key_unique',
+                [
+                    ('repo_id', ASCENDING),
+                    ('format', ASCENDING),
+                    ('namespace', ASCENDING),
+                    ('name', ASCENDING),
+                    ('version', ASCENDING),
+                ],
+                unique=True,
+            ),
+            # Top artifacts (stats API): per repository, best first; a `$in` of visible repositories merges them.
+            _ix('repo_downloads', [('repo_id', ASCENDING), ('download_count', DESCENDING)]),
+            _ix('repo_bytes_served', [('repo_id', ASCENDING), ('bytes_served', DESCENDING)]),
+            _ix('repo_size', [('repo_id', ASCENDING), ('size_bytes', DESCENDING)]),
+            _ix('repo_created', [('repo_id', ASCENDING), ('created_at', DESCENDING)]),
         ),
     ),
     CollectionSpec(
@@ -388,6 +425,8 @@ SPECS: tuple[CollectionSpec, ...] = (
         AUDIT,
         (
             _ix('ts_desc', [('ts', DESCENDING)]),
+            # The audit log's order (newest first, id as the tie-break of the keyset cursor) without an in-memory sort.
+            _ix('ts_id_desc', [('ts', DESCENDING), ('_id', DESCENDING)]),
             _ix('principal_ts', [('principal.id', ASCENDING), ('ts', DESCENDING)]),
             _ix('action_ts', [('action', ASCENDING), ('ts', DESCENDING)]),
             _ix('principal_name_ts', [('principal.name', ASCENDING), ('ts', DESCENDING)]),
@@ -399,10 +438,43 @@ SPECS: tuple[CollectionSpec, ...] = (
     ),
     CollectionSpec(
         STATS_MINUTE,
+        _ts_indexes(),
         options={
             'timeseries': {'timeField': 'ts', 'metaField': 'm', 'granularity': 'minutes'},
             'expireAfterSeconds': STATS_MINUTE_RETENTION_DAYS * DAY_S,
         },
+    ),
+    CollectionSpec(
+        STATS_HOUR,
+        _ts_indexes(),
+        options={
+            'timeseries': {'timeField': 'ts', 'metaField': 'm', 'granularity': 'hours'},
+            'expireAfterSeconds': STATS_HOUR_RETENTION_DAYS * DAY_S,
+        },
+    ),
+    CollectionSpec(
+        STATS_DAY,
+        _ts_indexes(),
+        options={
+            'timeseries': {'timeField': 'ts', 'metaField': 'm', 'granularity': 'hours'},
+            'expireAfterSeconds': STATS_DAY_RETENTION_DAYS * DAY_S,
+        },
+    ),
+    CollectionSpec(
+        STORAGE_SNAPSHOTS,
+        _ts_indexes(),
+        options={
+            'timeseries': {'timeField': 'ts', 'metaField': 'm', 'granularity': 'hours'},
+            'expireAfterSeconds': STORAGE_SNAPSHOT_RETENTION_DAYS * DAY_S,
+        },
+    ),
+    CollectionSpec(
+        DOWNLOADS_DAILY,
+        (
+            _ix('repo_day', [('repo_id', ASCENDING), ('day', ASCENDING)]),
+            _ix('component_day', [('component_id', ASCENDING), ('day', ASCENDING)]),
+            _ix('day_ttl', [('day', ASCENDING)], expireAfterSeconds=DOWNLOADS_DAILY_RETENTION_DAYS * DAY_S),
+        ),
     ),
     CollectionSpec(MIGRATIONS),
     CollectionSpec(JOB_DEFINITIONS),
@@ -410,6 +482,8 @@ SPECS: tuple[CollectionSpec, ...] = (
         JOB_RUNS,
         (
             _ix('started_at', [('started_at', DESCENDING)]),
+            # The Tasks page's run list (newest first, id as the keyset tie-break) without an in-memory sort.
+            _ix('started_id_desc', [('started_at', DESCENDING), ('_id', DESCENDING)]),
             # Per-kind retention (90 d; 1 d for routine jobs such as the 10 s stats rollup).
             _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
             _ix('job_id', [('job_id', ASCENDING), ('started_at', DESCENDING)]),

@@ -16,6 +16,7 @@ from waystation_common.db.collections import (
     COMPONENTS,
     DOCKER_MANIFESTS,
     DOCKER_TAGS,
+    DOWNLOADS_DAILY,
     GALAXY_COLLECTIONS,
     GALAXY_IMPORTS,
     GO_MODULES,
@@ -35,7 +36,8 @@ from waystation_server.repos.model import RepoConfig
 # Per-repository content records dropped with the repository (blobs are reclaimed later by GC).
 CONTENT_COLLECTIONS = (
     ASSETS,
-    COMPONENTS,  # maven versions (format-tagged components)
+    COMPONENTS,
+    DOWNLOADS_DAILY,
     HELM_CHARTS,
     APT_POOL_INDEX,
     APT_PACKAGES,

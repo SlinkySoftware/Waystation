@@ -40,6 +40,17 @@ interface Completion {
 
 export type WorldListener = (event: LiveEvent, id: string | null) => void
 
+/** Test knobs (localStorage, set by the Playwright suites before the app loads): `ws.mock.still` = no live
+ * generator (deterministic screenshots); `ws.mock.load` = keep about that many transfers in flight (the 200-transfer
+ * frame-rate check, T-U03). */
+export function mockKnobs(): { still: boolean; load: number } {
+  try {
+    return { still: localStorage.getItem('ws.mock.still') === '1', load: Math.min(1000, Number(localStorage.getItem('ws.mock.load') ?? 0) || 0) }
+  } catch {
+    return { still: false, load: 0 }
+  }
+}
+
 export class MockWorld {
   readonly repos: Repository[] = seedRepositories()
   storageUsed = this.repos.reduce((a, r) => a + r.stats.size_bytes, 0)
@@ -60,6 +71,8 @@ export class MockWorld {
   private timer: ReturnType<typeof setInterval> | null = null
   private seq = 0
   private sinceTick = 0
+  private readonly knobs = mockKnobs()
+  private started = false
   private countdown = { docker: 400, npm: 2500, apt: 5000, yum: 3500, raw: 9000, trickle: 800, misc: 20000 }
 
   constructor() {
@@ -80,17 +93,24 @@ export class MockWorld {
   }
 
   start(): void {
-    if (this.timer) return
-    this.timer = setInterval(() => this.tick(TICK_MS), TICK_MS)
+    if (this.timer || this.started) return
+    this.started = true
     // Open on a busy moment: a cold multi-hundred-MiB pull, a dnf run and an npm install in flight.
     this.spawn(dockerPull(true, 'ghcr-proxy'))
     this.spawn(dnfRun('rocky'))
     this.spawn(npmInstall())
+    if (this.knobs.still) {
+      // Still mode: simulate three seconds at once, then freeze (the same picture on every run).
+      for (let i = 0; i < 12; i++) this.tick(TICK_MS)
+      return
+    }
+    this.timer = setInterval(() => this.tick(TICK_MS), TICK_MS)
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+    this.started = false
   }
 
   transfers(): Transfer[] {
@@ -155,6 +175,14 @@ export class MockWorld {
     if (c.misc <= 0) {
       this.miscActivity()
       c.misc = between(20000, 45000)
+    }
+    // Load test: top up with long cold pulls (a few layers each) until about `load` transfers are in flight.
+    const queued = () => this.jobs.reduce((a, j) => a + j.queue.length, 0)
+    for (let i = 0; i < 8 && this.knobs.load && busy + queued() < this.knobs.load; i++) {
+      // Layers only, all at once: the load is in flight, not queued behind its manifest.
+      const plan = dockerPull(true)
+      const specs = plan.specs.filter((spec) => spec.size >= 200 * 1024)
+      if (specs.length) this.spawn({ ...plan, specs, concurrency: specs.length })
     }
   }
 

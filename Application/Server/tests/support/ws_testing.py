@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 from starlette.responses import Response
+from ws_query_audit import request_scope
 
 from waystation_common.db.collections import REPOSITORIES
 from waystation_common.settings import Settings
@@ -39,7 +40,8 @@ def make_settings(tmp_path: Path, **overrides: Any) -> Settings:
 
 def asgi_client(services: Services, *, client: tuple[str, int] = ('127.0.0.1', 50000)) -> httpx.AsyncClient:
     app = create_app(services.settings, services=services)
-    transport = httpx.ASGITransport(app=app, client=client)
+    # Queries issued while a request is handled are request-path queries (index coverage, ws_query_audit).
+    transport = httpx.ASGITransport(app=request_scope(app), client=client)
     return httpx.AsyncClient(transport=transport, base_url=BASE_URL)
 
 

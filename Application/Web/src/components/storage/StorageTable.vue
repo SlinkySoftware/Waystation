@@ -38,6 +38,15 @@
           </div>
         </q-td>
       </template>
+      <template #body-cell-dedup="{ row }">
+        <q-td class="text-right"><SizeCell :bytes="row.dedup" /></q-td>
+      </template>
+      <template #header-cell-dedup="hp">
+        <q-th :props="hp">
+          {{ hp.col.label }}
+          <q-tooltip>{{ t('storage.table.dedupHint') }}</q-tooltip>
+        </q-th>
+      </template>
       <template #body-cell-average="{ row }">
         <q-td class="text-right"><SizeCell :bytes="row.average" /></q-td>
       </template>
@@ -95,7 +104,7 @@ const repos = useRepositoriesStore()
 const route = useRoute()
 const navigate = useQueryNavigate()
 
-const SORTS = ['repository', 'format', 'size', 'share', 'artifacts', 'average'] as const
+const SORTS = ['repository', 'format', 'size', 'share', 'artifacts', 'dedup', 'average'] as const
 const needle = computed<string | null>({
   get: () => (typeof route.query.q === 'string' ? route.query.q : null),
   set: (value) => navigate({ q: value || null }, true),
@@ -118,6 +127,7 @@ const columns = computed<QTableColumn<RepoStorageRow>[]>(() => [
   { name: 'size', label: t('storage.table.size'), field: 'bytes', align: 'right', sortable: true },
   { name: 'share', label: t('storage.table.share'), field: 'share', align: 'left', sortable: true, style: 'width: 220px' },
   { name: 'artifacts', label: t('storage.table.artifacts'), field: 'artifacts', format: (v: number) => formatCount(v), align: 'right', sortable: true },
+  { name: 'dedup', label: t('storage.table.dedup'), field: 'dedup', align: 'right', sortable: true, classes: 'gt-xs', headerClasses: 'gt-xs' },
   { name: 'average', label: t('storage.table.average'), field: (r) => r.average ?? -1, align: 'right', sortable: true, classes: 'gt-sm', headerClasses: 'gt-sm' },
   { name: 'activity', label: '', field: 'repository', align: 'right' },
 ])

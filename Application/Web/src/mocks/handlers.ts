@@ -4,7 +4,7 @@
 // CSRF header on unsafe methods, cursor pagination, realistic latency.
 import { delay, http, HttpResponse } from 'msw'
 
-import type { Action, AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, Problem, PypiYank, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
+import type { Action, AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, ProfileUpdate, Problem, PypiYank, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
 import { accessHandler } from './access'
@@ -14,16 +14,16 @@ import { auditHandlers, recordAudit } from './audit'
 import { ADMIN_USER_ID, CUSTOM_ROLES } from './fixtures/admin'
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
-import { dockerImagesFor, dockerManifestFor, dockerTagsFor } from './fixtures/docker'
+import { dockerImagesFor, dockerManifestFor, dockerReferrersFor, dockerTagsFor } from './fixtures/docker'
 import { galaxyCollectionList, galaxyNamespaceList, galaxyVersionsFor } from './fixtures/galaxy'
 import { helmChartList, helmVersionsFor } from './fixtures/helm'
-import { npmPackageList, npmVersionsFor } from './fixtures/npm'
+import { npmPackageList, npmReadme, npmVersionsFor } from './fixtures/npm'
 import { goModuleList, goVersionsFor } from './fixtures/go'
 import { terraformProviderList, terraformVersionsFor } from './fixtures/terraform'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { yumPackageList, yumVersionsFor } from './fixtures/yum'
-import { genericTree, rawListing } from './fixtures/raw'
+import { genericListing, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
 import { nexusImportHandlers } from './nexusImport'
@@ -32,6 +32,7 @@ import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
+import { digestHex, digestUsage, HISTORY_STEPS, repoDedup, storageHistory, type TopBy, topArtifacts, type TopRepoBy, topRepositories } from './top'
 import { serviceAccounts, tokenHandlers } from './tokens'
 import { TotpState } from './totp'
 import { webhookHandlers } from './webhooks'
@@ -42,7 +43,15 @@ const SESSION_KEY = 'ws.mock.session'
 const CSRF = 'mock-csrf-7f3a9c'
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$/
 
-let preferences: Preferences = { theme: 'system', density: 'comfortable' }
+// Kept in localStorage like the mock session, so a reload keeps them (the server stores them per user).
+const PREFS_KEY = 'ws.mock.preferences'
+let preferences: Preferences = (() => {
+  try {
+    return { theme: 'system', density: 'comfortable', ...(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Preferences>) }
+  } catch {
+    return { theme: 'system', density: 'comfortable' }
+  }
+})()
 const providers = seedProviders()
 ROLES.push(...CUSTOM_ROLES.map((r) => ({ ...r, permissions: [...r.permissions] })))
 const admin = new AdminWorld({ roles: ROLES, providers: () => providers, repos: () => world.repos, serviceAccounts })
@@ -314,10 +323,54 @@ export const handlers = [
     await latency()
     return new HttpResponse(null, { status: 204 })
   }),
+  // ---------------------------------------------------------------- profile and own sessions (T-U09)
+  http.patch(`${API}/auth/me`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const name = signedInUser()!
+    const known = admin.users.find((u) => u.username === name)
+    if (known && known.source !== 'local') return problem(409, 'Conflict', 'This account gets its profile from its sign-in provider.')
+    const body = (await request.json()) as ProfileUpdate
+    if (body.display_name !== undefined && body.display_name !== null && !body.display_name.trim()) {
+      return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'display_name', message: 'required', code: 'required' }])
+    }
+    if (known) {
+      if (body.display_name) known.display_name = body.display_name.trim()
+      if (body.email !== undefined) known.email = body.email || null
+    }
+    return HttpResponse.json(session(name).user)
+  }),
+  http.get(`${API}/auth/sessions`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const name = signedInUser()!
+    const known = admin.users.find((u) => u.username === name)
+    return HttpResponse.json(known ? admin.userSessions(known.id, name) : [])
+  }),
+  http.delete(`${API}/auth/sessions`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    const known = admin.users.find((u) => u.username === signedInUser())
+    const list = known ? (admin.sessions.get(known.id) ?? []) : []
+    if (known) admin.sessions.set(known.id, list.slice(0, 1))
+    return HttpResponse.json({ revoked: Math.max(0, list.length - 1) })
+  }),
+  http.delete(`${API}/auth/sessions/:id`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    const known = admin.users.find((u) => u.username === signedInUser())
+    const list = known ? (admin.sessions.get(known.id) ?? []) : []
+    if (!list.some((s) => s.id === params.id)) return notFound()
+    admin.sessions.set(known!.id, list.filter((s) => s.id !== params.id))
+    return new HttpResponse(null, { status: 204 })
+  }),
   http.put(`${API}/auth/me/preferences`, async ({ request }) => {
     const denied = guard(request)
     if (denied) return denied
     preferences = (await request.json()) as Preferences
+    localStorage.setItem(PREFS_KEY, JSON.stringify(preferences))
     return HttpResponse.json(preferences)
   }),
 
@@ -494,7 +547,7 @@ export const handlers = [
     if (!repo) return error
     const url = new URL(request.url)
     const path = url.searchParams.get('path') ?? ''
-    const entries = repo.format === 'raw' ? rawListing(repo.name, path) : repo.format === 'maven' && path ? mavenListing(repo, path) : path ? [] : genericTree(repo.format)
+    const entries = repo.format === 'raw' ? rawListing(repo.name, path) : repo.format === 'maven' && path ? mavenListing(repo, path) : genericListing(repo.format, path)
     if (!entries) return notFound()
     const page = paginate(entries, url)
     return HttpResponse.json({ path, entries: page.items, next_cursor: page.next_cursor })
@@ -532,6 +585,18 @@ export const handlers = [
     const manifest = dockerManifestFor(repo.name, url.searchParams.get('image') ?? '', url.searchParams.get('reference') ?? '', url.searchParams.get('platform') ?? undefined)
     return manifest ? HttpResponse.json(manifest) : notFound()
   }),
+  http.get(`${API}/repositories/:name/docker/referrers`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'docker')
+    if (!repo) return error
+    const url = new URL(request.url)
+    const digest = url.searchParams.get('digest') ?? ''
+    if (!/^sha(256:[a-f0-9]{64}|512:[a-f0-9]{128})$/.test(digest)) return problem(400, 'Bad Request', 'digest must be sha256:<64 hex> or sha512:<128 hex>')
+    const list = dockerReferrersFor(repo.name, url.searchParams.get('image') ?? '', digest)
+    return list ? HttpResponse.json(list) : notFound()
+  }),
   http.get(`${API}/repositories/:name/npm/packages`, async ({ request, params }) => {
     const denied = guard(request)
     if (denied) return denied
@@ -552,7 +617,8 @@ export const handlers = [
     const url = new URL(request.url)
     const found = npmVersionsFor(url.searchParams.get('package') ?? '')
     if (!found) return notFound()
-    return HttpResponse.json({ package: found.pkg, dist_tags: found.distTags, ...paginate(found.versions, url) })
+    const readme = url.searchParams.get('cursor') ? null : npmReadme(found.pkg.name)
+    return HttpResponse.json({ package: found.pkg, dist_tags: found.distTags, ...paginate(found.versions, url), readme })
   }),
   http.get(`${API}/repositories/:name/helm/charts`, async ({ request, params }) => {
     const denied = guard(request)
@@ -803,8 +869,49 @@ export const handlers = [
       blob_count: Math.round(world.artifacts * 0.86),
       dedup_saved_bytes: Math.round(world.storageUsed * 0.071),
       by_format: [...formats].map(([format, v]) => ({ format, ...v })).sort((a, b) => b.bytes - a.bytes),
-      by_repository: world.repos.map((r) => ({ repository: r.name, format: r.format, bytes: r.stats.size_bytes, artifacts: r.stats.artifact_count })).sort((a, b) => b.bytes - a.bytes),
+      by_repository: world.repos.map((r) => ({ repository: r.name, format: r.format, bytes: r.stats.size_bytes, artifacts: r.stats.artifact_count, ...repoDedup(r) })).sort((a, b) => b.bytes - a.bytes),
     })
+  }),
+  http.get(`${API}/stats/top/artifacts`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const url = new URL(request.url)
+    const byParam = url.searchParams.get('by')
+    const by: TopBy = byParam === 'bytes' || byParam === 'size' || byParam === 'recent' ? byParam : 'downloads'
+    const w = url.searchParams.get('window')
+    const window = w === '24h' || w === '30d' || w === 'all' ? w : '7d'
+    const repo = url.searchParams.get('repo')
+    const visible = visibleRepos()
+    if (repo && !visible.some((r) => r.name === repo)) return notFound()
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 10)))
+    return HttpResponse.json(topArtifacts(visible, by, window, repo, limit))
+  }),
+  http.get(`${API}/stats/top/repositories`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const url = new URL(request.url)
+    const byParam = url.searchParams.get('by')
+    const by: TopRepoBy = byParam === 'bytes' || byParam === 'saved' ? byParam : 'requests'
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 10)))
+    return HttpResponse.json(topRepositories(visibleRepos(), range(url), by, limit))
+  }),
+  http.get(`${API}/stats/storage/history`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const r = new URL(request.url).searchParams.get('range')
+    const historyRange = r && r in HISTORY_STEPS ? (r as keyof typeof HISTORY_STEPS) : '30d'
+    return HttpResponse.json(storageHistory(world, visibleRepos(), historyRange))
+  }),
+  http.get(`${API}/digests/:digest/usage`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const hex = digestHex(String(params.digest))
+    if (!hex) return problem(400, 'Bad request', 'Not a sha256 digest.')
+    return HttpResponse.json(digestUsage(visibleRepos(), hex))
   }),
   http.get(`${API}/storage/guard`, async ({ request }) => {
     const denied = guard(request)
