@@ -40,6 +40,7 @@ NPM_VERSIONS = 'npm_versions'
 PYPI_PACKAGES = 'pypi_packages'
 GO_MODULES = 'go_modules'
 TERRAFORM_PROVIDERS = 'terraform_providers'
+TERRAFORM_MODULES = 'terraform_modules'  # module summaries and versions (T-P5-TFM)
 YUM_PACKAGES = 'yum_packages'
 HELM_CHARTS = 'helm_charts'
 GALAXY_COLLECTIONS = 'galaxy_collections'
@@ -122,6 +123,13 @@ SPECS: tuple[CollectionSpec, ...] = (
             # SPECIFICATION §3: names are unique case-insensitively (stored as given).
             _ix('name_ci_unique', [('name', ASCENDING)], unique=True, collation=CASE_INSENSITIVE),
             _ix('format_type', [('format', ASCENDING), ('type', ASCENDING)]),
+            # SPECIFICATION §4.2: one hosted Terraform repository per instance (``/.well-known/terraform.json``).
+            _ix(
+                'terraform_hosted_single',
+                [('format', ASCENDING)],
+                unique=True,
+                partialFilterExpression={'format': 'terraform', 'type': 'hosted'},
+            ),
         ),
     ),
     CollectionSpec(
@@ -348,7 +356,17 @@ SPECS: tuple[CollectionSpec, ...] = (
         TERRAFORM_PROVIDERS,
         (
             # One summary per provider address (<hostname>/<namespace>/<type>) a Terraform mirror has cached
-            # something of, with the h1 hashes of its cached archives.
+            # something of, with the h1 hashes of its cached archives; in the hosted repository one per
+            # <namespace>/<type> with its uploaded releases.
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=True),
+        ),
+    ),
+    CollectionSpec(
+        TERRAFORM_MODULES,
+        (
+            # One document per module (<namespace>/<name>/<system>) of a repository: a proxy's cached version list
+            # and archives, the hosted repository's uploaded versions (a version is pushed at most once).
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=True),
         ),

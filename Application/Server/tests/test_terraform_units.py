@@ -297,7 +297,7 @@ def test_options_and_origins() -> None:
 
 
 def test_descriptor_and_setup_snippets() -> None:
-    assert DESCRIPTOR.types == frozenset({RepoType.PROXY})
+    assert DESCRIPTOR.types == frozenset({RepoType.PROXY, RepoType.HOSTED})
     assert DESCRIPTOR.probe_path(TerraformOptions()) == '.well-known/terraform.json'
     repo = make_repo('tf-mirror', 'terraform')
     ctx = SetupContext(repo=repo, base_url='https://ws.example.com', registry_host='ws.example.com', username='me')

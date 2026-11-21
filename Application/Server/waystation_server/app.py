@@ -8,7 +8,8 @@ Mounted:
 
 - format endpoints: ``/repository/<repo>/...`` and ``/v2/...`` (``routing``), native errors;
 - the REST API under ``/api/v1/`` (``api``), problem+json errors, OpenAPI at ``/api/v1/openapi.json``;
-- ``/healthz``, ``/readyz``, ``/metrics`` (``health``).
+- ``/healthz``, ``/readyz``, ``/metrics`` (``health``);
+- ``/.well-known/terraform.json`` (``wellknown``: Terraform service discovery for the hosted Terraform repository).
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 
 from waystation_common.settings import Settings, get_settings
-from waystation_server import api, health, oidc_auth, plugins, problems, registry_auth, routing
+from waystation_server import api, health, oidc_auth, plugins, problems, registry_auth, routing, wellknown
 from waystation_server.api import openapi
 from waystation_server.clientip import ClientResolver
 from waystation_server.middleware import HeadMiddleware, RequestContextMiddleware
@@ -63,6 +64,7 @@ def create_app(settings: Settings | None = None, *, services: Services | None = 
     app.include_router(routing.router)
     app.include_router(registry_auth.router)
     app.include_router(oidc_auth.router)
+    app.include_router(wellknown.router)
     app.include_router(api.build_router())
     openapi.install(app, services.formats if services is not None else plugins.default_registry())
     app.add_middleware(HeadMiddleware)

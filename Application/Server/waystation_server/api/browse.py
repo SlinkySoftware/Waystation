@@ -50,6 +50,8 @@ from waystation_server.browse.models import (
     PypiYank,
     PypiYankResult,
     TerraformBrowser,
+    TerraformModulePage,
+    TerraformModuleVersionPage,
     TerraformProviderPage,
     TerraformVersionPage,
     YumBrowser,
@@ -622,7 +624,15 @@ ProviderAddress = Annotated[
     str,
     Query(
         max_length=400,
-        description='Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null`',
+        description='Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null` '
+        '(the hosted repository: `<namespace>/<type>`)',
+    ),
+]
+ModuleAddress = Annotated[
+    str,
+    Query(
+        max_length=400,
+        description='Module address `<namespace>/<name>/<system>`, e.g. `hashicorp/consul/aws`',
     ),
 ]
 
@@ -660,3 +670,38 @@ async def list_terraform_versions(
     repo: RepoConfig = request.state.repo
     browser = _terraform(svc, repo)
     return await browser.versions(_context(svc, repo), provider=provider, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/terraform/modules',
+    response_model=TerraformModulePage,
+    operation_id='listTerraformModules',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_terraform_modules(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> TerraformModulePage:
+    repo: RepoConfig = request.state.repo
+    browser = _terraform(svc, repo)
+    return await browser.modules(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/terraform/module-versions',
+    response_model=TerraformModuleVersionPage,
+    operation_id='listTerraformModuleVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_terraform_module_versions(
+    name: str, request: Request, svc: ServicesDep, module: ModuleAddress, cursor: Cursor = None, limit: Limit = 50
+) -> TerraformModuleVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _terraform(svc, repo)
+    return await browser.module_versions(_context(svc, repo), module=module, cursor=cursor, limit=limit)

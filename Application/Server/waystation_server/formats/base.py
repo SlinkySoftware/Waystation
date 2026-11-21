@@ -35,6 +35,7 @@ from starlette.responses import Response
 
 from waystation_common.errors import NotFound
 from waystation_server.repos.model import RepoConfig, RepoType
+from waystation_server.security.download_urls import PARAM as DOWNLOAD_PARAM
 from waystation_server.security.principal import Principal
 
 if TYPE_CHECKING:
@@ -155,6 +156,10 @@ def _nothing_allowed(action: Action, repo: RepoConfig) -> bool:
     return False
 
 
+def _no_grant(path: str) -> str:
+    return ''
+
+
 @dataclass
 class FormatRequest:
     request: Request
@@ -179,6 +184,9 @@ class FormatRequest:
     # API token's secret; sign-out: revoke the API token this request was authenticated with, when it is that one.
     _sign_in: Callable[[str, str, str], Awaitable[str]] = field(repr=False, default=_no_sign_in)
     _sign_out: Callable[[str], Awaitable[bool]] = field(repr=False, default=_no_sign_out)
+    # A signed download grant for a path of this repository ('' when the principal is anonymous: anonymous URLs work
+    # without one). adr/0009 (proposed), ``waystation_server.security.download_urls``.
+    _download_grant: Callable[[str], str] = field(repr=False, default=_no_grant)
 
     @property
     def method(self) -> str:
@@ -226,6 +234,13 @@ class FormatRequest:
     async def sign_out(self, secret: str) -> bool:
         """Revoke the API token ``secret`` when it is the one this request was authenticated with (``npm logout``)."""
         return await self._sign_out(secret)
+
+    def download_query(self, path: str) -> str:
+        """The query string (``?ws_grant=...``, or '') that lets a client without this request's credentials download
+        ``path`` (a file of this repository) for a few minutes: Terraform and OpenTofu fetch the files a registry answer
+        points at without their registry token (adr/0009, proposed)."""
+        grant = self._download_grant(path)
+        return f'?{DOWNLOAD_PARAM}={grant}' if grant else ''
 
     def log(self, **fields: Any) -> None:
         """Add fields to this request's access-log line."""

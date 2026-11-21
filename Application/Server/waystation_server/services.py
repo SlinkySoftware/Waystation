@@ -39,6 +39,7 @@ from waystation_server.proxy.http import UpstreamClients, network_of
 from waystation_server.repos.catalog import RepoCatalog
 from waystation_server.repos.model import AuthKind, RepoConfig, secret_aad
 from waystation_server.repos.quota import GuardKeeper, Quotas
+from waystation_server.security.download_urls import DownloadUrls
 from waystation_server.security.groups import GroupDirectory
 from waystation_server.security.ldap import LdapAuthenticator
 from waystation_server.security.oidc import OidcClient, UpstreamHttp
@@ -91,6 +92,7 @@ class Services:
     # Tried in order for ``Authorization: Bearer`` when there is no session (the Docker token service adds one).
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
+    download_urls: DownloadUrls = field(default_factory=lambda: DownloadUrls([]))  # adr/0009 (proposed)
     mongo_client: Client | None = None
     check_schema_on_start: bool = True
     _started: bool = field(default=False, repr=False)
@@ -179,6 +181,7 @@ class Services:
             ),
             hosted=HostedStore(db=db, blobs=blobs, emitter=emitter, metrics=metrics, quotas=quotas, jobs=jobs),
             keyring=keyring,
+            download_urls=DownloadUrls.from_settings(settings),
             mongo_client=client,
             check_schema_on_start=check_schema_on_start,
         )

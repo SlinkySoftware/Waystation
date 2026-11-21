@@ -60,7 +60,9 @@ from waystation_common.errors import Forbidden, NotFound, Unauthorized, Waystati
 from waystation_server.repos.model import RepoConfig
 from waystation_server.security.actions import GLOBAL_ACTIONS, Action, Grants, Permission, TokenScope
 from waystation_server.security.authn import authenticate, current_session
-from waystation_server.security.principal import ANONYMOUS_ROLE, AuthMethod, Principal, TokenLimits
+from waystation_server.security.download_urls import PARAM as DOWNLOAD_PARAM
+from waystation_server.security.download_urls import DownloadUrls
+from waystation_server.security.principal import ANONYMOUS_ROLE, AuthMethod, Principal, PrincipalKind, TokenLimits
 from waystation_server.security.sessions import CSRF_HEADER, csrf_matches
 
 log = logging.getLogger('waystation.access')
@@ -421,6 +423,21 @@ def hidden_repo(request: Request, principal: Principal) -> WaystationError:
     ):
         return Unauthorized('authentication required')
     return NotFound('Not Found')
+
+
+DOWNLOAD_GRANT = Principal(
+    PrincipalKind.ANONYMOUS, 'signed-url', 'signed download URL', roles=(), method=AuthMethod.SIGNED_URL
+)
+
+
+def download_grant(request: Request, repo: RepoConfig, path: str, urls: DownloadUrls) -> Principal | None:
+    """A ``GET``/``HEAD`` of ``path`` in ``repo`` carrying a valid signed download grant (adr/0009, proposed;
+    ``security.download_urls``): the principal that may read exactly that file and nothing else; None otherwise (the
+    request is then authenticated and authorised as usual)."""
+    grant = request.query_params.get(DOWNLOAD_PARAM)
+    if not grant or request.method not in ('GET', 'HEAD') or not repo.online:
+        return None
+    return DOWNLOAD_GRANT if urls.verify(grant, repo.id, path) else None
 
 
 async def authorize_repo(request: Request, repo: RepoConfig | None, action: Action) -> Principal:
