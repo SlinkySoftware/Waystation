@@ -113,7 +113,7 @@ async def test_stats_from_the_component_index_and_snapshots(
         ('mirror', 'a.bin', 'asset'),
     ]
     assert usage['size'] == len(DATA) and usage['truncated'] is False
-    assert (await admin.get('/api/v1/digests/not-a-digest/usage')).status_code == 422
+    assert (await admin.get('/api/v1/digests/not-a-digest/usage')).status_code == 400
     unknown = await get(admin, '/api/v1/digests/' + '0' * 64 + '/usage')
     assert unknown == {'digest': 'sha256:' + '0' * 64, 'size': None, 'items': [], 'truncated': False}
 

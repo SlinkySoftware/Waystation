@@ -816,7 +816,7 @@ export const handlers = [
     if (denied) return denied
     await latency()
     const hex = digestHex(String(params.digest))
-    if (!hex) return problem(422, 'Validation failed', 'Not a sha256 digest.', [{ field: 'digest', message: 'must be sha256:<64 hex> or 64 hex characters', code: 'pattern' }])
+    if (!hex) return problem(400, 'Bad request', 'Not a sha256 digest.')
     return HttpResponse.json(digestUsage(visibleRepos(), hex))
   }),
   http.get(`${API}/storage/guard`, async ({ request }) => {

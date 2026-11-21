@@ -10,11 +10,20 @@ period, per repository (``m.repo_id``, ``m.format``); percentiles are computed f
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from waystation_common.db.client import Database
-from waystation_common.db.collections import STATS_DAY, STATS_HOUR, STATS_MINUTE, STORAGE_SNAPSHOTS
+from waystation_common.db.collections import (
+    STATS_DAY,
+    STATS_DAY_RETENTION_DAYS,
+    STATS_HOUR,
+    STATS_HOUR_RETENTION_DAYS,
+    STATS_MINUTE,
+    STATS_MINUTE_RETENTION_DAYS,
+    STORAGE_SNAPSHOT_RETENTION_DAYS,
+    STORAGE_SNAPSHOTS,
+)
 from waystation_common.events.keys import COUNTERS, LATENCY_FIELDS
 
 HISTOGRAMS = ('lat_hist', 'ulat_hist')
@@ -92,13 +101,28 @@ async def insert_period(db: Database, collection: str, docs: Iterable[dict[str, 
     return len(fresh)
 
 
+RETENTION_DAYS = {
+    STATS_MINUTE: STATS_MINUTE_RETENTION_DAYS,
+    STATS_HOUR: STATS_HOUR_RETENTION_DAYS,
+    STATS_DAY: STATS_DAY_RETENTION_DAYS,
+    STORAGE_SNAPSHOTS: STORAGE_SNAPSHOT_RETENTION_DAYS,
+}
+
+
+def _kept(collection: str) -> dict[str, Any]:
+    """``ts`` within the collection's retention: an unbounded sort on a time-series collection reads every bucket;
+    a bounded ``ts`` range is served by its ``ts`` index."""
+    since = datetime.now(UTC) - timedelta(days=RETENTION_DAYS[collection] + 1)
+    return {'ts': {'$gte': since}}
+
+
 async def newest(db: Database, collection: str) -> datetime | None:
-    doc = await db[collection].find_one({}, {'ts': 1}, sort=[('ts', -1)])
+    doc = await db[collection].find_one(_kept(collection), {'ts': 1}, sort=[('ts', -1)])
     return doc['ts'] if doc else None
 
 
 async def oldest(db: Database, collection: str) -> datetime | None:
-    doc = await db[collection].find_one({}, {'ts': 1}, sort=[('ts', 1)])
+    doc = await db[collection].find_one(_kept(collection), {'ts': 1}, sort=[('ts', 1)])
     return doc['ts'] if doc else None
 
 

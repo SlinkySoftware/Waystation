@@ -91,7 +91,14 @@ async def health(services: Services, repo_id: str) -> dict[str, str]:
 async def upstream_events(services: Services) -> list[dict[str, Any]]:
     await services.emitter.flush()
     events = [json.loads(f['data']) for _, f in await services.valkey.xrange(keys.ACTIVITY)]
-    return [e for e in events if e['type'] == 'upstream.state']
+    return [e for e in events if e['type'] == 'upstream.state' and 'event' in e['detail']]  # the breaker's
+
+
+async def health_changes(services: Services) -> list[str]:
+    """The emitter's announcements: ``degraded`` on the first failure, ``ok`` on the next success."""
+    await services.emitter.flush()
+    events = [json.loads(f['data']) for _, f in await services.valkey.xrange(keys.ACTIVITY)]
+    return [e['detail']['state'] for e in events if e['type'] == 'upstream.state' and 'event' not in e['detail']]
 
 
 def failing(status: int = 503) -> Callable[[Seen], Respond]:
@@ -129,6 +136,7 @@ async def test_blocks_after_consecutive_failures_then_backs_off_probes_and_resum
     assert row['blocked_until'] is not None
     assert (await admin.get('/api/v1/repositories/files')).json()['status'] == 'blocked'
     [event] = await upstream_events(services)
+    assert await health_changes(services) == ['degraded']  # announced once, at the first failure
     assert event['detail']['event'] == 'blocked'
     assert 'auto-blocked for 30 s after 3 consecutive failures' in event['detail']['summary']
     activity = (await admin.get('/api/v1/activity', params={'kind': 'upstream_state'})).json()['items']
@@ -167,6 +175,7 @@ async def test_blocks_after_consecutive_failures_then_backs_off_probes_and_resum
     state = await health(services, repo)
     assert 'blocked_until' not in state and state['block_failures'] == '0'
     assert [e['detail']['event'] for e in await upstream_events(services)][-1] == 'resumed'
+    assert await health_changes(services) == ['degraded', 'ok']
     [row] = (await admin.get('/api/v1/stats/upstreams')).json()
     assert row['status'] != 'blocked' and row['blocked_until'] is None
     upstream.routes['/b'] = Respond(200, {}, b'b')

@@ -2704,7 +2704,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/DigestUsage' }
-        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '400':
+          description: Not a sha256 digest
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   /transfers:
     get:

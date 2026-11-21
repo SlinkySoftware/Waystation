@@ -9015,7 +9015,15 @@ export interface operations {
                     "application/json": components["schemas"]["DigestUsage"];
                 };
             };
-            422: components["responses"]["ValidationFailed"];
+            /** @description Not a sha256 digest */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listTransfers: {

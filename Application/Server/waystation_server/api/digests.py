@@ -7,13 +7,14 @@ repositories the principal may browse (others are left out, never named). At mos
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from waystation_common.errors import ValidationFailed
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.search import PROBLEM
 from waystation_server.db import content as content_db
 from waystation_server.repos.schemas import Format
 from waystation_server.security import access
@@ -42,7 +43,10 @@ class DigestUsage(BaseModel):
     truncated: bool
 
 
-@router.get('/digests/{digest}/usage', response_model=DigestUsage, operation_id='getDigestUsage')
+BAD_REQUEST: dict[int | str, dict[str, Any]] = {400: PROBLEM}
+
+
+@router.get('/digests/{digest}/usage', response_model=DigestUsage, operation_id='getDigestUsage', responses=BAD_REQUEST)
 @access.filtered(Action.BROWSE)
 async def get_digest_usage(digest: str, request: Request, svc: ServicesDep) -> DigestUsage:
     match = _DIGEST.match(digest)
