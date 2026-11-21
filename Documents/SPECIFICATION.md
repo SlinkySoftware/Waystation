@@ -463,7 +463,9 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   account, or changing its roles) is announced on the Valkey `revocations` channel and refused by every replica
   within a second; resolved tokens are cached per process for at most 5 s. Rejected tokens are counted per client
   address (`TOKEN_FAILURE_LIMIT` per 5 min, then 429). Presented but invalid credentials are refused (401), never
-  downgraded to anonymous. Creating a token needs an interactive session (a token cannot mint tokens).
+  downgraded to anonymous: any `Authorization` header outside `/v2/` that does not resolve to a principal (a value
+  not shaped like an API token, an unknown scheme, a password instead of a token) gets the 401 challenge, also on a
+  repository anonymous may read (2026-11-21). Creating a token needs an interactive session (a token cannot mint tokens).
 - **Service accounts**: non-human principals holding built-in roles, managed by `user-admin`
   (`/api/v1/service-accounts`, tokens under `/service-accounts/{id}/tokens`); they authenticate only with API
   tokens. Only administrators may give a service account `admin`. `/api/v1/tokens` lists and revokes every token
@@ -501,7 +503,8 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   only after a challenge (Maven, Gradle, sbt, Helm, pip with a keyring) work with plain credentials, like with
   Nexus. A repository that does not exist answers exactly the same (status, headers, body), so anonymous callers
   cannot enumerate repository names; a visible repository the anonymous principal may not act on gives the same
-  answer too. A request with credentials keeps `404` for a repository it cannot see. `/v2/` (Bearer challenge), the
+  answer too. An authenticated request keeps `404` for a repository it cannot see; a request whose credentials are
+  not valid gets the same `401` challenge for every repository (hidden, missing or visible) before any lookup. `/v2/` (Bearer challenge), the
   REST API, search and browse are unchanged.
 - Anonymous access: a configurable `anonymous` principal with its own roles (default: read on proxy repos only).
   Now: `GET/PUT /api/v1/anonymous-access` (`user-admin`) sets its roles: the built-in `anonymous` role and/or roles

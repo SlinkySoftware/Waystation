@@ -36,7 +36,8 @@ format-route path, with a test in the route-enumeration suite.
 ## Implementation (2026-11-10)
 - `security.access.hidden_repo(request, principal)` is the only place that decides between `404` and the challenge:
   `401` when the principal is anonymous, the request has no `Authorization` header and the path is under
-  `/repository/`; `404` otherwise (including credentials that did not resolve to a principal). `authorize_repo` and
+  `/repository/`; `404` otherwise. (Amended 2026-11-21, T-S12: credentials that do not resolve to a principal
+  never get here: authentication refuses them with the `401` challenge for every repository, SPEC §4.9.) `authorize_repo` and
   the format router use it for hidden repositories, for repositories that do not exist and for rejected paths on
   either, so an anonymous caller gets byte-identical answers (status, `WWW-Authenticate`, plain-text body) for a
   hidden and a missing repository. This removes the enumeration consequence above: anonymous callers cannot tell a

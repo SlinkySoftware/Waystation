@@ -1,5 +1,6 @@
 """RBAC decision point (ARCHITECTURE §7): decisions, the route-enumeration test and an HTTP matrix."""
 
+import base64
 import dataclasses
 import re
 from collections.abc import AsyncIterator
@@ -380,14 +381,47 @@ async def test_anonymous_gets_the_same_challenge_for_hidden_and_missing_reposito
     }
 
 
-@pytest.mark.parametrize('who', ['nobody', 'not-a-known-token'])
 @pytest.mark.parametrize('repo', ['npm-hosted', 'no-such-repo'])
-async def test_requests_with_credentials_keep_the_404(matrix_client: httpx.AsyncClient, who: str, repo: str) -> None:
-    """An authenticated principal that cannot see the repository, or a request whose credentials did not resolve to a
-    principal, keeps the 404 (ADR 0005 only changes requests without credentials)."""
-    response = await matrix_client.get(f'/repository/{repo}/pkg', headers={'Authorization': f'Bearer {who}'})
+async def test_authenticated_requests_keep_the_404(matrix_client: httpx.AsyncClient, repo: str) -> None:
+    """An authenticated principal that cannot see the repository keeps the 404 (ADR 0005 only changes requests
+    without credentials)."""
+    response = await matrix_client.get(f'/repository/{repo}/pkg', headers={'Authorization': 'Bearer nobody'})
     assert response.status_code == 404, response.text
     assert 'www-authenticate' not in response.headers
+
+
+INVALID_CREDENTIALS = [
+    'Bearer not-a-known-token',  # not shaped like an API token, no bearer authenticator takes it
+    'Token not-a-known-token',
+    'Bearer',  # a scheme without a value
+    'Basic !!!',  # malformed base64
+    'Basic ' + base64.b64encode(b'no-colon').decode(),
+    'Basic ' + base64.b64encode(b'user:a-password').decode(),  # a password, not an API token
+    'Digest username="x"',  # a scheme Waystation does not speak
+]
+
+
+@pytest.mark.parametrize('header', INVALID_CREDENTIALS)
+@pytest.mark.parametrize('method', ['GET', 'PUT'])
+async def test_invalid_credentials_are_refused_never_downgraded(
+    matrix_client: httpx.AsyncClient, header: str, method: str
+) -> None:
+    """SPEC §4.9: presented credentials that are not valid are a 401 challenge, never anonymous access: not on a
+    repository anonymous may read (it would otherwise be served), and the same answer for a hidden repository and a
+    missing one (ADR 0005: names stay unenumerable)."""
+    answers = []
+    for repo in ('npm-proxy', 'npm-hosted', 'no-such-repo'):
+        response = await matrix_client.request(method, f'/repository/{repo}/pkg', headers={'Authorization': header})
+        assert response.status_code == 401, f'{header} {method} {repo}: {response.status_code}'
+        assert response.headers['www-authenticate'].startswith('Basic realm="Waystation"')
+        answers.append((response.content, {k: v for k, v in response.headers.items() if k != 'x-request-id'}))
+    assert answers[1] == answers[2]  # hidden == missing
+    # The REST API refuses them too; /v2/ keeps its Bearer challenge.
+    api = await matrix_client.get('/api/v1/repositories/npm-proxy', headers={'Authorization': header})
+    assert api.status_code == 401
+    v2 = await matrix_client.get('/v2/npm-proxy/tags/list', headers={'Authorization': header})
+    assert v2.status_code == 401
+    assert v2.headers['www-authenticate'].startswith('Bearer ')
 
 
 async def test_visible_repository_without_permission_still_challenges_and_others_are_unchanged(

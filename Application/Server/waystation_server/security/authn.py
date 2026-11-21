@@ -11,8 +11,11 @@ Order:
 3. else ``anonymous``.
 
 Credentials that are presented but not valid are refused (401) rather than downgraded to anonymous, so a revoked
-or expired token never silently keeps working through anonymous access. Basic credentials whose password is not
-an API token are refused too: format clients use API tokens (only ``docker login`` takes a password, at
+or expired token never silently keeps working through anonymous access: an ``Authorization`` header outside
+``/v2/`` that does not resolve to a principal (a Bearer/Token value that is not an API token nor accepted by a bearer
+authenticator, an empty or unknown scheme) is ``401`` before any repository is looked at, so hidden and missing
+repositories still get identical answers (ADR 0005). Basic credentials whose password is not an API token are
+refused too: format clients use API tokens (only ``docker login`` takes a password, at
 ``/auth/token``). The result is cached on the request (``request.state.principal``); the session record, when there
 is one, on ``request.state.session``.
 """
@@ -37,6 +40,7 @@ from waystation_server.security.tokens import looks_like_token
 from waystation_server.services import Services
 
 TOKEN_ONLY = 'use an API token as the password'  # noqa: S105 - a message
+INVALID = 'invalid credentials'
 
 
 def user_principal(
@@ -126,12 +130,14 @@ async def _from_header(services: Services, request: Request) -> Principal | None
                 principal = await authenticator(request, credentials)
                 if principal is not None:
                     return principal
-        return None
+        if registry:
+            return None  # /v2/ answers with its Bearer challenge (registry_auth)
+        raise Unauthorized(INVALID)
     if registry:
         return None
     basic = basic_credentials(header)
     if basic is None:
-        return None
+        raise Unauthorized(INVALID)  # an empty or unknown scheme is not "no credentials" either
     if not looks_like_token(basic[1]):
         raise Unauthorized(TOKEN_ONLY)
     return await services.tokens.authenticate(basic[1], client_ip=client_address(request))
