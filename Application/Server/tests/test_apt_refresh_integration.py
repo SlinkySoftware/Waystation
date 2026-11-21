@@ -6,6 +6,7 @@ offline and auto-blocked repositories, idempotency (a second run changes nothing
 
 import hashlib
 import lzma
+import time
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -112,8 +113,15 @@ async def repo(services: Services, upstream: FakeUpstream, plugin: AptPlugin) ->
 
 
 @pytest.fixture
-async def fetcher(settings: Settings, services: Services) -> AsyncIterator[Fetcher]:
-    async with Fetcher(settings, None, breaker=AutoBlockBreaker(services.valkey)) as f:
+def breaker_clock() -> list[float]:
+    """Seconds added to the job's breaker clock (the test moves time past a block period)."""
+    return [0.0]
+
+
+@pytest.fixture
+async def fetcher(settings: Settings, services: Services, breaker_clock: list[float]) -> AsyncIterator[Fetcher]:
+    breaker = AutoBlockBreaker(services.valkey, clock=lambda: time.time() + breaker_clock[0])
+    async with Fetcher(settings, None, breaker=breaker) as f:
         yield f
 
 
@@ -303,8 +311,16 @@ async def test_auto_blocked_upstream_is_not_called_and_all_repositories_run(
 
 
 async def test_refresh_requests_feed_the_shared_auto_block_breaker(
-    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, plugin: AptPlugin, repo: str, run: Run
+    client: httpx.AsyncClient,
+    services: Services,
+    upstream: FakeUpstream,
+    plugin: AptPlugin,
+    repo: str,
+    run: Run,
+    breaker_clock: list[float],
 ) -> None:
+    # The server's own prober would race the job for the probe once the block period ends; the job is under test.
+    await services.proxy.breaker.stop()
     publish(upstream, {INDEX: packages()})
     assert (await client.get(f'/repository/debian/{INRELEASE}')).status_code == 200
     await services.db[REPOSITORIES].update_one(
@@ -324,9 +340,9 @@ async def test_refresh_requests_feed_the_shared_auto_block_breaker(
     assert len(upstream.seen) == seen
     # The period ends: one probe; the upstream answers again and the block is lifted.
     publish(upstream, {INDEX: packages()})
-    past = int((datetime.now(UTC) - timedelta(seconds=1)).timestamp() * 1000)
-    await services.valkey.hset(health, 'blocked_until', str(past))
-    result = await run()
+    # (Moving the clock past the period also ends the job process's short local memory of the block.)
+    breaker_clock[0] = 61.0
+    result = await run(now=datetime.now(UTC) + timedelta(seconds=61))
     assert result['upstream'] is True and result['releases_checked'] == 1 and not result.get('errors')
     assert await services.valkey.hget(health, 'blocked_until') is None
     assert await services.valkey.hget(health, 'block_failures') == '0'
