@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from waystation_common.breaker import AutoBlockBreaker
 from waystation_common.crypto import Keyring
 from waystation_common.db import galaxy as galaxy_db
 from waystation_common.db import jobs as jobs_db
@@ -230,7 +231,8 @@ async def apt_refresh(job: AptRefresh, ctx: JobContext) -> dict[str, Any]:
     store = BlobStore.from_settings(ctx.settings)
     store.guard = MongoBlobGuard(ctx.db)  # the commit claims the blob against GC (ARCHITECTURE §5)
     keyring = Keyring.from_settings(ctx.settings.secret_keys) if ctx.settings.secret_keys else None
-    async with upstream.Fetcher(ctx.settings, keyring) as fetcher:
+    breaker = AutoBlockBreaker(ctx.valkey)  # the server's auto-block state (ARCH §6.1)
+    async with upstream.Fetcher(ctx.settings, keyring, breaker=breaker) as fetcher:
         return await apt.run(
             ctx.db,
             store,

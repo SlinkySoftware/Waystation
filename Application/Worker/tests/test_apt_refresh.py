@@ -12,6 +12,7 @@ from ws_fake_upstream import FakeUpstream, Respond, Seen
 from ws_testing import TEST_KEY, make_settings
 
 from waystation_common.apt import deb822
+from waystation_common.breaker import BreakerTarget, UpstreamAutoBlocked, Verdict
 from waystation_common.crypto import Keyring
 from waystation_common.errors import PayloadTooLarge, UpstreamError
 from waystation_common.events import keys as event_keys
@@ -218,3 +219,96 @@ def test_age_of_a_cached_file() -> None:
     assert apt._age_s({'upstream': {'fetched_at': datetime(2026, 11, 21, 11, tzinfo=UTC)}}, now) == 3600
     assert apt._age_s({'upstream': {'fetched_at': datetime(2026, 11, 21, 11)}}, now) == 3600  # naive = UTC
     assert apt._age_s({}, now) == float('inf')
+
+
+class RecordingBreaker:
+    """Stands in for ``AutoBlockBreaker``: records checks and outcomes."""
+
+    def __init__(self, *, blocked: bool = False) -> None:
+        self.blocked = blocked
+        self.checks = 0
+        self.outcomes: list[tuple[bool, str]] = []
+
+    async def check(self, target: BreakerTarget) -> Verdict:
+        self.checks += 1
+        if self.blocked:
+            raise UpstreamAutoBlocked(4102444800.0)
+        return Verdict.OPEN
+
+    async def record(self, target: BreakerTarget, *, ok: bool, reason: str = '') -> None:
+        assert target.repo_id == 'r1'
+        self.outcomes.append((ok, reason))
+
+
+async def test_requests_pass_the_breaker_and_report_outcomes(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path, ssrf_allow_cidrs=['127.0.0.0/8'])
+    async with FakeUpstream() as origin:
+        origin.routes['/ok'] = Respond(200, {}, b'body')
+        origin.routes['/missing'] = Respond(404, {}, b'')
+        origin.routes['/down'] = Respond(500, {}, b'')
+        origin.routes['/cut'] = Respond(200, {}, b'x' * 1000, reset_after=10)
+        up = upstream.Upstream.of(repo_doc(origin.url))
+        assert up.breaker.enabled and up.breaker.failures == 5
+        breaker = RecordingBreaker()
+        async with upstream.Fetcher(settings, None, breaker=breaker) as fetcher:  # type: ignore[arg-type]
+            async with fetcher.get(up, 'ok') as response:
+                assert breaker.outcomes == []  # a 200 succeeds once its body arrived
+                await upstream.read_bounded(response, 100)
+            assert breaker.outcomes == [(True, '')]
+            async with fetcher.get(up, 'missing'):
+                pass
+            async with fetcher.get(up, 'down'):
+                pass
+            assert breaker.outcomes[1:] == [(True, ''), (False, 'upstream answered 500')]
+            with pytest.raises(upstream.BodyFailed):
+                async with fetcher.get(up, 'cut') as response:
+                    await upstream.read_bounded(response, 10_000)
+            assert breaker.outcomes[-1] == (False, 'upstream connection failed')
+            assert breaker.checks == 4
+            # Offline: the breaker is not consulted.
+            off = upstream.Upstream.of(repo_doc(origin.url, offline=True))
+            async with fetcher.get(off, 'ok') as response:
+                await upstream.read_bounded(response, 100)
+            assert breaker.checks == 4 and len(breaker.outcomes) == 4
+        # A refused target (SSRF) says nothing about the upstream's health.
+        async with upstream.Fetcher(make_settings(tmp_path), None, breaker=breaker) as guarded:  # type: ignore[arg-type]
+            with pytest.raises(UpstreamError):
+                async with guarded.get(up, 'ok'):
+                    pass
+        assert len(breaker.outcomes) == 4
+        # A blocked upstream is not called.
+        seen = len(origin.seen)
+        blocked_breaker = RecordingBreaker(blocked=True)
+        async with upstream.Fetcher(settings, None, breaker=blocked_breaker) as fetcher:  # type: ignore[arg-type]
+            with pytest.raises(UpstreamAutoBlocked):
+                async with fetcher.get(up, 'ok'):
+                    pass
+        assert len(origin.seen) == seen
+
+
+async def test_unreachable_upstream_is_a_failure(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path, ssrf_allow_cidrs=['127.0.0.0/8'])
+    async with FakeUpstream() as origin:
+        url = origin.url
+    breaker = RecordingBreaker()
+    async with upstream.Fetcher(settings, None, breaker=breaker) as fetcher:  # type: ignore[arg-type]
+        with pytest.raises(UpstreamError, match='unreachable'):
+            async with fetcher.get(upstream.Upstream.of(repo_doc(url)), 'x'):
+                pass
+    assert breaker.outcomes == [(False, 'upstream unreachable')]
+
+
+def test_breaker_target_of_document() -> None:
+    cfg = {'enabled': True, 'failures': 2, 'initial_s': 10, 'max_s': 60}
+    target = BreakerTarget.of_document(repo_doc('https://deb.example.com/', auto_block=cfg))
+    assert (target.repo_id, target.name, target.enabled, target.failures, target.initial_s, target.max_s) == (
+        'r1',
+        'debian',
+        True,
+        2,
+        10,
+        60,
+    )
+    off = BreakerTarget.of_document(repo_doc('https://deb.example.com/', auto_block={'enabled': False}))
+    assert not off.enabled
+    assert not BreakerTarget.of_document({'_id': 'h', 'name': 'hosted'}).enabled

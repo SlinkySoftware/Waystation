@@ -8,7 +8,8 @@ rules (ARCHITECTURE §6.1):
 - its static credentials (basic or bearer, decrypted with ``WAYSTATION_SECRET_KEYS``), sent only to the upstream's
   origin, never to a redirect target on another host; never logged;
 - redirects followed by hand (at most 5, each hop re-checked), connect 10 s / read 60 s idle timeouts, no retries;
-- a repository the auto-block breaker currently blocks (``upstream:<id>:health`` ``blocked_until``) is not called.
+- the repository's auto-block breaker (``waystation_common.breaker``, the state the server's proxy engine uses): a
+  blocked upstream is not called (one probe per ended period across processes), and every outcome is recorded.
 
 Bodies are read by the caller with a size bound (``read_bounded``, ``copy_bounded``).
 """
@@ -31,18 +32,20 @@ import httpcore
 import httpx
 from redis.asyncio import Redis
 
+from waystation_common.breaker import AutoBlockBreaker, BreakerTarget, blocking_status
 from waystation_common.crypto import Keyring
 from waystation_common.db.client import Document
 from waystation_common.errors import PayloadTooLarge, UpstreamError
 from waystation_common.events import keys as event_keys
 from waystation_common.settings import Settings
-from waystation_common.ssrf import GuardedBackend, SsrfGuard
+from waystation_common.ssrf import GuardedBackend, SsrfGuard, UpstreamBlocked
 from waystation_common.storage import BlobWriter
 
 MAX_REDIRECTS = 5
 REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 CHUNK = 256 * 1024
 USER_AGENT = 'Waystation (+https://github.com/SlinkySoftware/Waystation)'
+NO_BREAKER = BreakerTarget(repo_id='', name='', enabled=False)  # auto-block does not apply
 
 
 def secret_aad(repo_id: str) -> bytes:
@@ -62,6 +65,7 @@ class Upstream:
     allow_private: bool = False
     ca_pem: str | None = None
     http_proxy: str | None = None
+    breaker: BreakerTarget = NO_BREAKER
 
     @classmethod
     def of(cls, repo: Document) -> Upstream:
@@ -76,6 +80,7 @@ class Upstream:
             allow_private=bool(proxy.get('allow_private_upstream')),
             ca_pem=proxy.get('ca_pem') or None,
             http_proxy=proxy.get('http_proxy') or None,
+            breaker=BreakerTarget.of_document(repo),
         )
 
     def url_for(self, path: str) -> str:
@@ -116,7 +121,10 @@ async def blocked(valkey: Redis | None, repo_id: str, *, now_ms: int | None = No
 
 
 class Fetcher:
-    def __init__(self, settings: Settings | None, keyring: Keyring | None) -> None:
+    def __init__(
+        self, settings: Settings | None, keyring: Keyring | None, *, breaker: AutoBlockBreaker | None = None
+    ) -> None:
+        self.breaker = breaker  # None: no auto-block (tests, no Valkey)
         self.guard = SsrfGuard(settings.ssrf_allow_cidrs if settings else ())
         self.proxy = (settings.http_proxy or None) if settings else None
         raw_no_proxy = (settings.no_proxy or '') if settings else ''
@@ -194,42 +202,74 @@ class Fetcher:
         token = base64.b64encode(f'{upstream.username or ""}:{secret}'.encode()).decode('ascii')
         return {'Authorization': f'Basic {token}'}
 
+    async def _report(self, upstream: Upstream, *, ok: bool, reason: str = '') -> None:
+        """Feed the auto-block breaker (ARCH §6.1) like the proxy engine does."""
+        if self.breaker is not None and upstream.breaker.enabled:
+            await self.breaker.record(upstream.breaker, ok=ok, reason=reason)
+
     @contextlib.asynccontextmanager
     async def get(
         self, upstream: Upstream, path: str, *, headers: dict[str, str] | None = None
     ) -> AsyncIterator[httpx.Response]:
-        """``GET`` ``path`` below the upstream URL; yields the final (non-redirect) streaming response."""
+        """``GET`` ``path`` below the upstream URL; yields the final (non-redirect) streaming response. The request
+        first passes the repository's auto-block breaker (``UpstreamAutoBlocked`` when blocked; one probe per ended
+        period across processes) and its outcome is recorded there: connection failures, timeouts, 5xx and 429 (and
+        a body that breaks off) as failures, other answers as successes; SSRF refusals and bad credentials not at
+        all."""
         url = upstream.url_for(path)
         origin = _origin(upstream.url)
         auth = self._auth_headers(upstream)
         base_headers = {'Accept-Encoding': 'identity', **(headers or {})}
+        if self.breaker is not None and upstream.breaker.enabled:
+            await self.breaker.check(upstream.breaker)
         for _ in range(MAX_REDIRECTS + 1):
             if urlsplit(url).scheme not in ('http', 'https'):
                 raise UpstreamError('upstream redirected to an unsupported URL')
             proxy = self.proxy_for(url, upstream)
-            if proxy:  # the proxy connects: check the target here (ARCH §6.1)
-                _, host, port = _origin(url)
-                await self.guard.resolve(host, port, allow_private=upstream.allow_private)
-            client = await self._client(upstream, proxy)
-            hop_headers = dict(base_headers)
-            if _origin(url) == origin:
-                hop_headers.update(auth)  # credentials never go to another host
             try:
+                if proxy:  # the proxy connects: check the target here (ARCH §6.1)
+                    _, host, port = _origin(url)
+                    await self.guard.resolve(host, port, allow_private=upstream.allow_private)
+                client = await self._client(upstream, proxy)
+                hop_headers = dict(base_headers)
+                if _origin(url) == origin:
+                    hop_headers.update(auth)  # credentials never go to another host
                 response = await client.send(client.build_request('GET', url, headers=hop_headers), stream=True)
+            except UpstreamBlocked:
+                raise  # an SSRF refusal says nothing about the upstream's health
+            except UpstreamError as exc:  # DNS failures
+                await self._report(upstream, ok=False, reason=exc.detail)
+                raise
             except httpx.TimeoutException:
+                await self._report(upstream, ok=False, reason='upstream timed out')
                 raise UpstreamError('upstream timed out') from None
             except httpx.HTTPError:
+                await self._report(upstream, ok=False, reason='upstream unreachable')
                 raise UpstreamError('upstream unreachable') from None
-            if response.status_code in REDIRECT_CODES and 'location' in response.headers:
+            status = response.status_code
+            if status in REDIRECT_CODES and 'location' in response.headers:
                 await response.aclose()
                 url = urljoin(url, response.headers['location'])
                 continue
+            if blocking_status(status):
+                await self._report(upstream, ok=False, reason=f'upstream answered {status}')
+            elif status != 200:
+                await self._report(upstream, ok=True)
             try:
                 yield response
+            except BodyFailed as exc:  # a 200 succeeds once its body arrived (as in the proxy engine)
+                await self._report(upstream, ok=False, reason=exc.detail)
+                raise
             finally:
                 await response.aclose()
+            if status == 200:
+                await self._report(upstream, ok=True)
             return
         raise UpstreamError('upstream redirected too many times')
+
+
+class BodyFailed(UpstreamError):  # noqa: N818 - reads as an event, like the other upstream errors
+    """The upstream's body broke off or timed out mid-transfer."""
 
 
 def _identity(response: httpx.Response) -> None:
@@ -252,7 +292,7 @@ async def read_bounded(response: httpx.Response, max_bytes: int) -> bytes:
             if len(out) > max_bytes:
                 raise PayloadTooLarge(f'upstream body exceeds {max_bytes} bytes')
     except httpx.HTTPError:
-        raise UpstreamError('upstream connection failed') from None
+        raise BodyFailed('upstream connection failed') from None
     return bytes(out)
 
 
@@ -263,4 +303,4 @@ async def copy_bounded(response: httpx.Response, writer: BlobWriter) -> None:
         async for chunk in response.aiter_raw(CHUNK):
             await writer.write(chunk)
     except httpx.HTTPError:
-        raise UpstreamError('upstream connection failed') from None
+        raise BodyFailed('upstream connection failed') from None

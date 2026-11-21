@@ -131,9 +131,10 @@ upstream request first passes the repository's auto-block breaker (`proxy.breake
 one probe per ended period across replicas) and reports its outcome to it; Valkey down = no auto-block.
 The guard itself (`SsrfGuard`, `GuardedBackend`) lives in `waystation_common.ssrf` (re-exported by
 `waystation_server.proxy.ssrf`) so the worker's outbound calls (webhook deliveries, T-O05) apply the same rules.
-The worker's own upstream requests (the `apt.refresh` job, `waystation_worker.upstream`) apply the repository's
-network settings and credentials the same way and skip a repository the breaker blocks, but do not report outcomes
-to the breaker (FORMATS apt "Worker refresh").
+The breaker's core (Lua scripts, `AutoBlockBreaker`) lives in `waystation_common.breaker` (the server's
+`proxy.breaker.UpstreamBreaker` adds announcements and the prober): the worker's own upstream requests (the
+`apt.refresh` job, `waystation_worker.upstream`) apply the repository's network settings and credentials the same
+way, pass the same breaker first and report their outcomes to it.
 
 ### 6.2 Freshness
 Each cached asset stores `fetched_at`, `etag`, `last_modified`, `upstream_status`. Metadata older than

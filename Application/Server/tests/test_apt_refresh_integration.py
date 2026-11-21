@@ -14,6 +14,7 @@ import httpx
 import pytest
 from ws_fake_upstream import FakeUpstream, Respond, Seen
 
+from waystation_common.breaker import AutoBlockBreaker
 from waystation_common.db.collections import APT_PACKAGES, APT_POOL_INDEX, ASSETS, REPOSITORIES
 from waystation_common.events import keys as event_keys
 from waystation_common.settings import Settings
@@ -111,8 +112,8 @@ async def repo(services: Services, upstream: FakeUpstream, plugin: AptPlugin) ->
 
 
 @pytest.fixture
-async def fetcher(settings: Settings) -> AsyncIterator[Fetcher]:
-    async with Fetcher(settings, None) as f:
+async def fetcher(settings: Settings, services: Services) -> AsyncIterator[Fetcher]:
+    async with Fetcher(settings, None, breaker=AutoBlockBreaker(services.valkey)) as f:
         yield f
 
 
@@ -299,3 +300,33 @@ async def test_auto_blocked_upstream_is_not_called_and_all_repositories_run(
     # A raw repository given by id is skipped; a deleted one too.
     assert (await run(repo_id='repo-raw'))['skipped'] == 'not an apt proxy repository'
     assert (await run(repo_id='nosuch'))['skipped'] == 'the repository was deleted'
+
+
+async def test_refresh_requests_feed_the_shared_auto_block_breaker(
+    client: httpx.AsyncClient, services: Services, upstream: FakeUpstream, plugin: AptPlugin, repo: str, run: Run
+) -> None:
+    publish(upstream, {INDEX: packages()})
+    assert (await client.get(f'/repository/debian/{INRELEASE}')).status_code == 200
+    await services.db[REPOSITORIES].update_one(
+        {'_id': repo}, {'$set': {'proxy.auto_block': {'enabled': True, 'failures': 2, 'initial_s': 60, 'max_s': 600}}}
+    )
+    health = event_keys.upstream_health_key(repo)
+    upstream.routes[f'/{INRELEASE}'] = Respond(503, {}, b'down')
+    for expected_failures in (1, 2):
+        await age(services, repo, INRELEASE)
+        result = await run()
+        assert any('503' in error for error in result['errors'])
+        assert await services.valkey.hget(health, 'block_failures') == str(expected_failures)
+    # The second failure in a row blocked the upstream, for the server's proxy as well.
+    assert await services.valkey.hget(health, 'blocked_until') is not None
+    seen = len(upstream.seen)
+    assert (await run())['upstream'] is False
+    assert len(upstream.seen) == seen
+    # The period ends: one probe; the upstream answers again and the block is lifted.
+    publish(upstream, {INDEX: packages()})
+    past = int((datetime.now(UTC) - timedelta(seconds=1)).timestamp() * 1000)
+    await services.valkey.hset(health, 'blocked_until', str(past))
+    result = await run()
+    assert result['upstream'] is True and result['releases_checked'] == 1 and not result.get('errors')
+    assert await services.valkey.hget(health, 'blocked_until') is None
+    assert await services.valkey.hget(health, 'block_failures') == '0'

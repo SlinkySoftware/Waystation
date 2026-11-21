@@ -361,8 +361,9 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   The worker's upstream requests (`waystation_worker.upstream`) follow the proxy engine's rules: SSRF guard at
   connect time (target pre-checked through an outbound proxy), the repository's CA bundle, outbound proxy and
   static credentials (only to the upstream's origin, never logged), redirects re-checked (≤ 5), identity encoding,
-  bounded bodies; an offline repository or one the auto-block breaker blocks gets the local steps only (the job does
-  not feed the breaker). Not coalesced with server fills: a race costs at most one extra upstream request, and the
+  bounded bodies; each request passes the repository's auto-block breaker and reports its outcome to it, as the
+  proxy engine's do (`waystation_common.breaker`); an offline repository or one the breaker blocks gets the local
+  steps only. Not coalesced with server fills: a race costs at most one extra upstream request, and the
   results are the same (content-addressed blobs, compare-and-set pool updates). Idempotent: a second run with
   nothing stale calls no upstream and changes nothing. Tests: `Application/Worker/tests/test_apt_refresh.py`,
   `Application/Server/tests/test_apt_refresh_integration.py`.
