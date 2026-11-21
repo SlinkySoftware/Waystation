@@ -158,6 +158,12 @@ async def set_password(db: Database, user_id: str, password_hash: str, *, must_c
     return UserRecord.model_validate(doc) if doc else None
 
 
+async def set_tokens_not_before(db: Database, user_id: str, at: datetime) -> None:
+    """Registry tokens (access and refresh) of the user issued at or before ``at`` stop working (only moves
+    forward)."""
+    await db[USERS].update_one({'_id': user_id}, {'$max': {'tokens_not_before': at}})
+
+
 async def unlock(db: Database, user_id: str) -> UserRecord | None:
     return await update(db, user_id, {'failed_logins': 0, 'locked_until': None})
 

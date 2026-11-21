@@ -43,7 +43,7 @@ from waystation_server.db import groups as groups_db
 from waystation_server.db import sessions as sessions_db
 from waystation_server.db import users as users_db
 from waystation_server.problems import FieldError, FieldErrors
-from waystation_server.security import access, passwords
+from waystation_server.security import access, passwords, registry_revocation
 from waystation_server.security.access import Action
 from waystation_server.security.authn import authenticate, principal_for
 from waystation_server.security.groups import role_sources
@@ -411,6 +411,7 @@ async def update_user(user_id: UserId, body: UserUpdate, request: Request, svc: 
         raise NotFound('user not found')
     if updated.disabled and not before.disabled:
         await sessions_db.delete_for_user(svc.db, updated.id)
+        await registry_revocation.revoke_user(svc.db, svc.valkey, updated.id)
     if rbac:
         await _rbac_changed(svc)
     audit.record(
@@ -434,6 +435,7 @@ async def delete_user(user_id: UserId, request: Request, svc: ServicesDep) -> Re
         raise NotFound('user not found')
     sessions = await sessions_db.delete_for_user(svc.db, user.id)
     tokens = await svc.tokens.revoke_all(TokenOwner(kind='user', id=user.id), by=principal.id)
+    await registry_revocation.revoke_user(svc.db, svc.valkey, user.id)
     await _rbac_changed(svc)
     audit.record(
         AuditAction.USER_DELETE,
@@ -468,6 +470,7 @@ async def reset_password(user_id: UserId, body: PasswordReset, request: Request,
     if updated is None:
         raise NotFound('user not found')
     ended = await sessions_db.delete_for_user(svc.db, user.id)
+    await registry_revocation.revoke_user(svc.db, svc.valkey, user.id)
     audit.record(
         AuditAction.AUTH_PASSWORD_CHANGE,
         target=_target(user),

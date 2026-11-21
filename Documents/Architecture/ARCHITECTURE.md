@@ -225,7 +225,12 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   display prefix. A token narrows its owner's grants (scopes → actions, repository patterns → repositories);
   `access.check` applies the narrowing, so no route can forget it. Docker registry tokens are short-lived (5 min)
   JWT (EdDSA) signed with a key in `keys/`, scoped per the Docker token spec; one issued for an API token carries
-  its id (`tid`) and the API token is re-checked on every `/v2/` request.
+  its id (`tid`) and the API token is re-checked on every `/v2/` request. Refresh tokens (`docker login` identity
+  tokens, OAuth2 `access_type=offline`; T-S12) are 90-day JWTs of the same key marked `use: refresh`, never accepted
+  on `/v2/`, exchanged at `POST /auth/token` after the subject is re-read from MongoDB. Revocation before expiry
+  (`security.registry_revocation`): a per-user cut-off, durable in `users.tokens_not_before` and announced in Valkey
+  (`regtok:nbf:<user>`, read on every `/v2/` request with a user's token); tokens issued (`iat_ms`) at or before it
+  are refused. Set when a user is disabled or deleted, changes or gets a new password, or has sessions revoked.
 - Credentials for upstreams and LDAP/OIDC secrets are AES-GCM encrypted with `SECRET_KEYS` (first key encrypts,
   all keys decrypt; rotation job re-encrypts).
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and

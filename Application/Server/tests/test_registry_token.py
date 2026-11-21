@@ -7,8 +7,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from waystation_common.crypto import Keyring
 from waystation_server.registry_auth import image_name, request_scope
+from waystation_server.security.registry_revocation import revoked
 from waystation_server.security.registry_token import (
     KEY_FILE,
+    REFRESH_TTL_S,
     Scope,
     SignerHolder,
     TokenSigner,
@@ -82,6 +84,28 @@ def test_issue_and_verify() -> None:
     other = TokenSigner(Ed25519PrivateKey.generate())
     assert other.verify(token, audience='registry.example.com', now=1100) is None
     assert signer.verify('not.a.jwt', audience='registry.example.com') is None
+
+
+def test_refresh_tokens_are_not_access_tokens() -> None:
+    signer = TokenSigner(Ed25519PrivateKey.generate())
+    refresh = signer.issue_refresh(subject='u1', audience='registry.example.com', now=1000.5, token_id='t1')
+    claims = signer.verify_refresh(refresh, audience='registry.example.com', now=1000 + 30 * 86400)
+    assert claims is not None
+    assert (claims.subject, claims.token_id, claims.access, claims.issued_at_ms) == ('u1', 't1', (), 1_000_500)
+    assert signer.verify(refresh, audience='registry.example.com', now=1100) is None  # never a /v2/ credential
+    assert signer.verify_refresh(refresh, audience='other.example.com', now=1100) is None
+    assert signer.verify_refresh(refresh, audience='registry.example.com', now=1000 + REFRESH_TTL_S + 1) is None
+    access, _ = signer.issue(subject='u1', audience='registry.example.com', access=[], now=1000)
+    assert signer.verify_refresh(access, audience='registry.example.com', now=1100) is None
+    issued = signer.verify(access, audience='registry.example.com', now=1100)
+    assert issued is not None and issued.issued_at_ms == 1_000_000
+
+
+def test_revocation_cut_off() -> None:
+    assert not revoked(1000)
+    assert not revoked(1000, 0, 999)
+    assert revoked(1000, 0, 1000)
+    assert revoked(1000, 2000)
 
 
 async def test_signing_key_is_shared_and_encrypted(tmp_path: Path) -> None:

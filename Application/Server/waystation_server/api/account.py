@@ -36,7 +36,7 @@ from waystation_server.audit import AuditAction, Outcome
 from waystation_server.db import sessions as sessions_db
 from waystation_server.db import users as users_db
 from waystation_server.problems import FieldError, FieldErrors
-from waystation_server.security import access, passwords, ratelimit
+from waystation_server.security import access, passwords, ratelimit, registry_revocation
 from waystation_server.security.access import Action
 from waystation_server.security.authn import authenticate, current_session
 from waystation_server.security.identity import SessionRecord, UserRecord
@@ -153,6 +153,8 @@ async def revoke_other_sessions(request: Request, svc: ServicesDep) -> SessionsR
             continue
         await svc.sessions.destroy(record.id)
         revoked += 1
+    # Signing out everywhere else also ends ``docker login`` refresh tokens (and registry tokens) issued until now.
+    await registry_revocation.revoke_user(svc.db, svc.valkey, user.id)
     if revoked:
         audit.record(
             AuditAction.SESSION_REVOKE, target=audit.target('user', user.id, user.username), details={'others': revoked}
@@ -190,12 +192,14 @@ async def list_user_sessions(user_id: UserId, request: Request, svc: ServicesDep
 )
 @access.requires(Action.USER_ADMIN)
 async def revoke_user_sessions(user_id: UserId, request: Request, svc: ServicesDep) -> SessionsRevoked:
-    """Sign a user out everywhere (API tokens are not affected). Not for a user holding more than the caller."""
+    """Sign a user out everywhere, ``docker login`` refresh tokens included (API tokens are not affected). Not for a
+    user holding more than the caller."""
     principal = await authenticate(request)
     user = await _target_user(svc, user_id)
     _, grants = await user_grants(svc, user)
     require_manageable(principal, grants, 'a user')
     revoked = await sessions_db.delete_for_user(svc.db, user.id)
+    await registry_revocation.revoke_user(svc.db, svc.valkey, user.id)
     audit.record(
         AuditAction.SESSION_REVOKE,
         target=audit.target('user', user.id, user.username),
@@ -236,6 +240,7 @@ async def change_password(body: PasswordChange, request: Request, svc: ServicesD
     )
     if updated is None:
         raise Conflict('the account changed meanwhile; sign in again')
+    await registry_revocation.revoke_user(svc.db, svc.valkey, user.id)
     current = current_session(request)
     ended = 0
     for record in await sessions_db.list_for_user(svc.db, user.id):

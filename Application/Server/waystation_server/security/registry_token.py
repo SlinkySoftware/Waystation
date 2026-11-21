@@ -41,6 +41,8 @@ from waystation_common.errors import CryptoError
 log = logging.getLogger('waystation.registry_token')
 
 TOKEN_TTL_S = 300
+REFRESH_TTL_S = 90 * 86400  # refresh tokens (``docker login`` identity tokens, OAuth2 ``access_type=offline``)
+REFRESH_USE = 'refresh'
 KEY_FILE = 'registry-token.key'
 KEY_AAD = b'registry-token-signing-key'
 ISSUER = 'waystation'
@@ -90,6 +92,7 @@ class TokenClaims:
     access: tuple[Scope, ...]
     expires_at: float
     token_id: str | None = None  # the API token the registry token was issued for (re-checked on every request)
+    issued_at_ms: int = 0  # revocation compares it with the subject's ``tokens_not_before``
 
 
 class TokenSigner:
@@ -108,17 +111,36 @@ class TokenSigner:
         now: float | None = None,
         token_id: str | None = None,
     ) -> tuple[str, int]:
+        """An access token (``TOKEN_TTL_S``) granting ``access``."""
         now = time.time() if now is None else now
+        claims: dict[str, Any] = {'access': [s.claim() for s in access]}
+        jwt = self._sign(claims, subject=subject, audience=audience, now=now, ttl=TOKEN_TTL_S, token_id=token_id)
+        return jwt, TOKEN_TTL_S
+
+    def issue_refresh(
+        self, *, subject: str, audience: str, now: float | None = None, token_id: str | None = None
+    ) -> str:
+        """A refresh token (``REFRESH_TTL_S``). It grants nothing itself: ``POST /auth/token`` with
+        ``grant_type=refresh_token`` exchanges it for an access token after re-checking the subject (and the API
+        token it was issued for). Never accepted on ``/v2/``."""
+        now = time.time() if now is None else now
+        claims: dict[str, Any] = {'use': REFRESH_USE}
+        return self._sign(claims, subject=subject, audience=audience, now=now, ttl=REFRESH_TTL_S, token_id=token_id)
+
+    def _sign(
+        self, claims: dict[str, Any], *, subject: str, audience: str, now: float, ttl: int, token_id: str | None
+    ) -> str:
         header = {'alg': 'EdDSA', 'typ': 'JWT', 'kid': self.kid}
-        payload = {
+        payload: dict[str, Any] = {
             'iss': ISSUER,
             'sub': subject,
             'aud': audience,
             'iat': int(now),
+            'iat_ms': int(now * 1000),
             'nbf': int(now) - 5,
-            'exp': int(now) + TOKEN_TTL_S,
+            'exp': int(now) + ttl,
             'jti': uuid.uuid4().hex,
-            'access': [s.claim() for s in access],
+            **claims,
         }
         if token_id is not None:
             payload['tid'] = token_id
@@ -128,10 +150,18 @@ class TokenSigner:
 
         signing_input = f'{part(header)}.{part(payload)}'
         signature = self._key.sign(signing_input.encode('ascii'))
-        return f'{signing_input}.{_b64(signature)}', TOKEN_TTL_S
+        return f'{signing_input}.{_b64(signature)}'
 
     def verify(self, token: str, *, audience: str, now: float | None = None) -> TokenClaims | None:
-        """The claims of a valid token for ``audience``; None for anything else (never raises)."""
+        """The claims of a valid access token for ``audience``; None for anything else, refresh tokens included
+        (never raises)."""
+        return self._verify(token, audience=audience, now=now, refresh=False)
+
+    def verify_refresh(self, token: str, *, audience: str, now: float | None = None) -> TokenClaims | None:
+        """The claims of a valid refresh token for ``audience``; None for anything else (never raises)."""
+        return self._verify(token, audience=audience, now=now, refresh=True)
+
+    def _verify(self, token: str, *, audience: str, now: float | None, refresh: bool) -> TokenClaims | None:
         parts = token.split('.')
         if len(parts) != 3 or len(token) > 16_384:
             return None
@@ -147,6 +177,8 @@ class TokenSigner:
         try:
             if payload.get('iss') != ISSUER or payload.get('aud') != audience:
                 return None
+            if (payload.get('use') == REFRESH_USE) is not refresh:
+                return None
             if not (int(payload['nbf']) <= now < int(payload['exp'])):
                 return None
             access = tuple(
@@ -154,12 +186,14 @@ class TokenSigner:
                 for a in payload.get('access', [])
             )
             tid = payload.get('tid')
+            issued_ms = payload.get('iat_ms')
             return TokenClaims(
                 str(payload['sub']),
                 str(payload['aud']),
                 access,
                 float(payload['exp']),
                 token_id=str(tid) if tid is not None else None,
+                issued_at_ms=int(issued_ms) if issued_ms is not None else int(payload['iat']) * 1000,
             )
         except KeyError, TypeError, ValueError:
             return None

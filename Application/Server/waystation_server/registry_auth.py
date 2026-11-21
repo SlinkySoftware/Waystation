@@ -3,7 +3,14 @@
 - ``GET /auth/token``: the token service (``security.registry_token``): anonymous, or HTTP basic credentials
   (``docker login``): a local user's password, or an API token as the password (any username; the registry token
   then carries the API token's id and its scopes/repository patterns narrow the grants). Grants per scope = what
-  RBAC allows on the repository the name resolves to.
+  RBAC allows on the repository the name resolves to. ``offline_token=true`` with credentials (``docker login``)
+  also returns a ``refresh_token`` (90 days), which the Docker CLI stores instead of the password.
+- ``POST /auth/token``: the OAuth2 endpoint of the token spec (form body): ``grant_type=password`` (as above;
+  ``access_type=offline`` adds a refresh token; containerd tries this first) and ``grant_type=refresh_token``
+  (the subject is re-checked: enabled user, registry tokens not revoked since, or the API token still live).
+- Revocation before expiry (``security.registry_revocation``): disabling or deleting a user, a password change and
+  revoking sessions move the user's cut-off forward; ``/v2/`` and the refresh grant refuse tokens issued before it.
+  Registry tokens issued for an API token live exactly as long as that API token.
 - ``/v2/`` only accepts registry tokens. Without one (or with one that does not cover the repository) the answer is
   ``401`` with ``WWW-Authenticate: Bearer realm="<base>/auth/token",service="<host>",scope="repository:<name>:pull"``
   (``error="insufficient_scope"`` when a token was sent), which makes clients fetch a token and retry; ``GET /v2/``
@@ -28,7 +35,7 @@ import re
 import time
 from datetime import UTC, datetime
 from typing import Annotated
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
@@ -38,7 +45,7 @@ from waystation_server import audit
 from waystation_server.audit import AuditAction
 from waystation_server.db import users as users_db
 from waystation_server.problems import oci_error
-from waystation_server.security import access
+from waystation_server.security import access, registry_revocation
 from waystation_server.security.access import Action
 from waystation_server.security.authn import basic_credentials, client_address, principal_for
 from waystation_server.security.identity import UserRecord
@@ -165,6 +172,58 @@ async def _audit_password_login(services: Services, principal: Principal, client
         )
 
 
+async def _password_principal(services: Services, request: Request, username: str, password: str) -> Principal:
+    """``docker login``: a local password, or an API token as the password (any username). Raises ``Unauthorized``
+    (rate-limited and audited like every sign-in)."""
+    if looks_like_token(password):
+        return await services.tokens.authenticate(password, client_ip=client_address(request))
+    user = await verify_login(services, username=username, password=password, client_ip=client_address(request))
+    principal = await principal_for(services, user, AuthMethod.BASIC)
+    await _audit_password_login(services, principal, client_address(request))
+    return principal
+
+
+async def _issue(
+    request: Request,
+    services: Services,
+    principal: Principal,
+    *,
+    scope_values: list[str],
+    ns: str | None,
+    offline: bool,
+) -> Response:
+    """The token response: an access token for what the scopes grant, plus a refresh token when ``offline`` was
+    asked for by a signed-in caller."""
+    from waystation_server.routing import mirror_namespace
+
+    host = registry_host(services)
+    scopes = parse_scopes(scope_values)[:20]
+    namespace = mirror_namespace(services, ns)
+    granted = [await _grant(services, principal, s, namespace) for s in scopes]
+    signer = await services.registry_signer.get()
+    subject = 'anonymous' if principal.is_anonymous else principal.id
+    token_id = principal.token.token_id if principal.token is not None else None
+    now = time.time()
+    jwt, ttl = signer.issue(subject=subject, audience=host, access=granted, token_id=token_id, now=now)
+    request.state.log['principal'] = principal.display
+    body: dict[str, object] = {
+        'token': jwt,
+        'access_token': jwt,
+        'expires_in': ttl,
+        'issued_at': datetime.fromtimestamp(now, UTC).isoformat().replace('+00:00', 'Z'),
+        'scope': ' '.join(f'{s.type}:{s.name}:{",".join(s.actions)}' for s in granted if s.actions),
+    }
+    if offline and not principal.is_anonymous:
+        body['refresh_token'] = signer.issue_refresh(subject=subject, audience=host, token_id=token_id, now=now)
+    return JSONResponse(body, headers={'Cache-Control': 'no-store', 'Pragma': 'no-cache'})
+
+
+def _service_error(services: Services, service: str | None) -> Response | None:
+    if service and service != registry_host(services):
+        return oci_error(400, f'unknown service {service!r}', code='UNSUPPORTED')
+    return None
+
+
 @router.get('/auth/token')
 @access.public  # the token service authenticates the caller itself (anonymous or basic credentials)
 async def token(
@@ -172,43 +231,107 @@ async def token(
     service: str | None = None,
     scope: Annotated[list[str] | None, Query(max_length=4096)] = None,
     ns: Annotated[str | None, Query(max_length=255)] = None,
+    offline_token: Annotated[str | None, Query(max_length=8)] = None,
 ) -> Response:
-    from waystation_server.routing import mirror_namespace
-
+    """Docker token authentication: anonymous, or HTTP basic credentials. ``offline_token=true`` (``docker login``)
+    with credentials also returns a ``refresh_token``, which clients keep instead of the password."""
     services: Services = request.app.state.services
-    host = registry_host(services)
-    if service and service != host:
-        return oci_error(400, f'unknown service {service!r}', code='UNSUPPORTED')
+    if (problem := _service_error(services, service)) is not None:
+        return problem
     principal: Principal = await services.rbac.anonymous()
     credentials = basic_credentials(request.headers.get('authorization', ''))
-    if credentials is not None and looks_like_token(credentials[1]):
-        # ``docker login`` with an API token as the password (any username)
-        principal = await services.tokens.authenticate(credentials[1], client_ip=client_address(request))
-    elif credentials is not None:
-        user = await verify_login(
-            services,
-            username=credentials[0],
-            password=credentials[1],
-            client_ip=client_address(request),
-        )
-        principal = await principal_for(services, user, AuthMethod.BASIC)
-        await _audit_password_login(services, principal, client_address(request))
-    scopes = parse_scopes(scope or [])[:20]
-    namespace = mirror_namespace(services, ns)
-    granted = [await _grant(services, principal, s, namespace) for s in scopes]
-    signer = await services.registry_signer.get()
-    subject = 'anonymous' if principal.is_anonymous else principal.id
-    token_id = principal.token.token_id if principal.token is not None else None
-    jwt, ttl = signer.issue(subject=subject, audience=host, access=granted, token_id=token_id)
-    request.state.log['principal'] = principal.display
-    return JSONResponse(
-        {
-            'token': jwt,
-            'access_token': jwt,
-            'expires_in': ttl,
-            'issued_at': datetime.now(UTC).isoformat().replace('+00:00', 'Z'),
-        }
+    if credentials is not None:
+        principal = await _password_principal(services, request, *credentials)
+    return await _issue(
+        request,
+        services,
+        principal,
+        scope_values=scope or [],
+        ns=ns,
+        offline=(offline_token or '').lower() == 'true',
     )
+
+
+FORM_MAX_BYTES = 16 * 1024
+
+
+async def _form(request: Request) -> dict[str, str] | None:
+    """The ``application/x-www-form-urlencoded`` body (bounded); None when it is not one."""
+    if request.headers.get('content-type', '').split(';', 1)[0].strip().lower() != 'application/x-www-form-urlencoded':
+        return None
+    body = b''
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > FORM_MAX_BYTES:
+            return None
+    try:
+        pairs = parse_qsl(body.decode('utf-8'), keep_blank_values=True, max_num_fields=64)
+    except UnicodeDecodeError, ValueError:
+        return None
+    return dict(pairs)
+
+
+def _invalid_grant(message: str) -> Response:
+    return oci_error(401, message, code='UNAUTHORIZED', headers={'Cache-Control': 'no-store'})
+
+
+async def _refresh_principal(services: Services, refresh_token: str) -> Principal | None:
+    """The principal a refresh token stands for, re-checked now: the user exists, is enabled and has not had their
+    registry tokens revoked since (``security.registry_revocation``); a token issued for an API token needs that
+    token to be live."""
+    signer = await services.registry_signer.get()
+    claims = signer.verify_refresh(refresh_token, audience=registry_host(services))
+    if claims is None or claims.subject == 'anonymous':
+        return None
+    if claims.token_id is not None:
+        # Issued for an API token: it lives exactly as long as that token (revoked, expired, owner disabled).
+        owner = await services.tokens.by_id(claims.token_id)
+        return owner if owner is not None and owner.id == claims.subject else None
+    user = await users_db.get(services.db, claims.subject)
+    if user is None or user.disabled:
+        return None
+    cut_offs = (
+        registry_revocation.epoch_ms(user.tokens_not_before),
+        await registry_revocation.not_before_ms(services.valkey, claims.subject),
+    )
+    if registry_revocation.revoked(claims.issued_at_ms, *cut_offs):
+        return None
+    return await principal_for(services, user, AuthMethod.REGISTRY_TOKEN)
+
+
+@router.post('/auth/token')
+@access.public  # OAuth2 token endpoint of the Docker token specification; authenticates the grant itself
+async def oauth_token(request: Request, ns: Annotated[str | None, Query(max_length=255)] = None) -> Response:
+    """``grant_type=password`` (``username``, ``password``; an API token works as the password) or
+    ``grant_type=refresh_token`` (``refresh_token``), with ``service``, ``scope`` (space-separated) and
+    ``client_id``. ``access_type=offline`` with a password grant also returns a ``refresh_token``. containerd posts a
+    password grant first; the Docker daemon uses refresh tokens once ``docker login`` received one."""
+    services: Services = request.app.state.services
+    form = await _form(request)
+    if form is None:
+        return oci_error(400, 'expected an application/x-www-form-urlencoded body', code='UNSUPPORTED')
+    if (problem := _service_error(services, form.get('service'))) is not None:
+        return problem
+    namespace = ns if ns is not None else form.get('ns')
+    if namespace is not None and len(namespace) > 255:
+        return oci_error(400, 'ns is too long', code='UNSUPPORTED')
+    scope_values = [form.get('scope', '')]
+    grant = form.get('grant_type', '')
+    if grant == 'password':
+        username, password = form.get('username', ''), form.get('password', '')
+        if not username or not password:
+            return oci_error(400, 'username and password are required', code='UNSUPPORTED')
+        principal = await _password_principal(services, request, username, password)
+        offline = form.get('access_type', '') == 'offline'
+        return await _issue(request, services, principal, scope_values=scope_values, ns=namespace, offline=offline)
+    if grant == 'refresh_token':
+        presented = form.get('refresh_token', '')
+        refreshed = await _refresh_principal(services, presented) if presented else None
+        if refreshed is None:
+            return _invalid_grant('invalid, expired or revoked refresh token')
+        # The refresh token is not rotated: the Docker daemon keeps the one ``docker login`` stored.
+        return await _issue(request, services, refreshed, scope_values=scope_values, ns=namespace, offline=False)
+    return oci_error(400, 'unsupported grant_type (password or refresh_token)', code='UNSUPPORTED')
 
 
 # ---------------------------------------------------------------------------- bearer authentication on /v2/
@@ -248,6 +371,12 @@ async def authenticate_bearer(request: Request, token: str) -> Principal | None:
     else:
         user = await _users.get(services, claims.subject)
         if user is None or user.disabled:
+            return None
+        cut_offs = (
+            registry_revocation.epoch_ms(user.tokens_not_before),
+            await registry_revocation.not_before_ms(services.valkey, claims.subject),
+        )
+        if registry_revocation.revoked(claims.issued_at_ms, *cut_offs):
             return None
         base = await principal_for(services, user, AuthMethod.REGISTRY_TOKEN)
     from waystation_server.routing import resolve_docker
