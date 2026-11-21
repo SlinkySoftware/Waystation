@@ -28,12 +28,12 @@
         "Mon, 23 Mar 2026 21:34:02 GMT"
       ],
       [
-        "accept-ranges",
-        "bytes"
-      ],
-      [
         "etag",
         "\"fe2c32c963094873eb69f8b1aac65804\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
       ]
     ],
     "status": 200

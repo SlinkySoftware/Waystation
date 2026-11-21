@@ -23,26 +23,28 @@ trust_harness_ca() {
   fi
 }
 
-# Sign in to the stack under test as the bootstrap admin (per-run random HARNESS_ADMIN_PASSWORD, set by run.sh).
-# Sets WS_COOKIES (a curl cookie jar) and WS_CSRF for ws_api. Uses curl, or bash alone in images without curl
-# (debian, ubuntu: see _ws_http).
+# Sign in to the stack under test as the bootstrap admin (per-run random HARNESS_ADMIN_PASSWORD, set by run.sh), or
+# as another account: ws_login [<username> <password> [<provider id>]] (an LDAP user: its provider's id; no '"' or
+# '\' in the password). Sets WS_COOKIES (a curl cookie jar) and WS_CSRF for ws_api. Uses curl, or bash alone in
+# images without curl (debian, ubuntu: see _ws_http).
 ws_login() {
-  [ -n "${HARNESS_ADMIN_PASSWORD:-}" ] || fail 'ws_login: HARNESS_ADMIN_PASSWORD is not set'
+  _user=${1:-admin} _password=${2:-${HARNESS_ADMIN_PASSWORD:-}}
+  [ -n "$_password" ] || fail 'ws_login: HARNESS_ADMIN_PASSWORD is not set'
+  _body=$(printf '{"username":"%s","password":"%s"%s}' "$_user" "$_password" "${3:+,\"provider\":\"$3\"}")
   wait_for "$WAYSTATION_URL/healthz"
   if ! command -v curl >/dev/null; then
     WS_COOKIES=/tmp/ws-cookie-header WS_CSRF=
     rm -f "$WS_COOKIES"
-    _code=$(_ws_http POST "$WAYSTATION_URL/api/v1/auth/login" \
-      "$(printf '{"username":"admin","password":"%s"}' "$HARNESS_ADMIN_PASSWORD")") || fail 'ws_login: sign-in failed'
-    [ "$_code" = 200 ] || fail "ws_login: sign-in returned $_code"
+    _code=$(_ws_http POST "$WAYSTATION_URL/api/v1/auth/login" "$_body") || fail "ws_login: sign-in as $_user failed"
+    [ "$_code" = 200 ] || fail "ws_login: sign-in as $_user returned $_code"
     WS_CSRF=$(sed -n 's/.*"csrf_token": *"\([^"]*\)".*/\1/p' /tmp/ws-api.out)
     [ -n "$WS_CSRF" ] || fail 'ws_login: no CSRF token in the session'
     return
   fi
   WS_COOKIES=/tmp/ws-cookies.txt
-  _body=$(printf '{"username":"admin","password":"%s"}' "$HARNESS_ADMIN_PASSWORD")
+  rm -f "$WS_COOKIES"
   _session=$(curl -fsS -c "$WS_COOKIES" -H 'Content-Type: application/json' -d "$_body" \
-    "$WAYSTATION_URL/api/v1/auth/login") || fail 'ws_login: sign-in failed'
+    "$WAYSTATION_URL/api/v1/auth/login") || fail "ws_login: sign-in as $_user failed"
   WS_CSRF=$(printf '%s' "$_session" | sed -n 's/.*"csrf_token": *"\([^"]*\)".*/\1/p')
   [ -n "$WS_CSRF" ] || fail 'ws_login: no CSRF token in the session'
 }
@@ -67,7 +69,7 @@ ws_api() {
   cat "$_out"
 }
 
-# ws_token <scopes JSON array> [repositories JSON array]: create an API token for the signed-in admin (after
+# ws_token <scopes JSON array> [repositories JSON array]: create an API token for the signed-in account (after
 # ws_login). Sets WS_TOKEN (the secret, shown once) and WS_TOKEN_ID.
 ws_token() {
   _tbody=$(printf '{"name":"harness %s","scopes":%s,"repositories":%s}' "${HARNESS_FORMAT:-?}" "$1" "${2:-[]}")
@@ -80,6 +82,11 @@ ws_token() {
 # ws_revoke <token id>: revoke one of the signed-in admin's tokens.
 ws_revoke() {
   ws_api DELETE "/auth/me/tokens/$1" >/dev/null || fail "ws_revoke: could not revoke $1"
+}
+
+# ws_revoke_any <token id>: revoke any account's token (signed in as an administrator: the incident-response route).
+ws_revoke_any() {
+  ws_api DELETE "/tokens/$1" >/dev/null || fail "ws_revoke_any: could not revoke $1"
 }
 
 # _ws_http <METHOD> <http URL> [json body]: a plain HTTP/1.0 request with bash alone (/dev/tcp), for client images

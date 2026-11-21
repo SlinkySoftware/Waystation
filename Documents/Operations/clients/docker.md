@@ -103,7 +103,8 @@ and containerd pulls from `server` directly: it never gets another registry's im
 containerd 2.x (Kubernetes nodes): set `config_path = "/etc/containerd/certs.d"` both under
 `[plugins."io.containerd.cri.v1.images".registry]` and under `[plugins."io.containerd.transfer.v1.local"]`
 (the CRI pulls through the transfer service). Reported working with containerd 2.4.2 for Docker Hub, GHCR, Quay and
-registry.k8s.io; not yet covered by the client harness.
+registry.k8s.io. The client harness pulls Docker Hub and GHCR images with `ctr` (containerd 2.4, `--hosts-dir`) in mirror
+mode, and by repository prefix and alias as plain registry names (`tests/clients/docker/containerd.sh`).
 
 ## skopeo, crane, podman
 
@@ -116,7 +117,9 @@ crane digest registry.example.com/docker-hub/library/nginx:1.27
 
 podman can also use a mirror for `docker.io` in `/etc/containers/registries.conf`
 (`[[registry]] location = "docker.io"` with `[[registry.mirror]] location = "registry.example.com/docker-hub"`).
-skopeo and crane are tested; podman is not yet covered by the client harness.
+The bare registry host also works as the mirror location: podman sends no `?ns=`, so mirror requests then go to the
+default docker repository. skopeo, crane and podman 6.2 (mirror for `docker.io`, prefix and alias pulls from Docker
+Hub and GHCR) are tested by the client harness.
 
 ## Hosted repositories
 
@@ -206,7 +209,9 @@ echo "$WAYSTATION_TOKEN" | docker login registry.example.com --username alice --
 
 The registry tokens Docker then fetches carry the API token's id and the API token is re-checked on every request,
 so revoking it stops pulls at once, not when the 5-minute registry token expires. `docker login` with your account
-password also works (local accounts); prefer a token for CI.
+password also works for local and LDAP accounts (prefer a token for CI); users who sign in through an OpenID provider
+have no password at Waystation and use an API token. The client harness checks all three against private
+repositories, with wrong-password, revoked-token, no-role and anonymous refusals (`tests/clients/auth/`).
 
 Upstream credentials (Docker Hub account, GHCR PAT) are set on the repository, never on the clients. They are sent
 only to the upstream registry and its token service, never to blob CDNs the upstream redirects to.

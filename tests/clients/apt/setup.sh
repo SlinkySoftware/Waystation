@@ -29,5 +29,21 @@ case "$HARNESS_CLIENT" in
     create ubuntu https://archive.ubuntu.com/ubuntu/ resolute
     create ubuntu-security https://security.ubuntu.com/ubuntu/ resolute-security
     ;;
+  raspios)  # Raspberry Pi OS: Debian (created by the debian client) + the Raspberry Pi archive
+    create debian https://deb.debian.org/debian/ trixie
+    create raspberrypi https://archive.raspberrypi.com/debian/ trixie
+    if ! ws_api GET /repositories/raspberrypi-files >/dev/null 2>&1; then
+      step 'create raw proxy repository raspberrypi-files (the archive signing key)'
+      ws_api POST /repositories '{"name": "raspberrypi-files", "format": "raw", "type": "proxy", "online": true,
+        "proxy": {"upstream_url": "https://archive.raspberrypi.com/debian/"}}' >/dev/null \
+        || fail 'could not create the repository raspberrypi-files'
+    fi
+    step 'fetch the Raspberry Pi archive key through Waystation (raw proxy)'
+    code=$(_ws_http GET "$WAYSTATION_URL/repository/raspberrypi-files/raspberrypi.gpg.key")
+    [ "$code" = 200 ] || fail "raspberrypi.gpg.key returned $code"
+    grep -q 'BEGIN PGP PUBLIC KEY BLOCK' /tmp/ws-api.out || fail 'raspberrypi.gpg.key is not an armored public key'
+    mkdir -p /etc/apt/keyrings
+    cp /tmp/ws-api.out /etc/apt/keyrings/raspberrypi.asc  # apt reads armored keys from *.asc
+    ;;
   *) fail "unknown client $HARNESS_CLIENT" ;;
 esac

@@ -30,6 +30,14 @@
       [
         "location",
         "https://production.cloudfront.docker.com/registry-v2/docker/registry/v2/blobs/sha256/e2/e2ac70e7319a02c5a477f5825259bd118b94e8b02c279c67afa63adab6d8685b/data?Expires=harness-redacted&Signature=harness-redacted&Key-Pair-Id=harness-redacted"
+      ],
+      [
+        "ratelimit-limit",
+        "1500;w=60"
+      ],
+      [
+        "ratelimit-remaining",
+        "1499;w=60"
       ]
     ],
     "status": 307

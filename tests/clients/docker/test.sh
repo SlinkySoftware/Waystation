@@ -6,9 +6,10 @@
 set -eu
 . /harness/lib.sh
 
-if [ "${HARNESS_CLIENT:-docker}" = conformance ]; then
-  exec sh /harness/docker/conformance.sh
-fi
+case "${HARNESS_CLIENT:-docker}" in
+  conformance) exec sh /harness/docker/conformance.sh ;;
+  podman) exec sh /harness/docker/podman.sh ;;
+esac
 
 registry=${WAYSTATION_URL#http://}
 platform=linux/amd64
@@ -82,6 +83,9 @@ if skopeo inspect --tls-verify=false --raw "docker://$registry/docker-hub/librar
   fail 'a missing tag was served'
 fi
 grep -Eqi 'manifest unknown|name unknown|not found' /tmp/missing.out || fail "missing tag: $(cat /tmp/missing.out)"
+
+# containerd with hosts.toml (mirror mode with ?ns=), prefix and alias: the same digests as the docker daemon got.
+. /harness/docker/containerd.sh
 
 step 'Docker Hub ratelimit-* headers are recorded for upstream health'
 ws_login

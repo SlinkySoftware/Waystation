@@ -1,6 +1,6 @@
 #!/bin/sh
-# apt through Waystation apt proxies (client-debian: Debian 13, client-ubuntu: Ubuntu 26.04; HARNESS_CLIENT says
-# which). apt keeps verifying the distribution's own signature (Signed-By unchanged): Waystation passes InRelease
+# apt through Waystation apt proxies (client-debian: Debian 13, client-ubuntu: Ubuntu 26.04, client-raspios: Raspberry
+# Pi OS arm64, opt-in with ARM64=1; HARNESS_CLIENT says which). apt keeps verifying the distribution's own signature (Signed-By unchanged): Waystation passes InRelease
 # through untouched, so a modified Release or index would fail apt-get update. Runs identically in every mode;
 # assertions use only what survives fixture scrubbing.
 set -eu
@@ -18,8 +18,15 @@ case "$HARNESS_CLIENT" in
     keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg
     packages='msr-tools attr' check='getfattr --version'
     ;;
+  raspios)  # Raspberry Pi OS = Debian 13 arm64 + the Raspberry Pi archive (arm64 only: CLIENT_ARM64, ARM64=1)
+    [ "$(uname -m)" = aarch64 ] || fail "client-raspios must run on linux/arm64, got $(uname -m)"
+    main=raspberrypi sec=debian suite=trixie sec_suite=trixie-updates
+    keyring=/etc/apt/keyrings/raspberrypi.asc sec_keyring=/usr/share/keyrings/debian-archive-keyring.pgp
+    packages=raspberrypi-archive-keyring check='test -s /usr/share/keyrings/raspberrypi-archive-keyring.gpg'
+    ;;
   *) fail "unknown client $HARNESS_CLIENT" ;;
 esac
+sec_keyring=${sec_keyring:-$keyring}
 export DEBIAN_FRONTEND=noninteractive
 
 step "point apt at Waystation ($main: deb822 .sources, $sec: one-line .list)"
@@ -31,7 +38,7 @@ Suites: $suite
 Components: main
 Signed-By: $keyring
 SOURCES
-echo "deb [signed-by=$keyring] $repo/$sec/ $sec_suite main" > /etc/apt/sources.list.d/waystation-security.list
+echo "deb [signed-by=$sec_keyring] $repo/$sec/ $sec_suite main" > /etc/apt/sources.list.d/waystation-security.list
 # Small fixtures: compressed Packages only, no translations/contents (the owner's fixture decision; README).
 cat > /etc/apt/apt.conf.d/99waystation-harness <<'CONF'
 Acquire::Languages "none";

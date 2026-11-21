@@ -170,7 +170,9 @@ username=alice
 password=<your-api-token>
 ```
 
-A revoked or expired token answers `401` (`dnf makecache` fails with "Status code: 401"). The harness checks both.
+A revoked or expired token answers `401` (`dnf makecache` fails with "Status code: 401"). The harness checks both,
+and the client-auth matrix (`tests/clients/auth/`) runs dnf against a private hosted repository with tokens of an LDAP
+and an OIDC user, and the 401 for an account password, a wrong password, a revoked token and no credentials.
 
 ## Troubleshooting
 

@@ -77,7 +77,10 @@ pythonpath = ["tests/clients/harness", "Application/Server/tests/support", "Buil
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra --strict-markers --import-mode=importlib"
-markers = ["integration: needs MongoDB/Valkey containers (make test-integration)"]
+markers = [
+  "integration: needs MongoDB/Valkey containers (make test-integration)",
+  "nexus: needs a real Nexus 3 container (make test-nexus, opt-in)",
+]
 
 [tool.coverage.run]
 branch = true

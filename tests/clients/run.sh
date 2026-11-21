@@ -24,6 +24,11 @@ formats() {
   done
 }
 
+arm64_available() {  # can this host run linux/arm64 containers (natively or through qemu binfmt)?
+  case "$(uname -m)" in aarch64 | arm64) return 0 ;; esac
+  [ -r /proc/sys/fs/binfmt_misc/qemu-aarch64 ] && grep -q '^enabled' /proc/sys/fs/binfmt_misc/qemu-aarch64
+}
+
 check_fixtures() {  # check_fixtures <fixtures-root> <path>
   "$CLIENTS/check_fixtures.sh" --fixtures-root "$1" "$2"
 }
@@ -36,7 +41,7 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
   [ -f "$dir/test.sh" ] || { echo "$fmt: missing $dir/test.sh" >&2; exit 2; }
 
   # shellcheck disable=SC1091
-  local HOSTS='' CLIENT='' NEEDS_STACK=0 ORIGINS='' RECORD_SERVICES='' DROP_JSON_KEYS=''
+  local HOSTS='' CLIENT='' NEEDS_STACK=0 ORIGINS='' RECORD_SERVICES='' SERVICES='' DROP_JSON_KEYS='' CLIENT_ARM64='' STACK_ENV=''
   # shellcheck source=/dev/null
   . "$dir/format.env"
   [ -n "$HOSTS" ] && [ -n "$CLIENT" ] || { echo "$fmt: format.env needs HOSTS and CLIENT" >&2; exit 2; }
@@ -52,8 +57,8 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
     record) fixtures="$FIXTURES_ROOT/recordings-tmp/$fmt"; rm -rf "$fixtures"; mkdir -p "$fixtures" ;;
     live) fixtures="$run_dir/discard"; mkdir -p "$fixtures" ;;
   esac
-  rm -rf "$run_dir/ca" "$run_dir/state"
-  mkdir -p "$run_dir/ca" "$run_dir/state"
+  rm -rf "$run_dir/ca" "$run_dir/state" "$run_dir/shared" "$run_dir/idp"
+  mkdir -p "$run_dir/ca" "$run_dir/state" "$run_dir/shared" "$run_dir/idp"
 
   local stack=0
   [ "${NEEDS_STACK:-0}" = 1 ] || [ "${STACK:-0}" = 1 ] && stack=1
@@ -75,6 +80,7 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
     echo "WAYSTATION_SECRET_KEYS=$(head -c 32 /dev/urandom | base64)"
     echo "WAYSTATION_SESSION_SECRET=$(head -c 32 /dev/urandom | base64)"
     echo "HARNESS_ADMIN_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -d '/+=')"
+    for kv in $STACK_ENV; do echo "$kv"; done  # format.env: extra WAYSTATION_* settings for the stack
   } > "$run_dir/stack.env"
   umask 022
 
@@ -87,7 +93,7 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
     if [ "${KEEP:-0}" = 1 ]; then
       echo "KEEP=1: left project $project and $run_dir in place"
     else
-      "${compose[@]}" --profile clients --profile origins down -v --remove-orphans >/dev/null 2>&1 || true
+      "${compose[@]}" --profile clients --profile origins --profile idp down -v --remove-orphans >/dev/null 2>&1 || true
       rm -rf "$run_dir"
     fi
     exit "$rc"
@@ -102,6 +108,10 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
   if [ "$MODE" != replay ] && [ -n "$RECORD_SERVICES" ]; then
     # shellcheck disable=SC2086
     "${compose[@]}" up -d --wait --quiet-pull $RECORD_SERVICES
+  fi
+  if [ -n "$SERVICES" ]; then  # every mode: e.g. the identity providers of the auth format (profile idp)
+    # shellcheck disable=SC2086
+    "${compose[@]}" --profile idp up -d --build "${quiet_build[@]}" --wait --wait-timeout 300 --quiet-pull $SERVICES
   fi
 
   # Point every public upstream name at the fake upstream, for the clients and the server/worker.
@@ -120,7 +130,7 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
       echo "    extra_hosts:"
       printf '%s' "$hosts_yaml"
     done
-    for svc in curl node debian ubuntu skopeo docker conformance python go; do
+    for svc in curl node nodepm debian ubuntu raspios skopeo docker podman conformance python go; do
       echo "  client-$svc:"
       echo "    extra_hosts:"
       printf '%s' "$hosts_yaml"
@@ -139,6 +149,24 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
       sh -c 'set -eu; d=/harness/$HARNESS_FORMAT; if [ -f "$d/setup.sh" ]; then sh "$d/setup.sh"; fi; exec sh "$d/test.sh"' \
       || { rc=$?; break; }
   done
+
+  # arm64 clients (CLIENT_ARM64, e.g. Raspberry Pi OS): opt-in with ARM64=1, and only where arm64 containers can run
+  # (an arm64 host, or an x86 host with qemu-aarch64 registered in binfmt_misc). Otherwise they are skipped, loudly.
+  if [ "$rc" = 0 ] && [ -n "$CLIENT_ARM64" ]; then
+    if [ "${ARM64:-0}" != 1 ]; then
+      echo "==> $fmt: SKIP arm64 clients ($CLIENT_ARM64): opt-in, set ARM64=1 (needs arm64 or qemu-aarch64 binfmt)"
+    elif ! arm64_available; then
+      echo "==> $fmt: SKIP arm64 clients ($CLIENT_ARM64): ARM64=1 but this host cannot run linux/arm64 containers" \
+        "(no qemu-aarch64 in /proc/sys/fs/binfmt_misc; an administrator registers it, e.g. tonistiigi/binfmt)"
+    else
+      for client in $CLIENT_ARM64; do
+        echo "==> $fmt: client-$client (linux/arm64)"
+        "${compose[@]}" run --rm --no-deps --quiet-pull -e HARNESS_CLIENT="$client" "client-$client" \
+          sh -c 'set -eu; d=/harness/$HARNESS_FORMAT; if [ -f "$d/setup.sh" ]; then sh "$d/setup.sh"; fi; exec sh "$d/test.sh"' \
+          || { rc=$?; break; }
+      done
+    fi
+  fi
 
   if [ -s "$run_dir/state/misses.txt" ]; then
     echo "FAIL $fmt: the fake upstream reported misses/errors:" >&2

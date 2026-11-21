@@ -70,7 +70,7 @@ typecheck: sync ## mypy --strict
 
 .PHONY: test
 test: sync ## Unit tests (pytest) with coverage; paths and crypto must stay at 100% branch coverage
-	$(DEV_RUN) uv run --frozen pytest -m "not integration" --cov --cov-report=term-missing:skip-covered $(ARGS)
+	$(DEV_RUN) uv run --frozen pytest -m "not integration and not nexus" --cov --cov-report=term-missing:skip-covered $(ARGS)
 	$(DEV_RUN) uv run --frozen coverage report --fail-under=100 $(FULL_COVERAGE)
 
 # One throwaway MongoDB/Valkey project per checkout, so parallel worktrees don't collide.
@@ -97,6 +97,23 @@ test-integration: sync ## Integration tests (pytest -m integration) against real
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit 1; }; \
 	$(DEV_RUN) uv run --frozen pytest -m integration -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_TEST) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
+
+# Opt-in (not in `make check` or CI): the Nexus importer against a real Nexus 3 CE container (about 3 GB of memory,
+# one to three minutes to start). Takes the same machine-wide lock as test-integration.
+NEXUS_PROJECT := waystation-nexus-$(shell printf '%s' '$(CURDIR)' | md5sum | cut -c1-8)
+COMPOSE_NEXUS  = docker compose -p $(NEXUS_PROJECT) -f Build/Containers/compose.nexus.yaml
+.PHONY: test-nexus
+test-nexus: private DEV_ENV = --network $(NEXUS_PROJECT)_default \
+  -e WAYSTATION_TEST_MONGO_URI='mongodb://waystation-mongodb:27017/?replicaSet=rs0' \
+  -e WAYSTATION_TEST_VALKEY_URL='redis://waystation-valkey:6379/0' \
+  -e WAYSTATION_TEST_NEXUS_URL=http://nexus.example.com:8081
+test-nexus: sync ## Nexus import against a real sonatype/nexus3 container (opt-in, ~3 GB RAM; pytest -m nexus)
+	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
+	  flock -n 9 || { echo "test-nexus: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
+	$(COMPOSE_NEXUS) up -d --wait --wait-timeout 420 --quiet-pull || { $(COMPOSE_NEXUS) logs --no-color --tail 80; \
+	  $(COMPOSE_NEXUS) down -v --remove-orphans >/dev/null 2>&1; exit 1; }; \
+	$(DEV_RUN) uv run --frozen pytest -m nexus -p no:cacheprovider $(ARGS); rc=$$?; \
+	  $(COMPOSE_NEXUS) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 
 test-integration-authentik: ## OIDC tests against authentik too (opt-in: PostgreSQL + server + worker, a few minutes to start)
 	$(MAKE) test-integration TEST_PROFILES='--profile authentik' TEST_AUTHENTIK_URL=http://authentik.example.com:9000 \

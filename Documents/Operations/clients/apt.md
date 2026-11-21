@@ -2,7 +2,9 @@
 
 An apt proxy repository caches a Debian-style archive (`deb.debian.org/debian`, `deb.debian.org/debian-security`,
 `archive.ubuntu.com/ubuntu`, `security.ubuntu.com/ubuntu`, a vendor repository). Tested with apt on Debian 13 and
-Ubuntu 26.04 (`tests/clients/apt/`). Protocol notes: FORMATS.md "apt".
+Ubuntu 26.04 (`tests/clients/apt/`); a Raspberry Pi OS arm64 client (Debian 13 arm64 plus
+`archive.raspberrypi.com/debian`, `trixie`) runs in the same harness where arm64 containers can run (opt-in,
+`ARM64=1`; tests/clients/README.md). Protocol notes: FORMATS.md "apt".
 
 Examples use `https://registry.example.com` as the Waystation base URL and repositories named `debian`,
 `debian-security`, `ubuntu` and `ubuntu-security`.
@@ -106,6 +108,11 @@ password <your-api-token>
 
 apt applies an entry without a scheme to `https://` sources only. If Waystation is reached over plain HTTP (not
 recommended: the token travels in clear), write the scheme: `machine http://registry.example.com/repository/`.
+
+Account passwords (local or LDAP) are refused here (401): apt, like every format client except `docker login` and
+`npm login`, uses API tokens. The client harness checks `auth.conf` with tokens of an LDAP and an OIDC user against
+a repository without anonymous access, and the refusals of a wrong password, an account password, a revoked token and
+no credentials (`tests/clients/auth/`).
 
 ## Troubleshooting
 

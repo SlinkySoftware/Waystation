@@ -3,6 +3,28 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-21
+- T-A04: client-auth matrix in the real-client harness (`tests/clients/auth/`): with the `make test-integration`
+  OpenLDAP directory and Keycloak realm next to the stack and anonymous access off, docker login with an LDAP
+  password and with an OIDC user's API token, npm login (LDAP) and `_authToken` (OIDC), apt `auth.conf`, dnf basic
+  auth and curl basic/bearer pass, and anonymous requests, wrong passwords, account passwords where only tokens
+  count, unknown and revoked tokens and a user without a mapped group are refused. The Keycloak test realm also
+  allows the harness's callback URL.
+- T-P2-NPM: pnpm 12, Yarn 1, Yarn 4 and Bun in the harness (`client-nodepm`): frozen installs from their own
+  committed lockfiles and their audit commands through the npm proxy. `clients/npm.md`: Yarn 1 fetches the
+  lockfile's tarball URLs verbatim (rewrite them to Waystation); Yarn 4 over plain HTTP needs `unsafeHttpWhitelist`.
+- T-P2-DOCKERP: podman 6.2 (registries.conf mirror, prefix, alias) and containerd 2.4 (`ctr` with `hosts.toml`
+  mirrors for Docker Hub and GHCR, prefix, alias) in the harness; docker fixtures re-recorded.
+- T-P2-APT: a Raspberry Pi OS arm64 client in the harness, opt-in (`ARM64=1`) and skipped with a message where the
+  host cannot run linux/arm64 containers; its fixtures await a host with arm64 emulation.
+- T-P2-HARNESS: format options `SERVICES`, `STACK_ENV` and `CLIENT_ARM64`, a per-run directory shared by a run's
+  clients, `ws_login <user> <password> [<provider>]` and `ws_revoke_any` in `lib.sh`; the nightly live client smoke
+  runs on Gitea (`.gitea/workflows/clients-live.yml`, arm64 clients behind `WAYSTATION_CI_ARM64`); the manual
+  GitHub workflow takes a format and registers QEMU for the arm64 clients.
+- T-M01 (done): opt-in `make test-nexus` runs the Nexus importer against a real `sonatype/nexus3` Community Edition
+  container (`Build/Containers/compose.nexus.yaml`, about 3 GB of memory, not in `make check` or CI). The test seeds
+  Nexus with the repositories of the hand-written fixtures, requires the same import plan from the real Nexus as from
+  the fixtures, applies it and re-applies idempotently. The first run passed without importer changes; Community
+  Edition refuses writable group members (a Pro feature), which the test allows.
 - **Release 0.2.5**: containerd `?ns=` mirror routing (GitHub #5): pulls for other registries through a mirror
   without `override_path` no longer get Docker Hub's image of the same name. Docs and examples point at the 0.2.5
   images.

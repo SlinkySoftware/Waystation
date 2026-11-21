@@ -1,0 +1,54 @@
+# Gitea: the nightly live-upstream smoke of the real-client harness (T-P2-HARNESS; tests/clients/README.md,
+# Documents/Operations/CI.md). Every format's client scripts run against the live public upstreams through the fake
+# upstream in `live` mode (forward, store nothing), so upstream changes that the committed fixtures cannot show
+# (new index formats, CDN redirects, token realms) surface within a day. Gitea runs on local runners at no cost.
+#
+# The runner must run jobs on the host (an `ubuntu-latest:host` runner label) or in a container whose checkout path
+# is the same on the Docker host, with network access to the public upstreams. Formats run one at a time.
+#
+# Optional organisation-level settings, referenced here by name only:
+#   vars.WAYSTATION_CI_CLIENTS_LIVE  'false' skips the workflow
+#   vars.WAYSTATION_CI_ARM64         'true' also runs the arm64 clients (Raspberry Pi OS): QEMU is registered on the
+#                                    runner host with docker/setup-qemu-action, as the image workflow does
+# Actions are pinned by commit SHA (version in the comment).
+name: clients-live
+
+on:
+  schedule:
+    - cron: '45 3 * * *'
+  workflow_dispatch:
+    inputs:
+      format:
+        description: 'Format to run (a directory of tests/clients, or all)'
+        required: false
+        default: all
+
+concurrency:
+  group: clients-live
+  cancel-in-progress: false
+
+env:
+  DEV_IMAGE: waystation-dev:local
+  SKIP_DEV_IMAGE_BUILD: '1'
+
+jobs:
+  live:
+    name: make clients-test MODE=live
+    if: ${{ vars.WAYSTATION_CI_CLIENTS_LIVE != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Dev image
+        run: docker build -q -t "$DEV_IMAGE" -f Build/Containers/dev/Dockerfile Build/Containers/dev
+      - if: ${{ vars.WAYSTATION_CI_ARM64 == 'true' }}
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+      - name: Live-upstream client smoke
+        env:
+          FORMAT: ${{ inputs.format || 'all' }}
+          ARM64: ${{ vars.WAYSTATION_CI_ARM64 == 'true' && '1' || '0' }}
+        run: make clients-test FORMAT="$FORMAT" MODE=live

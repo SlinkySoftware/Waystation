@@ -25,7 +25,7 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "frontchannelLogout": true,
-      "redirectUris": ["https://registry.example.com/auth/oidc/*"],
+      "redirectUris": ["https://registry.example.com/auth/oidc/*", "http://waystation-web:8080/auth/oidc/*"],
       "webOrigins": ["https://registry.example.com"],
       "attributes": {
         "pkce.code.challenge.method": "S256",

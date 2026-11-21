@@ -26,6 +26,14 @@
       [
         "docker-distribution-api-version",
         "registry/2.0"
+      ],
+      [
+        "ratelimit-limit",
+        "1500;w=60"
+      ],
+      [
+        "ratelimit-remaining",
+        "1493;w=60"
       ]
     ],
     "status": 200

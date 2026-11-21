@@ -7,8 +7,10 @@ below use `https://waystation.example.com` and repositories called `npm` (proxy)
 
 Status: proxy (packuments full and abbreviated, tarballs, scoped packages, search, audit, ping), hosted (publish,
 dist-tags, deprecate, unpublish, search) and group repositories (FORMATS.md "npm"), `npm login --auth-type=legacy` and
-`npm logout`. Verified with npm 11 by the real-client harness (`tests/clients/npm/`); pnpm, Yarn and Bun use the same
-registry protocol and are expected to work but are not yet in the harness.
+`npm logout`. Verified by the real-client harness (`tests/clients/npm/`) with npm 11 and, against a proxy, with
+pnpm 12, Yarn 1.22, Yarn 4 and Bun 1.4: frozen installs from each client's own committed lockfile (left unchanged)
+and each client's audit command (`pnpm audit`, `yarn audit`, `yarn npm audit`, `bun audit`). Credentials (npm login,
+`_authToken` from an LDAP or OIDC user) are covered by the client-auth matrix (`tests/clients/auth/`).
 
 ## npm
 
@@ -47,7 +49,7 @@ pnpm config set registry https://waystation.example.com/repository/npm/
 ```
 
 or `registry=...` in the project `.npmrc` (pnpm reads it). pnpm's `pnpm-lock.yaml` stores integrity hashes, not
-tarball URLs, for packages from the configured registry.
+tarball URLs, for packages from the configured registry, so `pnpm install --frozen-lockfile` works unchanged.
 
 ## Yarn
 
@@ -63,7 +65,15 @@ Yarn 2+ (`.yarnrc.yml`):
 npmRegistryServer: "https://waystation.example.com/repository/npm/"
 ```
 
-Yarn 1 records `resolved` URLs in `yarn.lock`; Yarn 2+ records only the package reference and checksum.
+Yarn 2+ records only the package reference and checksum in `yarn.lock`, so an existing lockfile installs through
+Waystation unchanged (`yarn install --immutable`). Over plain `http://` (a test instance) Yarn 2+ also needs
+`unsafeHttpWhitelist: ["<host>"]`.
+
+Yarn 1 records `resolved` tarball URLs in `yarn.lock` and fetches **those URLs verbatim**, whatever registry is
+configured: a lockfile that names `https://registry.npmjs.org/...` bypasses Waystation (and fails where the public
+registry is unreachable). Generate the lockfile through Waystation, or rewrite the registry part of the URLs once,
+for example `sed -i 's#https://registry.npmjs.org/#https://waystation.example.com/repository/npm/#' yarn.lock`
+(the harness does exactly that). The `integrity` lines stay valid.
 
 ## Bun
 
