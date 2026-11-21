@@ -16,7 +16,7 @@
       </div>
       <div v-else class="roles__grid">
         <q-skeleton v-for="n in list.data.value ? 0 : 4" :key="n" height="150px" />
-        <article v-for="role in list.data.value ?? []" :key="role.id" class="role-card q-card" role="button" tabindex="0" @click="open(role)" @keydown.enter="open(role)">
+        <article v-for="role in list.data.value ?? []" :key="role.id" class="role-card q-card" @click="open(role)">
           <header class="role-card__head">
             <q-icon :name="role.builtin ? iconLock : iconRoles" size="20px" class="role-card__icon" />
             <div class="col">

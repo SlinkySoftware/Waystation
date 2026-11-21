@@ -120,7 +120,7 @@ test-integration-authentik: ## OIDC tests against authentik too (opt-in: Postgre
 	  ARGS='Application/Server/tests/test_oidc_providers_integration.py $(ARGS)'
 
 .PHONY: check
-check: forbidden-strings workflow-lint fmt-check lint typecheck test test-integration clients-check frontend-check budgets ## Everything CI runs on a PR (grows as tasks land)
+check: forbidden-strings workflow-lint fmt-check lint typecheck test test-integration clients-check frontend-check e2e budgets ## Everything CI runs on a PR (grows as tasks land)
 
 .PHONY: forbidden-strings budgets workflow-lint
 ACTIONLINT_IMAGE ?= rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
@@ -261,9 +261,15 @@ verify-blobs: ## Run the blob verify task in a running stack and wait for its re
 	$(BACKUP_TOOL) verify --prefix '$(PREFIX)'
 
 ##@ Test suites
-.PHONY: e2e clients-test clients-check perf
-e2e: ## Playwright E2E
-	$(call not_yet,T-U09)
+.PHONY: e2e e2e-update clients-test clients-check perf
+# Playwright suites on the mock build (Application/Web/e2e, T-U09) in the pinned Playwright image (same fonts and
+# rendering as the committed screenshot baselines). ARGS passes options through, e.g. ARGS='a11y.spec.ts' or
+# ARGS='--grep dashboard'.
+E2E_RUN = docker run --rm -i --init --ipc=host --user $(UID):$(GID) -e HOME=/tmp -e CI -v $(CURDIR):/src -w /src/$(WEB_DIR) $(PLAYWRIGHT_IMAGE)
+e2e: frontend-build-mock ## Playwright on the mock build: E2E flows, axe on every page (zero serious), visual baseline (2 themes x 3 widths), UI perf checks [ARGS=...]
+	$(E2E_RUN) npx playwright test $(ARGS)
+e2e-update: frontend-build-mock ## Regenerate the visual-regression baselines (Application/Web/e2e/__screenshots__) after an intended UI change; review the images in the diff
+	$(E2E_RUN) npx playwright test visual.spec.ts --update-snapshots=all $(ARGS)
 .PHONY: e2e-m0 ui-smoke
 e2e-m0: ## M0 end to end with real clients against a RUNNING stack (WAYSTATION_URL, WAYSTATION_ADMIN_PASSWORD[_FILE])
 	tests/e2e/m0/run.sh

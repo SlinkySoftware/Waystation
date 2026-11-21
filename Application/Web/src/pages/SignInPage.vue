@@ -19,7 +19,7 @@
           <p class="sign-in__lead">{{ recovery ? t('signIn.secondFactor.recoveryLead') : t('signIn.secondFactor.lead') }}</p>
           <label class="sign-in__label" for="code">{{ recovery ? t('signIn.secondFactor.recoveryLabel') : t('signIn.secondFactor.label') }}</label>
           <q-input
-            id="code"
+            for="code"
             :key="recovery ? 'recovery' : 'totp'"
             v-model="code"
             outlined
@@ -53,7 +53,7 @@
           <template v-if="passwordProviders.length > 1">
             <label class="sign-in__label" for="provider">{{ t('signIn.provider') }}</label>
             <q-select
-              id="provider"
+              for="provider"
               v-model="provider"
               outlined
               dense
@@ -67,7 +67,7 @@
           </template>
           <label class="sign-in__label" for="username">{{ t('signIn.username') }}</label>
           <q-input
-            id="username"
+            for="username"
             v-model="username"
             outlined
             dense
@@ -79,7 +79,7 @@
           />
           <label class="sign-in__label" for="password">{{ t('signIn.password') }}</label>
           <q-input
-            id="password"
+            for="password"
             v-model="password"
             outlined
             dense

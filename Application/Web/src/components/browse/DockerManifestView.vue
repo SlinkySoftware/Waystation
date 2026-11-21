@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Manifest page: platform switcher, layers with a stacked size bar, pull commands by tag and by digest. -->
+<!-- Manifest page: platform switcher, layers with a stacked size bar, pull commands by tag and by digest, and the
+     referrers (signatures, SBOMs, attestations). -->
 <template>
   <div v-if="m.data.value" class="manifest">
     <div class="manifest__top">
@@ -30,6 +31,8 @@
       />
     </div>
 
+    <DockerReferrers :repo="repo" :image="image" :subject="m.data.value.digest" :platform-digest="m.data.value.platform_digest" class="manifest__refs" />
+
     <div class="manifest__layers">
       <div class="manifest__bar" role="img" :aria-label="t('browse.docker.layerBar')">
         <span
@@ -59,6 +62,7 @@
         </template>
       </q-table>
     </div>
+
   </div>
   <div v-else-if="m.error.value" class="q-pa-md text-negative">{{ errorMessage(m.error.value) }}</div>
   <q-skeleton v-else height="320px" class="q-ma-md" />
@@ -78,6 +82,8 @@ import { useAsync } from '@/composables/useAsync'
 import { useQueryNavigate, useQueryParam } from '@/composables/useQueryParam'
 import { t } from '@/i18n'
 import { formatBytes, shortDigest } from '@/utils/format'
+
+import DockerReferrers from './DockerReferrers.vue'
 
 const props = defineProps<{ repo: Repository; image: string; reference: string }>()
 
@@ -106,6 +112,10 @@ const columns = computed<QTableColumn<DockerLayer>[]>(() => [
 </script>
 
 <style scoped>
+.manifest__refs {
+  padding: 0 16px 16px;
+}
+
 .manifest__top {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);

@@ -127,6 +127,52 @@ export function npmVersionsFor(name: string): { pkg: NpmPackage; versions: NpmVe
   return { pkg, versions, distTags }
 }
 
+/** The package README as a packument carries it (Markdown, untrusted: the UI renders it safely). Includes raw HTML
+ * and a script tag on purpose, which must show as text. */
+export function npmReadme(name: string): string | null {
+  const seed = NPM_PACKAGES.find((p) => p.name === name)
+  if (!seed) return null
+  const base = name.includes('/') ? name.split('/')[1]! : name
+  return [
+    `# ${name}`,
+    '',
+    `> ${seed.description}`,
+    '',
+    `[![version](https://example.com/badges/${base}.svg)](https://example.com/packages/${base}) **${seed.license}** licensed · latest \`${seed.latest}\``,
+    '',
+    '## Install',
+    '',
+    '```sh',
+    `npm install ${name}`,
+    '```',
+    '',
+    '## Usage',
+    '',
+    '```js',
+    `import ${base.replace(/[^A-Za-z0-9]/g, '')} from '${name}'`,
+    '```',
+    '',
+    'Supported runtimes:',
+    '',
+    '| Runtime | Version | Notes |',
+    '| --- | ---: | --- |',
+    '| Node.js | 20+ | ESM and CommonJS |',
+    '| Bun | 1.2+ | |',
+    '| Deno | 2+ | via `npm:` specifiers |',
+    '',
+    '- Tree-shakeable, *side-effect free* builds',
+    '- Types included',
+    '  1. no `@types` package needed',
+    '  2. strict mode friendly',
+    '',
+    '<div align="center"><script>alert("never runs")</script>Raw HTML is shown as text.</div>',
+    '',
+    '---',
+    '',
+    `See the [changelog](https://github.com/example/${base}/releases) and [an unsafe link](javascript:alert(1)).`,
+  ].join('\n')
+}
+
 /** Tarball file name as npm requests it: `@scope/name/-/name-1.2.3.tgz`. */
 export function tarballPath(name: string, version: string): string {
   const base = name.includes('/') ? name.split('/')[1] : name

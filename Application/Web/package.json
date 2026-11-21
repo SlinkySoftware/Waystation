@@ -23,6 +23,7 @@
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@quasar/extras": "^2.1.0",
+    "markdown-it": "^15.0.3",
     "openapi-fetch": "^0.17.0",
     "pinia": "^4.1.0",
     "quasar": "^2.35.2",
@@ -30,9 +31,12 @@
     "vue-router": "^5.4.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "1.65.0",
     "@quasar/app-vite": "^3.10.3",
     "@quasar/vite-plugin": "^2.0.2",
     "@resvg/resvg-js": "^2.6.2",
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^24.19.2",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vue/eslint-config-typescript": "^14.9.0",
@@ -52,7 +56,8 @@
       "typescript": "$typescript"
     },
     "minimatch": "^11.0.1",
-    "glob": "^14.0.2"
+    "glob": "^14.0.2",
+    "playwright-core": "1.65.0"
   },
   "engines": {
     "node": ">=24",

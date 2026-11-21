@@ -25,6 +25,7 @@ PREFIX = '/api/v1'
 
 # Operations the server implements (grows with each task). Every one must match the contract.
 IMPLEMENTED: set[tuple[str, str]] = {
+    ('/repositories/{name}/docker/referrers', 'get'),
     ('/config', 'get'),
     ('/auth/providers', 'get'),
     ('/auth/login', 'post'),

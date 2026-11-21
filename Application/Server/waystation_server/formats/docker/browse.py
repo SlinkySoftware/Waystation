@@ -33,6 +33,8 @@ from waystation_server.browse.models import (
     DockerLayer,
     DockerManifest,
     DockerPlatformManifest,
+    DockerReferrer,
+    DockerReferrerList,
     DockerTag,
     DockerTagPage,
     Platform,
@@ -378,6 +380,22 @@ class DockerBrowse:
             pull_by_tag=f'docker pull {pull}:{tag}' if tag else '',
             pull_by_digest=f'docker pull {pull}@{digest}',
         )
+
+    async def referrers(self, ctx: BrowseContext, *, image: str, digest: str) -> DockerReferrerList:
+        if not p.DIGEST_RE.fullmatch(digest):
+            raise ValidationFailed('digest must be sha256:<64 hex> or sha512:<128 hex>')
+        docs = await docker_db.referrers(ctx.db, ctx.repo.id, image, digest, artifact_type=None)
+        items = [
+            DockerReferrer(
+                digest=str(doc['digest']),
+                media_type=str(doc.get('media_type') or ''),
+                artifact_type=doc.get('artifact_type'),
+                size=doc.get('size'),
+                annotations={str(k): str(v) for k, v in (doc.get('annotations') or {}).items()},
+            )
+            for doc in docs
+        ]
+        return DockerReferrerList(image=image, subject=digest, items=items)
 
     @staticmethod
     def _pull_name(ctx: BrowseContext, image: str) -> str:

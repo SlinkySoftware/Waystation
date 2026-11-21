@@ -17,6 +17,11 @@
           <q-tab v-for="c in guide.data.value.clients" :key="c.id" :name="c.id" :label="c.label" />
         </q-tabs>
 
+        <div v-if="variants" class="setup__os">
+          <span class="setup__os-label" :id="osLabelId">{{ t('ui.setupOs.label') }}</span>
+          <q-btn-toggle v-model="os" dense no-caps unelevated toggle-color="primary" class="setup__os-toggle" :aria-labelledby="osLabelId" :options="osOptions" />
+        </div>
+
         <div v-if="usesToken" class="setup__token">
           <q-icon :name="iconToken" size="18px" />
           <div class="col">
@@ -27,7 +32,7 @@
 
         <p v-for="note in guide.data.value.notes ?? []" :key="note" class="setup__note">{{ note }}</p>
 
-        <section v-for="s in current?.snippets ?? []" :key="s.id" class="snippet">
+        <section v-for="s in shown" :key="`${s.id}-${s.os ?? 'any'}`" class="snippet">
           <div class="snippet__head">
             <div class="col">
               <div class="snippet__title">{{ s.title }}</div>
@@ -52,7 +57,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 
 import { api, call, errorMessage } from '@/api/client'
 import type { Repository } from '@/api/types'
@@ -64,7 +69,9 @@ import { useAuthStore } from '@/stores/auth'
 import { formatLabel, repoMark } from '@/utils/domain'
 import { iconClose, iconCopy, iconFile, iconToken } from '@/utils/icons'
 
-import { fillSnippet, needsToken } from './snippets'
+import { readString, writeString } from '@/utils/storage'
+
+import { detectOs, fillSnippet, hasOsVariants, needsToken, SETUP_OS, type SetupOs, snippetsFor } from './snippets'
 
 const props = defineProps<{ repo: Repository }>()
 const open = defineModel<boolean>({ required: true })
@@ -83,7 +90,16 @@ watch(
 )
 
 const current = computed(() => guide.data.value?.clients.find((c) => c.id === client.value))
-const usesToken = computed(() => (current.value?.snippets ?? []).some((s) => needsToken(s.content)))
+// OS variants (Linux / macOS / Windows): the last choice on this browser, else the visitor's OS.
+const OS_KEY = 'ws.setup.os'
+const stored = readString(OS_KEY)
+const os = ref<SetupOs>(SETUP_OS.includes(stored as SetupOs) ? (stored as SetupOs) : detectOs(navigator.userAgent))
+watch(os, (v) => writeString(OS_KEY, v))
+const osLabelId = useId()
+const osOptions = computed(() => SETUP_OS.map((v) => ({ value: v, label: t(`ui.setupOs.${v}`) })))
+const variants = computed(() => hasOsVariants(current.value?.snippets ?? []))
+const shown = computed(() => snippetsFor(current.value?.snippets ?? [], os.value))
+const usesToken = computed(() => shown.value.some((s) => needsToken(s.content)))
 const fill = (content: string) => fillSnippet(content, auth.user?.username ?? null)
 </script>
 
@@ -119,6 +135,27 @@ const fill = (content: string) => fillSnippet(content, auth.user?.username ?? nu
 .setup__tabs {
   margin-bottom: 14px;
   border-bottom: 1px solid var(--border);
+}
+
+.setup__os {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.setup__os-label {
+  font-size: var(--fs-13);
+  color: var(--text-secondary);
+}
+
+.setup__os-toggle {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.setup__os-toggle :deep(.q-btn) {
+  padding: 2px 12px;
 }
 
 .setup__token {

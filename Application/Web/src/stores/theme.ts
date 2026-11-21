@@ -30,23 +30,27 @@ export const useThemeStore = defineStore('theme', () => {
     document.documentElement.style.colorScheme = Dark.isActive ? 'dark' : 'light'
   }
 
+  /** Compact density tightens tables and lists app-wide (a body class read by app.css). */
+  function applyDensity(next: Density): void {
+    density.value = next
+    writeString(DENSITY_KEY, next)
+    document.body.classList.toggle('ws-compact', next === 'compact')
+  }
+
   function init(): void {
     apply(mode.value)
+    applyDensity(density.value)
   }
 
   /** Adopt the preferences that came with the session. */
   function adopt(prefs: Preferences): void {
     apply(prefs.theme)
-    density.value = prefs.density
-    writeString(DENSITY_KEY, prefs.density)
+    applyDensity(prefs.density)
   }
 
   async function save(next: Partial<Preferences>): Promise<void> {
     if (next.theme) apply(next.theme)
-    if (next.density) {
-      density.value = next.density
-      writeString(DENSITY_KEY, next.density)
-    }
+    if (next.density) applyDensity(next.density)
     try {
       await call(api.PUT('/auth/me/preferences', { body: { theme: mode.value, density: density.value } }))
     } catch {

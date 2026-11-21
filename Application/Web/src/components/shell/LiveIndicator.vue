@@ -3,8 +3,7 @@
 <template>
   <button type="button" class="live" :class="`live--${state}`" :aria-label="label" @click="emit('click')">
     <span class="live__dot" aria-hidden="true" />
-    <span class="live__count">{{ state === 'open' ? live.activeCount : '' }}</span>
-    <span class="live__text">{{ text }}</span>
+    <span class="live__count">{{ state === 'open' ? live.activeCount : '' }}</span>{{ ' ' }}<span class="live__text">{{ text }}</span>
     <q-tooltip>{{ label }}</q-tooltip>
   </button>
 </template>

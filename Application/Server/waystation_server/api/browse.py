@@ -25,6 +25,7 @@ from waystation_server.browse.models import (
     DockerBrowser,
     DockerImagePage,
     DockerManifest,
+    DockerReferrerList,
     DockerTagPage,
     FolderListing,
     GalaxyBrowser,
@@ -295,6 +296,25 @@ async def get_docker_manifest(
     repo: RepoConfig = request.state.repo
     browser = _docker(svc, repo)
     return await browser.manifest(_context(svc, repo), image=image, reference=reference, platform=platform)
+
+
+@router.get(
+    '/repositories/{name}/docker/referrers',
+    response_model=DockerReferrerList,
+    operation_id='listDockerReferrers',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_docker_referrers(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    image: Image,
+    digest: Annotated[str, Query(max_length=140, description='Subject digest (`sha256:...`)')],
+) -> DockerReferrerList:
+    repo: RepoConfig = request.state.repo
+    browser = _docker(svc, repo)
+    return await browser.referrers(_context(svc, repo), image=image, digest=digest)
 
 
 # ---------------------------------------------------------------------------- galaxy

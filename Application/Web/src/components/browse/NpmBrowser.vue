@@ -30,7 +30,14 @@
             <CopyField :value="`npm install ${pkg}@${versions.data.value.package.latest}`" />
           </div>
         </div>
-        <q-table class="ws-table" flat :rows="versions.data.value.items" :columns="columns" row-key="version" :pagination="{ rowsPerPage: 0 }" hide-pagination>
+        <q-tabs v-if="versions.data.value.readme" v-model="view" dense no-caps inline-label align="left" active-color="primary" indicator-color="primary" narrow-indicator class="pkg__tabs">
+          <q-tab name="versions" :label="t('ui.readme.versions')" />
+          <q-tab name="readme" :icon="iconReadme" :label="t('ui.readme.title')" />
+        </q-tabs>
+        <div v-if="view === 'readme' && versions.data.value.readme" class="pkg__readme">
+          <MarkdownView :source="versions.data.value.readme" />
+        </div>
+        <q-table v-else class="ws-table" flat :rows="versions.data.value.items" :columns="columns" row-key="version" :pagination="{ rowsPerPage: 0 }" hide-pagination>
           <template #body-cell-version="{ row }">
             <q-td>
               <span class="mono ver">{{ row.version }}</span>
@@ -83,6 +90,7 @@ import { api, call, errorMessage } from '@/api/client'
 import type { NpmPackage, NpmVersion, Repository } from '@/api/types'
 import CacheBadge from '@/components/CacheBadge.vue'
 import CopyField from '@/components/CopyField.vue'
+import MarkdownView from '@/components/MarkdownView.vue'
 import PageCard from '@/components/PageCard.vue'
 import SizeCell from '@/components/SizeCell.vue'
 import TimeCell from '@/components/TimeCell.vue'
@@ -90,13 +98,16 @@ import { useAsync } from '@/composables/useAsync'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { t } from '@/i18n'
 import { formatCount } from '@/utils/format'
-import { iconSearch } from '@/utils/icons'
+import { iconReadme, iconSearch } from '@/utils/icons'
 
 import BrowseCrumbs from './BrowseCrumbs.vue'
 
 const props = defineProps<{ repo: Repository }>()
 const pkg = useQueryParam('package')
 const search = ref<string | null>(null)
+// Versions or README (`?view=readme`, shareable).
+const viewParam = useQueryParam('view')
+const view = computed({ get: () => (viewParam.value === 'readme' ? 'readme' : 'versions'), set: (v: string) => (viewParam.value = v === 'readme' ? 'readme' : null) })
 
 const packages = useAsync(
   () => call(api.GET('/repositories/{name}/npm/packages', { params: { path: { name: props.repo.name }, query: { q: search.value || undefined, limit: 200 } } })),
@@ -177,6 +188,16 @@ const columns = computed<QTableColumn<NpmVersion>[]>(() => [
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 10px;
+}
+
+.pkg__tabs {
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pkg__readme {
+  padding: 20px 24px 8px;
+  max-width: 920px;
 }
 
 .pkg__install {

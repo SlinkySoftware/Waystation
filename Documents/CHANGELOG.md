@@ -53,6 +53,26 @@ All notable changes, newest first. Each entry: date, task ID, summary.
 - T-U03, T-U07: the dashboard has Top artifacts (downloads/bytes, window) and Recently added, 90d/1y in the range
   picker and p95 latency on the Requests tile; the Storage page has the growth chart, Largest artifacts with a
   "Where used" dialog and a per-repository de-duplication column.
+- T-U01: density toggle (comfortable/compact; user menu and profile; saved in the account preferences); `GaugeChart`
+  (SVG, `role=meter` with a value text; the dashboard's Docker Hub pull limit uses it); dev-only component showcase
+  `/dev/showcase` (dev and mock builds) with every base component in the light and the dark theme side by side.
+- T-U04: repositories list table/card-grid toggle (`?view=grid`, remembered per browser); repository tabs Packages,
+  Browse (file tree), Activity, Members; Set me up Linux/macOS/Windows switch. Server: snippets with `os` replace the
+  snippet of the same id on that system (`formats/common/setup.py` `on()`); variants for the docker mirror
+  (Docker Desktop), pip.conf/pip.ini, uv credentials (PowerShell), .netrc/_netrc, Terraform/OpenTofu CLI config and
+  token, curl.exe. Old `browse?image=...` links forward to the Packages tab.
+- T-U05: two-pane virtualised file tree (keyboard accessible, pages of 500, 100,000-file folder in the mocks);
+  `GET /api/v1/repositories/{name}/docker/referrers` (signatures, SBOMs, attestations) shown on the manifest page;
+  `NpmVersionPage.readme` (≤ 256 KiB) rendered as safe Markdown (markdown-it, raw HTML off, VNodes, safe links only,
+  images not loaded).
+- T-U03: `test_ui_wiring.py` checks every API call, live topic and live event type of the SPA against the real
+  server app; Playwright measures the dashboard with 200 live transfers (median frame 16.7 ms).
+- T-U09: profile page (edit display name and e-mail, appearance, sessions); accessibility fixes from axe on every
+  page (text contrast tokens: `--status-ok`, `--cache-hit`, `--cache-miss`, `--text-tertiary`, dark
+  `--status-blocked`; sign-in field labels; search and live indicator names; cards with buttons inside are no longer
+  buttons; activity rows are articles in a region); `make e2e` (Playwright on the mock build: E2E flows, axe with zero
+  serious/critical, visual baseline 2 themes × 3 widths, UI perf) is part of `make check`; `make e2e-update`
+  regenerates the screenshots.
 - **Release 0.2.5**: containerd `?ns=` mirror routing (GitHub #5): pulls for other registries through a mirror
   without `override_path` no longer get Docker Hub's image of the same name. Docs and examples point at the 0.2.5
   images.

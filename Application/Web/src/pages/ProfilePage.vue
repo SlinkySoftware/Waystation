@@ -1,33 +1,21 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Profile (UI_DESIGN §4.11): who you are, your password and two-factor sign-in (local accounts) and your API
-     tokens. Theme lives in the user menu. -->
+<!-- Profile (UI_DESIGN §4.11): who you are (display name and e-mail editable for local accounts), appearance (theme
+     and density), password and two-factor sign-in (local accounts), API tokens and your browser sessions. While a
+     one-time password or two-factor setup is pending, only the cards that resolve it are shown. -->
 <template>
   <q-page class="ws-page">
     <PageHeader :title="t('nav.profile')" :caption="t('profile.caption')" />
     <div class="profile">
-      <PageCard :title="t('profile.account')">
-        <dl class="profile__facts">
-          <div>
-            <dt>{{ t('profile.displayName') }}</dt>
-            <dd>{{ user?.display_name }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('profile.username') }}</dt>
-            <dd class="mono">{{ user?.username }}</dd>
-          </div>
-          <div v-if="user?.email">
-            <dt>{{ t('profile.email') }}</dt>
-            <dd>{{ user.email }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('profile.source') }}</dt>
-            <dd>{{ user?.source === 'local' ? t('profile.sourceLocal') : user?.source }}</dd>
-          </div>
-        </dl>
-      </PageCard>
-      <ChangePasswordCard v-if="user?.source === 'local'" />
-      <TwoFactorCard v-if="user?.source === 'local' && !auth.mustChangePassword" />
-      <ApiTokensCard v-if="!auth.mustChangePassword && !auth.totpSetupRequired" />
+      <div class="profile__pair">
+        <AccountCard />
+        <AppearanceCard />
+      </div>
+      <div v-if="local" class="profile__pair">
+        <ChangePasswordCard />
+        <TwoFactorCard v-if="!auth.mustChangePassword" />
+      </div>
+      <ApiTokensCard v-if="unlocked" />
+      <MySessionsCard v-if="unlocked" />
     </div>
   </q-page>
 </template>
@@ -35,16 +23,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import PageCard from '@/components/PageCard.vue'
-import PageHeader from '@/components/PageHeader.vue'
+import AccountCard from '@/components/account/AccountCard.vue'
+import AppearanceCard from '@/components/account/AppearanceCard.vue'
 import ChangePasswordCard from '@/components/account/ChangePasswordCard.vue'
+import MySessionsCard from '@/components/account/MySessionsCard.vue'
 import TwoFactorCard from '@/components/account/TwoFactorCard.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import ApiTokensCard from '@/components/tokens/ApiTokensCard.vue'
 import { t } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const user = computed(() => auth.user)
+const local = computed(() => auth.user?.source === 'local')
+const unlocked = computed(() => !auth.mustChangePassword && !auth.totpSetupRequired)
 </script>
 
 <style scoped>
@@ -53,21 +44,16 @@ const user = computed(() => auth.user)
   gap: 16px;
 }
 
-.profile__facts {
+.profile__pair {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px 24px;
-  margin: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
 }
 
-.profile__facts dt {
-  font-size: var(--fs-12);
-  color: var(--text-secondary);
-}
-
-.profile__facts dd {
-  margin: 2px 0 0;
-  font-weight: 500;
-  overflow-wrap: anywhere;
+@media (max-width: 1023px) {
+  .profile__pair {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

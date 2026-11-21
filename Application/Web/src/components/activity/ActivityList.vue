@@ -18,7 +18,7 @@
       :items="items"
       :virtual-scroll-item-size="compact ? 62 : 44"
       :virtual-scroll-slice-size="40"
-      role="list"
+      role="region"
       :aria-label="t('nav.activity')"
       @virtual-scroll="onVirtualScroll"
     >
@@ -27,7 +27,7 @@
           :key="item.id"
           class="act-row act-row--item"
           :class="{ 'act-row--failure': item.outcome === 'failure', 'act-row--selected': item.id === selectedId, 'act-row--fresh': freshIds.has(item.id) }"
-          role="listitem"
+          role="article"
           tabindex="0"
           :aria-label="`${absoluteTime(item.ts)}: ${item.summary}`"
           :data-index="index"

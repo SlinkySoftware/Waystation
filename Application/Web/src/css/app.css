@@ -3,9 +3,12 @@
  * roles, never raw colours, so light and dark swap in one place. Dark mode follows macOS: neutral greys, lighter
  * raised surfaces, hairline borders instead of shadows, translucent white text in three levels.
  * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * `.ws-theme-light` / `.ws-theme-dark` pin a subtree to one theme (the dev showcase shows both side by side).
  */
 
-:root {
+:root,
+.ws-theme-light {
   /* Brand: deep teal. */
   --brand-50: #effaf8;
   --brand-100: #d2f1ec;
@@ -40,12 +43,12 @@
   /* Text */
   --text-primary: #0f172a;
   --text-secondary: #4b5563;
-  --text-tertiary: #6b7280;
+  --text-tertiary: #626975;
   --text-on-brand: #ffffff;
   --link: var(--brand-500);
 
   /* Status (always with an icon or label) */
-  --status-ok: #15803d;
+  --status-ok: #15703a;
   --status-ok-bg: rgba(21, 128, 61, 0.1);
   --status-degraded: #a85a00;
   --status-degraded-bg: rgba(250, 178, 25, 0.18);
@@ -55,9 +58,9 @@
   --status-offline-bg: rgba(91, 100, 114, 0.12);
 
   /* Cache states (SPEC §4.7): colour-blind separable hues, always paired with icon + label. */
-  --cache-hit: #2a78d6;
+  --cache-hit: #1f66c2;
   --cache-hit-bg: rgba(42, 120, 214, 0.11);
-  --cache-miss: #b65000;
+  --cache-miss: #a34800;
   --cache-miss-bg: rgba(235, 104, 52, 0.13);
   --cache-stale: #4a3aa7;
   --cache-stale-bg: rgba(74, 58, 167, 0.1);
@@ -108,7 +111,8 @@
   --header-bg: rgba(255, 255, 255, 0.86);
 }
 
-body.body--dark {
+body.body--dark,
+.ws-theme-dark {
   --q-dark-page: #1c1c1e;
   --q-dark: #2c2c2e;
   --q-dark-shadow-color: rgba(0, 0, 0, 0.35);
@@ -142,7 +146,7 @@ body.body--dark {
 
   --text-primary: rgba(255, 255, 255, 0.9);
   --text-secondary: rgba(255, 255, 255, 0.64);
-  --text-tertiary: rgba(255, 255, 255, 0.46);
+  --text-tertiary: rgba(255, 255, 255, 0.52);
   --text-on-brand: #0b1f1d;
   --link: #3ccfbd;
 
@@ -150,7 +154,7 @@ body.body--dark {
   --status-ok-bg: rgba(48, 209, 88, 0.14);
   --status-degraded: #ffb340;
   --status-degraded-bg: rgba(255, 179, 64, 0.14);
-  --status-blocked: #ff6961;
+  --status-blocked: #ff7a73;
   --status-blocked-bg: rgba(255, 105, 97, 0.14);
   --status-offline: #a1a1a6;
   --status-offline-bg: rgba(161, 161, 166, 0.14);
@@ -430,6 +434,25 @@ body.body--dark .q-tooltip {
 .ws-table .q-table__bottom {
   border-top: 1px solid var(--border);
   color: var(--text-secondary);
+}
+
+/* Compact density (UI_DESIGN §2, the profile or user menu toggle): tighter table rows and list items app-wide. */
+body.ws-compact .ws-table .q-table td {
+  height: 32px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+body.ws-compact .ws-table .q-table th {
+  height: 32px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+body.ws-compact .q-item:not(.q-item--dense) {
+  min-height: 36px;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 /* Page frame */

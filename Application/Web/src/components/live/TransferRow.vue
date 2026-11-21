@@ -96,6 +96,11 @@ const eta = computed(() => {
   background: var(--cache-error-bg);
 }
 
+/* The row is tinted already: the badge sits on the surface so its text keeps 4.5:1. */
+.xfer--failed :deep(.cache-badge) {
+  background: var(--surface);
+}
+
 .xfer__icon {
   display: grid;
   place-items: center;

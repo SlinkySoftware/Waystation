@@ -8,7 +8,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, UiHints
-from waystation_server.formats.common.setup import TOKEN, USERNAME, host_of, snippet
+from waystation_server.formats.common.setup import TOKEN, USERNAME, host_of, on, snippet
 from waystation_server.repos.model import RepoType
 
 DEFAULT_SUMDB = 'sum.golang.org'
@@ -95,16 +95,15 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
     )
     if not https:
         netrc_note += ' This base URL is plain HTTP: put Waystation behind TLS to use authentication.'
-    auth = [
-        snippet(
-            'netrc',
-            'Credentials (when anonymous reads are not allowed)',
-            f'machine {host}\nlogin {USERNAME}\npassword {TOKEN}\n',
-            language='text',
-            filename='.netrc',
-            description=f'~/.netrc (Linux/macOS) or %USERPROFILE%\\_netrc (Windows). {netrc_note}',
-        ),
-    ]
+    netrc = snippet(
+        'netrc',
+        'Credentials (when anonymous reads are not allowed)',
+        f'machine {host}\nlogin {USERNAME}\npassword {TOKEN}\n',
+        language='text',
+        filename='~/.netrc',
+        description=netrc_note,
+    )
+    auth = [netrc, on('windows', netrc, filename='%USERPROFILE%\\_netrc')]
     return [
         SetupClient(id='go', label='go', snippets=go),
         SetupClient(id='go-auth', label='Authentication', snippets=auth),

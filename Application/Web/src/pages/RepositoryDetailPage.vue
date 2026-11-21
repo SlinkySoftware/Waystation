@@ -39,8 +39,11 @@
       </q-tabs>
 
       <OverviewTab v-if="tab === 'overview'" :repo="repo" />
-      <RepoBrowser v-else-if="tab === 'browse'" :repo="repo" />
+      <RepoBrowser v-else-if="tab === 'packages'" :repo="repo" />
+      <TreeBrowser v-else-if="tab === 'browse'" :repo="repo" />
+      <ActivityTab v-else-if="tab === 'activity'" :repo="repo" />
       <CleanupTab v-else-if="tab === 'cleanup'" :repo="repo" />
+      <MembersTab v-else-if="tab === 'members'" :repo="repo" />
       <SettingsTab v-else :repo="repo" @saved="onSaved" />
 
       <SetupPanel v-model="setupOpen" :repo="repo" />
@@ -64,18 +67,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { api, ApiError, call, errorMessage } from '@/api/client'
 import type { Repository } from '@/api/types'
+import { hasPackageView } from '@/components/browse/packageViews'
 import RepoBrowser from '@/components/browse/RepoBrowser.vue'
+import TreeBrowser from '@/components/browse/TreeBrowser.vue'
 import CopyField from '@/components/CopyField.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
 import ManagedBadge from '@/components/ManagedBadge.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import ActivityTab from '@/components/repositories/ActivityTab.vue'
 import CleanupTab from '@/components/repositories/CleanupTab.vue'
+import MembersTab from '@/components/repositories/MembersTab.vue'
 import OverviewTab from '@/components/repositories/OverviewTab.vue'
 import QuotaMeter from '@/components/repositories/QuotaMeter.vue'
 import SettingsTab from '@/components/repositories/SettingsTab.vue'
@@ -95,10 +102,20 @@ import { iconSetup } from '@/utils/icons'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-// Cleanup and settings need `manage` on the repository (a hint: the server decides, and the tabs handle 403/404
-// themselves); without it a deep link to either opens the overview.
-type Tab = 'overview' | 'browse' | 'cleanup' | 'settings'
-const tabs = computed<readonly Tab[]>(() => (auth.can('repositories.manage') ? ['overview', 'browse', 'cleanup', 'settings'] : ['overview', 'browse']))
+// Tabs follow the session's capabilities (a hint: the server decides, and each tab handles 403/404 itself): Activity
+// needs statistics, Cleanup and Settings `manage`, Members user administration; Packages is there when the format
+// has a package view. A deep link to a tab the session lacks opens the overview.
+type Tab = 'overview' | 'packages' | 'browse' | 'activity' | 'cleanup' | 'members' | 'settings'
+const tabs = computed<readonly Tab[]>(() => {
+  const out: Tab[] = ['overview']
+  if (repo.value && hasPackageView(repo.value.format)) out.push('packages')
+  out.push('browse')
+  if (auth.can('stats.read')) out.push('activity')
+  if (auth.can('repositories.manage')) out.push('cleanup')
+  if (auth.can('users.admin')) out.push('members')
+  if (auth.can('repositories.manage')) out.push('settings')
+  return out
+})
 const repos = useRepositoriesStore()
 const name = computed(() => String(route.params.name))
 const tab = computed<Tab>(() => {
@@ -128,6 +145,17 @@ const kpis = computed(() => {
     { label: t('detail.kpi.activity'), component: TimeCell, props: { value: s.last_activity_at, placeholder: t('repos.never') } },
   ]
 })
+
+// Links from before the Packages tab (search hits, bookmarks) open a package view as `browse?image=...`: send them on.
+const TREE_KEYS = new Set(['path', 'setup'])
+watch(
+  () => [route.params.tab, route.query, repo.value?.format] as const,
+  ([asked, query, format]) => {
+    if (asked !== 'browse' || !format || !hasPackageView(format)) return
+    if (Object.keys(query).some((k) => !TREE_KEYS.has(k))) void router.replace({ name: 'repository', params: { name: name.value, tab: 'packages' }, query })
+  },
+  { immediate: true },
+)
 
 function onSaved(next: Repository): void {
   override.value = next

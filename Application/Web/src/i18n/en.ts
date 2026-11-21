@@ -2,6 +2,7 @@
 // English catalogue. Plurals: "one|other", chosen by the `count` parameter.
 import { admin } from './admin'
 import { provisioning } from './provisioning'
+import { ui } from './ui'
 import { webhooks } from './webhooks'
 
 export const en = {
@@ -480,8 +481,11 @@ export const en = {
     tab: {
       overview: 'Overview',
       browse: 'Browse',
+      packages: 'Packages',
+      activity: 'Activity',
       settings: 'Settings',
       cleanup: 'Cleanup',
+      members: 'Members',
     },
     kpi: {
       size: 'Stored',
@@ -1967,6 +1971,7 @@ export const en = {
   admin,
   webhooks,
   provisioning,
+  ui,
   nexusImport: {
     open: 'Import from Nexus',
     title: 'Import from Nexus',
