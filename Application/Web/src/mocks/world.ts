@@ -177,12 +177,15 @@ export class MockWorld {
       c.misc = between(20000, 45000)
     }
     // Load test: top up with long cold pulls (a few layers each) until about `load` transfers are in flight.
-    const queued = () => this.jobs.reduce((a, j) => a + j.queue.length, 0)
-    for (let i = 0; i < 8 && this.knobs.load && busy + queued() < this.knobs.load; i++) {
+    // Only what is in flight counts (the background jobs' queued requests wait on their metadata and would hold the
+    // load below its target), plus the layers spawned here, which start on the next step.
+    let pending = busy
+    for (let i = 0; i < 40 && this.knobs.load && pending < this.knobs.load; i++) {
       // Layers only, all at once: the load is in flight, not queued behind its manifest.
       const plan = dockerPull(true)
       const specs = plan.specs.filter((spec) => spec.size >= 200 * 1024)
       if (specs.length) this.spawn({ ...plan, specs, concurrency: specs.length })
+      pending += specs.length
     }
   }
 

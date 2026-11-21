@@ -33,7 +33,12 @@ for (const theme of ['light', 'dark'] as const) {
           await prepare(page, { still: true, user: shot.user === undefined ? 'admin' : shot.user })
           await open(page, shot.path)
           await page.waitForTimeout(400)
-          await expect(page).toHaveScreenshot(`${shot.name}-${theme}-${size.name}.png`, { fullPage: false })
+          // The live-transfer panel is masked: its rows depend on when the event stream attaches, so it differs
+          // between runs even in still mode. Its behaviour and frame rate are covered by flows.spec and perf.spec.
+          await expect(page).toHaveScreenshot(`${shot.name}-${theme}-${size.name}.png`, {
+            fullPage: false,
+            mask: [page.locator('.live-xfers')],
+          })
         })
       }
     })

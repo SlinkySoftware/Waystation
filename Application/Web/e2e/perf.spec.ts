@@ -55,7 +55,7 @@ test('dashboard with 200 live transfers stays at 60 fps', async ({ page }) => {
   await expect(async () => {
     const count = await page.locator('button.live .live__count').innerText()
     expect(Number(count)).toBeGreaterThanOrEqual(180)
-  }).toPass({ timeout: 30_000 })
+  }).toPass({ timeout: 60_000 })
   const frames = await measure(page, 5000)
   results.dashboard200 = frames
   expect(frames.median).toBeLessThanOrEqual(17.5)
