@@ -1,4 +1,4 @@
-"""apt proxy (FORMATS.md "apt"; ARCHITECTURE §6.4).
+"""apt proxy (FORMATS.md "apt"; ARCHITECTURE §6.4). Hosted repositories: ``formats.apt.hosted``.
 
 Three kinds of file, all under ``/repository/<repo>/``:
 
@@ -51,6 +51,7 @@ from waystation_server.db import apt as apt_db
 from waystation_server.db import assets as assets_db
 from waystation_server.formats.apt.browse import AptBrowse
 from waystation_server.formats.apt.descriptor import DESCRIPTOR, AptOptions
+from waystation_server.formats.apt.hosted import AptHosted
 from waystation_server.formats.base import FormatRequest
 from waystation_server.problems import native_error
 from waystation_server.proxy.engine import (
@@ -62,6 +63,7 @@ from waystation_server.proxy.engine import (
     StoredAsset,
     UpstreamInfo,
 )
+from waystation_server.repos.model import RepoType
 
 log = logging.getLogger('waystation.formats.apt')
 
@@ -185,8 +187,11 @@ class AptPlugin:
         self._tasks: set[asyncio.Task[None]] = set()
         self._indexing: set[tuple[str, str]] = set()
         self.browser = AptBrowse(self)
+        self.hosted = AptHosted()
 
     async def handle(self, req: FormatRequest) -> Response:
+        if req.repo.type is RepoType.HOSTED:
+            return await self.hosted.handle(req)
         if req.method not in ('GET', 'HEAD'):
             return native_error(405, 'Method Not Allowed', headers={'Allow': 'GET, HEAD'})
         if not req.path:

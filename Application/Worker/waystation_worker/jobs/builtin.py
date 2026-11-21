@@ -14,6 +14,7 @@ from waystation_common.db.jobs import Definition
 from waystation_common.events import keys
 from waystation_common.events.schema import ActivityEvent, EventType
 from waystation_common.jobs.model import (
+    AptIndex,
     AptRefresh,
     BlobGc,
     BlobVerify,
@@ -31,7 +32,7 @@ from waystation_common.jobs.model import (
 )
 from waystation_common.signing import KeyStore
 from waystation_common.storage import BlobStore
-from waystation_worker import apt, cleanup, galaxy, gc, helm, quota, rollup, upstream, verify, webhooks, yum
+from waystation_worker import apt, apt_index, cleanup, galaxy, gc, helm, quota, rollup, upstream, verify, webhooks, yum
 from waystation_worker.jobs.context import JobContext
 from waystation_worker.jobs.registry import handles
 
@@ -78,6 +79,9 @@ async def cleanup_run(job: CleanupRun, ctx: JobContext) -> dict[str, Any]:
             await jobs_db.outbox_add(ctx.db, envelope, now=now)
         if outcome.format == 'yum' and outcome.removed.items and outcome.repo_id:  # hosted RPMs removed
             envelope = JobEnvelope.for_payload(YumIndex(repo_id=outcome.repo_id), now=now)
+            await jobs_db.outbox_add(ctx.db, envelope, now=now)
+        if outcome.format == 'apt' and outcome.removed.items and outcome.repo_id:  # hosted .debs removed
+            envelope = JobEnvelope.for_payload(AptIndex(repo_id=outcome.repo_id), now=now)
             await jobs_db.outbox_add(ctx.db, envelope, now=now)
         # hosted Galaxy collection versions whose artifact a policy removed are no longer listed
         if outcome.format == 'galaxy' and outcome.removed.items and outcome.repo_id:
@@ -243,6 +247,24 @@ async def apt_refresh(job: AptRefresh, ctx: JobContext) -> dict[str, Any]:
             log_line=ctx.log,
             progress=ctx.progress,
         )
+
+
+@handles(AptIndex)
+async def apt_hosted_index(job: AptIndex, ctx: JobContext) -> dict[str, Any]:
+    """Regenerate, sign and publish a hosted apt repository's ``dists/`` (``waystation_worker.apt_index``)."""
+    if ctx.settings is None:
+        raise RuntimeError('the apt index needs the worker settings (data directory, secret keys)')
+    store = BlobStore.from_settings(ctx.settings)
+    store.guard = MongoBlobGuard(ctx.db)  # the commit claims the blob against GC (ARCHITECTURE §5)
+    keys = KeyStore.in_data_dir(ctx.settings.data_dir, Keyring.from_settings(ctx.settings.secret_keys))
+    result = await apt_index.rebuild(ctx.db, store, keys, job.repo_id, now=ctx.now())
+    if result is None:
+        return {'repo_id': job.repo_id, 'skipped': 'not a hosted apt repository (deleted?)'}
+    await ctx.log(
+        f'published dists/{result.distribution}: {result.packages} packages, {result.indexes} index files, '
+        f'key {result.fingerprint}'
+    )
+    return {'repo_id': job.repo_id, **result.as_dict()}
 
 
 @handles(GalaxyImport)

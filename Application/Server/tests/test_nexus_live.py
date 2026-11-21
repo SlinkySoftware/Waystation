@@ -224,7 +224,12 @@ async def test_real_nexus_reads_like_the_fixtures_and_imports(
     ghcr = (await admin.get('/api/v1/repositories/ghcr-proxy')).json()
     assert ghcr['format_options']['aliases'] == ['ghcr.io']
     debian = (await admin.get('/api/v1/repositories/debian-security')).json()
-    assert debian['format_options'] == {'distribution': 'trixie-security', 'flat': False}
+    assert debian['format_options'] == {
+        'distribution': 'trixie-security',
+        'flat': False,
+        'components': ['main'],
+        'architectures': ['amd64', 'arm64'],
+    }
     assert (await admin.get('/api/v1/repositories/oracle')).json()['proxy']['offline'] is True
     files = (await admin.get('/api/v1/repositories/files')).json()
     assert (files['type'], files['hosted']['write_policy']) == ('hosted', 'disable_redeploy')

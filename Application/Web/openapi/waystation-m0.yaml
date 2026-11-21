@@ -4247,8 +4247,22 @@ components:
       type: object
       required: [distribution]
       properties:
-        distribution: { type: string, maxLength: 100, description: 'Informational default suite, e.g. `trixie`' }
-        flat: { type: boolean, default: false, description: Flat repository layout (no `dists/`) }
+        distribution: { type: string, maxLength: 100, description: 'Proxy: informational default suite, e.g. `trixie`. Hosted: the distribution the repository publishes (`dists/<distribution>/`; one directory, no `/`)' }
+        flat: { type: boolean, default: false, description: 'Flat repository layout (no `dists/`); proxy only' }
+        components:
+          type: array
+          items: { type: string }
+          minItems: 1
+          maxItems: 16
+          default: [main]
+          description: 'Hosted: the components uploads may go to (`?component=`, default the first); each is published'
+        architectures:
+          type: array
+          items: { type: string }
+          minItems: 1
+          maxItems: 16
+          default: [amd64, arm64]
+          description: 'Hosted: the architectures always published (`binary-<arch>`; `Architecture: all` packages are listed in each); architectures of uploaded packages are added'
     RawOptions:
       type: object
       properties:
