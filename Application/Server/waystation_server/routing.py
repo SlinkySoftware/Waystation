@@ -3,7 +3,9 @@
 - ``/repository/<repo>/<path>``: every format, Nexus-compatible. The repository name matches case-sensitively.
 - ``/v2/<name>/...``: the Docker registry API. The first segment of ``<name>`` is a docker repository's name, else a
   docker repository's upstream alias (``docker.io``, ``ghcr.io``...), else the request goes to the default docker
-  repository with the whole name (mirror mode).
+  repository with the whole name (mirror mode). An unprefixed name with containerd's ``?ns=<registry>`` goes to the
+  repository with that alias, else to the default repository only if ``ns`` is its own upstream, else nowhere (404:
+  containerd falls back to the registry itself rather than getting another registry's image under that name).
 
 The router resolves the repository, normalises the path (``waystation_common.paths``), authorises the request and
 hands it to the format plugin. Unknown repositories answer exactly like hidden ones (``access.hidden_repo``: 404, or
@@ -13,8 +15,9 @@ the 401 Basic challenge for a request without credentials, ADR 0005).
 from __future__ import annotations
 
 import dataclasses
+import re
 from dataclasses import dataclass
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, Request
 from starlette.responses import JSONResponse, Response
@@ -49,8 +52,47 @@ class DockerRoute:
     path: str  # '<image>/<operation>...' within the repository
 
 
-async def resolve_docker(services: Services, name_path: str) -> DockerRoute | None:
-    """Resolve ``/v2/<name_path>`` to a docker repository (SPECIFICATION §4.4)."""
+_REGISTRY_HOST = re.compile(r'[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?(:\d{1,5})?')
+# Docker Hub's names for itself: containerd sends ``ns=docker.io``; an upstream URL names the API host.
+DOCKER_HUB_HOSTS = frozenset({'docker.io', 'registry-1.docker.io', 'index.docker.io'})
+
+
+def mirror_namespace(services: Services, raw: str | None) -> str | None:
+    """containerd's ``?ns=<registry host>`` on requests to a mirror, lower-cased. ``None`` when absent or naming this
+    registry; ``''`` when it is not a host name (routes nowhere)."""
+    if not raw:
+        return None
+    ns = raw.strip().lower()
+    if ns == urlsplit(services.base_url).netloc.lower():
+        return None
+    return ns if _REGISTRY_HOST.fullmatch(ns) else ''
+
+
+def _upstream_hosts(repo: RepoConfig) -> frozenset[str]:
+    """The registry hosts a docker proxy repository mirrors (what ``ns`` names when it asks for that upstream)."""
+    if repo.proxy is None:
+        return frozenset()
+    host = (urlsplit(repo.proxy.upstream_url).netloc or '').lower()
+    if repo.format_options.get('docker_hub') or host in DOCKER_HUB_HOSTS:
+        return DOCKER_HUB_HOSTS
+    return frozenset({host})
+
+
+async def _serves_namespace(services: Services, repo: RepoConfig, ns: str) -> bool:
+    """Does ``repo`` (the default repository) answer for registry ``ns``? A proxy of that registry does; a group
+    does when it has proxy members and all of them proxy that registry (its hosted members overlay them on purpose).
+    A hosted repository never does."""
+    if repo.proxy is not None:
+        return ns in _upstream_hosts(repo)
+    if repo.group is None:
+        return False
+    members = [await services.catalog.get(name) for name in repo.group.members]
+    proxies = [m for m in members if m is not None and m.proxy is not None]
+    return bool(proxies) and all(ns in _upstream_hosts(m) for m in proxies)
+
+
+async def resolve_docker(services: Services, name_path: str, ns: str | None = None) -> DockerRoute | None:
+    """Resolve ``/v2/<name_path>`` to a docker repository (SPECIFICATION §4.4); ``ns`` from ``mirror_namespace``."""
     first, _, rest = name_path.partition('/')
     if rest:
         repo = await services.catalog.get(first, reload_on_miss=True)  # created a moment ago on another process
@@ -59,6 +101,12 @@ async def resolve_docker(services: Services, name_path: str) -> DockerRoute | No
         repo = await services.catalog.docker_alias(first)
         if repo is not None:
             return DockerRoute(repo, rest)
+    if ns is not None:
+        repo = await services.catalog.docker_alias(ns) if ns else None
+        if repo is None:
+            default = await services.catalog.default_docker()
+            repo = default if default is not None and ns and await _serves_namespace(services, default, ns) else None
+        return DockerRoute(repo, name_path) if repo is not None else None
     repo = await services.catalog.default_docker()
     if repo is not None:
         return DockerRoute(repo, name_path)
@@ -207,18 +255,19 @@ async def docker_v2(request: Request, name_path: str = '') -> Response:
         return oci_error(400, 'invalid repository name', code='NAME_INVALID', headers=DOCKER_API_VERSION)
     principal = await authenticate(request)
     scope = registry_auth.request_scope(clean, request.method)
+    ns = mirror_namespace(services, request.query_params.get('ns'))
     if principal.method is not AuthMethod.REGISTRY_TOKEN:
-        return registry_auth.challenge(services, scope=scope)
+        return registry_auth.challenge(services, scope=scope, ns=ns)
     if clean == '':
         return await v2_base(request)
     if clean == '_catalog':
         if not registry_auth.token_allows(principal, registry_auth.CATALOG, Action.BROWSE):
             return registry_auth.challenge(services, scope=scope, error='insufficient_scope')
         return await catalog(request, services, principal)
-    route = await resolve_docker(services, clean)
+    route = await resolve_docker(services, clean, ns)
     if route is None:
         return oci_error(404, 'repository name not known to registry', headers=DOCKER_API_VERSION)
     action = registry_auth.request_action(clean, request.method)
     if not registry_auth.token_allows(principal, route.repo.name, action):
-        return registry_auth.challenge(services, scope=scope, error='insufficient_scope')
+        return registry_auth.challenge(services, scope=scope, error='insufficient_scope', ns=ns)
     return await _dispatch(request, route.repo, 'v2', route.path, action=action)

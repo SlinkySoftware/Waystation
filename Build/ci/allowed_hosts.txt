@@ -84,3 +84,5 @@ colorjs.io
 # Code tokens the host-name pattern would otherwise match
 not-a-host nav.home
 not-a-host detail.upstream.private
+# containerd plugin ID in the containerd 2.x config_path note (Operations/clients/docker.md)
+not-a-host io.containerd.transfer.v1.local

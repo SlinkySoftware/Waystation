@@ -2,6 +2,17 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-21
+- T-P2-DOCKERP (GitHub #5): containerd's `?ns=<registry>` is honoured. An unprefixed `/v2/` name with `ns` goes to
+  the docker repository with that upstream alias, else to the default repository only if `ns` is its own upstream
+  (a group default: only if all its proxy members are), else `404 NAME_UNKNOWN`, so containerd falls back to the
+  registry. Before, every such request went to the default repository: names only on another registry got `404`,
+  and names that also exist on Docker Hub got Docker Hub's image. The 401 challenge carries `ns` in its realm, the
+  token service resolves scopes with it and names granted scopes `<repository>/<image>`. One
+  `[host."https://registry.example.com"]` entry now serves every aliased upstream without `override_path`.
+- Docs: `clients/docker.md` covers containerd without `override_path`, containerd 2.x `config_path` for the CRI and
+  transfer service plugins, and `systemctl reload docker` for `registry-mirrors`.
+
 ## 2026-11-19
 - T-F05: ADR 0008 (accepted): the web tier runs the official nginx image as uid 101 instead of nginx-unprivileged.
 - T-F05: the perf origin (`tests/perf/compose.perf.yaml`) runs `nginx:1.30.7-alpine` as uid 101 with its own

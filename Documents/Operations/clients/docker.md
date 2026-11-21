@@ -41,7 +41,8 @@ repository. The same API is also served under `/repository/<repo>/v2/...` (Nexus
 
 ### Mirror mode (Docker Hub images, no image name changes)
 
-`/etc/docker/daemon.json`, then restart the daemon (`systemctl restart docker`):
+`/etc/docker/daemon.json`, then reload the daemon (`systemctl reload docker`: `registry-mirrors` is applied on
+reload, without restarting running containers):
 
 ```json
 {
@@ -82,8 +83,27 @@ server = "https://registry-1.docker.io"
 ```
 
 `override_path = true` makes containerd append `/<image>/manifests/...` to that path, so each upstream host maps to
-its own repository (use a `ghcr.io` directory and `/v2/ghcr` for GHCR). Without `override_path`, use
-`[host."https://registry.example.com"]` for the default repository only. Not yet covered by the client harness.
+its own repository (use a `ghcr.io` directory and `/v2/ghcr` for GHCR).
+
+Without `override_path`, the same host entry works for every upstream that a docker proxy repository lists as an
+**upstream alias** (`docker.io`, `ghcr.io`, `quay.io`, `registry.k8s.io`...):
+
+```toml
+# /etc/containerd/certs.d/quay.io/hosts.toml
+server = "https://quay.io"
+
+[host."https://registry.example.com"]
+  capabilities = ["pull", "resolve"]
+```
+
+containerd adds `?ns=quay.io` to each request, and Waystation sends it to the repository with the `quay.io` alias
+(or to the default repository when `ns` is that repository's own upstream). A registry nothing proxies answers `404`
+and containerd pulls from `server` directly: it never gets another registry's image of the same name.
+
+containerd 2.x (Kubernetes nodes): set `config_path = "/etc/containerd/certs.d"` both under
+`[plugins."io.containerd.cri.v1.images".registry]` and under `[plugins."io.containerd.transfer.v1.local"]`
+(the CRI pulls through the transfer service). Reported working with containerd 2.4.2 for Docker Hub, GHCR, Quay and
+registry.k8s.io; not yet covered by the client harness.
 
 ## skopeo, crane, podman
 
@@ -211,7 +231,7 @@ only to the upstream registry and its token service, never to blob CDNs the upst
 | `name unknown` / `repository not found upstream, or the upstream denied access` | Docker Hub answers "unauthorized" for names that do not exist and for private ones. Check the name (`library/` is added only for one-segment names on a Docker Hub repository) and the repository's upstream credentials. |
 | `toomanyrequests` | Docker Hub's anonymous pull limit was reached. Add Docker Hub credentials to the repository; already cached images keep working. |
 | `502` / `unknown` with "digest" in the message | The upstream sent bytes that do not match the requested digest; nothing was cached. Retry; if it persists the upstream (or something between) is corrupting content. |
-| Mirror-mode pulls never show up in Waystation | The daemon fell back to Docker Hub: check `daemon.json` (valid JSON, restart done), that `https://registry.example.com/v2/` answers, and that a default docker repository exists. |
+| Mirror-mode pulls never show up in Waystation | The daemon fell back to Docker Hub: check `daemon.json` (valid JSON, reload done), that `https://registry.example.com/v2/` answers, and that a default docker repository exists. |
 | `http: server gave HTTP response to HTTPS client` | Waystation is reached over plain HTTP: add it to `insecure-registries`, or put it behind TLS. |
 | `x509: certificate signed by unknown authority` | Waystation's TLS certificate is from a private CA: install the CA on the client (`/etc/docker/certs.d/registry.example.com/ca.crt` for Docker). |
 | `unsupported` / `405` on push | Proxy repositories are read-only; push to a hosted docker repository. |

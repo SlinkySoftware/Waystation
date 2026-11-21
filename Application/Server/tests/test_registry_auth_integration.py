@@ -42,7 +42,15 @@ def settings(settings_factory: Callable[..., Settings]) -> Settings:
     return settings_factory(bootstrap_admin_password=SecretStr(PASSWORD))
 
 
-async def _repo(services: Services, name: str, *, repo_type: str = 'proxy', **options: Any) -> None:
+async def _repo(
+    services: Services,
+    name: str,
+    *,
+    repo_type: str = 'proxy',
+    upstream: str = 'https://registry-1.docker.io/',
+    members: tuple[str, ...] = (),
+    **options: Any,
+) -> None:
     now = datetime.now(UTC)
     await services.db[REPOSITORIES].insert_one(
         {
@@ -51,7 +59,8 @@ async def _repo(services: Services, name: str, *, repo_type: str = 'proxy', **op
             'format': 'docker',
             'type': repo_type,
             'online': True,
-            'proxy': {'upstream_url': 'https://registry-1.docker.io/'} if repo_type == 'proxy' else None,
+            'proxy': {'upstream_url': upstream} if repo_type == 'proxy' else None,
+            'group': {'members': list(members)} if repo_type == 'group' else None,
             'format_options': options,
             'created_at': now,
             'updated_at': now,
@@ -170,6 +179,94 @@ async def test_mirror_mode_and_aliases(docker: httpx.AsyncClient) -> None:
         assert claims(token)['access'][0]['actions'] == ['pull']
         served = await docker.get(f'/v2/{name}/manifests/1', headers={'Authorization': f'Bearer {token}'})
         assert served.text == f'docker-hub {expected}/manifests/1 anonymous'
+
+
+async def _pull_with_ns(
+    docker: httpx.AsyncClient, name: str, ns: str, auth: tuple[str, str] | None = None
+) -> httpx.Response:
+    """containerd's flow against a mirror without ``override_path``: ``?ns=`` on every ``/v2/`` request, the token
+    fetched from the challenge's realm with the scope of the image name."""
+    path = f'/v2/{name}/manifests/1'
+    challenge = await docker.get(path, params={'ns': ns})
+    assert challenge.status_code == 401
+    realm = challenge.headers['www-authenticate'].split('realm="')[1].split('"')[0]
+    # keep the realm's own query (``ns``), as containerd does (httpx would replace it with ``params``)
+    url = httpx.URL(realm).copy_merge_params({'service': SERVICE, 'scope': f'repository:{name}:pull'})
+    issued = await docker.get(url.raw_path.decode(), auth=auth)
+    token = issued.json()['token']
+    return await docker.get(path, params={'ns': ns}, headers={'Authorization': f'Bearer {token}'})
+
+
+async def test_containerd_ns_routes_to_the_alias_repository(docker: httpx.AsyncClient, services: Services) -> None:
+    """GitHub #5: ``?ns=quay.io`` on an unprefixed name went to the default (Docker Hub) repository."""
+    await _repo(services, 'quay', upstream='https://quay.io/', aliases=['quay.io'])
+    services.catalog.invalidate()
+    challenge = await docker.get('/v2/cilium/cilium/manifests/1', params={'ns': 'quay.io'})
+    assert f'realm="https://{SERVICE}/auth/token?ns=quay.io"' in challenge.headers['www-authenticate']
+    issued = await docker.get(
+        '/auth/token', params={'ns': 'quay.io', 'service': SERVICE, 'scope': 'repository:cilium/cilium:pull'}
+    )
+    # the token names the repository it was granted on, so it does not depend on ``ns``
+    assert claims(issued.json()['token'])['access'] == [
+        {'type': 'repository', 'name': 'quay/cilium/cilium', 'actions': ['pull']}
+    ]
+    served = await _pull_with_ns(docker, 'cilium/cilium', 'quay.io')
+    assert served.text == 'quay cilium/cilium/manifests/1 anonymous'
+    assert (await _pull_with_ns(docker, 'library/busybox', 'docker.io')).text == (
+        'docker-hub library/busybox/manifests/1 anonymous'
+    )
+    # a Docker Hub token is no good for the Quay name: the client is sent back for one with ``ns``
+    hub = (await get_token(docker, 'repository:cilium/cilium:pull')).json()['token']
+    again = await docker.get(
+        '/v2/cilium/cilium/manifests/1', params={'ns': 'quay.io'}, headers={'Authorization': f'Bearer {hub}'}
+    )
+    assert again.status_code == 401
+    assert 'error="insufficient_scope"' in again.headers['www-authenticate']
+    assert 'auth/token?ns=quay.io"' in again.headers['www-authenticate']
+    # a prefix still wins over ``ns`` (``override_path`` set-ups)
+    assert (await _pull_with_ns(docker, 'quay/cilium/cilium', 'quay.io')).text == (
+        'quay cilium/cilium/manifests/1 anonymous'
+    )
+
+
+async def test_containerd_ns_of_an_unknown_registry_is_not_found(docker: httpx.AsyncClient) -> None:
+    """Not the default repository's upstream and no alias: 404 (containerd then uses the registry itself), never the
+    default repository's image of the same name."""
+    for ns in ('registry.k8s.io', 'ghcr.io', 'not a host!'):
+        token = (
+            await docker.get('/auth/token', params={'ns': ns, 'service': SERVICE, 'scope': 'repository:pause:pull'})
+        ).json()['token']
+        assert claims(token)['access'][0]['actions'] == []
+        response = await _pull_with_ns(docker, 'library/nginx', ns)
+        assert response.status_code == 404
+        assert response.json()['errors'][0]['code'] == 'NAME_UNKNOWN'
+    # this registry's own host is not another registry
+    assert (await _pull_with_ns(docker, 'library/nginx', SERVICE)).text == (
+        'docker-hub library/nginx/manifests/1 anonymous'
+    )
+
+
+async def test_containerd_ns_and_a_group_default(docker: httpx.AsyncClient, services: Services) -> None:
+    """A group default answers ``ns`` only when every proxy member mirrors that registry (hosted members overlay)."""
+    await services.db[REPOSITORIES].update_one({'name': 'docker-hub'}, {'$set': {'format_options.default_repo': False}})
+    await _repo(services, 'ghcr', upstream='https://ghcr.io/')
+    await _repo(services, 'quay', upstream='https://quay.io/')
+    await _repo(services, 'public', repo_type='hosted')
+    await _repo(services, 'mirror', repo_type='group', members=('public', 'ghcr'), default_repo=True)
+    services.catalog.invalidate()
+    admin = ('admin', PASSWORD)  # anonymous reads proxy repositories only
+
+    async def pull(name: str, ns: str) -> httpx.Response:
+        return await _pull_with_ns(docker, name, ns, auth=admin)
+
+    assert (await pull('owner/app', 'ghcr.io')).text.startswith('mirror owner/app/manifests/1 ')
+    assert (await pull('library/nginx', 'docker.io')).text.startswith('docker-hub library/nginx/')  # its alias
+    assert (await pull('cilium/cilium', 'quay.io')).status_code == 404
+    await services.db[REPOSITORIES].update_one(
+        {'name': 'mirror'}, {'$set': {'group.members': ['public', 'ghcr', 'quay']}}
+    )
+    services.catalog.invalidate()
+    assert (await pull('owner/app', 'ghcr.io')).status_code == 404  # its Quay member could answer for that name
 
 
 async def test_hidden_repository_gets_no_grant(docker: httpx.AsyncClient) -> None:

@@ -80,6 +80,11 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
   `GET /v2/_catalog` (filtered by RBAC).
 - Name routing (SPEC §4.4): first segment = repo name → else upstream alias (`docker.io`, `ghcr.io`, ...) →
   else `default_docker_repo`. Also served under `/repository/<repo>/v2/...` for Nexus-path compatibility.
+- containerd's `?ns=<registry>` (sent on every `/v2/` request to a mirror, never to the token service): an unprefixed
+  name goes to the repository with that alias, else to the default repository if `ns` is its own upstream (a proxy of
+  that registry; a group whose proxy members all are), else `404 NAME_UNKNOWN` so containerd falls back to the
+  registry. Never another registry's image of the same name. The challenge's realm carries `?ns=` (clients keep the
+  realm's query), the token service resolves scopes with it and names granted scopes `<repository>/<image>`.
 - Headers: always `Docker-Content-Digest`, correct `Content-Type` = manifest media type, `Docker-Distribution-API-Version: registry/2.0`,
   `OCI-Subject` on referrer-bearing PUTs. HEAD on manifests must not count against Docker Hub limits.
 - Accept handling: honour client `Accept` list across `application/vnd.oci.image.index.v1+json`,

@@ -8,6 +8,10 @@
   ``401`` with ``WWW-Authenticate: Bearer realm="<base>/auth/token",service="<host>",scope="repository:<name>:pull"``
   (``error="insufficient_scope"`` when a token was sent), which makes clients fetch a token and retry; ``GET /v2/``
   without a token is the version check that starts this dance.
+- containerd sends ``?ns=<registry>`` to a mirror's ``/v2/`` but not to the token service, so the challenge to such a
+  request carries it in the realm (``/auth/token?ns=...``; clients keep the realm's query). Scopes are then resolved
+  with it (``routing.resolve_docker``) and a granted scope is renamed ``<repository>/<image>``, so the token names the
+  repository it was granted on and does not depend on ``ns`` afterwards.
 - ``registry:catalog:*`` is granted to every caller: ``/v2/_catalog`` lists only the images of repositories RBAC lets
   the principal see.
 - The bearer authenticator turns a valid token into the principal it was issued to (re-resolved every request;
@@ -24,7 +28,7 @@ import re
 import time
 from datetime import UTC, datetime
 from typing import Annotated
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
@@ -97,8 +101,9 @@ def request_scope(name_path: str, method: str) -> str | None:
     return f'repository:{image_name(name_path)}:{actions}'
 
 
-def challenge(services: Services, *, scope: str | None, error: str | None = None) -> Response:
-    parts = [f'realm="{services.base_url}/auth/token"', f'service="{registry_host(services)}"']
+def challenge(services: Services, *, scope: str | None, error: str | None = None, ns: str | None = None) -> Response:
+    realm = f'{services.base_url}/auth/token' + (f'?{urlencode({"ns": ns})}' if ns else '')
+    parts = [f'realm="{realm}"', f'service="{registry_host(services)}"']
     if scope:
         parts.append(f'scope="{scope}"')
     if error:
@@ -119,18 +124,21 @@ def token_allows(principal: Principal, repo_name: str, action: Action) -> bool:
 
 
 # ---------------------------------------------------------------------------- grants
-async def _grant(services: Services, principal: Principal, scope: Scope) -> Scope:
+async def _grant(services: Services, principal: Principal, scope: Scope, ns: str | None = None) -> Scope:
     from waystation_server.routing import resolve_docker
 
     if scope.type == 'registry':
         # ``/v2/_catalog`` lists only what RBAC lets the principal see, so anyone may ask for it.
         allowed = scope.name == 'catalog' and '*' in scope.actions
         return dataclasses.replace(scope, actions=('*',) if allowed else ())
-    route = await resolve_docker(services, scope.name)
+    route = await resolve_docker(services, scope.name, ns)
     if route is None or not access.can_see(principal, route.repo):
         return dataclasses.replace(scope, actions=())
     wanted = DOCKER_ACTIONS_ALL if '*' in scope.actions else scope.actions
     granted = tuple(a for a in wanted if a in ACTION_MAP and access.check(principal, ACTION_MAP[a][0], route.repo))
+    if ns is not None:
+        # ``<repository>/<image>`` resolves to the same repository without ``ns`` (``authenticate_bearer``).
+        return dataclasses.replace(scope, name=f'{route.repo.name}/{route.path}', actions=granted)
     return dataclasses.replace(scope, actions=granted)
 
 
@@ -163,7 +171,10 @@ async def token(
     request: Request,
     service: str | None = None,
     scope: Annotated[list[str] | None, Query(max_length=4096)] = None,
+    ns: Annotated[str | None, Query(max_length=255)] = None,
 ) -> Response:
+    from waystation_server.routing import mirror_namespace
+
     services: Services = request.app.state.services
     host = registry_host(services)
     if service and service != host:
@@ -183,7 +194,8 @@ async def token(
         principal = await principal_for(services, user, AuthMethod.BASIC)
         await _audit_password_login(services, principal, client_address(request))
     scopes = parse_scopes(scope or [])[:20]
-    granted = [await _grant(services, principal, s) for s in scopes]
+    namespace = mirror_namespace(services, ns)
+    granted = [await _grant(services, principal, s, namespace) for s in scopes]
     signer = await services.registry_signer.get()
     subject = 'anonymous' if principal.is_anonymous else principal.id
     token_id = principal.token.token_id if principal.token is not None else None
