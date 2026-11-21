@@ -3,6 +3,34 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-21
+- T-F09: hour and day rollups: the stats rollup writes every closed hour to `stats_hour` (90 days) and every closed
+  day to `stats_day` (2 years), each exactly once (progress in `stats:rollup:hour`/`:day`, else resumed after the
+  newest rolled-up document); hourly `storage_snapshots` (2 years) per repository (stored bytes, assets, artifacts,
+  components, de-duplication savings: a blob shared by n repositories counts 1/n in each) and instance-wide (blob
+  bytes and count); `downloads_daily` (400 days). Minute documents also carry `ulat_hist` (upstream response time).
+  The 10k events/s check is an integration test (`test_events_load_integration.py`: 200 transfers, 10,000 progress
+  events and 1,000 counted requests a second against Valkey; event-loop lateness, no drops, ≤ 4 Hz publishes, exact
+  counters).
+- T-S11: 7d and 30d series read the hourly rollups and the new 90d and 1y ranges the daily ones (then minutes and the
+  live counters for the rest, never counted twice); p50/p95 request latency in `GET /stats/summary`, upstream p95 in
+  `GET /stats/upstreams`; `GET /stats/top/artifacts` (by downloads, bytes served, size or recency; downloads over
+  24h/7d/30d from the daily counters), `GET /stats/top/repositories`, `GET /stats/storage/history`; per-repository
+  `dedup_saved_bytes` and `components` in `GET /stats/storage`; storage sparklines from the snapshots. Upstreams
+  that start or stop failing are announced as `upstream.state` (at most once a minute per repository, atomically
+  across replicas). Multi-replica SSE fan-out and resume after a replica stops are tested. 15m stays at one-minute
+  buckets (documented in SPECIFICATION §7).
+- T-S09: the component index: the worker links every asset to its component (npm, apt, yum, PyPI, Go, Galaxy,
+  Terraform, Helm package versions, Maven GAVs, docker tags, raw files; never checksums, signatures or index
+  metadata), creating `components` with `version_sort` (`waystation_common.versionsort`: SemVer, PEP 440, Maven,
+  RPM, dpkg, natural order) and their size and download figures; content cached before is indexed the same way
+  (backfill), a rolling sweep keeps the figures current and removes components left without files. Downloads reach
+  components and `downloads_daily` in the batched flush. Browse shows download counters (npm packages and versions,
+  apt packages, docker images and tags) and folder `child_count` (up to 100). `GET /digests/{digest}/usage` lists
+  where a blob is used (assets, docker manifests). Migration `0004_component_ids` gives older Maven components
+  string ids.
+- T-U03, T-U07: the dashboard has Top artifacts (downloads/bytes, window) and Recently added, 90d/1y in the range
+  picker and p95 latency on the Requests tile; the Storage page has the growth chart, Largest artifacts with a
+  "Where used" dialog and a per-repository de-duplication column.
 - **Release 0.2.5**: containerd `?ns=` mirror routing (GitHub #5): pulls for other registries through a mirror
   without `override_path` no longer get Docker Hub's image of the same name. Docs and examples point at the 0.2.5
   images.

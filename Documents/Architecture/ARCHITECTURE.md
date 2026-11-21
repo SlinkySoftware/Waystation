@@ -263,7 +263,9 @@ Formats without upstream checksums record the computed sha256 and serve consiste
 - No synchronous I/O in request handlers; hashing of large streams happens incrementally on chunks; CPU-bound
   work > 5 ms goes to `asyncio.to_thread` or a job.
 - Cached content never passes through Python (X-Accel). Upstream streaming uses ≥ 256 KiB chunks.
-- Every MongoDB query on a request path is covered by an index (CI test runs `explain()` on registered queries).
+- Every MongoDB query on a request path is covered by an index (CI: `test_zz_index_coverage_integration.py` runs
+  `explain()` on every query shape the server issues while handling a request in the integration suite; only the small
+  configuration collections may scan).
 - Responses for metadata assets carry `ETag` and support conditional GET.
 - SPA: route-level code splitting, virtual scroll for long lists, no blocking third-party scripts, hashed
   immutable assets with long cache lifetime, HTTP/2.
