@@ -41,6 +41,7 @@ from waystation_server.browse.models import (
 )
 from waystation_server.db import assets as assets_db
 from waystation_server.db import browse as browse_db
+from waystation_server.db import content as content_db
 from waystation_server.db import docker as docker_db
 from waystation_server.formats.docker import protocol as p
 from waystation_server.formats.docker.descriptor import DockerOptions
@@ -240,11 +241,14 @@ class DockerBrowse:
             blobs.update(str(layer['digest']) for layer in manifest.get('layers') or [])
         everything = {d for blobs in referenced.values() for d in blobs}
         cached = await browse_db.by_paths(ctx.db, ctx.repo.id, (f'blobs/{d}' for d in everything))
+        pulls = await content_db.name_counters(ctx.db, ctx.repo.id, 'docker', names)
         items = [
             DockerImage(
                 name=name,
                 tag_count=int(doc['tag_count']),
                 size_bytes=sum(int(cached[f'blobs/{d}']['size']) for d in referenced[name] if f'blobs/{d}' in cached),
+                pulls=pulls.get(name, (0, None))[0],
+                last_pulled_at=pulls.get(name, (0, None))[1],
             )
             for name, doc in zip(names, docs, strict=True)
         ]
@@ -270,11 +274,16 @@ class DockerBrowse:
             image,
             (e['digest'] for m in manifests.values() for e in m.get('manifests') or []),
         )
+        pulls = await content_db.counters(ctx.db, ctx.repo.id, 'docker', (('', image, str(d['tag'])) for d in docs))
         items = []
         for doc in docs:
             digest = str(doc['manifest_digest'])
             manifest = manifests.get(digest, {})
-            items.append(await self._tag(ctx, doc, digest, manifest, children))
+            tag = await self._tag(ctx, doc, digest, manifest, children)
+            found = pulls.get(('', image, tag.tag)) or {}
+            tag.pulls = int(found.get('download_count') or 0)
+            tag.last_pulled_at = found.get('last_downloaded_at')
+            items.append(tag)
         next_cursor = None
         if more and docs:
             last = docs[-1]
