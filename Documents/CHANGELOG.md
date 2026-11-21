@@ -3,6 +3,9 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-21
+- **Release 0.2.5**: containerd `?ns=` mirror routing (GitHub #5): pulls for other registries through a mirror
+  without `override_path` no longer get Docker Hub's image of the same name. Docs and examples point at the 0.2.5
+  images.
 - T-P2-DOCKERP (GitHub #5): containerd's `?ns=<registry>` is honoured. An unprefixed `/v2/` name with `ns` goes to
   the docker repository with that upstream alias, else to the default repository only if `ns` is its own upstream
   (a group default: only if all its proxy members are), else `404 NAME_UNKNOWN`, so containerd falls back to the
