@@ -137,6 +137,8 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('username_unique', [('username', ASCENDING)], unique=True),
             _ix('source', [('source', ASCENDING)]),
             _ix('groups', [('groups', ASCENDING)]),
+            # Users holding a role (role delete/usage checks, "is there another administrator").
+            _ix('roles', [('roles', ASCENDING)]),
         ),
     ),
     CollectionSpec(
@@ -166,7 +168,11 @@ SPECS: tuple[CollectionSpec, ...] = (
     # A password accepted, the second factor (TOTP) not yet: read by ``_id`` (sha256 of the cookie) only.
     CollectionSpec(
         LOGIN_CHALLENGES,
-        (_ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),),
+        (
+            _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
+            # A user's pending challenges are dropped at sign-in, password change and when the user is changed.
+            _ix('user_id', [('user_id', ASCENDING)]),
+        ),
     ),
     CollectionSpec(RBAC_STATE),
     CollectionSpec(
@@ -412,6 +418,8 @@ SPECS: tuple[CollectionSpec, ...] = (
         AUDIT,
         (
             _ix('ts_desc', [('ts', DESCENDING)]),
+            # The audit log's order (newest first, id as the tie-break of the keyset cursor) without an in-memory sort.
+            _ix('ts_id_desc', [('ts', DESCENDING), ('_id', DESCENDING)]),
             _ix('principal_ts', [('principal.id', ASCENDING), ('ts', DESCENDING)]),
             _ix('action_ts', [('action', ASCENDING), ('ts', DESCENDING)]),
             _ix('principal_name_ts', [('principal.name', ASCENDING), ('ts', DESCENDING)]),
@@ -467,6 +475,8 @@ SPECS: tuple[CollectionSpec, ...] = (
         JOB_RUNS,
         (
             _ix('started_at', [('started_at', DESCENDING)]),
+            # The Tasks page's run list (newest first, id as the keyset tie-break) without an in-memory sort.
+            _ix('started_id_desc', [('started_at', DESCENDING), ('_id', DESCENDING)]),
             # Per-kind retention (90 d; 1 d for routine jobs such as the 10 s stats rollup).
             _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
             _ix('job_id', [('job_id', ASCENDING), ('started_at', DESCENDING)]),
