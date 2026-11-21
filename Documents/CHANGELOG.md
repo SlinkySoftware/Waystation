@@ -3,6 +3,29 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-21
+- T-S12 (done): `docker login` gets a refresh token (`GET /auth/token?offline_token=true`, 90 days), which the
+  Docker CLI stores instead of the password or API token; `POST /auth/token` implements the token spec's OAuth2
+  endpoint (`grant_type=password` with `access_type=offline`, as containerd tries first, and
+  `grant_type=refresh_token`, which re-reads the user or re-checks the API token). Refresh tokens are never accepted
+  on `/v2/`. Issued registry tokens (access and refresh) are revoked before they expire when a user is disabled or
+  deleted, their password is changed or reset, or their sessions are revoked: a per-user cut-off in
+  `users.tokens_not_before`, announced in Valkey `regtok:nbf:<user>` and checked on every `/v2/` request, so it holds
+  on every replica at once (and survives Valkey loss for refresh tokens). Registry tokens issued for an API token
+  follow that token. The docker harness checks the stored identity token, a pull through it and its revocation.
+- T-P2-DOCKERP: the referrers API for proxy repositories: the upstream's referrers API, cached as metadata (≤ 5 min,
+  revalidated), else the `sha256-<hex>` tag schema (verified against the upstream digest; the upstream is remembered
+  as having no API for an hour), always `200` with an OCI index rebuilt from well-formed descriptors only;
+  `artifactType` filtered by Waystation. Groups merge every member's referrers (proxies included). The proxy
+  engine's `ensure` now honours the negative cache like `serve`.
+- T-P2-DOCKERP: upstream registry tokens and learned challenges are shared by every server process through Valkey
+  (`uptok:`/`uprealm:`; tokens AES-GCM encrypted with the secret keys, expiring with the token; not shared without
+  secret keys), so one process's token serves all; an upstream `401` replaces the shared token.
+- T-S05: repositories can be cloned: `POST /api/v1/repositories/{name}/clone` copies the configuration (upstream with
+  its stored secret re-encrypted server-side, policies, quota, group members, cleanup policies, format options; never
+  content) under a new name; docker aliases and the default-repository flag stay with the source; audited as
+  `repository.create` with `cloned_from`. "Clone" action on the repository page (contract, generated client, MSW).
+  Repository status beyond online/offline (`ok`/`degraded`/`blocked`/`offline`) was already served and shown; SPEC
+  §4.12 now describes it.
 - **Release 0.2.5**: containerd `?ns=` mirror routing (GitHub #5): pulls for other registries through a mirror
   without `override_path` no longer get Docker Hub's image of the same name. Docs and examples point at the 0.2.5
   images.
