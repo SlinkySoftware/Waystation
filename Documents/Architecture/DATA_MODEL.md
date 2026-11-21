@@ -55,10 +55,13 @@ forward-only migrations (`db.migrations`, recorded in `migrations`).
 **Search keys** (T-U06, `waystation_common.searchkeys`): every searchable document (`npm_packages`, `pypi_packages`, `go_modules`, `terraform_providers`, `docker_tags`,
 `apt_packages`, `yum_packages` listing entries, `assets` of kind `content`) carries `name_lc` (its name lower-cased,
 at most 200 characters; files: the last path segment) and, for names with a `/`, `base_lc` (the last segment
-lower-cased, so `nginx` finds `library/nginx`). The format index writers set them; migration `0002_search_keys`
-backfills older documents (idempotent, batched). Indexes, partial on the key existing: `search_name`
-`name_lc,repo_id,_id` on all six collections, and `search_base` `base_lc,repo_id,_id,name_lc` on `docker_tags` and
-`npm_packages`. Global search reads prefix ranges of these in index order (no in-memory sort).
+lower-cased, so `nginx` finds `library/nginx`) and `name_sfx` (substring search, adr/0009: the distinct suffixes of
+`name_lc` from its second character on, at least 3 characters, cut to 16; empty for names under 4 characters). The
+format index writers set them; migrations `0002_search_keys` and `0004_search_suffixes` backfill older documents
+(idempotent, batched). Indexes, partial on the key existing: `search_name` `name_lc,repo_id,_id` and `search_sfx`
+`name_sfx,repo_id,_id` (multikey) on every searchable collection, and `search_base` `base_lc,repo_id,_id,name_lc` on
+`docker_tags`, `npm_packages`, `go_modules` and `terraform_providers`. Global search reads prefix ranges of these in
+index order (no in-memory sort; `search_sfx` with `min`/`max` index bounds instead of a sort).
 
 ### Operations, stats, audit
 | Collection | Key fields | Indexes |

@@ -2,12 +2,14 @@
 
 Name search
 -----------
-``q`` is ``<name prefix>[ <version prefix>]``, compared case-insensitively (``waystation_common.searchkeys.fold``).
-The name prefix matches a document's full name or the last ``/`` segment of it (``nginx`` finds ``library/nginx``);
-an empty query lists everything. Each source contributes one stream per search key (``SOURCES``); every stream is
-read in ``(key, repo_id, _id)`` index order and the streams are merged in ``(key, stream rank, repo_id, id)`` order,
-so a page is ``limit`` items from at most ``limit + 1`` per stream and the cursor is that tuple (exact keyset paging,
-no skipping, stable under concurrent writes).
+``q`` is ``<name>[ <version prefix>]``, compared case-insensitively (``waystation_common.searchkeys.fold``).
+The name matches first as a prefix of a document's full name or of its last ``/`` segment (``nginx`` finds
+``library/nginx``), then, for names of at least three characters, anywhere in the name (``setup`` finds
+``nginx-setup.sh``; adr/0009); an empty query lists everything. Each source contributes one stream per search key
+(``SOURCES``) plus one substring stream; every stream is read in ``(key, repo_id, _id)`` index order and the streams
+are merged in ``(phase, key, stream rank, repo_id, id)`` order (phase 0 = prefix matches, 1 = substring matches), so
+a page is ``limit`` items from at most ``limit + 1`` per stream and the cursor is that tuple (the phase follows from
+the rank; exact keyset paging, no skipping, stable under concurrent writes).
 
 - Cached files (``assets`` of kind ``content``) of every format except docker (whose files are layer digests;
   images are found by their tags), named by their last path segment. A version prefix excludes files.
@@ -49,7 +51,7 @@ from waystation_common.db.collections import (
     YUM_PACKAGES,
 )
 from waystation_common.errors import ValidationFailed
-from waystation_common.searchkeys import fold
+from waystation_common.searchkeys import MIN_TERM, fold
 from waystation_server.browse.models import decode_cursor, encode_cursor
 from waystation_server.db import npm as npm_db
 from waystation_server.db import search as search_db
@@ -186,8 +188,11 @@ SOURCES: tuple[Source, ...] = (
     ),
     Source('file', ASSETS, 'file', None, ('name_lc',), {'path': 1, 'size': 1, 'blob_sha256': 1, 'updated_at': 1}),
 )
-# Stream rank = position in this list (the merge order for equal keys).
-STREAMS: tuple[tuple[Source, Key], ...] = tuple((s, k) for s in SOURCES for k in s.keys)
+# Stream rank = position in this list (the merge order for equal keys): every prefix stream, then one substring stream
+# per source (rank >= SUBSTRING_RANK). Prefix matches come first, then substring matches (``_order``).
+PREFIX_STREAMS: tuple[tuple[Source, Key, bool], ...] = tuple((s, k, False) for s in SOURCES for k in s.keys)
+SUBSTRING_RANK = len(PREFIX_STREAMS)
+STREAMS: tuple[tuple[Source, Key, bool], ...] = PREFIX_STREAMS + tuple((s, 'name_lc', True) for s in SOURCES)
 
 
 @dataclass
@@ -230,12 +235,19 @@ def parse_terms(text: str) -> tuple[str, str | None]:
 
 # ---------------------------------------------------------------------------- name search
 def _streams(
-    query: SearchQuery, repos: list[RepoConfig], name: str, version: str | None, *, filtered: bool
+    query: SearchQuery,
+    repos: list[RepoConfig],
+    name: str,
+    version: str | None,
+    *,
+    filtered: bool,
 ) -> list[tuple[int, Source, Stream]]:
     out: list[tuple[int, Source, Stream]] = []
-    for rank, (source, key) in enumerate(STREAMS):
+    for rank, (source, key, substring) in enumerate(STREAMS):
         if key == 'base_lc' and not name:
             continue  # an empty query lists every document once, through name_lc
+        if substring and len(name) < MIN_TERM:
+            continue
         if source.listing and query.cached:
             continue
         if version is not None and source.version_field is None:
@@ -253,6 +265,8 @@ def _streams(
             projection=source.projection,
             version_field=source.version_field if version is not None else None,
             version_prefix=version,
+            substring=substring,
+            has_base='base_lc' in source.keys,
         )
         out.append((rank, source, stream))
     return out
@@ -267,10 +281,23 @@ def _position(cursor: str | None) -> tuple[str, int, str, str] | None:
     return key, rank, repo_id, ident
 
 
+def _phase(rank: int) -> int:
+    return 1 if rank >= SUBSTRING_RANK else 0
+
+
+def _order(e: _Entry) -> tuple[int, str, int, str, str]:
+    return _phase(e.rank), e.key, e.rank, e.repo_id, e.id
+
+
+_DONE = Start('')  # sentinel: the stream lies entirely before the cursor
+
+
 def _start(position: tuple[str, int, str, str] | None, rank: int) -> Start | None:
     if position is None:
         return None
     key, at_rank, repo_id, ident = position
+    if _phase(rank) != _phase(at_rank):
+        return _DONE if _phase(rank) < _phase(at_rank) else None
     if rank < at_rank:
         return Start(key)
     if rank > at_rank:
@@ -284,9 +311,13 @@ async def _name_search(db: Database, query: SearchQuery, visible: list[RepoConfi
     streams = _streams(query, visible, name, version, filtered=True)
 
     async def read(rank: int, source: Source, stream: Stream) -> list[_Entry]:
-        docs = await search_db.stream_page(db, stream, start=_start(position, rank), limit=query.limit + 1)
+        start = _start(position, rank)
+        if start is _DONE:
+            return []
+        docs = await search_db.stream_page(db, stream, start=start, limit=query.limit + 1)
         return [
-            _Entry(str(d[stream.key]), rank, str(d['repo_id']), search_db.id_token(d['_id']), source, d) for d in docs
+            _Entry(search_db.position_key(stream, d), rank, str(d['repo_id']), search_db.id_token(d['_id']), source, d)
+            for d in docs
         ]
 
     async def no_counts() -> _Counts | None:
@@ -297,7 +328,7 @@ async def _name_search(db: Database, query: SearchQuery, visible: list[RepoConfi
         asyncio.gather(*(read(rank, source, stream) for rank, source, stream in streams)),
         _count(db, query, visible, name, version) if want_facets else no_counts(),
     )
-    entries = sorted((e for chunk in chunks for e in chunk), key=lambda e: (e.key, e.rank, e.repo_id, e.id))
+    entries = sorted((e for chunk in chunks for e in chunk), key=_order)
     page, more = entries[: query.limit], len(entries) > query.limit
     next_cursor = encode_cursor('n', page[-1].key, page[-1].rank, page[-1].repo_id, page[-1].id) if more else None
     repos = {r.id: r for r in visible}
@@ -307,7 +338,11 @@ async def _name_search(db: Database, query: SearchQuery, visible: list[RepoConfi
 
 
 async def _count(
-    db: Database, query: SearchQuery, visible: list[RepoConfig], name: str, version: str | None
+    db: Database,
+    query: SearchQuery,
+    visible: list[RepoConfig],
+    name: str,
+    version: str | None,
 ) -> _Counts:
     streams = _streams(query, visible, name, version, filtered=False)
     results = await asyncio.gather(*(search_db.stream_counts(db, stream) for _, _, stream in streams))

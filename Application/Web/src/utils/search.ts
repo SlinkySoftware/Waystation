@@ -71,12 +71,14 @@ export function isDigest(q: string): boolean {
   return DIGEST_RE.test(q.trim())
 }
 
-/** The matched part of `name` for a name query (prefix of the name or of its last `/` segment), as segments. */
+/** The matched part of `name` for a name query (prefix of the name or of its last `/` segment, else, from three
+ * characters on, the first occurrence anywhere), as segments. */
 export function highlight(name: string, q: string): { text: string; match: boolean }[] {
   const term = q.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
   if (!term || isDigest(q)) return [{ text: name, match: false }]
   const lower = name.toLowerCase()
-  const at = lower.startsWith(term) ? 0 : lower.slice(lower.lastIndexOf('/') + 1).startsWith(term) ? lower.lastIndexOf('/') + 1 : -1
+  const baseAt = lower.lastIndexOf('/') + 1
+  const at = lower.startsWith(term) ? 0 : lower.slice(baseAt).startsWith(term) ? baseAt : term.length >= 3 ? lower.indexOf(term) : -1
   if (at < 0) return [{ text: name, match: false }]
   return [
     { text: name.slice(0, at), match: false },

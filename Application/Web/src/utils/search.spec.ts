@@ -54,6 +54,12 @@ describe('search helpers', () => {
       { text: '-conf', match: false },
     ])
     expect(highlight('react', 'vue')).toEqual([{ text: 'react', match: false }])
+    expect(highlight('NGINX-Setup.sh', 'setup')).toEqual([
+      { text: 'NGINX-', match: false },
+      { text: 'Setup', match: true },
+      { text: '.sh', match: false },
+    ])
+    expect(highlight('react', 'ea')).toEqual([{ text: 'react', match: false }]) // two characters: prefix only
     expect(highlight('react', '')).toEqual([{ text: 'react', match: false }])
   })
 })
