@@ -78,7 +78,9 @@ Windows containers support for the server.
   using the format's probe path) probes the upstream: success lifts the block, failure doubles the period up to the
   maximum. Shown in upstream health (status `blocked` with `blocked_until`, a countdown in the UI), `upstream.state`
   events, activity and metrics; saving the repository clears a block.
-- Upstream credentials per repo (basic, bearer, Docker Hub token login, GHCR PAT), stored encrypted.
+- Upstream credentials per repo (basic, bearer, Docker Hub token login, GHCR PAT), stored encrypted. Tokens an
+  upstream registry issues (Docker token realms) are shared by every server replica through Valkey, encrypted with
+  the secret keys and kept no longer than they are valid, so one replica's token serves all (T-P2-DOCKERP).
 - Upstream TLS: verify by default; per-repo custom CA bundle (`ca_pem`, added to the system CAs and
   `WAYSTATION_EXTRA_CA_FILE` for that repo only); optional HTTP proxy per repo (`http_proxy`, no credentials) or
   global (`WAYSTATION_HTTP_PROXY` / `WAYSTATION_NO_PROXY`, credentials allowed). Through a proxy the SSRF guard
@@ -109,7 +111,9 @@ Windows containers support for the server.
   cross-repository mounts from any docker repository the client may read (proxy caches included), manifest validation
   (media types, referenced blobs/manifests present with the stated sizes, 4 MiB), write policy (`allow_redeploy`
   default, `disable_redeploy`, `read_only`) and immutable tag patterns, delete by tag, digest and unreferenced blob,
-  the referrers API (with `artifactType` filter), `tags/list` and `/v2/_catalog` (filtered by RBAC). Pushes need
+  the referrers API (with `artifactType` filter; proxies since 2026-11-21: the upstream's referrers API, else its
+  `sha256-<hex>` tag schema, cached as metadata; groups merge every member's), `tags/list` and `/v2/_catalog`
+  (filtered by RBAC). Pushes need
   `write`, deletes `delete`; pushed manifests and deletes are audited. The OCI distribution-spec conformance suite
   passes (pull, push, content discovery, content management). A hard quota (§4.8) refuses blob uploads, mounts and
   manifest pushes with `403 DENIED` and a message naming the quota; the low-disk guard answers `507`.
@@ -469,7 +473,13 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   username + local password or an API token as the password, any username; a registry token issued for an API token
   carries its id and is re-checked on every request, so revocation is immediate. `/v2/` accepts only these
   5-minute EdDSA tokens and answers everything else with the `401` Bearer challenge naming the scope; a token's
-  grants are re-checked against RBAC on every request), npm (`npm login --auth-type=legacy` and `_authToken` = API token;
+  grants are re-checked against RBAC on every request. Since T-S12: `docker login` (`offline_token=true`) also gets a
+  90-day refresh token, which the Docker CLI stores instead of the password; `POST /auth/token` is the token spec's
+  OAuth2 endpoint (`grant_type=password`, with `access_type=offline` for a refresh token, as containerd tries first;
+  `grant_type=refresh_token`, which re-checks the user or the API token). Issued tokens are revoked before they
+  expire when the user is disabled or deleted, their password changes or their sessions are revoked (signing out
+  everywhere else included): `/v2/` and the refresh grant refuse every registry token of the user issued until then,
+  on every replica at once; tokens issued for an API token live as long as that API token), npm (`npm login --auth-type=legacy` and `_authToken` = API token;
   now (T-P5-NPMH): the legacy login exchanges the password, checked like `docker login`, for a new API token of the
   user with the repository scopes they hold, no repository pattern and no expiry, listed and revocable on the profile;
   it needs `read` on the repository and a repository the caller could not see answers any failure like a missing
