@@ -1,92 +1,201 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Terraform browse: providers (by address) → provider page (required_providers snippet, versions newest first with
-     their protocols and platforms; the archives held per platform with sha256 and h1 hashes). -->
+<!-- Terraform browse. "Providers": providers (by address) → provider page (required_providers snippet, versions newest
+     first with their protocols and platforms; the archives held per platform with sha256 and h1 hashes; hosted
+     releases with their signing key). "Modules": modules (by address) → module page (module block snippet, versions
+     newest first with the archive held: size, sha256, source or publisher). "Files" switches to the folder tree. -->
 <template>
-  <PageCard flush>
-    <template #title><BrowseCrumbs :crumbs="crumbs" @go="provider = null" /></template>
-    <template v-if="!provider" #actions>
-      <q-input v-model="search" dense outlined clearable debounce="200" :placeholder="t('browse.terraform.search')" class="browse-search">
-        <template #prepend><q-icon :name="iconSearch" size="18px" /></template>
-      </q-input>
-    </template>
+  <div class="tf">
+    <q-btn-toggle
+      v-model="view"
+      no-caps
+      dense
+      unelevated
+      toggle-color="primary"
+      class="seg tf__view"
+      :options="[
+        { label: t('browse.terraform.viewProviders'), value: 'providers' },
+        { label: t('browse.terraform.viewModules'), value: 'modules' },
+        { label: t('browse.terraform.viewFiles'), value: 'files' },
+      ]"
+    />
+    <FolderBrowser v-if="view === 'files'" :repo="repo" />
 
-    <template v-if="provider">
-      <div v-if="versions.data.value" class="pkg">
-        <div class="pkg__head">
-          <div class="col">
-            <div class="pkg__name mono">{{ versions.data.value.provider.provider }}</div>
-            <div class="pkg__meta">
-              <span v-if="versions.data.value.provider.latest">{{ t('browse.terraform.latest') }} <strong class="mono">{{ versions.data.value.provider.latest }}</strong></span>
-              <span>{{ t('browse.terraform.versionCount', { count: versions.data.value.provider.version_count }) }}</span>
-              <span>{{ t('browse.terraform.archivesCached', { count: versions.data.value.provider.cached_archives }) }}</span>
-              <span><SizeCell :bytes="versions.data.value.provider.size_bytes" /></span>
+    <PageCard v-else-if="view === 'modules'" flush>
+      <template #title><BrowseCrumbs :crumbs="moduleCrumbs" @go="module = null" /></template>
+      <template v-if="!module" #actions>
+        <q-input v-model="moduleSearch" dense outlined clearable debounce="200" :placeholder="t('browse.terraform.searchModules')" class="browse-search">
+          <template #prepend><q-icon :name="iconSearch" size="18px" /></template>
+        </q-input>
+      </template>
+
+      <template v-if="module">
+        <div v-if="moduleVersions.data.value" class="pkg">
+          <div class="pkg__head">
+            <div class="col">
+              <div class="pkg__name mono">{{ moduleVersions.data.value.module.module }}</div>
+              <div class="pkg__meta">
+                <span v-if="moduleVersions.data.value.module.latest">{{ t('browse.terraform.latest') }} <strong class="mono">{{ moduleVersions.data.value.module.latest }}</strong></span>
+                <span>{{ t('browse.terraform.moduleVersionCount', { count: moduleVersions.data.value.module.version_count }) }}</span>
+                <span>{{ t('browse.terraform.archivesHeld', { count: moduleVersions.data.value.module.cached_versions }) }}</span>
+                <span><SizeCell :bytes="moduleVersions.data.value.module.size_bytes" /></span>
+              </div>
+            </div>
+            <div v-if="moduleVersions.data.value.module.latest" class="pkg__install">
+              <div class="section-label">{{ t('browse.terraform.useModule') }}</div>
+              <CopyField :value="moduleBlock(moduleVersions.data.value.module.module, moduleVersions.data.value.module.latest)" />
             </div>
           </div>
-          <div v-if="versions.data.value.provider.latest" class="pkg__install">
-            <div class="section-label">{{ t('browse.terraform.use') }}</div>
-            <CopyField :value="requiredProviders(versions.data.value.provider.provider, versions.data.value.provider.latest)" />
-          </div>
+
+          <q-table class="ws-table" flat :rows="moduleVersions.data.value.items" :columns="moduleColumns" row-key="version" :pagination="{ rowsPerPage: 0 }" hide-pagination :no-data-label="t('browse.empty')">
+            <template #body="scope">
+              <q-tr :props="scope" class="cursor-pointer" @click="toggle(scope.row.version)">
+                <q-td key="version" :props="scope">
+                  <q-icon :name="iconChevronRight" size="16px" class="chev" :class="{ 'chev--open': expanded.has(scope.row.version) }" />
+                  <span class="mono ver">{{ scope.row.version }}</span>
+                  <span v-if="scope.row.prerelease" class="ws-badge tone-offline badge">{{ t('browse.terraform.prerelease') }}</span>
+                  <span v-if="!scope.row.listed" class="ws-badge tone-offline badge">{{ t('browse.terraform.unlisted') }}<q-tooltip>{{ t('browse.terraform.unlistedHelp') }}</q-tooltip></span>
+                </q-td>
+                <q-td key="cached" :props="scope">
+                  <CacheBadge v-if="scope.row.archive" state="HIT" />
+                  <span v-else class="text-faint">{{ t('browse.terraform.notHeld') }}</span>
+                </q-td>
+                <q-td key="size" :props="scope" class="text-right"><SizeCell :bytes="scope.row.archive?.size ?? 0" /></q-td>
+              </q-tr>
+              <q-tr v-if="expanded.has(scope.row.version)" :props="scope" class="files-row">
+                <q-td colspan="100%">
+                  <div v-if="!scope.row.archive" class="text-faint">{{ t('browse.terraform.noArchives') }}</div>
+                  <template v-else>
+                    <div class="file">
+                      <span class="ws-badge tone-offline kind mono">{{ scope.row.archive.filename }}</span>
+                      <span class="file__size"><SizeCell :bytes="scope.row.archive.size" /></span>
+                      <span class="file__when"><TimeCell :value="scope.row.archive.created_at ?? null" placeholder="" /></span>
+                      <span class="file__sha"><CopyField compact :value="`sha256:${scope.row.archive.sha256}`" :label="t('browse.terraform.copyModuleSha')" /></span>
+                    </div>
+                    <div class="file file--meta">
+                      <span v-if="scope.row.archive.uploaded_by">{{ t('browse.terraform.uploadedBy', { user: scope.row.archive.uploaded_by }) }}</span>
+                      <span v-if="scope.row.archive.source" class="mono source">{{ t('browse.terraform.source') }}: {{ scope.row.archive.source }}</span>
+                      <span>{{ t('browse.terraform.downloads', { count: scope.row.archive.downloads ?? 0 }) }}</span>
+                    </div>
+                  </template>
+                </q-td>
+              </q-tr>
+            </template>
+          </q-table>
         </div>
-
-        <q-table class="ws-table" flat :rows="versions.data.value.items" :columns="columns" row-key="version" :pagination="{ rowsPerPage: 0 }" hide-pagination :no-data-label="t('browse.empty')">
-          <template #body="scope">
-            <q-tr :props="scope" class="cursor-pointer" @click="toggle(scope.row.version)">
-              <q-td key="version" :props="scope">
-                <q-icon :name="iconChevronRight" size="16px" class="chev" :class="{ 'chev--open': expanded.has(scope.row.version) }" />
-                <span class="mono ver">{{ scope.row.version }}</span>
-                <span v-if="scope.row.prerelease" class="ws-badge tone-offline badge">{{ t('browse.terraform.prerelease') }}</span>
-                <span v-if="!scope.row.listed" class="ws-badge tone-offline badge">{{ t('browse.terraform.unlisted') }}<q-tooltip>{{ t('browse.terraform.unlistedHelp') }}</q-tooltip></span>
-              </q-td>
-              <q-td key="protocols" :props="scope"><span class="mono text-secondary">{{ scope.row.protocols.join(', ') }}</span></q-td>
-              <q-td key="platforms" :props="scope">{{ t('browse.terraform.platformCount', { count: scope.row.platforms.length }) }}</q-td>
-              <q-td key="cached" :props="scope">
-                <CacheBadge v-if="scope.row.archives.length" state="HIT" />
-                <span v-else class="text-faint">{{ t('browse.notCached') }}</span>
-              </q-td>
-              <q-td key="size" :props="scope" class="text-right"><SizeCell :bytes="scope.row.size_bytes" /></q-td>
-            </q-tr>
-            <q-tr v-if="expanded.has(scope.row.version)" :props="scope" class="files-row">
-              <q-td colspan="100%">
-                <div v-if="!scope.row.archives.length" class="text-faint">{{ t('browse.terraform.noArchives') }}</div>
-                <div v-for="a in scope.row.archives" :key="`${a.os}_${a.arch}`" class="file">
-                  <span class="ws-badge tone-offline kind mono">{{ a.os }}_{{ a.arch }}</span>
-                  <span class="file__size"><SizeCell :bytes="a.size" /></span>
-                  <span class="file__when"><TimeCell :value="a.cached_at ?? null" placeholder="" /></span>
-                  <span class="file__sha"><CopyField compact :value="`zh:${a.sha256}`" :label="t('browse.terraform.copySha')" /></span>
-                  <span v-if="a.h1" class="file__sha"><CopyField compact :value="a.h1" :label="t('browse.terraform.copyH1')" /></span>
-                </div>
-                <div v-if="scope.row.platforms.length" class="platforms">
-                  <span class="section-label">{{ t('browse.terraform.platforms') }}</span>
-                  <span v-for="p in scope.row.platforms" :key="p" class="platform mono">{{ p }}</span>
-                </div>
-              </q-td>
-            </q-tr>
-          </template>
-        </q-table>
-      </div>
-      <div v-else-if="versions.error.value" class="q-pa-md text-negative">{{ errorMessage(versions.error.value) }}</div>
-      <q-skeleton v-else height="300px" class="q-ma-md" />
-    </template>
-
-    <q-table
-      v-else
-      class="ws-table"
-      flat
-      :rows="providers.data.value?.items ?? []"
-      :columns="providerColumns"
-      row-key="provider"
-      :loading="providers.loading.value"
-      :pagination="{ rowsPerPage: 0 }"
-      hide-pagination
-      :no-data-label="t('browse.empty')"
-      @row-click="(_e: Event, row: TerraformProvider) => (provider = row.provider)"
-    >
-      <template #body-cell-provider="{ row }">
-        <q-td class="cursor-pointer"><span class="mono pkg-name">{{ row.provider }}</span></q-td>
+        <div v-else-if="moduleVersions.error.value" class="q-pa-md text-negative">{{ errorMessage(moduleVersions.error.value) }}</div>
+        <q-skeleton v-else height="300px" class="q-ma-md" />
       </template>
-      <template #body-cell-size="{ row }"><q-td class="text-right"><SizeCell :bytes="row.size_bytes" /></q-td></template>
-    </q-table>
-  </PageCard>
+
+      <q-table
+        v-else
+        class="ws-table"
+        flat
+        :rows="modules.data.value?.items ?? []"
+        :columns="moduleListColumns"
+        row-key="module"
+        :loading="modules.loading.value"
+        :pagination="{ rowsPerPage: 0 }"
+        hide-pagination
+        :no-data-label="t('browse.empty')"
+        @row-click="(_e: Event, row: TerraformModule) => (module = row.module)"
+      >
+        <template #body-cell-module="{ row }">
+          <q-td class="cursor-pointer"><span class="mono pkg-name">{{ row.module }}</span></q-td>
+        </template>
+        <template #body-cell-size="{ row }"><q-td class="text-right"><SizeCell :bytes="row.size_bytes" /></q-td></template>
+      </q-table>
+    </PageCard>
+
+    <PageCard v-else flush>
+      <template #title><BrowseCrumbs :crumbs="crumbs" @go="provider = null" /></template>
+      <template v-if="!provider" #actions>
+        <q-input v-model="search" dense outlined clearable debounce="200" :placeholder="t('browse.terraform.search')" class="browse-search">
+          <template #prepend><q-icon :name="iconSearch" size="18px" /></template>
+        </q-input>
+      </template>
+
+      <template v-if="provider">
+        <div v-if="versions.data.value" class="pkg">
+          <div class="pkg__head">
+            <div class="col">
+              <div class="pkg__name mono">{{ versions.data.value.provider.provider }}</div>
+              <div class="pkg__meta">
+                <span v-if="versions.data.value.provider.latest">{{ t('browse.terraform.latest') }} <strong class="mono">{{ versions.data.value.provider.latest }}</strong></span>
+                <span>{{ t('browse.terraform.versionCount', { count: versions.data.value.provider.version_count }) }}</span>
+                <span>{{ t('browse.terraform.archivesCached', { count: versions.data.value.provider.cached_archives }) }}</span>
+                <span><SizeCell :bytes="versions.data.value.provider.size_bytes" /></span>
+              </div>
+            </div>
+            <div v-if="versions.data.value.provider.latest" class="pkg__install">
+              <div class="section-label">{{ t('browse.terraform.use') }}</div>
+              <CopyField :value="requiredProviders(versions.data.value.provider.provider, versions.data.value.provider.latest)" />
+            </div>
+          </div>
+
+          <q-table class="ws-table" flat :rows="versions.data.value.items" :columns="columns" row-key="version" :pagination="{ rowsPerPage: 0 }" hide-pagination :no-data-label="t('browse.empty')">
+            <template #body="scope">
+              <q-tr :props="scope" class="cursor-pointer" @click="toggle(scope.row.version)">
+                <q-td key="version" :props="scope">
+                  <q-icon :name="iconChevronRight" size="16px" class="chev" :class="{ 'chev--open': expanded.has(scope.row.version) }" />
+                  <span class="mono ver">{{ scope.row.version }}</span>
+                  <span v-if="scope.row.prerelease" class="ws-badge tone-offline badge">{{ t('browse.terraform.prerelease') }}</span>
+                  <span v-if="!scope.row.listed" class="ws-badge tone-offline badge">{{ t('browse.terraform.unlisted') }}<q-tooltip>{{ t('browse.terraform.unlistedHelp') }}</q-tooltip></span>
+                </q-td>
+                <q-td key="protocols" :props="scope"><span class="mono text-secondary">{{ scope.row.protocols.join(', ') }}</span></q-td>
+                <q-td key="platforms" :props="scope">{{ t('browse.terraform.platformCount', { count: scope.row.platforms.length }) }}</q-td>
+                <q-td key="cached" :props="scope">
+                  <CacheBadge v-if="scope.row.archives.length" state="HIT" />
+                  <span v-else class="text-faint">{{ t('browse.notCached') }}</span>
+                </q-td>
+                <q-td key="size" :props="scope" class="text-right"><SizeCell :bytes="scope.row.size_bytes" /></q-td>
+              </q-tr>
+              <q-tr v-if="expanded.has(scope.row.version)" :props="scope" class="files-row">
+                <q-td colspan="100%">
+                  <div v-if="!scope.row.archives.length" class="text-faint">{{ t('browse.terraform.noArchives') }}</div>
+                  <div v-for="a in scope.row.archives" :key="`${a.os}_${a.arch}`" class="file">
+                    <span class="ws-badge tone-offline kind mono">{{ a.os }}_{{ a.arch }}</span>
+                    <span class="file__size"><SizeCell :bytes="a.size" /></span>
+                    <span class="file__when"><TimeCell :value="a.cached_at ?? null" placeholder="" /></span>
+                    <span class="file__sha"><CopyField compact :value="`zh:${a.sha256}`" :label="t('browse.terraform.copySha')" /></span>
+                    <span v-if="a.h1" class="file__sha"><CopyField compact :value="a.h1" :label="t('browse.terraform.copyH1')" /></span>
+                  </div>
+                  <div v-if="scope.row.key_id || scope.row.uploaded_by" class="file file--meta">
+                    <span v-if="scope.row.uploaded_by">{{ t('browse.terraform.uploadedBy', { user: scope.row.uploaded_by }) }}</span>
+                    <span v-if="scope.row.key_id" class="mono">{{ t('browse.terraform.signedBy', { key: scope.row.key_id }) }}</span>
+                  </div>
+                  <div v-if="scope.row.platforms.length" class="platforms">
+                    <span class="section-label">{{ t('browse.terraform.platforms') }}</span>
+                    <span v-for="p in scope.row.platforms" :key="p" class="platform mono">{{ p }}</span>
+                  </div>
+                </q-td>
+              </q-tr>
+            </template>
+          </q-table>
+        </div>
+        <div v-else-if="versions.error.value" class="q-pa-md text-negative">{{ errorMessage(versions.error.value) }}</div>
+        <q-skeleton v-else height="300px" class="q-ma-md" />
+      </template>
+
+      <q-table
+        v-else
+        class="ws-table"
+        flat
+        :rows="providers.data.value?.items ?? []"
+        :columns="providerColumns"
+        row-key="provider"
+        :loading="providers.loading.value"
+        :pagination="{ rowsPerPage: 0 }"
+        hide-pagination
+        :no-data-label="t('browse.empty')"
+        @row-click="(_e: Event, row: TerraformProvider) => (provider = row.provider)"
+      >
+        <template #body-cell-provider="{ row }">
+          <q-td class="cursor-pointer"><span class="mono pkg-name">{{ row.provider }}</span></q-td>
+        </template>
+        <template #body-cell-size="{ row }"><q-td class="text-right"><SizeCell :bytes="row.size_bytes" /></q-td></template>
+      </q-table>
+    </PageCard>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -94,7 +203,7 @@ import type { QTableColumn } from 'quasar'
 import { computed, ref, watch } from 'vue'
 
 import { api, call, errorMessage } from '@/api/client'
-import type { Repository, TerraformProvider, TerraformVersion } from '@/api/types'
+import type { Repository, TerraformModule, TerraformModuleVersion, TerraformProvider, TerraformVersion } from '@/api/types'
 import CacheBadge from '@/components/CacheBadge.vue'
 import CopyField from '@/components/CopyField.vue'
 import PageCard from '@/components/PageCard.vue'
@@ -103,26 +212,55 @@ import TimeCell from '@/components/TimeCell.vue'
 import { useAsync } from '@/composables/useAsync'
 import { useQueryParam } from '@/composables/useQueryParam'
 import { t } from '@/i18n'
+import { useConfigStore } from '@/stores/config'
 import { iconChevronRight, iconSearch } from '@/utils/icons'
 
 import BrowseCrumbs from './BrowseCrumbs.vue'
+import FolderBrowser from './FolderBrowser.vue'
+import { hostOf, moduleBlock as block, requiredProviders as required } from './terraform'
 
 const props = defineProps<{ repo: Repository }>()
+const config = useConfigStore()
 const provider = useQueryParam('provider')
+const module = useQueryParam('module')
+const viewParam = useQueryParam('view')
+const view = computed<string>({
+  get: () => (viewParam.value === 'files' || viewParam.value === 'modules' ? viewParam.value : module.value ? 'modules' : 'providers'),
+  set: (v) => (viewParam.value = v === 'providers' ? null : v),
+})
 const search = ref<string | null>(null)
+const moduleSearch = ref<string | null>(null)
 const expanded = ref(new Set<string>())
+const hosted = computed(() => props.repo.type === 'hosted')
+/** Addresses of the hosted repository start with this instance's host name. */
+const host = computed(() => (hosted.value ? hostOf(config.config?.base_url ?? '') : null))
 
 const providers = useAsync(
-  async () => call(api.GET('/repositories/{name}/terraform/providers', { params: { path: { name: props.repo.name }, query: { q: search.value || undefined, limit: 200 } } })),
-  [search],
+  async () =>
+    view.value === 'providers' ? call(api.GET('/repositories/{name}/terraform/providers', { params: { path: { name: props.repo.name }, query: { q: search.value || undefined, limit: 200 } } })) : null,
+  [search, view],
 )
 const versions = useAsync(
   async () =>
-    provider.value ? call(api.GET('/repositories/{name}/terraform/versions', { params: { path: { name: props.repo.name }, query: { provider: provider.value, limit: 200 } } })) : null,
-  [provider],
+    provider.value && view.value === 'providers'
+      ? call(api.GET('/repositories/{name}/terraform/versions', { params: { path: { name: props.repo.name }, query: { provider: provider.value, limit: 200 } } }))
+      : null,
+  [provider, view],
+)
+const modules = useAsync(
+  async () =>
+    view.value === 'modules' ? call(api.GET('/repositories/{name}/terraform/modules', { params: { path: { name: props.repo.name }, query: { q: moduleSearch.value || undefined, limit: 200 } } })) : null,
+  [moduleSearch, view],
+)
+const moduleVersions = useAsync(
+  async () =>
+    module.value && view.value === 'modules'
+      ? call(api.GET('/repositories/{name}/terraform/module-versions', { params: { path: { name: props.repo.name }, query: { module: module.value, limit: 200 } } }))
+      : null,
+  [module, view],
 )
 
-watch(provider, () => {
+watch([provider, module], () => {
   expanded.value = new Set()
 })
 watch(
@@ -133,14 +271,23 @@ watch(
     if (first && !expanded.value.size) expanded.value = new Set([first.version])
   },
 )
+watch(
+  () => moduleVersions.data.value,
+  (page) => {
+    const first = page?.items.find((v) => v.archive) ?? page?.items[0]
+    if (first && !expanded.value.size) expanded.value = new Set([first.version])
+  },
+)
 
 const crumbs = computed(() => [{ label: t('browse.terraform.providers') }, ...(provider.value ? [{ label: provider.value, mono: true }] : [])])
+const moduleCrumbs = computed(() => [{ label: t('browse.terraform.modules') }, ...(module.value ? [{ label: module.value, mono: true }] : [])])
 
-/** A required_providers entry for the provider (the local name is the type). */
 function requiredProviders(address: string, version: string): string {
-  const parts = address.split('/')
-  const source = parts[0] === 'registry.terraform.io' || parts[0] === 'registry.opentofu.org' ? parts.slice(1).join('/') : address
-  return `${parts[2]} = { source = "${source}", version = "${version}" }`
+  return required(host.value ? `${host.value}/${address}` : address, version)
+}
+
+function moduleBlock(address: string, version: string): string {
+  return block(host.value ? `${host.value}/${address}` : address, version)
 }
 
 function toggle(version: string): void {
@@ -165,9 +312,33 @@ const columns = computed<QTableColumn<TerraformVersion>[]>(() => [
   { name: 'cached', label: t('browse.terraform.archives'), field: (r) => r.archives.length, align: 'left' },
   { name: 'size', label: t('browse.size'), field: 'size_bytes', align: 'right' },
 ])
+
+const moduleListColumns = computed<QTableColumn<TerraformModule>[]>(() => [
+  { name: 'module', label: t('browse.terraform.module'), field: 'module', align: 'left', sortable: true },
+  { name: 'latest', label: t('browse.terraform.latest'), field: (r) => r.latest ?? '', align: 'left', classes: 'mono gt-xs', headerClasses: 'gt-xs' },
+  { name: 'versions', label: t('browse.terraform.versions'), field: 'version_count', align: 'right', classes: 'gt-xs', headerClasses: 'gt-xs' },
+  { name: 'cached', label: t('browse.terraform.archives'), field: 'cached_versions', align: 'right', sortable: true },
+  { name: 'size', label: t('browse.size'), field: 'size_bytes', align: 'right', sortable: true },
+])
+
+const moduleColumns = computed<QTableColumn<TerraformModuleVersion>[]>(() => [
+  { name: 'version', label: t('browse.terraform.version'), field: 'version', align: 'left' },
+  { name: 'cached', label: t('browse.terraform.held'), field: (r) => (r.archive ? 1 : 0), align: 'left' },
+  { name: 'size', label: t('browse.size'), field: (r) => r.archive?.size ?? 0, align: 'right' },
+])
 </script>
 
 <style scoped>
+.tf {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tf__view {
+  align-self: flex-start;
+}
+
 .browse-search {
   width: 260px;
 }
@@ -238,6 +409,15 @@ const columns = computed<QTableColumn<TerraformVersion>[]>(() => [
   gap: 6px 12px;
   padding: 4px 0 4px 22px;
   font-size: var(--fs-13);
+}
+
+.file--meta {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+}
+
+.source {
+  overflow-wrap: anywhere;
 }
 
 .file__size {
