@@ -268,7 +268,8 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   - Clients verified (harness, recorded registry.npmjs.org fixtures): npm 11 `login --auth-type=legacy`, `whoami`,
     `publish` (to the group and to the hosted repository, republish refused), install of a hosted and a proxied
     package through the group, `dist-tag add/ls/rm`, `deprecate`, `unpublish <pkg>@<v>` and `--force`, `logout`.
-    pnpm/Yarn/Bun publish use the same requests and are not in the harness yet.
+    pnpm/Yarn/Bun publish use the same requests and are not in the harness yet; their installs and audits through a
+    proxy are (pnpm 12, Yarn 1, Yarn 4, Bun 1.4; `tests/clients/npm/pm.sh`).
 
 ## apt (Debian, Ubuntu, Raspberry Pi OS) — Phase 2 (proxy), Phase 5 (hosted)
 - Layout under the upstream base: `dists/<suite>/{InRelease,Release,Release.gpg}`,
@@ -320,8 +321,8 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   1 M entries; stanzas with unsafe `Filename`s are skipped) and written to `apt_pool_index` as `verified`; an
   unverified pool file whose recorded hash disagrees with a new listing is dropped from the cache. Parsed `Release`
   files are kept in a small in-process LRU keyed by blob digest. Real clients: apt on Debian 13 and Ubuntu 26.04
-  (`tests/clients/apt/`). Not yet: hosted, `Release` signature checks by Waystation (clients verify), proactive
-  `Packages` refresh by a worker, Raspberry Pi OS / arm64 clients, components (`components` collection). Browse
+  (`tests/clients/apt/`); Raspberry Pi OS arm64 opt-in (`ARM64=1`, needs arm64 emulation). Not yet: hosted,
+  `Release` signature checks by Waystation (clients verify), proactive `Packages` refresh by a worker, components (`components` collection). Browse
   (T-S09 min): the same background pass writes each `Packages` stanza (name, version, architecture, section) to
   `apt_packages`, replacing the previous generation of that index; suites come from the cached `InRelease`/`Release`
   (origin, codename, date, components, architectures).

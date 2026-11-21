@@ -99,7 +99,9 @@ wget --user=alice --password='<your-api-token>' https://registry.example.com/rep
 wget --header 'Authorization: Bearer <your-api-token>' https://registry.example.com/repository/files/path/to/file
 ```
 
-Basic auth with an account password is refused (401): format clients always use API tokens.
+Basic auth with an account password is refused (401): format clients always use API tokens. The client-auth matrix
+(`tests/clients/auth/`) checks curl against a private hosted repository with tokens of an LDAP and an OIDC user,
+and the refusals of an LDAP password, a wrong password, a revoked token and anonymous requests.
 
 Prefer a `~/.netrc` entry (`machine registry.example.com login alice password <token>`, `chmod 600`) with
 `curl -n` / wget's built-in netrc support over tokens on the command line.

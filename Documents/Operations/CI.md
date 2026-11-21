@@ -8,7 +8,8 @@ Every CI step is a `make` target, so anything CI runs can be reproduced locally 
 |---|---|---|
 | `.github/workflows/ci.yml` | major release tag `vX.0.0`, manual | `make check`; the generated API client is current (`make gen-api` then `git diff --exit-code`); the budget report in the job summary; in a parallel job, `make clients-test FORMAT=all MODE=replay` |
 | `.github/workflows/release.yml` | every release tag `vX.Y.Z` (and `vX.Y.Z-<pre>`) | server, worker and web images for linux/amd64 and linux/arm64 pushed to GHCR as `X.Y.Z`, `X.Y`, `sha-<commit>` and (stable releases) `latest`, with SBOM and SLSA provenance attestations |
-| `.github/workflows/clients-live.yml` | manual | the real-client harness against the live upstreams (`MODE=live`) |
+| `.github/workflows/clients-live.yml` | manual (one format or all) | the real-client harness against the live upstreams (`MODE=live`), arm64 clients included (QEMU registered on the runner, `ARM64=1`) |
+| `.gitea/workflows/clients-live.yml` | nightly (Gitea), manual (one format or all) | the same live client smoke on the Gitea runners; arm64 clients when `WAYSTATION_CI_ARM64` is `true` |
 | `.gitea/workflows/check.yml` | push to `main` and pull requests (Gitea), manual | `make check` without `test-integration`, step by step (`forbidden-strings`, `workflow-lint`, `fmt-check`, `lint`, `typecheck`, `test`, `clients-check`, `frontend-check`), the generated API client diff and the budget report; then, only on push to `main` and manual runs, `make test-integration` in a second job |
 | `.gitea/workflows/images.yml` | push to `main` (Gitea), manual | server, worker and web images pushed to the Gitea container registry |
 | `.gitea/workflows/perf.yml` | push to `main` (Gitea), nightly, manual | `make perf`: the k6 suite, CI profile on push (manual: either profile), full profile nightly; results uploaded as the `perf-results` artifact |
@@ -62,6 +63,20 @@ in the runner's `config.yaml`: the default (the workspace in a Docker volume) le
 fails with `can't open file '/src/...'`. The workflows pass `make workflow-lint` (actionlint). First runs on the
 Gitea runners (2026-11-10) failed on exactly that, on the unset `REGISTRY_HOST` variable (images) and on
 upload-artifact v4, which Gitea's artifact API does not support (perf now uses v3).
+
+### Gitea live client smoke
+
+`.gitea/workflows/clients-live.yml` runs `make clients-test FORMAT=all MODE=live` every night (03:45 UTC) and on
+manual runs (a single format can be chosen): every format's real clients against the live public upstreams through
+the harness's fake upstream in pass-through mode, so upstream changes the committed fixtures cannot show surface
+within a day (tests/clients/README.md). Formats run one after another, each in its own compose project; a run takes
+about an hour and needs network access to the public registries and about 6 GB of free memory (the `auth` format
+adds Keycloak and OpenLDAP).
+
+| Kind | Name | Required | Meaning |
+|---|---|---|---|
+| variable | `WAYSTATION_CI_CLIENTS_LIVE` | no | `false` skips the nightly live client smoke; anything else (or unset) runs it |
+| variable | `WAYSTATION_CI_ARM64` | no | `true` registers QEMU on the runner host (`docker/setup-qemu-action`, like `images.yml`) and runs the arm64 clients (`ARM64=1`); anything else skips them with a message |
 
 ### Releases (GitHub)
 
