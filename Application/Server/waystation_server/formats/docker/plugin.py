@@ -21,14 +21,18 @@ upstream ``HEAD`` (how the Docker daemon pulls) is recorded in ``docker_tags`` f
 
 Hosted repositories (push, delete, referrers API) are served by ``formats.docker.hosted.DockerHosted``, group
 repositories (members in order, merged tag lists, pushes to the writable member) by
-``formats.docker.group.DockerGroup``. Not yet: the referrers API for proxies (404 makes clients fall back to the tag
-schema).
+``formats.docker.group.DockerGroup``.
+
+Referrers (``GET /v2/<name>/referrers/<digest>``, ``DockerPlugin.referrers``): the upstream's referrers API, else its
+tag schema (``sha256-<hex>`` tag), cached as metadata and served as a sanitised OCI index (always ``200``).
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
+import time
 from collections.abc import Callable
 from urllib.parse import urlencode
 
@@ -44,7 +48,7 @@ from waystation_server.formats.docker.browse import DockerBrowse, parse_manifest
 from waystation_server.formats.docker.descriptor import DESCRIPTOR, DockerOptions
 from waystation_server.formats.docker.group import DockerGroup
 from waystation_server.formats.docker.hosted import DockerHosted
-from waystation_server.formats.docker.upstream_auth import RegistryAuth, TokenCache
+from waystation_server.formats.docker.upstream_auth import RegistryAuth, SharedTokens, TokenCache
 from waystation_server.problems import oci_error
 from waystation_server.proxy.engine import (
     AssetKind,
@@ -61,6 +65,8 @@ from waystation_server.repos.model import AuthKind, RepoType, secret_aad
 API_VERSION = 'Docker-Distribution-API-Version'
 API_HEADERS = {API_VERSION: 'registry/2.0'}
 TAGS_MAX_AGE_S = 300
+NO_REFERRERS_API_S = 3600  # an upstream without the referrers API: go straight to the tag schema for this long
+NO_REFERRERS_API_CODES = frozenset({400, 405, 406, 501})  # besides 404: answers of registries without the API
 NOT_FOUND_CODES = {'manifest': 'MANIFEST_UNKNOWN', 'blob': 'BLOB_UNKNOWN', 'tags': 'NAME_UNKNOWN'}
 
 
@@ -138,14 +144,15 @@ class DockerPlugin:
             return _error(405, 'this repository is a read-only proxy', 'UNSUPPORTED')
         if op.op == 'base':
             return JSONResponse({}, headers=API_HEADERS)
-        if op.op == 'referrers':
-            return _error(404, 'the referrers API is not available for proxy repositories yet', 'UNSUPPORTED')
         if req.repo.proxy is None:
             return _error(404, 'repository name not known to registry', 'NAME_UNKNOWN')
 
         options = DockerOptions.model_validate(req.repo.format_options)
         name = p.upstream_name(op.name, docker_hub=options.docker_hub)
         upstream = _Upstream(req)
+        if op.op == 'referrers':
+            req.log(image=name)
+            return await self.referrers(req, op, name, upstream)
         try:
             spec = self._spec(req, op, name, upstream)
         except p.RequestRejected as exc:
@@ -173,6 +180,76 @@ class DockerPlugin:
         asset = await req.proxy.ensure(req, spec)
         data = await req.proxy.read(asset, max_bytes=p.TAGS_MAX_BYTES)
         return p.tag_names(data)
+
+    # -------------------------------------------------------------- referrers
+    async def referrers(self, req: FormatRequest, op: p.Operation, name: str, upstream: _Upstream) -> Response:
+        """``GET /v2/<name>/referrers/<digest>`` for a proxy: the upstream's referrers API, cached as metadata
+        (``<name>/referrers/<digest>``, refreshed after at most 5 minutes); an upstream without one (``404``: a
+        registry with the API never answers 404) falls back to the tag schema (the ``<alg>-<ref>`` tag's index,
+        cached like any tag manifest), and is remembered for an hour so later lookups go straight to the tag. No
+        referrers = an empty index (always ``200``). ``artifactType`` is filtered here (``OCI-Filters-Applied``)."""
+        started = time.perf_counter()
+        artifact_type = req.request.query_params.get('artifactType') or None
+        if artifact_type is not None and len(artifact_type) > 255:
+            return _error(400, 'invalid artifactType', 'UNSUPPORTED')
+        try:
+            entries = await self._upstream_referrers(req, op, name, upstream)
+        except WaystationError as exc:
+            return self._upstream_error(exc, upstream, op)
+        if artifact_type is not None:
+            entries = [e for e in entries if e.get('artifactType') == artifact_type]
+        headers = dict(API_HEADERS)
+        if artifact_type is not None:
+            headers['OCI-Filters-Applied'] = 'artifactType'
+        req.hosted.account(req, CacheState.HIT, 200, 0, started)
+        index = {'schemaVersion': 2, 'mediaType': p.OCI_INDEX, 'manifests': entries}
+        return JSONResponse(index, media_type=p.OCI_INDEX, headers=headers)
+
+    async def _upstream_referrers(
+        self, req: FormatRequest, op: p.Operation, name: str, upstream: _Upstream
+    ) -> list[dict[str, object]]:
+        assert req.repo.proxy is not None
+        max_age = min(TAGS_MAX_AGE_S, req.repo.proxy.metadata_max_age_s)
+        base = AssetSpec(
+            path=f'{name}/referrers/{op.reference}',
+            kind=AssetKind.METADATA,
+            upstream_path=f'v2/{name}/referrers/{op.reference}',
+            upstream_headers={'Accept': p.OCI_INDEX},
+            content_type=p.OCI_INDEX,
+            max_size=p.MANIFEST_MAX_BYTES,
+            max_age_s=max_age,
+            validate=_validate_referrers,
+            authenticator=self._auth(req, name),
+            on_upstream=upstream,
+            artifact=f'{name}@{op.reference[:19]} referrers',
+            component=name,
+        )
+        no_api_key = f'docker:noreferrers:{req.repo.id}:{req.repo.config_version}'
+        if not await _flag(req, no_api_key):
+            spec = base
+            try:
+                asset = await req.proxy.ensure(req, spec)
+                return p.referrer_entries(await req.proxy.read(asset, max_bytes=p.MANIFEST_MAX_BYTES))
+            except NotFound:
+                await _set_flag(req, no_api_key, NO_REFERRERS_API_S)
+            except WaystationError:
+                if upstream.status not in NO_REFERRERS_API_CODES:
+                    raise
+                await _set_flag(req, no_api_key, NO_REFERRERS_API_S)
+            upstream.status = None
+        tag = p.referrers_tag(op.reference)
+        spec = dataclasses.replace(
+            base,
+            path=f'{name}/referrers/{op.reference}@tag',
+            upstream_path=f'v2/{name}/manifests/{tag}',
+            validate=_validate_referrers_tag,
+            artifact=f'{name}:{tag}',
+        )
+        try:
+            asset = await req.proxy.ensure(req, spec)
+        except NotFound:
+            return []
+        return p.referrer_entries(await req.proxy.read(asset, max_bytes=p.MANIFEST_MAX_BYTES))
 
     # -------------------------------------------------------------- specs
     def _spec(
@@ -315,6 +392,7 @@ class DockerPlugin:
             network=network_of(proxy),
             credentials=credentials,
             bearer=bearer,
+            shared=SharedTokens(req.proxy.valkey, keyring),
         )
 
     # -------------------------------------------------------------- responses
@@ -359,3 +437,26 @@ def _validate_manifest(data: bytes, info: UpstreamInfo) -> None:
 
 def _validate_tags(data: bytes, info: UpstreamInfo) -> None:
     p.check_tags(data)
+
+
+def _validate_referrers(data: bytes, info: UpstreamInfo) -> None:
+    p.check_referrers(data)
+
+
+def _validate_referrers_tag(data: bytes, info: UpstreamInfo) -> None:
+    """The tag schema's fallback tag: a manifest (matching the upstream's ``Docker-Content-Digest``) that is an
+    OCI image index."""
+    p.check_manifest(data, info.headers.get('content-type'), info.headers.get('docker-content-digest'))
+    p.check_referrers(data)
+
+
+async def _flag(req: FormatRequest, key: str) -> bool:
+    try:
+        return bool(await req.proxy.valkey.exists(key))
+    except Exception:  # Valkey down: ask the referrers API again
+        return False
+
+
+async def _set_flag(req: FormatRequest, key: str, ttl_s: int) -> None:
+    with contextlib.suppress(Exception):  # Valkey down: the next lookup asks the referrers API again
+        await req.proxy.valkey.set(key, '1', ex=ttl_s)

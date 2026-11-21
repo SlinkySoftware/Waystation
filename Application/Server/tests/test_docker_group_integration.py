@@ -269,3 +269,50 @@ async def test_read_only_group_and_member_rbac(
     assert denied.json()['errors'][0]['code'] == 'DENIED'
     pulled = await gail.request('GET', 'all/hello', 'manifests/latest', actions='pull')
     assert pulled.status_code == 200  # reading through the group needs read on the group only
+
+
+OCI_INDEX = 'application/vnd.oci.image.index.v1+json'
+EMPTY = b'{}'
+
+
+async def test_referrers_merge_hosted_and_proxy_members(
+    v2: httpx.AsyncClient, repos: None, upstream: FakeUpstream
+) -> None:
+    """A group's referrers: the hosted member's stored referrers and the proxy member's upstream ones, in member
+    order, each digest once."""
+    subject = digest(UPSTREAM_MANIFEST)
+    upstream_sig = {
+        'mediaType': OCI_MANIFEST,
+        'digest': 'sha256:' + 'a' * 64,
+        'size': 400,
+        'artifactType': 'application/vnd.dev.cosign.artifact.sig.v1+json',
+    }
+    index = {'schemaVersion': 2, 'mediaType': OCI_INDEX, 'manifests': [upstream_sig]}
+    upstream.routes[f'/v2/library/hello/referrers/{subject}'] = Respond(
+        200, {'Content-Type': OCI_INDEX}, json.dumps(index).encode()
+    )
+    sbom = json.dumps(
+        {
+            'schemaVersion': 2,
+            'mediaType': OCI_MANIFEST,
+            'artifactType': 'application/spdx+json',
+            'config': {'mediaType': 'application/vnd.oci.empty.v1+json', 'digest': digest(EMPTY), 'size': 2},
+            'layers': [{'mediaType': 'application/vnd.oci.empty.v1+json', 'digest': digest(EMPTY), 'size': 2}],
+            'subject': {'mediaType': OCI_MANIFEST, 'digest': subject, 'size': len(UPSTREAM_MANIFEST)},
+        }
+    ).encode()
+    reg = Registry(v2)
+    pushed = await reg.request(
+        'PUT', 'all/hello', f'manifests/{digest(sbom)}', content=sbom, headers={'Content-Type': OCI_MANIFEST}
+    )
+    assert pushed.status_code == 201, pushed.text
+    merged = await reg.request('GET', 'all/hello', f'referrers/{subject}', actions='pull')
+    assert merged.status_code == 200
+    assert [m['digest'] for m in merged.json()['manifests']] == [digest(sbom), upstream_sig['digest']]
+    only_sbom = await reg.request(
+        'GET', 'all/hello', f'referrers/{subject}', actions='pull', params={'artifactType': 'application/spdx+json'}
+    )
+    assert only_sbom.headers['oci-filters-applied'] == 'artifactType'
+    assert [m['digest'] for m in only_sbom.json()['manifests']] == [digest(sbom)]
+    proxy_only = await reg.request('GET', 'hub/hello', f'referrers/{subject}', actions='pull')
+    assert [m['digest'] for m in proxy_only.json()['manifests']] == [upstream_sig['digest']]

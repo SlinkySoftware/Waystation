@@ -99,13 +99,32 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     anonymous token or configured credentials. Ping the upstream's `GET /v2/` once to learn the challenge, so every
     request carries its token up front (a first anonymous request per image would make record/replay and upstream
     request counts depend on which server process answers); re-learn on a later `401`.
+  - Tokens and learned challenges are shared by every server process (built 2026-11-21,
+    `upstream_auth.SharedTokens`): Valkey `uptok:<sha256(repository key, scope)>` holds `<expiry ms> <token>` with
+    the token AES-GCM encrypted under `WAYSTATION_SECRET_KEYS` (associated data = the key) and a PX of its remaining
+    lifetime (the token's `expires_in` capped at 1 h, minus 15 s); `uprealm:<sha256(repository key)>` the challenge
+    (1 h). The repository key includes its id, configuration version and update time, so new credentials never reuse
+    a token. A process checks its own cache, then Valkey, then asks the realm and stores the token for everyone; an
+    upstream `401` to a shared token replaces it. Without secret keys tokens are not shared; Valkey down = each
+    process fetches its own. Tokens are never logged.
   - Tag → digest resolution is metadata (`metadata_max_age`); digest-addressed manifests and blobs are content.
   - Blob redirects: upstreams often 307 to a CDN; follow (SSRF-checked) without forwarding Authorization to other hosts.
     Docker Hub uses more than one CDN host (`production.cloudflare.docker.com`, `production.cloudfront.docker.com`),
     GHCR uses `pkg-containers.githubusercontent.com`: outbound allowlists must include them.
   - Docker Hub answers `401` (not `404`) for image names that do not exist; map an upstream 401/403 after token
-    negotiation to `NAME_UNKNOWN`. Proxies without a referrers API answer `404`, and clients fall back to the
-    `sha256-<hex>` tag schema (an extra tag lookup per pull).
+    negotiation to `NAME_UNKNOWN`.
+  - Referrers (built 2026-11-21, `DockerPlugin.referrers`): `GET /v2/<name>/referrers/<digest>` asks the upstream's
+    referrers API (`Accept: application/vnd.oci.image.index.v1+json`) and caches the answer as metadata
+    `<name>/referrers/<digest>` (refreshed after `min(5 min, metadata_max_age)`, conditional revalidation, stale on
+    error as usual). An upstream `404` (a registry with the API never answers 404; also 400/405/406/501) means it has
+    none: the proxy falls back to the referrers tag schema itself, the `<alg>-<ref>` tag (`sha256-<hex>`, truncated
+    to 32/64 characters) fetched as an OCI index, checked against the upstream `Docker-Content-Digest` and cached as
+    `<name>/referrers/<digest>@tag`, and remembers for an hour (Valkey `docker:noreferrers:<repo id>:<config
+    version>`) to go straight to the tag. No tag either (negative-cached) = an empty index. The answer is always
+    `200` with an OCI index rebuilt from well-formed descriptors only (`mediaType`, `digest`, `size`,
+    `artifactType`, string `annotations`; ≤ 1000, duplicates dropped; anything else is refused or dropped, never
+    passed through); `artifactType` is filtered by Waystation (`OCI-Filters-Applied: artifactType`). Upstream
+    failures map like manifests (401/403 → `NAME_UNKNOWN`, 429 → `TOOMANYREQUESTS`, mismatch or not an index → 502).
   - Mirror mode: Docker daemon `registry-mirrors` sends Hub names (`library/nginx`) to `/v2/` → default repo.
 - Hosted: tag immutability patterns, overwrite policy, manifest validation (all referenced blobs/manifests exist
   in the repo or are mountable), size limit, `subject` field for referrers (cosign/notation signatures, SBOMs).
@@ -165,8 +184,9 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
   stored/cached `blobs/<digest>` first (served by X-Accel, no upstream), then a `GET` asks members in order; a `HEAD`
   never goes upstream (it is how pushes check for existing layers, and pushed names must not reach public
   registries). `tags/list`: union of hosted members' tags and proxy members' upstream first page (cached as their
-  `tags/list`), sorted, `n`/`last`/`Link`; `404 NAME_UNKNOWN` when no member knows the name. Referrers: union over hosted
-  members. Writes (manifest `PUT`/`DELETE`, uploads incl. status and cancel, blob `DELETE`) go to the writable member
+  `tags/list`), sorted, `n`/`last`/`Link`; `404 NAME_UNKNOWN` when no member knows the name. Referrers: union over
+  every member in order (hosted: stored referrers; proxies: their referrers answer above; since 2026-11-21), each
+  digest once, failing members skipped. Writes (manifest `PUT`/`DELETE`, uploads incl. status and cancel, blob `DELETE`) go to the writable member
   with the request otherwise unchanged (so `Location` keeps the group's name and a push continues through the group);
   the principal needs the action on the group (router) and on the member (`req.allows_member`, RBAC without the
   registry token's per-repository grants); none configured → `405 UNSUPPORTED`. Answers from a member carry
