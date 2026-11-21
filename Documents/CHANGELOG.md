@@ -20,6 +20,11 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   clients, `ws_login <user> <password> [<provider>]` and `ws_revoke_any` in `lib.sh`; the nightly live client smoke
   runs on Gitea (`.gitea/workflows/clients-live.yml`, arm64 clients behind `WAYSTATION_CI_ARM64`); the manual
   GitHub workflow takes a format and registers QEMU for the arm64 clients.
+- T-M01 (done): opt-in `make test-nexus` runs the Nexus importer against a real `sonatype/nexus3` Community Edition
+  container (`Build/Containers/compose.nexus.yaml`, about 3 GB of memory, not in `make check` or CI). The test seeds
+  Nexus with the repositories of the hand-written fixtures, requires the same import plan from the real Nexus as from
+  the fixtures, applies it and re-applies idempotently. The first run passed without importer changes; Community
+  Edition refuses writable group members (a Pro feature), which the test allows.
 - **Release 0.2.5**: containerd `?ns=` mirror routing (GitHub #5): pulls for other registries through a mirror
   without `override_path` no longer get Docker Hub's image of the same name. Docs and examples point at the 0.2.5
   images.
