@@ -105,7 +105,7 @@ async def test_field_errors(admin: httpx.AsyncClient) -> None:
         json={
             'name': 'apt-proxy',
             'format': 'apt',
-            'type': 'hosted',
+            'type': 'group',  # apt has proxy and hosted repositories, no groups
             'online': True,
             'proxy': {
                 'upstream_url': 'ftp://user:pw@deb.example.com/debian',
@@ -117,7 +117,8 @@ async def test_field_errors(admin: httpx.AsyncClient) -> None:
     assert response.status_code == 422
     assert fields(response) == {
         'type': 'unsupported',
-        'proxy': 'invalid',  # hosted repositories have no upstream
+        'proxy': 'invalid',  # only proxies have an upstream
+        'group': 'required',
         'format_options.distribution': 'missing',
         'format_options.flat': 'bool_parsing',
     }
