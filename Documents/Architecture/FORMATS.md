@@ -331,18 +331,42 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   `Packages`/`Release`/`InRelease` per suite/component/arch, signs with the repo key (`InRelease` clearsigned +
   `Release.gpg`), publishes atomically (write new index blobs, then swap metadata assets).
 - Clients: apt (deb822 `.sources` and one-line), with `Signed-By`; Debian 12/13, Ubuntu 24.04/26.04, Raspberry Pi OS (arm64/armhf).
-- Built (M0, T-P2-APT min): proxy `GET`/`HEAD` (`formats/apt/plugin.py`, parsers in `deb822.py`, `apt_pool_index`
-  access in `db/apt.py`). Indexes at plain paths are stored under their `by-hash/SHA256/<h>` key from the
+- Built (M0, T-P2-APT min): proxy `GET`/`HEAD` (`formats/apt/plugin.py`; parsers, suite rules and index naming in
+  `waystation_common.apt` (`deb822`, `suites`, `indexes`), `apt_pool_index`/`apt_packages` writes in
+  `waystation_common.db.apt`, shared with the worker since 2026-11-21). Indexes at plain paths are stored under their `by-hash/SHA256/<h>` key from the
   `InRelease` (else `Release`) currently cached for the suite and fetched from the upstream `by-hash` path when the
   `Release` says `Acquire-By-Hash: yes`; files the `Release` does not list answer 404. `by-hash/SHA256` and
   `by-hash/SHA512` are accepted (other algorithms 404). `Packages` files (any of `.xz`, `.gz`, `.bz2`, `.lzma`,
   `.zst`, plain) are parsed in a background task after they are cached (decompression bounded to 512 MiB, at most
   1 M entries; stanzas with unsafe `Filename`s are skipped) and written to `apt_pool_index` as `verified`; an
-  unverified pool file whose recorded hash disagrees with a new listing is dropped from the cache. Parsed `Release`
+  unverified pool file whose recorded hash disagrees with a new listing is dropped from the cache (only the copy with
+  that hash: a verified copy stored meanwhile stays). Parsed `Release`
   files are kept in a small in-process LRU keyed by blob digest. Real clients: apt on Debian 13 and Ubuntu 26.04
-  (`tests/clients/apt/`). Not yet: hosted, `Release` signature checks by Waystation (clients verify), proactive
-  `Packages` refresh by a worker, Raspberry Pi OS / arm64 clients, components (`components` collection). Browse
-  (T-S09 min): the same background pass writes each `Packages` stanza (name, version, architecture, section) to
+  (`tests/clients/apt/`). Not yet: hosted, `Release` signature checks by Waystation (clients verify),
+  Raspberry Pi OS / arm64 clients, components (`components` collection).
+- Worker refresh (2026-11-21, job `apt.refresh`, queue `prefetch`, `waystation_worker.apt`; built-in schedule
+  `41 * * * *` over every apt proxy, or one repository by `repo_id`; dedupe `apt.refresh:<repo id|*>`). Per suite
+  with a cached `InRelease`/`Release` (flat: per directory): (1) when the cached copy is older than
+  `metadata_max_age_s`, the suite's cached `InRelease`, `Release` and `Release.gpg` are revalidated with a
+  conditional `GET` (`304` moves `fetched_at` only; new `InRelease`/`Release` bytes must parse, ≤ 32 MiB, and are
+  stored untouched); (2) for each `(component, arch)` `Packages` index the current `Release` lists: a variant cached
+  under the listed hash but not yet the recorded listing generation is indexed from the cache (a lost background
+  indexing); otherwise, when clients used that index before (a listing of it in `apt_packages`) or it could list an
+  unverified pool file (`pool/<component>/..._<arch|all>.deb`, only until none is left), one variant (`.xz`
+  first) is fetched (by-hash when the `Release` offers it), verified against the listed SHA256 and size while it
+  streams into the blob store (≤ 256 MiB, nothing unverified committed), stored under its `by-hash/SHA256/<h>` key
+  as a client fetch would store it, and indexed; no other index is fetched, so the cache does not grow on its own;
+  (3) every unverified pool entry is checked against the recorded listings: confirmed → verified, contradicted →
+  the listing's hash replaces it and the checked copy is dropped (compare-and-set), unlisted → stays unverified.
+  The worker's upstream requests (`waystation_worker.upstream`) follow the proxy engine's rules: SSRF guard at
+  connect time (target pre-checked through an outbound proxy), the repository's CA bundle, outbound proxy and
+  static credentials (only to the upstream's origin, never logged), redirects re-checked (≤ 5), identity encoding,
+  bounded bodies; an offline repository or one the auto-block breaker blocks gets the local steps only (the job does
+  not feed the breaker). Not coalesced with server fills: a race costs at most one extra upstream request, and the
+  results are the same (content-addressed blobs, compare-and-set pool updates). Idempotent: a second run with
+  nothing stale calls no upstream and changes nothing. Tests: `Application/Worker/tests/test_apt_refresh.py`,
+  `Application/Server/tests/test_apt_refresh_integration.py`.
+- Browse (T-S09 min): the background indexing pass (and the worker refresh) writes each `Packages` stanza (name, version, architecture, section) to
   `apt_packages`, replacing the previous generation of that index; suites come from the cached `InRelease`/`Release`
   (origin, codename, date, components, architectures).
 
