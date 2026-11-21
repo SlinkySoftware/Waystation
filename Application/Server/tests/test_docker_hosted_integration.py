@@ -518,10 +518,12 @@ async def test_referrers(services: Services, admin: httpx.AsyncClient, v2: httpx
     assert none.status_code == 200 and none.json()['manifests'] == []
 
     # the browse API lists the same referrers for the UI (T-U05)
-    browse = await admin.get('/api/v1/repositories/apps/docker/referrers', params={'image': name, 'digest': subject})
+    browse = await admin.get(
+        '/api/v1/repositories/apps/docker/referrers', params={'image': 'signed', 'digest': subject}
+    )
     assert browse.status_code == 200, browse.text
     page = browse.json()
-    assert page['image'] == name and page['subject'] == subject
+    assert page['image'] == 'signed' and page['subject'] == subject
     shown = {m['digest']: m for m in page['items']}
     assert shown[digest(referrer)] == {
         'digest': digest(referrer),
@@ -531,7 +533,7 @@ async def test_referrers(services: Services, admin: httpx.AsyncClient, v2: httpx
         'annotations': {'org.example.kind': 'test'},
     }
     assert shown[digest(sbom)]['artifact_type'] == 'application/vnd.example.sbom.config'
-    bad = await admin.get('/api/v1/repositories/apps/docker/referrers', params={'image': name, 'digest': 'v1'})
+    bad = await admin.get('/api/v1/repositories/apps/docker/referrers', params={'image': 'signed', 'digest': 'v1'})
     assert bad.status_code == 400
     hidden = await admin.get('/api/v1/repositories/nope/docker/referrers', params={'image': name, 'digest': subject})
     assert hidden.status_code == 404
