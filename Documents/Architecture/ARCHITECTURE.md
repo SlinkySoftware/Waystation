@@ -226,6 +226,11 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   `access.check` applies the narrowing, so no route can forget it. Docker registry tokens are short-lived (5 min)
   JWT (EdDSA) signed with a key in `keys/`, scoped per the Docker token spec; one issued for an API token carries
   its id (`tid`) and the API token is re-checked on every `/v2/` request.
+- Signed download grants (adr/0009, **proposed**, T-P5-TFM): Terraform and OpenTofu fetch the files a registry answer
+  points at without their registry token, so the Terraform format gives a signed-in caller file URLs carrying
+  `?ws_grant=<expiry>.<HMAC>` (`security.download_urls`: repository id, exact path, 5 minutes; key derived from
+  `SECRET_KEYS`). `access.download_grant` accepts a valid grant as a `GET`/`HEAD` of that one file and nothing else;
+  formats obtain grants only through `FormatRequest.download_query`.
 - Credentials for upstreams and LDAP/OIDC secrets are AES-GCM encrypted with `SECRET_KEYS` (first key encrypts,
   all keys decrypt; rotation job re-encrypts).
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and
