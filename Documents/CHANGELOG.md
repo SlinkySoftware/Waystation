@@ -15,7 +15,7 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   1450 MiB, `search_name` 94 MiB.
 
 ## 2026-11-21
-- T-U06: substring search (adr/0009, proposed: owner approval pending): every searchable document carries
+- T-U06: substring search (adr/0009, accepted by the owner 2026-11-22): every searchable document carries
   `name_sfx` (its name's suffixes, ≥ 3 characters, cut to 16) under the multikey index `search_sfx`; a term of 3+
   characters also matches inside names, prefix matches first, then substring matches, each document once (facet
   counts too); keyset paging over index bounds, `explain()`-checked as index scans. Migration `0005_search_suffixes`

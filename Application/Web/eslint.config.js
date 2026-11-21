@@ -3,7 +3,7 @@ import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescri
 import pluginVue from 'eslint-plugin-vue'
 
 export default defineConfigWithVueTs(
-  { ignores: ['dist/**', '.quasar/**', 'node_modules/**', 'public/**', 'src/api/schema.d.ts', 'coverage/**'] },
+  { ignores: ['dist/**', '.quasar/**', 'node_modules/**', 'public/**', 'src/api/schema.d.ts', 'coverage/**', 'playwright-report/**', 'test-results/**'] },
   pluginVue.configs['flat/recommended'],
   vueTsConfigs.recommended,
   {

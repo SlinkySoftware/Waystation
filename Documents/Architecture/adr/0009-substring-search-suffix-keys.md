@@ -1,6 +1,6 @@
 # ADR 0009: Substring search on a multikey index of name suffixes
 
-Status: proposed (2026-11-21, owner approval pending). Implemented in T-U06.
+Status: accepted (2026-11-22, owner). Proposed 2026-11-21; implemented in T-U06.
 
 ## Context
 SPECIFICATION §4.6 asks for global search by name "prefix and substring", with results in < 150 ms p95 at 1M
