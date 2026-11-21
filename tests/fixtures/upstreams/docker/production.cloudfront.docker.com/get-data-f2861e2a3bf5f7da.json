@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://production.cloudfront.docker.com/registry-v2/docker/registry/v2/blobs/sha256/29/29af53c4e8817e31bf56636bb11bd516a9b3a2c4e03ebd40f451f305b137e38c/data?Expires=harness-redacted&Signature=harness-redacted&Key-Pair-Id=harness-redacted"
+  },
+  "response": {
+    "body_sha256": "29af53c4e8817e31bf56636bb11bd516a9b3a2c4e03ebd40f451f305b137e38c",
+    "body_size": 587,
+    "headers": [
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "content-length",
+        "587"
+      ],
+      [
+        "last-modified",
+        "Mon, 23 Mar 2026 21:30:07 GMT"
+      ],
+      [
+        "etag",
+        "\"b844b415de1932030add234decb839d2\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

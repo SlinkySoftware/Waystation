@@ -33,7 +33,7 @@
       ],
       [
         "ratelimit-remaining",
-        "84;w=3600"
+        "80;w=3600"
       ]
     ],
     "status": 404

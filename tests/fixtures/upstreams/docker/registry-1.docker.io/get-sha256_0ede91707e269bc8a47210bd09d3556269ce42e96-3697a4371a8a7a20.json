@@ -9,23 +9,23 @@
       ]
     ],
     "method": "GET",
-    "url": "https://registry-1.docker.io/v2/library/hello-world/manifests/sha256:c567b231f65614688711a75f31518a064258a51d442117a3e771a3a8fdba78ef"
+    "url": "https://registry-1.docker.io/v2/library/hello-world/manifests/sha256:0ede91707e269bc8a47210bd09d3556269ce42e9619fbedc94a2a30b5b06b8b4"
   },
   "response": {
-    "body_sha256": "c567b231f65614688711a75f31518a064258a51d442117a3e771a3a8fdba78ef",
-    "body_size": 11062,
+    "body_sha256": "0ede91707e269bc8a47210bd09d3556269ce42e9619fbedc94a2a30b5b06b8b4",
+    "body_size": 566,
     "headers": [
       [
         "content-type",
-        "application/vnd.oci.image.index.v1+json"
+        "application/vnd.oci.image.manifest.v1+json"
       ],
       [
         "content-length",
-        "11062"
+        "566"
       ],
       [
         "docker-content-digest",
-        "sha256:c567b231f65614688711a75f31518a064258a51d442117a3e771a3a8fdba78ef"
+        "sha256:0ede91707e269bc8a47210bd09d3556269ce42e9619fbedc94a2a30b5b06b8b4"
       ],
       [
         "docker-distribution-api-version",
@@ -33,7 +33,7 @@
       ],
       [
         "etag",
-        "\"sha256:c567b231f65614688711a75f31518a064258a51d442117a3e771a3a8fdba78ef\""
+        "\"sha256:0ede91707e269bc8a47210bd09d3556269ce42e9619fbedc94a2a30b5b06b8b4\""
       ],
       [
         "ratelimit-limit",
@@ -41,7 +41,7 @@
       ],
       [
         "ratelimit-remaining",
-        "86;w=3600"
+        "71;w=3600"
       ]
     ],
     "status": 200

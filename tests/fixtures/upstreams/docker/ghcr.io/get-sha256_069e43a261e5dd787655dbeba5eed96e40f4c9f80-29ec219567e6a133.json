@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "bearer",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://ghcr.io/v2/containerd/busybox/manifests/sha256:069e43a261e5dd787655dbeba5eed96e40f4c9f80f024ecd5d2bd17aab357204"
+  },
+  "response": {
+    "body_sha256": "069e43a261e5dd787655dbeba5eed96e40f4c9f80f024ecd5d2bd17aab357204",
+    "body_size": 528,
+    "headers": [
+      [
+        "content-length",
+        "528"
+      ],
+      [
+        "content-type",
+        "application/vnd.docker.distribution.manifest.v2+json"
+      ],
+      [
+        "docker-content-digest",
+        "sha256:069e43a261e5dd787655dbeba5eed96e40f4c9f80f024ecd5d2bd17aab357204"
+      ],
+      [
+        "docker-distribution-api-version",
+        "registry/2.0"
+      ],
+      [
+        "etag",
+        "\"sha256:069e43a261e5dd787655dbeba5eed96e40f4c9f80f024ecd5d2bd17aab357204\""
+      ]
+    ],
+    "status": 200
+  }
+}

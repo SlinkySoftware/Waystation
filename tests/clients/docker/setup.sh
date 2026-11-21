@@ -61,8 +61,8 @@ ensure_repo docker-group '{
   "group": {"members": ["docker-hosted-copy", "docker-hosted"], "writable_member": "docker-hosted"}
 }'
 
-# The conformance client only needs the repositories; the rest prepares the docker client container.
-[ "${HARNESS_CLIENT:-docker}" = docker ] || exit 0
+# The conformance client only needs the repositories; the rest prepares the docker and podman client containers.
+[ "${HARNESS_CLIENT:-docker}" != conformance ] || exit 0
 
 step 'cut the client off from the upstreams (a pull can only succeed through Waystation)'
 # run.sh points the upstream names at the fake upstream in every container. Here they must not resolve to anything
@@ -71,6 +71,25 @@ grep -v -e 'docker\.io' -e 'docker\.com' -e 'ghcr\.io' -e 'githubusercontent\.co
 echo '127.0.0.1 registry-1.docker.io auth.docker.io production.cloudflare.docker.com production.cloudfront.docker.com ghcr.io pkg-containers.githubusercontent.com' \
   >> /tmp/hosts
 cat /tmp/hosts > /etc/hosts
+
+if [ "$HARNESS_CLIENT" = podman ]; then
+  step 'podman: Docker Hub mirrored by the stack (registries.conf), the stack an insecure (plain HTTP) registry'
+  registry=${WAYSTATION_URL#http://}
+  mkdir -p /etc/containers/registries.conf.d
+  cat > /etc/containers/registries.conf.d/99-waystation.conf <<CONF
+[[registry]]
+prefix = "docker.io"
+location = "docker.io"
+[[registry.mirror]]
+location = "$registry"
+insecure = true
+
+[[registry]]
+location = "$registry"
+insecure = true
+CONF
+  exit 0
+fi
 
 step 'start dockerd (registry-mirrors + insecure-registries = the stack)'
 registry=${WAYSTATION_URL#http://}

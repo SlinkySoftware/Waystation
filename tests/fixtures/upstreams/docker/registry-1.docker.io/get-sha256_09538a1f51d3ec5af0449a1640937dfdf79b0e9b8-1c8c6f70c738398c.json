@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "bearer",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry-1.docker.io/v2/library/hello-world/manifests/sha256:09538a1f51d3ec5af0449a1640937dfdf79b0e9b8c4da5b8a883086d5c1492ef"
+  },
+  "response": {
+    "body_sha256": "09538a1f51d3ec5af0449a1640937dfdf79b0e9b8c4da5b8a883086d5c1492ef",
+    "body_size": 1021,
+    "headers": [
+      [
+        "content-type",
+        "application/vnd.oci.image.manifest.v1+json"
+      ],
+      [
+        "content-length",
+        "1021"
+      ],
+      [
+        "docker-content-digest",
+        "sha256:09538a1f51d3ec5af0449a1640937dfdf79b0e9b8c4da5b8a883086d5c1492ef"
+      ],
+      [
+        "docker-distribution-api-version",
+        "registry/2.0"
+      ],
+      [
+        "etag",
+        "\"sha256:09538a1f51d3ec5af0449a1640937dfdf79b0e9b8c4da5b8a883086d5c1492ef\""
+      ],
+      [
+        "ratelimit-limit",
+        "100;w=3600"
+      ],
+      [
+        "ratelimit-remaining",
+        "78;w=3600"
+      ]
+    ],
+    "status": 200
+  }
+}
