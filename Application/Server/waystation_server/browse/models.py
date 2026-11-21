@@ -6,8 +6,8 @@ below (``NpmBrowser``, ``AptBrowser``, ``DockerBrowser``, ``MavenBrowser``, ``Py
 ``HelmBrowser``, ``GalaxyBrowser``, ``YumBrowser``). The REST API finds it through the format registry and never
 imports the format package (ARCHITECTURE §3).
 
-Download counters (``downloads``, ``pulls``, ``last_downloaded_at``, ``last_pulled_at``) are not recorded yet (T-S09
-full): they answer ``0`` / ``null``.
+Download counters (``downloads``, ``pulls``, ``last_downloaded_at``, ``last_pulled_at``) are the assets' batched
+counters (files, npm tarballs, apt packages) or the component index's (docker tags and images; T-S09).
 """
 
 from __future__ import annotations

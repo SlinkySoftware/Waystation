@@ -63,15 +63,15 @@
         </PageCard>
       </div>
 
+      <GrowthCard class="q-mb-md" />
+
       <GuardCard :can-edit="canEditGuard" class="q-mb-md" />
 
       <StorageTable :rows="rows" :loading="!data" class="q-mb-md" />
 
-      <GcCard v-if="isAdmin" :can-run="isAdmin" class="q-mb-md" />
+      <LargestArtifactsCard class="q-mb-md" />
 
-      <PageCard :title="t('storage.growth.title')" :caption="t('storage.growth.caption')">
-        <EmptyState compact :icon="iconTrend" :title="t('storage.growth.pendingTitle')" :text="t('storage.growth.pendingText')" />
-      </PageCard>
+      <GcCard v-if="isAdmin" :can-run="isAdmin" class="q-mb-md" />
     </template>
   </q-page>
 </template>
@@ -90,7 +90,9 @@ import FormatIcon from '@/components/FormatIcon.vue'
 import LoadFailedState from '@/components/LoadFailedState.vue'
 import PageCard from '@/components/PageCard.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import GrowthCard from '@/components/storage/GrowthCard.vue'
 import GuardCard from '@/components/storage/GuardCard.vue'
+import LargestArtifactsCard from '@/components/storage/LargestArtifactsCard.vue'
 import StorageTable from '@/components/storage/StorageTable.vue'
 import VolumeBar from '@/components/storage/VolumeBar.vue'
 import { useAsync } from '@/composables/useAsync'
@@ -101,7 +103,7 @@ import { useLiveStore } from '@/stores/live'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { formatColor, formatLabel, formatMark } from '@/utils/domain'
 import { formatBytes, formatCount, formatPercent } from '@/utils/format'
-import { iconRefresh, iconStorage, iconTrend } from '@/utils/icons'
+import { iconRefresh, iconStorage } from '@/utils/icons'
 import { dedupFigures, largest, repoRows, volumeBreakdown } from '@/utils/storageStats'
 
 const isAdmin = computed(() => useAuthStore().can('admin'))

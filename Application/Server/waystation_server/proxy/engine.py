@@ -594,6 +594,7 @@ class ProxyEngine:
             latency = round((time.perf_counter() - started) * 1000, 1)
             self.emitter.upstream(
                 repo_id=req.repo.id,
+                repo=req.repo.name,
                 format=req.repo.format,
                 ok=ok,
                 error=None if ok else f'upstream answered {status}',
@@ -814,6 +815,7 @@ class ProxyEngine:
             ok = status < 500 and status not in (401, 403, 429)
             self.emitter.upstream(
                 repo_id=req.repo.id,
+                repo=req.repo.name,
                 format=req.repo.format,
                 ok=ok,
                 error=None if ok else f'upstream answered {status}',
@@ -835,7 +837,12 @@ class ProxyEngine:
     def _upstream_failed(self, req: FormatRequest, error: str, *, after_response: bool = False) -> None:
         log.warning('upstream request failed', extra={'error': error})
         self.emitter.upstream(
-            repo_id=req.repo.id, format=req.repo.format, ok=False, error=error, count_request=not after_response
+            repo_id=req.repo.id,
+            repo=req.repo.name,
+            format=req.repo.format,
+            ok=False,
+            error=error,
+            count_request=not after_response,
         )
 
     async def _failed(

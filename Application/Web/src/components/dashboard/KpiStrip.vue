@@ -6,7 +6,7 @@
       :label="t('dashboard.kpi.requests')"
       :value="formatPerSecond(tick?.requests_per_s ?? summary?.requests_per_s)"
       unit="req/s"
-      :sub="t('dashboard.kpi.requestsSub', { count: formatCount(summary?.requests ?? 0), range: rangeLabel })"
+      :sub="summary?.latency_p95_ms != null ? t('dashboard.kpi.requestsSubLatency', { count: formatCount(summary.requests), range: rangeLabel, p95: formatLatency(summary.latency_p95_ms) }) : t('dashboard.kpi.requestsSub', { count: formatCount(summary?.requests ?? 0), range: rangeLabel })"
       :spark="liveSpark('requests_per_s') ?? summary?.sparks.requests_per_s"
       :loading="!summary"
       live
@@ -70,7 +70,7 @@ import { computed, ref, watch } from 'vue'
 import type { StatsRange, StatsSummary, StatsTickEvent } from '@/api/types'
 import { t } from '@/i18n'
 import { useLiveStore } from '@/stores/live'
-import { formatBytes, formatCount, formatPercent, formatPerSecond, formatRate } from '@/utils/format'
+import { formatBytes, formatCount, formatLatency, formatPercent, formatPerSecond, formatRate } from '@/utils/format'
 
 import KpiTile from './KpiTile.vue'
 

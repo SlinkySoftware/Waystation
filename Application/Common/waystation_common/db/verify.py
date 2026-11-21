@@ -69,7 +69,8 @@ async def apply_marks(
 async def marked_counts(db: Database) -> dict[str, int]:
     """Assets currently marked, by kind of repository: ``{'hosted': n, 'proxy': m}`` (index ``blob_missing``)."""
     pipeline: list[dict[str, Any]] = [
-        {'$match': {MARK: {'$exists': True}}},
+        # The predicate on ``hosted`` (always a bool in a mark) lets the partial index serve the match.
+        {'$match': {MARK: {'$exists': True}, f'{MARK}.hosted': {'$in': [True, False]}}},
         {'$group': {'_id': f'${MARK}.hosted', 'n': {'$sum': 1}}},
     ]
     counts = {'hosted': 0, 'proxy': 0}

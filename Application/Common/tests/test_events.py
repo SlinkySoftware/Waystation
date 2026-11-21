@@ -232,3 +232,25 @@ async def test_background_loop_flushes_and_final_flush() -> None:
         em.request(repo_id='r', format='raw', cache=CacheState.HIT, duration_ms=1)
     assert by_name(redis.cmds, 'sadd')
     await em.aclose()  # idempotent
+
+
+async def test_upstream_health_latency_and_state_announcements() -> None:
+    redis, clock = FakeRedis(), Clock()
+    em = EventEmitter(redis, clock=clock)  # type: ignore[arg-type]
+    em.upstream(repo_id='r1', repo='npmjs', format='npm', ok=True, latency_ms=42.0)
+    em.upstream(repo_id='r1', repo='npmjs', format='npm', ok=False, error='connect timeout', count_request=False)
+    await em.flush()
+    minute = keys.minute_of(clock.t)
+    ulat = [c for c in by_name(redis.cmds, 'hincrby') if c[1] == keys.ulat_key(minute, 'r1')]
+    assert ulat == [('hincrby', keys.ulat_key(minute, 'r1'), 'le_50', 1)]  # only requests with a latency
+    calls = by_name(redis.cmds, 'eval')
+    assert [c[1] for c in calls] == [keys.UPSTREAM_HEALTH_SCRIPT] * 2
+    ok_args, failed_args = calls[0][2:], calls[1][2:]
+    assert ok_args[:4] == (2, keys.upstream_health_key('r1'), keys.ACTIVITY, '1')
+    assert ok_args[6] == '42.0'
+    assert failed_args[3] == '0' and failed_args[5] == 'connect timeout' and failed_args[6] == ''
+    degraded, recovered = json.loads(failed_args[8]), json.loads(failed_args[9])
+    assert degraded['type'] == recovered['type'] == 'upstream.state'
+    assert degraded['repo'] == 'npmjs' and degraded['detail']['state'] == 'degraded'
+    assert 'connect timeout' in degraded['detail']['summary']
+    assert recovered['detail'] == {'state': 'ok', 'summary': 'Upstream of npmjs is answering again'}

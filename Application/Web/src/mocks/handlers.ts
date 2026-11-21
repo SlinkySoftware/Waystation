@@ -32,6 +32,7 @@ import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
 import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
+import { digestHex, digestUsage, HISTORY_STEPS, repoDedup, storageHistory, type TopBy, topArtifacts, type TopRepoBy, topRepositories } from './top'
 import { serviceAccounts, tokenHandlers } from './tokens'
 import { TotpState } from './totp'
 import { webhookHandlers } from './webhooks'
@@ -774,8 +775,49 @@ export const handlers = [
       blob_count: Math.round(world.artifacts * 0.86),
       dedup_saved_bytes: Math.round(world.storageUsed * 0.071),
       by_format: [...formats].map(([format, v]) => ({ format, ...v })).sort((a, b) => b.bytes - a.bytes),
-      by_repository: world.repos.map((r) => ({ repository: r.name, format: r.format, bytes: r.stats.size_bytes, artifacts: r.stats.artifact_count })).sort((a, b) => b.bytes - a.bytes),
+      by_repository: world.repos.map((r) => ({ repository: r.name, format: r.format, bytes: r.stats.size_bytes, artifacts: r.stats.artifact_count, ...repoDedup(r) })).sort((a, b) => b.bytes - a.bytes),
     })
+  }),
+  http.get(`${API}/stats/top/artifacts`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const url = new URL(request.url)
+    const byParam = url.searchParams.get('by')
+    const by: TopBy = byParam === 'bytes' || byParam === 'size' || byParam === 'recent' ? byParam : 'downloads'
+    const w = url.searchParams.get('window')
+    const window = w === '24h' || w === '30d' || w === 'all' ? w : '7d'
+    const repo = url.searchParams.get('repo')
+    const visible = visibleRepos()
+    if (repo && !visible.some((r) => r.name === repo)) return notFound()
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 10)))
+    return HttpResponse.json(topArtifacts(visible, by, window, repo, limit))
+  }),
+  http.get(`${API}/stats/top/repositories`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const url = new URL(request.url)
+    const byParam = url.searchParams.get('by')
+    const by: TopRepoBy = byParam === 'bytes' || byParam === 'saved' ? byParam : 'requests'
+    const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit') ?? 10)))
+    return HttpResponse.json(topRepositories(visibleRepos(), range(url), by, limit))
+  }),
+  http.get(`${API}/stats/storage/history`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const r = new URL(request.url).searchParams.get('range')
+    const historyRange = r && r in HISTORY_STEPS ? (r as keyof typeof HISTORY_STEPS) : '30d'
+    return HttpResponse.json(storageHistory(world, visibleRepos(), historyRange))
+  }),
+  http.get(`${API}/digests/:digest/usage`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const hex = digestHex(String(params.digest))
+    if (!hex) return problem(400, 'Bad request', 'Not a sha256 digest.')
+    return HttpResponse.json(digestUsage(visibleRepos(), hex))
   }),
   http.get(`${API}/storage/guard`, async ({ request }) => {
     const denied = guard(request)

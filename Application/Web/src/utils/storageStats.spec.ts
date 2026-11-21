@@ -31,9 +31,9 @@ describe('dedupFigures', () => {
 describe('repository rows', () => {
   const rows = repoRows({
     by_repository: [
-      { repository: 'dockerhub-proxy', format: 'docker', bytes: 600, artifacts: 3 },
-      { repository: 'npm', format: 'npm', bytes: 400, artifacts: 0 },
-      { repository: 'empty', format: 'raw', bytes: 0, artifacts: 0 },
+      { repository: 'dockerhub-proxy', format: 'docker', bytes: 600, artifacts: 3, dedup_saved_bytes: 90 },
+      { repository: 'npm', format: 'npm', bytes: 400, artifacts: 0, dedup_saved_bytes: 0 },
+      { repository: 'empty', format: 'raw', bytes: 0, artifacts: 0, dedup_saved_bytes: -1 },
     ],
   })
 
@@ -43,6 +43,10 @@ describe('repository rows', () => {
       ['npm', 0.4, null],
       ['empty', 0, null],
     ])
+  })
+
+  it('carries the per-repository de-duplication savings, never negative', () => {
+    expect(rows.map((r) => r.dedup)).toEqual([90, 0, 0])
   })
 
   it('filters by name or format and ranks the largest', () => {

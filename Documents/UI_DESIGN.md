@@ -79,11 +79,12 @@ Grid, responsive (12 cols ≥ 1440, 8 cols ≥ 1024, 1 col mobile):
    throughput, ETA, upstream latency. Pausable; filter by repo/format.
    Completed rows fade after 5 s; failures stay highlighted 30 s.
 3. **Traffic** chart: stacked area of served bytes split hit vs upstream, or requests by format; range picker
-   (15 m, 1 h, 24 h, 7 d, 30 d), crosshair tooltip.
+   (15 m, 1 h, 24 h, 7 d, 30 d, 90 d, 1 y), crosshair tooltip.
 4. **Format breakdown**: donut of storage by format + legend with sizes.
 5. **Upstream health**: card per proxy repo: status pill, error rate, p95 latency, last error, auto-block
    countdown, Docker Hub rate-limit gauge ("142 / 200 pulls left, resets in 3 h").
-6. **Top artifacts** (downloads / bytes, toggle) and **Recently added**.
+6. **Top artifacts** (downloads / bytes, toggle; window 24h/7d/30d/all) and **Recently added** (built 2026-11-21:
+   one card each, rows link to the artifact in Browse).
 7. **Recent activity** feed (pushes, deletes, cleanup runs, failures), linking to details.
 All widgets update live via SSE; no page refresh, no polling except as SSE fallback.
 
@@ -163,8 +164,10 @@ Total and free space (from the data dir), growth chart, by-repo table (bytes, % 
 largest artifacts, GC status (last run, bytes reclaimed, next run).
 As built (T-U07): KPIs (stored, free, saved by de-duplication, blobs), data volume bar (Waystation blobs / other
 files / free, warning under 15 % free), by-format donut, largest repositories bar list, repository table (size,
-share bar, artifacts, average artifact size; sort and filter in the URL; link to the repository's activity). Growth
-chart, largest artifacts and per-repository de-dup savings wait for storage snapshots. The Blob GC card (T-O02, shared with
+share bar, artifacts, average artifact size, de-dup saved; sort and filter in the URL; link to the repository's
+activity). Since 2026-11-21: the growth chart (on disk vs saved by de-duplication from the hourly storage snapshots,
+7d/30d/90d/1y), Largest artifacts with a "Where used" dialog (repositories, paths, docker images using the digest).
+The Blob GC card (T-O02, shared with
 the Cleanup page) shows GC status to admins. The **Low-disk guard** card (T-O03) shows the state (with "since"
 when tripped), free space, the effective floor and how it is worked out; `settings-admin` users edit the minimum free
 GiB and percent in a dialog.

@@ -161,6 +161,9 @@ def parse_packument(data: bytes, package: str) -> Parsed:
     )
 
 
+FILE_FIELDS = {'path': 1, 'size': 1, 'download_count': 1, 'last_downloaded_at': 1, '_id': 0}
+
+
 # ---------------------------------------------------------------------------- views
 class NpmBrowse:
     def __init__(self) -> None:
@@ -185,6 +188,8 @@ class NpmBrowse:
                     cached_versions=found.count,
                     size_bytes=found.size,
                     license=doc.get('license'),
+                    downloads=found.downloads,
+                    last_downloaded_at=found.last_downloaded_at,
                 )
             )
         return NpmPackagePage(items=items, next_cursor=encode_cursor(items[-1].name) if more and items else None)
@@ -194,8 +199,9 @@ class NpmBrowse:
             raise NotFound('package not found')
         offset = decode_cursor(cursor, int)[0] if cursor else 0
         parsed, fetched_at = await self._packument(ctx, package)
-        files = await browse_db.in_folder(ctx.db, ctx.repo.id, f'{package}/-/')
-        tarballs = {str(a['path']).rsplit('/', 1)[-1]: int(a['size']) for a in files if a['path'].endswith('.tgz')}
+        files = await browse_db.in_folder(ctx.db, ctx.repo.id, f'{package}/-/', FILE_FIELDS)
+        cached = {str(a['path']).rsplit('/', 1)[-1]: a for a in files if a['path'].endswith('.tgz')}
+        tarballs = {name: int(a['size']) for name, a in cached.items()}
         tags_of: dict[str, list[str]] = {}
         for tag, version in parsed.dist_tags.items():
             tags_of.setdefault(version, []).append(tag)
@@ -210,9 +216,12 @@ class NpmBrowse:
                 deprecated=row.deprecated,
                 integrity=row.integrity,
                 dist_tags=sorted(tags_of.get(row.version, [])),
+                downloads=int((cached.get(row.filename or '') or {}).get('download_count') or 0),
+                last_downloaded_at=(cached.get(row.filename or '') or {}).get('last_downloaded_at'),
             )
             for row in rows
         ]
+        stamps = [a['last_downloaded_at'] for a in cached.values() if a.get('last_downloaded_at')]
         summary = NpmPackage(
             name=package,
             description=parsed.description,
@@ -221,6 +230,8 @@ class NpmBrowse:
             cached_versions=len(tarballs),
             size_bytes=sum(tarballs.values()),
             license=parsed.license,
+            downloads=sum(int(a.get('download_count') or 0) for a in cached.values()),
+            last_downloaded_at=max(stamps) if stamps else None,
         )
         if parsed.description is None or parsed.license is None:
             stored = await npm_db.get(ctx.db, ctx.repo.id, package)

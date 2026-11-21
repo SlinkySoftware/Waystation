@@ -84,6 +84,42 @@ async def children(
         batch = FIRST_BATCH if inside * 2 > len(docs) else min(batch * 2, MAX_BATCH)
 
 
+async def count_children(db: Database, repo_id: str, prefix: str, *, cap: int) -> int | None:
+    """The number of direct children (files and sub-folders) of the folder ``prefix``, or None when there are more
+    than ``cap`` (counting stops there: a sub-folder costs one index seek at most, so ``cap`` bounds the cost)."""
+    n = 0
+    async for _ in children(db, repo_id, prefix):
+        n += 1
+        if n > cap:
+            return None
+    return n
+
+
+async def span_children(
+    db: Database, repo_id: str, prefix: str, folders: list[str], *, limit: int
+) -> dict[str, set[str]]:
+    """Direct children of the sibling folders ``folders`` (names under ``prefix``, in order) from one bounded read of
+    the range they span; only the folders whose whole subtree was inside the read are in the result."""
+    if not folders:
+        return {}
+    lo, hi = f'{prefix}{folders[0]}/', subtree_end(f'{prefix}{folders[-1]}/')
+    docs = (
+        await db[ASSETS]
+        .find({'repo_id': repo_id, 'path': {'$gte': lo, '$lt': hi}}, dict(PATH_ONLY))
+        .sort('path', 1)
+        .limit(limit)
+        .to_list()
+    )
+    complete = len(docs) < limit
+    last = str(docs[-1]['path']) if docs else ''
+    seen: dict[str, set[str]] = {name: set() for name in folders}
+    for doc in docs:
+        folder, _, rest = str(doc['path'])[len(prefix) :].partition('/')
+        if folder in seen:
+            seen[folder].add(rest.split('/', 1)[0])
+    return {name: kids for name, kids in seen.items() if complete or last >= subtree_end(f'{prefix}{name}/')}
+
+
 async def by_paths(
     db: Database, repo_id: str, paths: Iterable[str], projection: Mapping[str, Any] | None = None
 ) -> dict[str, dict[str, Any]]:

@@ -2623,6 +2623,93 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/UpstreamHealth' }
 
+  /stats/top/artifacts:
+    get:
+      tags: [stats]
+      operationId: getTopArtifacts
+      summary: Top artifacts (components) of the visible repositories - most downloaded, most bytes served, largest or most recently added
+      parameters:
+        - name: by
+          in: query
+          schema: { type: string, enum: [downloads, bytes, size, recent], default: downloads }
+        - name: window
+          in: query
+          description: 'Download window for `downloads`/`bytes` (from the daily download counters; `all` = since cached). Ignored by `size` and `recent`'
+          schema: { $ref: '#/components/schemas/TopWindow' }
+        - name: repo
+          in: query
+          description: Restrict to one repository
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+      responses:
+        '200':
+          description: Top artifacts, best first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TopArtifacts' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /stats/top/repositories:
+    get:
+      tags: [stats]
+      operationId: getTopRepositories
+      summary: Busiest repositories over the range (requests, bytes served or bytes saved), with hit ratio and latency
+      parameters:
+        - $ref: '#/components/parameters/Range'
+        - name: by
+          in: query
+          schema: { type: string, enum: [requests, bytes, saved], default: requests }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 10 }
+      responses:
+        '200':
+          description: Top repositories, busiest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TopRepositories' }
+
+  /stats/storage/history:
+    get:
+      tags: [stats]
+      operationId: getStorageHistory
+      summary: Storage growth from the hourly storage snapshots (blob bytes on disk, stored bytes, artifacts)
+      parameters:
+        - name: range
+          in: query
+          schema: { $ref: '#/components/schemas/HistoryRange' }
+      responses:
+        '200':
+          description: One value per bucket (the last snapshot in it; null = no snapshot)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StorageHistory' }
+
+  /digests/{digest}/usage:
+    parameters:
+      - name: digest
+        in: path
+        required: true
+        description: '`sha256:<64 hex>` or the bare 64-character hex digest'
+        schema: { type: string, maxLength: 80 }
+    get:
+      tags: [browse]
+      operationId: getDigestUsage
+      summary: Where a content digest is used - assets holding the blob and docker manifests referencing it (visible repositories only)
+      responses:
+        '200':
+          description: Uses, at most 500
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DigestUsage' }
+        '400':
+          description: Not a sha256 digest
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /transfers:
     get:
       tags: [live]
@@ -3108,7 +3195,7 @@ components:
       enum: [HIT, FETCHING, COALESCED, STALE, REVALIDATED, ERROR]
     StatsRange:
       type: string
-      enum: [15m, 1h, 24h, 7d, 30d]
+      enum: [15m, 1h, 24h, 7d, 30d, 90d, 1y]
       default: 24h
     RepositoryName:
       type: string
@@ -5127,7 +5214,7 @@ components:
         active_transfers: { type: array, items: { type: number } }
     StatsSummary:
       type: object
-      required: [range, step_s, generated_at, requests_per_s, requests, hit_ratio, bytes_served, bytes_saved, bytes_upstream, storage, artifacts_cached, active_transfers, sparks]
+      required: [range, step_s, generated_at, requests_per_s, requests, hit_ratio, bytes_served, bytes_saved, bytes_upstream, latency_p50_ms, latency_p95_ms, storage, artifacts_cached, active_transfers, sparks]
       properties:
         range: { $ref: '#/components/schemas/StatsRange' }
         step_s: { type: integer }
@@ -5138,6 +5225,8 @@ components:
         bytes_served: { type: integer, description: Bytes sent to clients in the range }
         bytes_saved: { type: integer, description: Bytes served from cache in the range (upstream traffic avoided) }
         bytes_upstream: { type: integer, description: Bytes fetched from upstreams in the range }
+        latency_p50_ms: { type: [number, 'null'], description: 'Median request duration in the range (upper bound of its latency bucket); null without requests' }
+        latency_p95_ms: { type: [number, 'null'], description: '95th percentile request duration in the range (upper bound of its latency bucket)' }
         storage:
           type: object
           required: [used_bytes, free_bytes, total_bytes]
@@ -5153,7 +5242,7 @@ components:
       required: [range, step_s, unit, timestamps, series]
       properties:
         range: { $ref: '#/components/schemas/StatsRange' }
-        step_s: { type: integer, description: 'Bucket width: 15m→10 s, 1h→1 min, 24h→10 min, 7d→1 h, 30d→6 h' }
+        step_s: { type: integer, description: 'Bucket width: 15m→1 min, 1h→1 min, 24h→10 min, 7d→1 h, 30d→6 h, 90d→1 d, 1y→1 d' }
         unit: { type: string, enum: [bytes, requests] }
         timestamps:
           type: array
@@ -5190,12 +5279,14 @@ components:
           type: array
           items:
             type: object
-            required: [repository, format, bytes, artifacts]
+            required: [repository, format, bytes, artifacts, dedup_saved_bytes]
             properties:
               repository: { type: string }
               format: { $ref: '#/components/schemas/Format' }
               bytes: { type: integer }
               artifacts: { type: integer }
+              dedup_saved_bytes: { type: integer, description: 'Bytes this repository does not add to the disk because its blobs are shared (within it or with other repositories; a blob shared by n repositories is attributed 1/n to each). From the last hourly storage snapshot; 0 before the first' }
+              components: { type: [integer, 'null'], description: 'Components (package versions, image tags, files) at the last storage snapshot' }
     RateLimit:
       type: object
       required: [limit, remaining]
@@ -5220,6 +5311,97 @@ components:
         last_error_at: { type: [string, 'null'], format: date-time }
         blocked_until: { type: [string, 'null'], format: date-time, description: Auto-block ends (status `blocked`) }
         rate_limit: { oneOf: [{ $ref: '#/components/schemas/RateLimit' }, { type: 'null' }] }
+
+    TopWindow:
+      type: string
+      enum: [24h, 7d, 30d, all]
+      default: 7d
+    TopArtifact:
+      type: object
+      description: One component (a package version, an image tag, a file) of a repository
+      required: [component_id, repository, format, namespace, name, version, display, size_bytes, downloads, bytes_served, last_downloaded_at, created_at, path, sha256]
+      properties:
+        component_id: { type: string }
+        repository: { type: string }
+        format: { $ref: '#/components/schemas/Format' }
+        namespace: { type: [string, 'null'], description: 'Scope, group, image or folder, when the format has one' }
+        name: { type: string }
+        version: { type: [string, 'null'] }
+        display: { type: string, description: 'e.g. `library/nginx:1.27`, `lodash@4.17.21`, `curl 8.14.1-2`' }
+        size_bytes: { type: integer, description: Bytes of the component's cached files }
+        downloads: { type: integer, description: 'Downloads in the window (by `downloads`/`bytes`), else since cached' }
+        bytes_served: { type: integer, description: Bytes served in the window (or since cached) }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        path: { type: [string, 'null'], description: 'A file of the component (a browse path), when known' }
+        sha256: { type: [string, 'null'], description: 'Content digest (hex) of that file: what `/digests/{digest}/usage` looks up' }
+    TopArtifacts:
+      type: object
+      required: [by, window, items]
+      properties:
+        by: { type: string, enum: [downloads, bytes, size, recent] }
+        window: { $ref: '#/components/schemas/TopWindow' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TopArtifact' }
+    TopRepository:
+      type: object
+      required: [repository, format, requests, bytes_served, bytes_saved, hit_ratio, latency_p95_ms]
+      properties:
+        repository: { type: string }
+        format: { $ref: '#/components/schemas/Format' }
+        requests: { type: integer }
+        bytes_served: { type: integer }
+        bytes_saved: { type: integer }
+        hit_ratio: { type: [number, 'null'] }
+        latency_p95_ms: { type: [number, 'null'] }
+    TopRepositories:
+      type: object
+      required: [range, by, items]
+      properties:
+        range: { $ref: '#/components/schemas/StatsRange' }
+        by: { type: string, enum: [requests, bytes, saved] }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TopRepository' }
+    HistoryRange:
+      type: string
+      enum: [7d, 30d, 90d, 1y]
+      default: 30d
+    StorageHistory:
+      type: object
+      description: 'Buckets: 7d → 1 h, 30d → 6 h, 90d and 1y → 1 d (the last snapshot in each). Stored bytes and artifacts cover the visible repositories; `used_bytes` (blob bytes on disk) is instance-wide'
+      required: [range, step_s, timestamps, used_bytes, stored_bytes, artifacts]
+      properties:
+        range: { $ref: '#/components/schemas/HistoryRange' }
+        step_s: { type: integer }
+        timestamps:
+          type: array
+          description: Bucket start times, oldest first
+          items: { $ref: '#/components/schemas/Timestamp' }
+        used_bytes: { type: array, items: { type: [integer, 'null'] } }
+        stored_bytes: { type: array, items: { type: [integer, 'null'] }, description: "Sum of the repositories' stored bytes (before de-duplication)" }
+        artifacts: { type: array, items: { type: [integer, 'null'] } }
+    DigestUse:
+      type: object
+      required: [repository, format, kind, path, image, manifest_digest]
+      properties:
+        repository: { type: string }
+        format: { $ref: '#/components/schemas/Format' }
+        kind: { type: string, enum: [asset, docker_layer, docker_config], description: '`asset`: a file holding the blob; `docker_layer`/`docker_config`: a docker manifest referencing it' }
+        path: { type: [string, 'null'], description: Asset path (kind `asset`) }
+        image: { type: [string, 'null'] }
+        manifest_digest: { type: [string, 'null'] }
+    DigestUsage:
+      type: object
+      required: [digest, size, items, truncated]
+      properties:
+        digest: { type: string, description: '`sha256:<hex>`' }
+        size: { type: [integer, 'null'], description: Blob size when the blob is stored }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DigestUse' }
+        truncated: { type: boolean }
 
     # ---------------------------------------------------------------- live
     Transfer:

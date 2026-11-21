@@ -53,6 +53,45 @@ def lat_key(minute: int, repo_id: str) -> str:
     return f'lat:{minute}:{repo_id}'
 
 
+def ulat_key(minute: int, repo_id: str) -> str:
+    """Upstream response latency histogram of a minute (same buckets as ``lat:``), rolled up with the counters."""
+    return f'ulat:{minute}:{repo_id}'
+
+
+# Stats rollup progress (strings, no TTL; DATA_MODEL §2). Lost with Valkey's data: the rollup then works them out
+# from MongoDB again (the newest rolled-up document), so nothing is rolled up twice.
+ROLLUP_HOUR: Final = 'stats:rollup:hour'  # epoch seconds: hours before this one are in ``stats_hour``
+ROLLUP_DAY: Final = 'stats:rollup:day'  # epoch seconds: days before this one are in ``stats_day``
+SNAPSHOT_HOUR: Final = 'stats:snapshot:hour'  # epoch seconds of the hour of the last storage snapshot
+COMPONENTS_SWEEP: Final = 'components:sweep'  # the component sweep's cursor (last ``_id`` recomputed)
+
+# One upstream request's effect on ``upstream:<repo_id>:health`` and the announcement of state changes (emitter
+# ``upstream``). KEYS: health hash, activity stream. ARGV: ok (1/0), ISO time, error, latency ('' = none), now (ms),
+# degraded event JSON, recovered event JSON, stream MAXLEN. ``announced`` / ``announced_at`` remember the last
+# announcement, so a flapping upstream is announced as failing at most once a minute.
+UPSTREAM_HEALTH_SCRIPT: Final = """
+local before = tonumber(redis.call('HGET', KEYS[1], 'consecutive_failures') or '0') or 0
+local announced = redis.call('HGET', KEYS[1], 'announced')
+if ARGV[1] == '1' then
+  redis.call('HSET', KEYS[1], 'last_ok_at', ARGV[2], 'consecutive_failures', '0')
+  if ARGV[4] ~= '' then redis.call('HSET', KEYS[1], 'last_latency_ms', ARGV[4]) end
+  if announced == 'degraded' then
+    redis.call('HSET', KEYS[1], 'announced', 'ok', 'announced_at', ARGV[5])
+    redis.call('XADD', KEYS[2], 'MAXLEN', '~', ARGV[8], '*', 'type', 'upstream.state', 'data', ARGV[7])
+  end
+else
+  redis.call('HSET', KEYS[1], 'last_error', ARGV[3], 'last_error_at', ARGV[2])
+  redis.call('HINCRBY', KEYS[1], 'consecutive_failures', 1)
+  local at = tonumber(redis.call('HGET', KEYS[1], 'announced_at') or '0') or 0
+  if before == 0 and announced ~= 'degraded' and tonumber(ARGV[5]) - at >= 60000 then
+    redis.call('HSET', KEYS[1], 'announced', 'degraded', 'announced_at', ARGV[5])
+    redis.call('XADD', KEYS[2], 'MAXLEN', '~', ARGV[8], '*', 'type', 'upstream.state', 'data', ARGV[6])
+  end
+end
+return 0
+"""
+
+
 def upstream_health_key(repo_id: str) -> str:
     """Hash: ``last_ok_at``, ``last_error``, ``last_error_at``, ``consecutive_failures``, ``last_latency_ms``."""
     return f'upstream:{repo_id}:health'

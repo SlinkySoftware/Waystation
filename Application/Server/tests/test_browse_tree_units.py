@@ -6,7 +6,7 @@ from typing import Any
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from waystation_server.browse.tree import list_folder
+from waystation_server.browse.tree import CHILD_COUNT_SPAN, list_folder
 from waystation_server.db import browse as browse_db
 
 
@@ -98,12 +98,24 @@ async def test_many_small_sub_folders_take_a_few_queries() -> None:
     page = await list_folder(db, 'r', 'pkg', cursor=None, limit=50)  # type: ignore[arg-type]
     assert [e.name for e in page.entries][:3] == ['0.0.0', '1.0.0', '10.0.0']
     assert page.next_cursor is not None
-    assert db.assets.queries <= 4
+    assert {e.child_count for e in page.entries} == {1}  # one read counts the children of every small folder
+    assert db.assets.queries <= 5
     db.assets.queries = 0
     page = await list_folder(db, 'r', 'pkg', cursor=None, limit=200)  # type: ignore[arg-type]
     assert len(page.entries) == 101 and page.entries[-1].name == 'README' and page.entries[-1].size == len('pkg/README')
+    assert page.entries[-1].child_count is None  # files have none
     assert page.next_cursor is None
-    assert db.assets.queries <= 5
+    assert db.assets.queries <= 6
+
+
+async def test_child_counts_of_big_folders_are_capped() -> None:
+    """Folders too big for the shared read are walked one by one; beyond the cap the count is null."""
+    paths = [f'big/f{n:04d}' for n in range(CHILD_COUNT_SPAN)] + [f'mid/s{n:03d}/x' for n in range(40)]
+    paths += [f'mid/s{n:03d}/y/z' for n in range(40)] + ['small/one']
+    db = Db(paths)
+    page = await list_folder(db, 'r', '', cursor=None, limit=50)  # type: ignore[arg-type]
+    counts = {e.name: e.child_count for e in page.entries}
+    assert counts == {'big': None, 'mid': 40, 'small': 1}
 
 
 async def test_big_sub_folders_cost_one_seek_each() -> None:

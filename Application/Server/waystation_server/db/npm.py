@@ -31,6 +31,8 @@ MAX_VERSIONS = 10_000  # per package (hosted)
 class TarballStats:
     count: int
     size: int
+    downloads: int = 0
+    last_downloaded_at: datetime | None = None
 
 
 async def upsert(db: Database, repo_id: str, name: str, fields: Mapping[str, Any]) -> None:
@@ -63,7 +65,7 @@ async def page(db: Database, repo_id: str, *, after: str | None, q: str | None, 
 
 
 async def tarball_stats(db: Database, repo_id: str, names: Iterable[str]) -> dict[str, TarballStats]:
-    """Cached tarballs (``<name>/-/*.tgz`` assets) per package: count and bytes."""
+    """Cached tarballs (``<name>/-/*.tgz`` assets) per package: count, bytes and downloads (asset counters)."""
     ranges = [{'path': {'$gte': f'{n}/-/', '$lt': f'{n}/-0'}} for n in sorted(set(names))]
     if not ranges:
         return {}
@@ -75,12 +77,19 @@ async def tarball_stats(db: Database, repo_id: str, names: Iterable[str]) -> dic
                 '_id': {'$arrayElemAt': [{'$split': ['$path', '/-/']}, 0]},
                 'count': {'$sum': 1},
                 'size': {'$sum': '$size'},
+                'downloads': {'$sum': {'$ifNull': ['$download_count', 0]}},
+                'last': {'$max': '$last_downloaded_at'},
             }
         },
     ]
     out: dict[str, TarballStats] = {}
     async for doc in await db[ASSETS].aggregate(pipeline):
-        out[str(doc['_id'])] = TarballStats(count=int(doc['count']), size=int(doc['size']))
+        out[str(doc['_id'])] = TarballStats(
+            count=int(doc['count']),
+            size=int(doc['size']),
+            downloads=int(doc['downloads']),
+            last_downloaded_at=doc.get('last'),
+        )
     return out
 
 
