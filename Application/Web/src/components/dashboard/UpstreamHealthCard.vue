@@ -17,12 +17,18 @@
           </span>
         </div>
         <div v-if="u.rate_limit" class="ups__gauge">
+          <GaugeChart
+            :value="u.rate_limit.remaining"
+            :max="u.rate_limit.limit"
+            :size="84"
+            :tone="u.rate_limit.remaining / u.rate_limit.limit < 0.2 ? 'warning' : 'ok'"
+            :label="t('dashboard.upstreams.rateLimit')"
+            :caption="t('ui.gauge.ofLimit', { limit: u.rate_limit.limit })"
+            :value-text="t('dashboard.upstreams.pullsLeft', { remaining: u.rate_limit.remaining, limit: u.rate_limit.limit })"
+          />
           <div class="ups__gauge-text">
             <span>{{ t('dashboard.upstreams.pullsLeft', { remaining: u.rate_limit.remaining, limit: u.rate_limit.limit }) }}</span>
             <span v-if="u.rate_limit.reset_at" class="text-muted">{{ t('dashboard.upstreams.resetsIn', { time: formatDuration(Math.max(0, (Date.parse(u.rate_limit.reset_at) - now) / 1000)) }) }}</span>
-          </div>
-          <div class="ups__bar" role="meter" :aria-valuenow="u.rate_limit.remaining" aria-valuemin="0" :aria-valuemax="u.rate_limit.limit" :aria-label="t('dashboard.upstreams.rateLimit')">
-            <div class="ups__bar-fill" :class="{ 'ups__bar-fill--low': u.rate_limit.remaining / u.rate_limit.limit < 0.2 }" :style="{ width: `${(u.rate_limit.remaining / u.rate_limit.limit) * 100}%` }" />
           </div>
         </div>
         <div v-if="u.status === 'blocked' && u.blocked_until" class="ups__note ups__note--blocked">
@@ -41,6 +47,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 
 import { api, call } from '@/api/client'
 import type { UpstreamHealth } from '@/api/types'
+import GaugeChart from '@/components/charts/GaugeChart.vue'
 import PageCard from '@/components/PageCard.vue'
 import RepoChip from '@/components/RepoChip.vue'
 import StatusPill from '@/components/StatusPill.vue'
@@ -104,34 +111,18 @@ function clock(seconds: number): string {
 }
 
 .ups__gauge {
-  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
 }
 
 .ups__gauge-text {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   font-size: var(--fs-12);
   font-variant-numeric: tabular-nums;
-  margin-bottom: 4px;
-}
-
-.ups__bar {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--chart-track);
-  overflow: hidden;
-}
-
-.ups__bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--chart-1);
-  transition: width 600ms var(--ease-out);
-}
-
-.ups__bar-fill--low {
-  background: var(--status-degraded);
 }
 
 .ups__note {

@@ -3,9 +3,12 @@
  * roles, never raw colours, so light and dark swap in one place. Dark mode follows macOS: neutral greys, lighter
  * raised surfaces, hairline borders instead of shadows, translucent white text in three levels.
  * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * `.ws-theme-light` / `.ws-theme-dark` pin a subtree to one theme (the dev showcase shows both side by side).
  */
 
-:root {
+:root,
+.ws-theme-light {
   /* Brand: deep teal. */
   --brand-50: #effaf8;
   --brand-100: #d2f1ec;
@@ -108,7 +111,8 @@
   --header-bg: rgba(255, 255, 255, 0.86);
 }
 
-body.body--dark {
+body.body--dark,
+.ws-theme-dark {
   --q-dark-page: #1c1c1e;
   --q-dark: #2c2c2e;
   --q-dark-shadow-color: rgba(0, 0, 0, 0.35);
@@ -430,6 +434,25 @@ body.body--dark .q-tooltip {
 .ws-table .q-table__bottom {
   border-top: 1px solid var(--border);
   color: var(--text-secondary);
+}
+
+/* Compact density (UI_DESIGN §2, the profile or user menu toggle): tighter table rows and list items app-wide. */
+body.ws-compact .ws-table .q-table td {
+  height: 32px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+body.ws-compact .ws-table .q-table th {
+  height: 32px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+body.ws-compact .q-item:not(.q-item--dense) {
+  min-height: 36px;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 /* Page frame */
