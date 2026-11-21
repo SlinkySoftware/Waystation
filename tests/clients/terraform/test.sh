@@ -127,8 +127,8 @@ module "subnets" {
   source  = "hashicorp/subnets/cidr"
   version = "$MODULE_VERSION"
 
-  base_cidr_block = "10.0.0.0/8"
-  networks = [{ name = "harness", new_bits = 8 }]
+  base_cidr_block = "192.0.2.0/24"
+  networks = [{ name = "harness", new_bits = 4 }]
 }
 
 output "harness" {
@@ -141,7 +141,7 @@ module_config "$work/modules.rc"
 step "terraform init + apply with hashicorp/subnets/cidr $MODULE_VERSION through the module proxy (registry.terraform.io)"
 module_project "$work/tf-module"
 run terraform "$work/tf-module" "$work/modules.rc" 'module proxy'
-grep -q '10.0.0.0/16' "$work/apply.log" || fail "terraform: the module's output is missing"
+grep -q '192.0.2.0/28' "$work/apply.log" || fail "terraform: the module's output is missing"
 download=$(curl -sS -o /dev/null -D - "$W/repository/tf-mirror/v1/modules/hashicorp/subnets/cidr/$MODULE_VERSION/download")
 printf '%s' "$download" | grep -qi '^x-terraform-get: ./archive.tar.gz//terraform-cidr-subnets-' \
   || fail "the module download does not point at the cached GitHub archive: $download"
@@ -149,7 +149,7 @@ printf '%s' "$download" | grep -qi '^x-terraform-get: ./archive.tar.gz//terrafor
 step "tofu init + apply with hashicorp/subnets/cidr $MODULE_VERSION through the module proxy (registry.opentofu.org)"
 module_project "$work/tofu-module"
 run tofu "$work/tofu-module" "$work/modules.rc" 'module proxy'
-grep -q '10.0.0.0/16' "$work/apply.log" || fail "tofu: the module's output is missing"
+grep -q '192.0.2.0/28' "$work/apply.log" || fail "tofu: the module's output is missing"
 
 step 'an invalid API token in the credentials block is refused'
 cli_config "$work/bad.rc" wst_harness-not-a-token
