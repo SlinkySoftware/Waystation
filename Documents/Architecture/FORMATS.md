@@ -99,13 +99,32 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     anonymous token or configured credentials. Ping the upstream's `GET /v2/` once to learn the challenge, so every
     request carries its token up front (a first anonymous request per image would make record/replay and upstream
     request counts depend on which server process answers); re-learn on a later `401`.
+  - Tokens and learned challenges are shared by every server process (built 2026-11-21,
+    `upstream_auth.SharedTokens`): Valkey `uptok:<sha256(repository key, scope)>` holds `<expiry ms> <token>` with
+    the token AES-GCM encrypted under `WAYSTATION_SECRET_KEYS` (associated data = the key) and a PX of its remaining
+    lifetime (the token's `expires_in` capped at 1 h, minus 15 s); `uprealm:<sha256(repository key)>` the challenge
+    (1 h). The repository key includes its id, configuration version and update time, so new credentials never reuse
+    a token. A process checks its own cache, then Valkey, then asks the realm and stores the token for everyone; an
+    upstream `401` to a shared token replaces it. Without secret keys tokens are not shared; Valkey down = each
+    process fetches its own. Tokens are never logged.
   - Tag → digest resolution is metadata (`metadata_max_age`); digest-addressed manifests and blobs are content.
   - Blob redirects: upstreams often 307 to a CDN; follow (SSRF-checked) without forwarding Authorization to other hosts.
     Docker Hub uses more than one CDN host (`production.cloudflare.docker.com`, `production.cloudfront.docker.com`),
     GHCR uses `pkg-containers.githubusercontent.com`: outbound allowlists must include them.
   - Docker Hub answers `401` (not `404`) for image names that do not exist; map an upstream 401/403 after token
-    negotiation to `NAME_UNKNOWN`. Proxies without a referrers API answer `404`, and clients fall back to the
-    `sha256-<hex>` tag schema (an extra tag lookup per pull).
+    negotiation to `NAME_UNKNOWN`.
+  - Referrers (built 2026-11-21, `DockerPlugin.referrers`): `GET /v2/<name>/referrers/<digest>` asks the upstream's
+    referrers API (`Accept: application/vnd.oci.image.index.v1+json`) and caches the answer as metadata
+    `<name>/referrers/<digest>` (refreshed after `min(5 min, metadata_max_age)`, conditional revalidation, stale on
+    error as usual). An upstream `404` (a registry with the API never answers 404; also 400/405/406/501) means it has
+    none: the proxy falls back to the referrers tag schema itself, the `<alg>-<ref>` tag (`sha256-<hex>`, truncated
+    to 32/64 characters) fetched as an OCI index, checked against the upstream `Docker-Content-Digest` and cached as
+    `<name>/referrers/<digest>@tag`, and remembers for an hour (Valkey `docker:noreferrers:<repo id>:<config
+    version>`) to go straight to the tag. No tag either (negative-cached) = an empty index. The answer is always
+    `200` with an OCI index rebuilt from well-formed descriptors only (`mediaType`, `digest`, `size`,
+    `artifactType`, string `annotations`; ≤ 1000, duplicates dropped; anything else is refused or dropped, never
+    passed through); `artifactType` is filtered by Waystation (`OCI-Filters-Applied: artifactType`). Upstream
+    failures map like manifests (401/403 → `NAME_UNKNOWN`, 429 → `TOOMANYREQUESTS`, mismatch or not an index → 502).
   - Mirror mode: Docker daemon `registry-mirrors` sends Hub names (`library/nginx`) to `/v2/` → default repo.
 - Hosted: tag immutability patterns, overwrite policy, manifest validation (all referenced blobs/manifests exist
   in the repo or are mountable), size limit, `subject` field for referrers (cosign/notation signatures, SBOMs).
@@ -165,8 +184,9 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
   stored/cached `blobs/<digest>` first (served by X-Accel, no upstream), then a `GET` asks members in order; a `HEAD`
   never goes upstream (it is how pushes check for existing layers, and pushed names must not reach public
   registries). `tags/list`: union of hosted members' tags and proxy members' upstream first page (cached as their
-  `tags/list`), sorted, `n`/`last`/`Link`; `404 NAME_UNKNOWN` when no member knows the name. Referrers: union over hosted
-  members. Writes (manifest `PUT`/`DELETE`, uploads incl. status and cancel, blob `DELETE`) go to the writable member
+  `tags/list`), sorted, `n`/`last`/`Link`; `404 NAME_UNKNOWN` when no member knows the name. Referrers: union over
+  every member in order (hosted: stored referrers; proxies: their referrers answer above; since 2026-11-21), each
+  digest once, failing members skipped. Writes (manifest `PUT`/`DELETE`, uploads incl. status and cancel, blob `DELETE`) go to the writable member
   with the request otherwise unchanged (so `Location` keeps the group's name and a push continues through the group);
   the principal needs the action on the group (router) and on the member (`req.allows_member`, RBAC without the
   registry token's per-repository grants); none configured → `405 UNSUPPORTED`. Answers from a member carry
@@ -312,18 +332,43 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   `Packages`/`Release`/`InRelease` per suite/component/arch, signs with the repo key (`InRelease` clearsigned +
   `Release.gpg`), publishes atomically (write new index blobs, then swap metadata assets).
 - Clients: apt (deb822 `.sources` and one-line), with `Signed-By`; Debian 12/13, Ubuntu 24.04/26.04, Raspberry Pi OS (arm64/armhf).
-- Built (M0, T-P2-APT min): proxy `GET`/`HEAD` (`formats/apt/plugin.py`, parsers in `deb822.py`, `apt_pool_index`
-  access in `db/apt.py`). Indexes at plain paths are stored under their `by-hash/SHA256/<h>` key from the
+- Built (M0, T-P2-APT min): proxy `GET`/`HEAD` (`formats/apt/plugin.py`; parsers, suite rules and index naming in
+  `waystation_common.apt` (`deb822`, `suites`, `indexes`), `apt_pool_index`/`apt_packages` writes in
+  `waystation_common.db.apt`, shared with the worker since 2026-11-21). Indexes at plain paths are stored under their `by-hash/SHA256/<h>` key from the
   `InRelease` (else `Release`) currently cached for the suite and fetched from the upstream `by-hash` path when the
   `Release` says `Acquire-By-Hash: yes`; files the `Release` does not list answer 404. `by-hash/SHA256` and
   `by-hash/SHA512` are accepted (other algorithms 404). `Packages` files (any of `.xz`, `.gz`, `.bz2`, `.lzma`,
   `.zst`, plain) are parsed in a background task after they are cached (decompression bounded to 512 MiB, at most
   1 M entries; stanzas with unsafe `Filename`s are skipped) and written to `apt_pool_index` as `verified`; an
-  unverified pool file whose recorded hash disagrees with a new listing is dropped from the cache. Parsed `Release`
+  unverified pool file whose recorded hash disagrees with a new listing is dropped from the cache (only the copy with
+  that hash: a verified copy stored meanwhile stays). Parsed `Release`
   files are kept in a small in-process LRU keyed by blob digest. Real clients: apt on Debian 13 and Ubuntu 26.04
   (`tests/clients/apt/`); Raspberry Pi OS arm64 opt-in (`ARM64=1`, needs arm64 emulation). Not yet: hosted,
-  `Release` signature checks by Waystation (clients verify), proactive `Packages` refresh by a worker, components (`components` collection). Browse
-  (T-S09 min): the same background pass writes each `Packages` stanza (name, version, architecture, section) to
+  `Release` signature checks by Waystation (clients verify), components (`components` collection).
+- Worker refresh (2026-11-21, job `apt.refresh`, queue `prefetch`, `waystation_worker.apt`; built-in schedule
+  `41 * * * *` over every apt proxy, or one repository by `repo_id`; dedupe `apt.refresh:<repo id|*>`). Per suite
+  with a cached `InRelease`/`Release` (flat: per directory): (1) when the cached copy is older than
+  `metadata_max_age_s`, the suite's cached `InRelease`, `Release` and `Release.gpg` are revalidated with a
+  conditional `GET` (`304` moves `fetched_at` only; new `InRelease`/`Release` bytes must parse, ≤ 32 MiB, and are
+  stored untouched); (2) for each `(component, arch)` `Packages` index the current `Release` lists: a variant cached
+  under the listed hash but not yet the recorded listing generation is indexed from the cache (a lost background
+  indexing); otherwise, when clients used that index before (a listing of it in `apt_packages`) or it could list an
+  unverified pool file (`pool/<component>/..._<arch|all>.deb`, only until none is left), one variant (`.xz`
+  first) is fetched (by-hash when the `Release` offers it), verified against the listed SHA256 and size while it
+  streams into the blob store (≤ 256 MiB, nothing unverified committed), stored under its `by-hash/SHA256/<h>` key
+  as a client fetch would store it, and indexed; no other index is fetched, so the cache does not grow on its own;
+  (3) every unverified pool entry is checked against the recorded listings: confirmed → verified, contradicted →
+  the listing's hash replaces it and the checked copy is dropped (compare-and-set), unlisted → stays unverified.
+  The worker's upstream requests (`waystation_worker.upstream`) follow the proxy engine's rules: SSRF guard at
+  connect time (target pre-checked through an outbound proxy), the repository's CA bundle, outbound proxy and
+  static credentials (only to the upstream's origin, never logged), redirects re-checked (≤ 5), identity encoding,
+  bounded bodies; each request passes the repository's auto-block breaker and reports its outcome to it, as the
+  proxy engine's do (`waystation_common.breaker`); an offline repository or one the breaker blocks gets the local
+  steps only. Not coalesced with server fills: a race costs at most one extra upstream request, and the
+  results are the same (content-addressed blobs, compare-and-set pool updates). Idempotent: a second run with
+  nothing stale calls no upstream and changes nothing. Tests: `Application/Worker/tests/test_apt_refresh.py`,
+  `Application/Server/tests/test_apt_refresh_integration.py`.
+- Browse (T-S09 min): the background indexing pass (and the worker refresh) writes each `Packages` stanza (name, version, architecture, section) to
   `apt_packages`, replacing the previous generation of that index; suites come from the cached `InRelease`/`Release`
   (origin, codename, date, components, architectures).
 

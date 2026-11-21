@@ -2,7 +2,54 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-22
+- T-S12: presented-but-invalid credentials are never downgraded to anonymous on the format routes: an
+  `Authorization` header outside `/v2/` that does not resolve to a principal (a Bearer/Token value not shaped like an
+  API token, an empty or unknown scheme, a password instead of a token) answers the `401` Basic challenge before any
+  repository lookup, so a repository anonymous may read is not served to it and hidden and missing repositories still
+  get identical answers (ADR 0005, amended note). Matrix tests in `test_access.py`.
+- T-U06 (done): 1M-asset search benchmark (`test_search_bench_integration.py`; 20 000 assets in every integration
+  run, `WAYSTATION_SEARCH_BENCH_ASSETS=1000000` for the full size). At 1M assets, sequential, query cost against
+  MongoDB: prefix + facets p95 5.2 ms, prefix page 2 7.3 ms, everything 10.9 ms, rare substring + facets 4.8 ms,
+  common substring (`tar.gz`) + facets 32.0 ms, digest prefix 0.5 ms (budget 150 ms). Index sizes: `search_sfx`
+  1450 MiB, `search_name` 94 MiB.
+
 ## 2026-11-21
+- T-U06: substring search (adr/0009, proposed: owner approval pending): every searchable document carries
+  `name_sfx` (its name's suffixes, ≥ 3 characters, cut to 16) under the multikey index `search_sfx`; a term of 3+
+  characters also matches inside names, prefix matches first, then substring matches, each document once (facet
+  counts too); keyset paging over index bounds, `explain()`-checked as index scans. Migration `0005_search_suffixes`
+  backfills older documents.
+- T-P2-APT: worker job `apt.refresh` (hourly, queue `prefetch`) revalidates stale apt `Release` files, fetches and
+  verifies (by-hash, SHA256 + size) the `Packages` indexes clients used or that could list an unverified pool file,
+  indexes cached `Packages` files whose background indexing was lost, and re-verifies unverified pool files
+  (confirmed → verified, contradicted → dropped); its upstream requests honour the SSRF guard, CA bundle, outbound
+  proxy, credentials (origin only) and pass and feed the shared auto-block breaker (`waystation_common.breaker`).
+  apt parsers, suite rules and pool-index writes moved to `waystation_common.apt` / `waystation_common.db.apt`.
+  Tasks page label for `apt.refresh`.
+- T-S12 (done): `docker login` gets a refresh token (`GET /auth/token?offline_token=true`, 90 days), which the
+  Docker CLI stores instead of the password or API token; `POST /auth/token` implements the token spec's OAuth2
+  endpoint (`grant_type=password` with `access_type=offline`, as containerd tries first, and
+  `grant_type=refresh_token`, which re-reads the user or re-checks the API token). Refresh tokens are never accepted
+  on `/v2/`. Issued registry tokens (access and refresh) are revoked before they expire when a user is disabled or
+  deleted, their password is changed or reset, or their sessions are revoked: a per-user cut-off in
+  `users.tokens_not_before`, announced in Valkey `regtok:nbf:<user>` and checked on every `/v2/` request, so it holds
+  on every replica at once (and survives Valkey loss for refresh tokens). Registry tokens issued for an API token
+  follow that token. The docker harness checks the stored identity token, a pull through it and its revocation.
+- T-P2-DOCKERP: the referrers API for proxy repositories: the upstream's referrers API, cached as metadata (≤ 5 min,
+  revalidated), else the `sha256-<hex>` tag schema (verified against the upstream digest; the upstream is remembered
+  as having no API for an hour), always `200` with an OCI index rebuilt from well-formed descriptors only;
+  `artifactType` filtered by Waystation. Groups merge every member's referrers (proxies included). The proxy
+  engine's `ensure` now honours the negative cache like `serve`.
+- T-P2-DOCKERP: upstream registry tokens and learned challenges are shared by every server process through Valkey
+  (`uptok:`/`uprealm:`; tokens AES-GCM encrypted with the secret keys, expiring with the token; not shared without
+  secret keys), so one process's token serves all; an upstream `401` replaces the shared token.
+- T-S05: repositories can be cloned: `POST /api/v1/repositories/{name}/clone` copies the configuration (upstream with
+  its stored secret re-encrypted server-side, policies, quota, group members, cleanup policies, format options; never
+  content) under a new name; docker aliases and the default-repository flag stay with the source; audited as
+  `repository.create` with `cloned_from`. "Clone" action on the repository page (contract, generated client, MSW).
+  Repository status beyond online/offline (`ok`/`degraded`/`blocked`/`offline`) was already served and shown; SPEC
+  §4.12 now describes it.
 - T-A04: client-auth matrix in the real-client harness (`tests/clients/auth/`): with the `make test-integration`
   OpenLDAP directory and Keycloak realm next to the stack and anonymous access off, docker login with an LDAP
   password and with an OIDC user's API token, npm login (LDAP) and `_authToken` (OIDC), apt `auth.conf`, dnf basic

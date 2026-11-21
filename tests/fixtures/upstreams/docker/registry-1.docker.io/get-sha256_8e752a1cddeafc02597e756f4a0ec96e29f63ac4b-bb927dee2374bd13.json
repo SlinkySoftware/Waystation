@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "bearer",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/vnd.oci.image.index.v1+json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry-1.docker.io/v2/library/hello-world/referrers/sha256:8e752a1cddeafc02597e756f4a0ec96e29f63ac4bc4af87682daf3f1de843bb7"
+  },
+  "response": {
+    "body_sha256": "3d60eec733f106e03a571223c6adb85a3dabd53590ae0d8339e8ea2de2d32c56",
+    "body_size": 89,
+    "headers": [
+      [
+        "content-type",
+        "application/vnd.oci.image.index.v1+json"
+      ],
+      [
+        "content-length",
+        "89"
+      ],
+      [
+        "docker-distribution-api-version",
+        "registry/2.0"
+      ],
+      [
+        "ratelimit-limit",
+        "1500;w=60"
+      ],
+      [
+        "ratelimit-remaining",
+        "1499;w=60"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -246,4 +246,6 @@ only to the upstream registry and its token service, never to blob CDNs the upst
 | `denied: write permission required on <member>` when pushing to a group | You may write to the group but not to its writable member: ask for `write` on the member. |
 | `unauthorized` / `insufficient_scope` on push | Your token or account has no `write` on the repository: use an API token with the `write` scope and a role that may write there. |
 | `manifest blob unknown` on push | The manifest names a blob the repository does not hold (an interrupted push): push again; the client re-uploads what is missing. |
-| `docker search`, referrers on proxies | Not available; proxies answer the referrers API with 404 and clients fall back to the tag schema. |
+| `docker search` | Not available. |
+| Referrers (signatures, SBOMs) of proxied images | Proxies answer the referrers API from the upstream's referrers API, or from its `sha256-<hex>` tag schema when it has none (cached; groups merge every member's). |
+| `unauthorized` after an administrator disabled you, reset your password or ended your sessions | `docker login` stores a refresh token instead of your password; those actions revoke it. Run `docker login` again. |

@@ -300,8 +300,7 @@ async def test_name_search_across_sources_with_facets_and_links(
     for q in ('@types', 'node', '@TYPES/NO'):
         found = (await admin.get(API, params={'q': q})).json()['items']
         assert [i['name'] for i in found] == ['@types/node'], q
-    # files: by the start of their name only; docker blobs and metadata are not name results
-    assert (await admin.get(API, params={'q': 'setup'})).json()['items'] == []
+    # docker blobs and metadata are not name results
     assert (await admin.get(API, params={'q': 'sha256'})).json()['items'] == []
     await assert_indexed(services.db, recorder)
 
@@ -349,6 +348,77 @@ async def test_filters_are_disjunctive_facets_and_version_terms(
     ]
     assert (await admin.get(API, params={'q': 'nginx 9'})).json()['facets']['total'] == 0
     await assert_indexed(services.db, recorder)
+
+
+async def test_substring_matches_follow_prefix_matches(
+    admin: httpx.AsyncClient, client: httpx.AsyncClient, services: Services, content: dict[str, str], recorder: Recorder
+) -> None:
+    recorder.on = True
+    # files by a part of their name (adr/0009); the hosted repository only for those who can see it
+    setup = (await admin.get(API, params={'q': 'SETUP'})).json()
+    assert summary(setup['items']) == [
+        ('secret', 'file', 'copy-of-setup.sh', None),
+        ('tools', 'file', 'NGINX-Setup.sh', None),
+    ]
+    assert setup['facets']['total'] == 2
+    assert facet(setup, 'repository') == {'secret': 1, 'tools': 1}
+    anon = (await client.get(API, params={'q': 'setup'})).json()
+    assert summary(anon['items']) == [('tools', 'file', 'NGINX-Setup.sh', None)]
+    assert facet(anon, 'repository') == {'tools': 1}
+
+    # prefix matches first (in name order), then substring matches (in order of the name from the match on); each
+    # document once
+    gin = (await admin.get(API, params={'q': 'gin'})).json()
+    assert summary(gin['items']) == [
+        ('docker-hub', 'image', 'library/nginx', 'latest'),
+        ('docker-hub', 'image', 'library/nginx', '1.27'),
+        ('debian', 'package', 'nginx', '1.22.1-9'),
+        ('debian', 'package', 'nginx', '1.22.1-9'),
+        ('rocky', 'package', 'nginx', '1:1.24.0-1.el9'),
+        ('npmjs', 'package', 'nginx-conf', '2.0.0'),
+        ('secret', 'file', 'nginx-private.tar', None),
+        ('tools', 'file', 'NGINX-Setup.sh', None),
+        ('debian', 'file', 'nginx_1.22.1-9_amd64.deb', None),
+    ]
+    ssl = (await admin.get(API, params={'q': 'openssl'})).json()
+    assert [i['name'] for i in ssl['items']] == ['openssl', 'openssl']
+    redis = (await admin.get(API, params={'q': 'is'})).json()  # two characters: prefix only
+    assert redis['items'] == []
+    mixed = (await admin.get(API, params={'q': 'ngin'})).json()  # prefix matches only, no duplicates
+    assert len(mixed['items']) == mixed['facets']['total'] == 9
+    # a version term applies to substring matches too; files have no version
+    tagged = (await admin.get(API, params={'q': 'ginx 1.2'})).json()
+    assert [(i['name'], i['version']) for i in tagged['items']] == [
+        ('library/nginx', '1.27'),
+        ('nginx', '1.22.1-9'),
+        ('nginx', '1.22.1-9'),
+        ('nginx', '1:1.24.0-1.el9'),
+    ]
+    await assert_indexed(services.db, recorder)
+
+    # paging crosses from prefix to substring matches exactly
+    db = services.db
+    raw = content['raw']
+    for n in range(4):
+        await save_file(services, raw, f'more/zeta-{n}.txt', f'z{n}'.encode())
+        await save_file(services, raw, f'more/a-zeta-{n}.txt', f'a{n}'.encode())
+    # the term twice: listed once, at its first match ('zeta0-zeta9.txt'), not again at 'zeta9.txt'
+    await save_file(services, raw, 'more/b-zeta0-zeta9.txt', b'b')
+    await save_file(services, raw, 'more/c-zeta5.txt', b'c')
+    whole = (await admin.get(API, params={'q': 'zeta', 'limit': 100})).json()
+    names = [i['name'] for i in whole['items']]
+    assert names == [
+        *(f'zeta-{n}.txt' for n in range(4)),
+        *(f'a-zeta-{n}.txt' for n in range(4)),
+        'b-zeta0-zeta9.txt',
+        'c-zeta5.txt',
+    ]
+    assert whole['facets']['total'] == 10
+    for limit in (1, 2, 3, 4, 5, 9):
+        assert [i['name'] for i in await everything(admin, q='zeta', limit=limit)] == names, limit
+    recorder.on = True
+    await everything(admin, q='zeta', limit=3)
+    await assert_indexed(db, recorder)
 
 
 async def test_cursor_paging_is_exact(
@@ -443,11 +513,25 @@ async def test_migration_backfills_search_keys(admin: httpx.AsyncClient, service
     await migration.apply(db)
     await migration.apply(db)  # idempotent
     found = (await admin.get(API, params={'q': 'legacy'})).json()['items']
-    assert [(i['repository'], i['name']) for i in found] == [('legacy-raw', 'Legacy.bin')]
+    # the file starts with the term, the package has it after its scope (a substring match, after)
+    assert [(i['repository'], i['name']) for i in found] == [('legacy-raw', 'Legacy.bin'), ('legacy', '@Legacy/Pkg')]
     assert [i['name'] for i in (await admin.get(API, params={'q': 'pkg'})).json()['items']] == ['@Legacy/Pkg']
     doc = await db[NPM_PACKAGES].find_one({'repo_id': npm})
     assert doc is not None
     assert (doc['name_lc'], doc['base_lc']) == ('@legacy/pkg', 'pkg')
+
+    # documents with name keys but no suffixes yet (written before 0005_search_suffixes)
+    await db[ASSETS].update_many({'repo_id': raw}, {'$unset': {'name_sfx': ''}})
+    await db[NPM_PACKAGES].update_many({'repo_id': npm}, {'$unset': {'name_sfx': ''}})
+    assert (await admin.get(API, params={'q': 'egacy'})).json()['items'] == []
+    suffixes = next(m for m in MIGRATIONS if m.id == '0005_search_suffixes')
+    await suffixes.apply(db)
+    await suffixes.apply(db)  # idempotent
+    found = (await admin.get(API, params={'q': 'egacy'})).json()['items']
+    assert [i['name'] for i in found] == ['Legacy.bin', '@Legacy/Pkg']  # by matched suffix: 'egacy.bin', 'egacy/pkg'
+    metadata = await db[ASSETS].find_one({'repo_id': raw, 'kind': 'metadata'})
+    assert metadata is not None
+    assert 'name_sfx' not in metadata
 
 
 async def test_pypi_projects_and_files(admin: httpx.AsyncClient, services: Services, recorder: Recorder) -> None:

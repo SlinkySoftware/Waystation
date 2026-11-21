@@ -172,6 +172,73 @@ def check_manifest(data: bytes, content_type: str | None, upstream_digest: str |
         raise UpstreamError('upstream manifest is not a JSON object')
 
 
+# ---------------------------------------------------------------------------- referrers (OCI distribution 1.1)
+REFERRERS_MAX = 1000
+_ANNOTATIONS_MAX = 64
+_TEXT_MAX = 4096
+
+
+def referrers_tag(digest: str) -> str:
+    """The referrers tag schema's fallback tag for ``digest``: ``<alg>-<ref>``, truncated to 32 and 64 characters
+    (``sha256:abc...`` → ``sha256-abc...``)."""
+    algorithm, _, ref = digest.partition(':')
+    return f'{algorithm[:32]}-{ref[:64]}'
+
+
+def check_referrers(data: bytes) -> None:
+    """Refuse an upstream referrers answer (or fallback tag) that is not an image index (runs in a thread)."""
+    try:
+        doc = json.loads(data)
+    except ValueError:
+        raise UpstreamError('upstream referrers answer is not valid JSON') from None
+    if not isinstance(doc, dict) or not isinstance(doc.get('manifests', []), list):
+        raise UpstreamError('upstream referrers answer is not an image index')
+    if doc.get('mediaType') not in (None, OCI_INDEX):
+        raise UpstreamError('upstream referrers answer is not an OCI image index')
+
+
+def referrer_entries(data: bytes) -> list[dict[str, object]]:
+    """The well-formed descriptors of a cached referrers index, rebuilt from known fields only (never upstream text
+    passed through as is): ``mediaType``, ``digest``, ``size``, ``artifactType``, ``annotations`` (string pairs).
+    At most ``REFERRERS_MAX``; duplicates dropped."""
+    try:
+        doc = json.loads(data)
+    except ValueError:
+        return []
+    manifests = doc.get('manifests') if isinstance(doc, dict) else None
+    out: dict[str, dict[str, object]] = {}
+    for item in manifests if isinstance(manifests, list) else []:
+        if len(out) >= REFERRERS_MAX:
+            break
+        if not isinstance(item, dict):
+            continue
+        digest, media, size = item.get('digest'), item.get('mediaType'), item.get('size')
+        if not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest) or digest in out:
+            continue
+        if not isinstance(media, str) or not _MEDIA_RE.fullmatch(media):
+            continue
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            continue
+        entry: dict[str, object] = {'mediaType': media, 'digest': digest, 'size': size}
+        artifact = item.get('artifactType')
+        if isinstance(artifact, str) and _MEDIA_RE.fullmatch(artifact):
+            entry['artifactType'] = artifact
+        annotations = item.get('annotations')
+        if isinstance(annotations, dict):
+            kept = {
+                k: v
+                for k, v in list(annotations.items())[:_ANNOTATIONS_MAX]
+                if isinstance(k, str) and isinstance(v, str) and len(k) <= 255 and len(v) <= _TEXT_MAX
+            }
+            if kept:
+                entry['annotations'] = kept
+        out[digest] = entry
+    return list(out.values())
+
+
+_MEDIA_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}')
+
+
 def check_tags(data: bytes) -> None:
     try:
         doc = json.loads(data)

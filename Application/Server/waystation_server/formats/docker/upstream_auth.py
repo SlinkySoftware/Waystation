@@ -8,8 +8,10 @@
   token from the realm (anonymous, or with the repository's configured username/password, e.g. Docker Hub or a GHCR
   PAT). A ``401`` on a later request (a realm that differs per image, an expired token) re-learns the challenge
   and retries once.
-- Tokens are cached per repository and scope (``repository:<name>:pull``) in process memory until shortly before
-  they expire. They are only ever sent to the repository's upstream origin, never to redirect targets (CDNs).
+- Tokens are cached per repository and scope (``repository:<name>:pull``) until shortly before they expire: in
+  process memory, and shared by every server process through Valkey (``SharedTokens``: encrypted with the secret
+  keys, expiring with the token), as are the learned challenges. They are only ever sent to the repository's
+  upstream origin, never to redirect targets (CDNs).
 - A ``Basic`` challenge is answered with the configured credentials; a configured bearer secret is sent as is.
 
 Token endpoints are reached through the shared upstream clients (SSRF guard, CA bundle, outbound proxy); token
@@ -19,6 +21,7 @@ responses are size-bounded and never logged.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -29,8 +32,10 @@ from typing import Literal
 from urllib.parse import urlencode, urlsplit
 
 import httpx
+from redis.asyncio import Redis
 
-from waystation_common.errors import UpstreamError
+from waystation_common.crypto import Keyring
+from waystation_common.errors import CryptoError, UpstreamError
 from waystation_server.proxy.http import Network, UpstreamClients
 
 log = logging.getLogger('waystation.formats.docker')
@@ -114,6 +119,102 @@ class TokenCache:
         self._realms[repo_key] = realm
 
 
+SHARED_TOKEN_KEY = 'uptok:'  # noqa: S105 - a Valkey key prefix, not a secret
+SHARED_REALM_KEY = 'uprealm:'
+SHARED_REALM_TTL_MS = 3600 * 1000
+TOKEN_AAD = b'docker-upstream-token:'
+
+
+def _shared_id(*parts: str) -> str:
+    return hashlib.sha256('\0'.join(parts).encode()).hexdigest()[:40]
+
+
+@dataclass
+class SharedTokens:
+    """The second level of ``TokenCache``: tokens and learned challenges in Valkey, so every server process uses
+    the token one of them fetched (one realm request per repository and scope, not one per process).
+
+    - ``uptok:<sha256(repository key, scope)>``: ``<expiry epoch ms> <token>``, the token AES-GCM encrypted with
+      ``WAYSTATION_SECRET_KEYS`` (associated data = the key), PX = its remaining lifetime. Without secret keys tokens
+      are not shared (never stored in clear).
+    - ``uprealm:<sha256(repository key)>``: the challenge the upstream's ``/v2/`` answered (not secret), 1 h.
+
+    The repository key carries its id, configuration version and update time, so changed credentials never reuse a
+    token. Valkey errors only cost the sharing (each process fetches its own token); nothing is logged but the error
+    type."""
+
+    valkey: Redis
+    keyring: Keyring | None
+    clock: Callable[[], float] = time.time
+
+    async def token(self, repo_key: str, scope: str) -> tuple[str, int] | None:
+        """(token, seconds left) or None."""
+        if self.keyring is None:
+            return None
+        key = SHARED_TOKEN_KEY + _shared_id(repo_key, scope)
+        try:
+            raw = await self.valkey.get(key)
+        except Exception as exc:
+            log.debug('shared upstream token unavailable', extra={'error': type(exc).__name__})
+            return None
+        if raw is None:
+            return None
+        try:
+            text = raw.decode('ascii') if isinstance(raw, bytes) else str(raw)
+            expiry, _, sealed = text.partition(' ')
+            left = int(expiry) / 1000 - self.clock()
+            token = self.keyring.decrypt_str(sealed, aad=TOKEN_AAD + key.encode())
+        except (CryptoError, ValueError, UnicodeError) as exc:
+            log.warning('shared upstream token unreadable', extra={'error': type(exc).__name__})
+            return None
+        if left < 1 or not token or len(token) > TOKEN_MAX_CHARS or not _TOKEN_CHARS.fullmatch(token):
+            return None
+        return token, int(left)
+
+    async def put_token(self, repo_key: str, scope: str, token: str, ttl_s: int) -> None:
+        if self.keyring is None or ttl_s < 1:
+            return
+        key = SHARED_TOKEN_KEY + _shared_id(repo_key, scope)
+        expiry_ms = int((self.clock() + ttl_s) * 1000)
+        sealed = self.keyring.encrypt_str(token, aad=TOKEN_AAD + key.encode())
+        try:
+            await self.valkey.set(key, f'{expiry_ms} {sealed}', px=ttl_s * 1000)
+        except Exception as exc:
+            log.debug('shared upstream token not stored', extra={'error': type(exc).__name__})
+
+    async def forget_token(self, repo_key: str, scope: str) -> None:
+        try:
+            await self.valkey.delete(SHARED_TOKEN_KEY + _shared_id(repo_key, scope))
+        except Exception as exc:
+            log.debug('shared upstream token not removed', extra={'error': type(exc).__name__})
+
+    async def realm(self, repo_key: str) -> Challenge | None:
+        try:
+            raw = await self.valkey.get(SHARED_REALM_KEY + _shared_id(repo_key))
+        except Exception as exc:
+            log.debug('shared upstream challenge unavailable', extra={'error': type(exc).__name__})
+            return None
+        if raw is None:
+            return None
+        try:
+            doc = json.loads(raw)
+        except ValueError:
+            return None
+        if doc in ('basic', 'none'):
+            return 'basic' if doc == 'basic' else 'none'
+        if isinstance(doc, dict) and isinstance(doc.get('url'), str):
+            service = doc.get('service')
+            return Realm(doc['url'], service if isinstance(service, str) else None)
+        return None
+
+    async def put_realm(self, repo_key: str, challenge: Challenge) -> None:
+        doc: object = challenge if isinstance(challenge, str) else {'url': challenge.url, 'service': challenge.service}
+        try:
+            await self.valkey.set(SHARED_REALM_KEY + _shared_id(repo_key), json.dumps(doc), px=SHARED_REALM_TTL_MS)
+        except Exception as exc:
+            log.debug('shared upstream challenge not stored', extra={'error': type(exc).__name__})
+
+
 @dataclass
 class RegistryAuth:
     cache: TokenCache
@@ -125,6 +226,7 @@ class RegistryAuth:
     network: Network | None = None  # the repository's network options (CA bundle, outbound proxy); wins
     credentials: Callable[[], tuple[str, str] | None] = lambda: None  # (username, password) for token/basic
     bearer: Callable[[], str | None] = lambda: None  # a static bearer secret (no negotiation)
+    shared: SharedTokens | None = None  # tokens and challenges shared by every server process (Valkey)
     _basic_sent: bool = False  # this request already offered the Basic credentials
 
     @property
@@ -139,9 +241,15 @@ class RegistryAuth:
         if static:
             return {'Authorization': f'Bearer {static}'}
         token = self.cache.token(self.repo_key, self.scope)
+        if token is None and self.shared is not None:
+            hit = await self.shared.token(self.repo_key, self.scope)
+            if hit is not None:
+                token = hit[0]
+                self.cache.put_token(self.repo_key, self.scope, token, hit[1] + EXPIRY_MARGIN_S)
         if token is not None:
             return {'Authorization': f'Bearer {token}'}
-        challenge = self.cache.realm(self.repo_key) or self._known_realm() or await self._ping()
+        challenge = self.cache.realm(self.repo_key) or await self._shared_realm() or self._known_realm()
+        challenge = challenge or await self._ping()
         if challenge == 'basic':
             self._basic_sent = True
             return self._basic_header()
@@ -156,15 +264,30 @@ class RegistryAuth:
         if learned == 'basic':
             if self.credentials() is None or self._basic_sent:
                 return False
-            self.cache.put_realm(self.repo_key, 'basic')
+            await self._learn('basic')
             return True
         if not isinstance(learned, Realm):
             return False
-        self.cache.put_realm(self.repo_key, learned)
+        await self._learn(learned)
         self.cache.forget_token(self.repo_key, self.scope)
+        if self.shared is not None:
+            await self.shared.forget_token(self.repo_key, self.scope)
         return await self._fetch(learned, self.scope) is not None
 
     # -------------------------------------------------------------- internals
+    async def _learn(self, challenge: Challenge) -> None:
+        self.cache.put_realm(self.repo_key, challenge)
+        if self.shared is not None:
+            await self.shared.put_realm(self.repo_key, challenge)
+
+    async def _shared_realm(self) -> Challenge | None:
+        if self.shared is None:
+            return None
+        challenge = await self.shared.realm(self.repo_key)
+        if challenge is not None:
+            self.cache.put_realm(self.repo_key, challenge)
+        return challenge
+
     def _known_realm(self) -> Realm | None:
         if self.origin[1] == DOCKER_HUB_REGISTRY:
             return Realm(*DOCKER_HUB_REALM)
@@ -183,7 +306,7 @@ class RegistryAuth:
             log.warning('upstream registry ping failed', extra={'error': type(exc).__name__})
             return None
         learned = challenge_of(header)
-        self.cache.put_realm(self.repo_key, learned)
+        await self._learn(learned)
         return learned
 
     def _basic_header(self) -> dict[str, str]:
@@ -221,9 +344,13 @@ class RegistryAuth:
         except (httpx.HTTPError, UpstreamError, ValueError) as exc:
             log.warning('upstream token request failed', extra={'error': type(exc).__name__})
             return None
-        return self._store(body, scope)
+        stored = self._store(body, scope)
+        if stored is not None and self.shared is not None:
+            await self.shared.put_token(self.repo_key, scope, stored[0], stored[1])
+        return stored[0] if stored is not None else None
 
-    def _store(self, body: bytes, scope: str) -> str | None:
+    def _store(self, body: bytes, scope: str) -> tuple[str, int] | None:
+        """Keep the realm's token in the process cache: (token, seconds it is used for) or None."""
         try:
             doc = json.loads(body)
         except ValueError:
@@ -236,5 +363,6 @@ class RegistryAuth:
             return None
         expires = doc.get('expires_in')
         expires_in = expires if isinstance(expires, int) and not isinstance(expires, bool) and expires > 0 else 0
-        self.cache.put_token(self.repo_key, scope, token, expires_in or DEFAULT_EXPIRES_S)
-        return token
+        lifetime = expires_in or DEFAULT_EXPIRES_S
+        self.cache.put_token(self.repo_key, scope, token, lifetime)
+        return token, max(1, min(lifetime, MAX_TTL_S) - EXPIRY_MARGIN_S)

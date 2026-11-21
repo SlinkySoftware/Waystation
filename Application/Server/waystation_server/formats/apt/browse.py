@@ -21,6 +21,8 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
+from waystation_common.apt import suites
+from waystation_common.apt.indexes import FLAT_ROOT, browse_suite
 from waystation_common.errors import WaystationError
 from waystation_server.browse.models import (
     AptPackage,
@@ -33,21 +35,15 @@ from waystation_server.browse.models import (
 from waystation_server.db import apt as apt_db
 from waystation_server.db import assets as assets_db
 from waystation_server.db import browse as browse_db
-from waystation_server.formats.apt import suites
 from waystation_server.formats.apt.descriptor import AptOptions
 
 if TYPE_CHECKING:
-    from waystation_server.formats.apt import deb822
+    from waystation_common.apt import deb822
     from waystation_server.proxy.engine import ProxyEngine, StoredAsset
 
-FLAT_ROOT = '.'
+__all__ = ['FLAT_ROOT', 'AptBrowse', 'browse_suite']
+
 _RELEASE = r'(InRelease|Release)$'
-
-
-def browse_suite(suite: str) -> str:
-    """The suite id browse uses: ``trixie`` for ``dists/trixie``, ``bookworm/mongodb-org/8.0`` for
-    ``dists/bookworm/mongodb-org/8.0``; a flat repository's directory, ``.`` for its root."""
-    return suite or FLAT_ROOT
 
 
 class ReleaseParser(Protocol):

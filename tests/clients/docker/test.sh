@@ -115,6 +115,21 @@ ws_revoke "$token_id"
 if printf '%s' "$token" | docker login "$registry" --username ci-bot --password-stdin > /tmp/revoked.out 2>&1; then
   fail 'docker login worked with a revoked token'
 fi
+
+step 'docker login keeps a refresh token, not the secret; pulls use it (POST /auth/token); revocation stops them'
+ws_token '["read"]' '["docker-*"]'
+token=$WS_TOKEN token_id=$WS_TOKEN_ID
+printf '%s' "$token" | docker login "$registry" --username ci-bot --password-stdin || fail 'docker login (refresh)'
+docker_config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+grep -q '"identitytoken"' "$docker_config" || fail 'docker login stored no identity (refresh) token'
+if grep -q "$token" "$docker_config"; then fail 'docker login stored the API token itself'; fi
+docker rmi -f "$registry/docker-hub/$hub_image" >/dev/null
+docker pull -q --platform "$platform" "$registry/docker-hub/$hub_image" || fail 'docker pull with the refresh token'
+ws_revoke "$token_id"
+docker rmi -f "$registry/docker-hub/$hub_image" >/dev/null
+if docker pull -q --platform "$platform" "$registry/docker-hub/$hub_image" > /tmp/refresh.out 2>&1; then
+  fail 'a refresh token of a revoked API token still pulled'
+fi
 docker logout "$registry" >/dev/null 2>&1 || true
 
 # Hosted and group repositories: push, multi-platform, immutability, mounts, crane/skopeo/oras/cosign, referrers,

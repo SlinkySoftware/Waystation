@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import contextlib
 import json
 import time
 from collections.abc import AsyncIterator, Callable
@@ -18,7 +19,7 @@ from waystation_common.db.collections import REPOSITORIES, USERS
 from waystation_common.settings import Settings
 from waystation_server.bootstrap import ensure_bootstrap_admin
 from waystation_server.formats.base import FormatRequest
-from waystation_server.security import passwords
+from waystation_server.security import passwords, registry_revocation
 from waystation_server.services import Services
 
 pytestmark = pytest.mark.integration
@@ -349,3 +350,218 @@ async def test_catalog_scope(docker: httpx.AsyncClient) -> None:
     refused = await docker.get('/v2/_catalog', headers={'Authorization': f'Bearer {without}'})
     assert refused.status_code == 401
     assert 'scope="registry:catalog:*"' in refused.headers['www-authenticate']
+
+
+# ---------------------------------------------------------------------------- refresh tokens, OAuth2 POST, revocation
+async def _rita(services: Services, name: str) -> str:
+    """A user with the admin role, named per test: the bearer authenticator caches users by id in the process."""
+    await services.db[USERS].insert_one(
+        {
+            '_id': f'id-{name}',
+            'username': name,
+            'display_name': name.title(),
+            'source': 'local',
+            'password_hash': await passwords.hash_password(PASSWORD),
+            'roles': ['admin'],
+            'created_at': datetime.now(UTC),
+        }
+    )
+    return f'id-{name}'
+
+
+async def post_token(client: httpx.AsyncClient, ns: str | None = None, **form: str) -> httpx.Response:
+    return await client.post(
+        '/auth/token', params={'ns': ns} if ns else None, data={'service': SERVICE, 'client_id': 'docker', **form}
+    )
+
+
+async def refreshed(
+    client: httpx.AsyncClient, refresh: str, scope: str = 'repository:private/app:pull'
+) -> httpx.Response:
+    return await post_token(client, grant_type='refresh_token', refresh_token=refresh, scope=scope)
+
+
+async def test_docker_login_gets_a_refresh_token_and_pulls_with_it(docker: httpx.AsyncClient) -> None:
+    """``docker login`` asks ``GET /auth/token?offline_token=true``; the CLI then stores the refresh token (identity
+    token) instead of the password and the daemon exchanges it with ``POST grant_type=refresh_token``."""
+    anonymous = await docker.get('/auth/token', params={'service': SERVICE, 'offline_token': 'true'})
+    assert 'refresh_token' not in anonymous.json()  # nothing to refresh for anonymous callers
+    login = await docker.get(
+        '/auth/token',
+        params={'service': SERVICE, 'offline_token': 'true', 'client_id': 'docker'},
+        auth=('admin', PASSWORD),
+    )
+    assert login.status_code == 200
+    assert login.headers['cache-control'] == 'no-store'
+    refresh = login.json()['refresh_token']
+    assert claims(refresh)['use'] == 'refresh'
+    assert 'refresh_token' not in (await get_token(docker, auth=('admin', PASSWORD))).json()  # only when asked for
+
+    # a refresh token is never a /v2/ credential
+    assert (await docker.get('/v2/', headers={'Authorization': f'Bearer {refresh}'})).status_code == 401
+
+    issued = await refreshed(docker, refresh, 'repository:private/app:pull,push repository:docker-hub/x:pull')
+    assert issued.status_code == 200
+    body = issued.json()
+    assert 'refresh_token' not in body  # not rotated: the daemon keeps the stored one
+    assert body['scope'] == 'repository:private/app:pull,push repository:docker-hub/x:pull'
+    payload = claims(body['access_token'])
+    assert payload['sub'] != 'anonymous'
+    assert payload['access'][0] == {'type': 'repository', 'name': 'private/app', 'actions': ['pull', 'push']}
+    pushed = await docker.put(
+        '/v2/private/app/manifests/1', headers={'Authorization': f'Bearer {body["access_token"]}'}
+    )
+    assert pushed.status_code == 200
+    assert pushed.text.endswith(' admin')
+
+    # an access token is not a refresh token; junk is refused
+    assert (await refreshed(docker, body['access_token'])).status_code == 401
+    assert (await refreshed(docker, 'x.y.z')).status_code == 401
+    assert (await refreshed(docker, '')).status_code == 401
+
+
+async def test_password_grant(docker: httpx.AsyncClient) -> None:
+    """containerd posts a password grant before falling back to ``GET``."""
+    issued = await post_token(
+        docker,
+        grant_type='password',
+        username='admin',
+        password=PASSWORD,
+        scope='repository:private/app:pull',
+        access_type='offline',
+    )
+    assert issued.status_code == 200
+    body = issued.json()
+    assert claims(body['access_token'])['access'] == [
+        {'type': 'repository', 'name': 'private/app', 'actions': ['pull']}
+    ]
+    assert claims(body['refresh_token'])['use'] == 'refresh'
+    without_offline = await post_token(docker, grant_type='password', username='admin', password=PASSWORD)
+    assert 'refresh_token' not in without_offline.json()
+
+    wrong = await post_token(docker, grant_type='password', username='admin', password='wrong')
+    assert wrong.status_code == 401
+    assert wrong.json()['errors'][0]['code'] == 'UNAUTHORIZED'
+    assert (await post_token(docker, grant_type='password', username='admin')).status_code == 400
+    assert (await post_token(docker, grant_type='client_credentials')).status_code == 400
+    assert (await docker.post('/auth/token', json={'grant_type': 'password'})).status_code == 400
+    assert (await docker.post('/auth/token', data={'service': 'other.example.com'})).status_code == 400
+
+
+async def test_password_grant_with_containerd_ns(docker: httpx.AsyncClient) -> None:
+    issued = await post_token(
+        docker,
+        ns='docker.io',
+        grant_type='password',
+        username='admin',
+        password=PASSWORD,
+        scope='repository:library/nginx:pull',
+    )
+    assert claims(issued.json()['access_token'])['access'] == [
+        {'type': 'repository', 'name': 'docker-hub/library/nginx', 'actions': ['pull']}
+    ]
+
+
+@contextlib.asynccontextmanager
+async def _admin_api(services: Services) -> AsyncIterator[httpx.AsyncClient]:
+    async with asgi_client(services) as client:
+        response = await client.post('/api/v1/auth/login', json={'username': 'admin', 'password': PASSWORD})
+        assert response.status_code == 200
+        client.headers['X-CSRF-Token'] = response.json()['csrf_token']
+        yield client
+
+
+async def _login(docker: httpx.AsyncClient, name: str, password: str = PASSWORD) -> tuple[str, str]:
+    login = await docker.get(
+        '/auth/token',
+        params={'service': SERVICE, 'offline_token': 'true', 'scope': 'repository:private/app:pull'},
+        auth=(name, password),
+    )
+    assert login.status_code == 200
+    return login.json()['access_token'], login.json()['refresh_token']
+
+
+async def _works(docker: httpx.AsyncClient, access_token: str) -> bool:
+    served = await docker.get('/v2/private/app/manifests/1', headers={'Authorization': f'Bearer {access_token}'})
+    return served.status_code == 200
+
+
+NEW_PASSWORD = 'another horse battery staple'
+
+
+@pytest.mark.parametrize('how', ['disable', 'password', 'sessions', 'delete'])
+async def test_issued_tokens_are_revoked_before_they_expire(
+    services: Services, docker: httpx.AsyncClient, settings: Settings, how: str
+) -> None:
+    """Disabling or deleting a user, resetting their password or ending their sessions refuses the registry tokens
+    already issued to them at once, on every replica (the access token on /v2/, the refresh token at the token
+    service); tokens issued afterwards work."""
+    name = f'rita-{how}'
+    user_id = await _rita(services, name)
+    access_token, refresh = await _login(docker, name)
+    assert await _works(docker, access_token)
+
+    replica = Services.create(settings)
+    replica.formats.set_plugin(EchoDocker(replica))  # type: ignore[arg-type]
+    await replica.start()
+    try:
+        async with asgi_client(replica) as other:
+            assert await _works(other, access_token)  # the replica has seen (and cached) the user
+            async with _admin_api(services) as api:
+                if how == 'disable':
+                    changed = await api.patch(f'/api/v1/users/{user_id}', json={'disabled': True})
+                elif how == 'password':
+                    changed = await api.post(
+                        f'/api/v1/users/{user_id}/password',
+                        json={'password': NEW_PASSWORD, 'must_change_password': False},
+                    )
+                elif how == 'sessions':
+                    changed = await api.delete(f'/api/v1/users/{user_id}/sessions')
+                else:
+                    changed = await api.delete(f'/api/v1/users/{user_id}')
+                assert changed.status_code in (200, 204), changed.text
+            assert not await _works(other, access_token)
+            assert not await _works(docker, access_token)
+            assert (await refreshed(other, refresh)).status_code == 401
+    finally:
+        await replica.stop()
+
+    if how in ('password', 'sessions'):
+        fresh_access, fresh_refresh = await _login(docker, name, NEW_PASSWORD if how == 'password' else PASSWORD)
+        assert await _works(docker, fresh_access)
+        again = await refreshed(docker, fresh_refresh)
+        assert again.status_code == 200
+        assert await _works(docker, again.json()['access_token'])
+
+
+async def test_revocation_survives_valkey_loss(services: Services, docker: httpx.AsyncClient) -> None:
+    """MongoDB holds the cut-off: with the Valkey key gone, the refresh token stays refused."""
+    user_id = await _rita(services, 'rita-valkey')
+    _, refresh = await _login(docker, 'rita-valkey')
+    await registry_revocation.revoke_user(services.db, services.valkey, user_id)
+    await services.valkey.delete(registry_revocation.KEY + user_id)
+    assert (await refreshed(docker, refresh)).status_code == 401
+
+
+async def test_refresh_token_of_an_api_token_follows_the_api_token(
+    services: Services, docker: httpx.AsyncClient
+) -> None:
+    async with _admin_api(services) as api:
+        created = await api.post('/api/v1/auth/me/tokens', json={'name': 'ci', 'scopes': ['read']})
+        assert created.status_code == 201, created.text
+        secret, token_id = created.json()['secret'], created.json()['token']['id']
+        login = await docker.get(
+            '/auth/token', params={'service': SERVICE, 'offline_token': 'true'}, auth=('ci-bot', secret)
+        )
+        refresh = login.json()['refresh_token']
+        assert claims(refresh)['tid'] == token_id
+        issued = await refreshed(docker, refresh, 'repository:private/app:pull,push')
+        assert issued.status_code == 200
+        assert claims(issued.json()['access_token'])['access'][0]['actions'] == ['pull']  # narrowed to read
+        # the owner's registry-token cut-off (e.g. a password change) does not end API tokens or what they issued
+        admin = await services.db[USERS].find_one({'username': 'admin'})
+        assert admin is not None
+        await registry_revocation.revoke_user(services.db, services.valkey, admin['_id'])
+        assert (await refreshed(docker, refresh)).status_code == 200
+        assert (await api.delete(f'/api/v1/auth/me/tokens/{token_id}')).status_code == 204
+    assert (await refreshed(docker, refresh)).status_code == 401

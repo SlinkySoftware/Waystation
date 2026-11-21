@@ -131,6 +131,10 @@ upstream request first passes the repository's auto-block breaker (`proxy.breake
 one probe per ended period across replicas) and reports its outcome to it; Valkey down = no auto-block.
 The guard itself (`SsrfGuard`, `GuardedBackend`) lives in `waystation_common.ssrf` (re-exported by
 `waystation_server.proxy.ssrf`) so the worker's outbound calls (webhook deliveries, T-O05) apply the same rules.
+The breaker's core (Lua scripts, `AutoBlockBreaker`) lives in `waystation_common.breaker` (the server's
+`proxy.breaker.UpstreamBreaker` adds announcements and the prober): the worker's own upstream requests (the
+`apt.refresh` job, `waystation_worker.upstream`) apply the repository's network settings and credentials the same
+way, pass the same breaker first and report their outcomes to it.
 
 ### 6.2 Freshness
 Each cached asset stores `fetched_at`, `etag`, `last_modified`, `upstream_status`. Metadata older than
@@ -198,8 +202,9 @@ Formats without upstream checksums record the computed sha256 and serve consiste
 - Hidden objects answer 404, never 403 (a repository the principal can neither browse nor read). One exception
   (ADR 0005), decided only by `access.hidden_repo`: on the format routes (`/repository/<repo>/...`) a request with no
   credentials at all (anonymous principal, no `Authorization` header) gets `401` + `WWW-Authenticate: Basic` for a
-  hidden repository **and the identical answer for a missing one** (so names cannot be enumerated); requests with
-  credentials keep the 404, and `/v2/`, the REST API, search and browse are unchanged. On a hidden repository, a
+  hidden repository **and the identical answer for a missing one** (so names cannot be enumerated); authenticated
+  requests keep the 404 (invalid credentials are refused with 401 by authentication first, for any repository,
+  never downgraded to anonymous), and `/v2/`, the REST API, search and browse are unchanged. On a hidden repository, a
   package-client sign-in (npm login) shows the repository only by succeeding: every failure gets the same answer.
   Every route declares its required action (decorator); a test enumerates all routes and fails if one lacks it.
 - Grants are materialised per principal (roles ∪ group roles ∪ anonymous) into a compact table cached in Valkey
@@ -225,7 +230,12 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   display prefix. A token narrows its owner's grants (scopes → actions, repository patterns → repositories);
   `access.check` applies the narrowing, so no route can forget it. Docker registry tokens are short-lived (5 min)
   JWT (EdDSA) signed with a key in `keys/`, scoped per the Docker token spec; one issued for an API token carries
-  its id (`tid`) and the API token is re-checked on every `/v2/` request.
+  its id (`tid`) and the API token is re-checked on every `/v2/` request. Refresh tokens (`docker login` identity
+  tokens, OAuth2 `access_type=offline`; T-S12) are 90-day JWTs of the same key marked `use: refresh`, never accepted
+  on `/v2/`, exchanged at `POST /auth/token` after the subject is re-read from MongoDB. Revocation before expiry
+  (`security.registry_revocation`): a per-user cut-off, durable in `users.tokens_not_before` and announced in Valkey
+  (`regtok:nbf:<user>`, read on every `/v2/` request with a user's token); tokens issued (`iat_ms`) at or before it
+  are refused. Set when a user is disabled or deleted, changes or gets a new password, or has sessions revoked.
 - Credentials for upstreams and LDAP/OIDC secrets are AES-GCM encrypted with `SECRET_KEYS` (first key encrypts,
   all keys decrypt; rotation job re-encrypts).
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and

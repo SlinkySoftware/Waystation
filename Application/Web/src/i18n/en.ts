@@ -309,6 +309,14 @@ export const en = {
       activity: 'Last activity',
     },
   },
+  repoClone: {
+    button: 'Clone',
+    title: 'Clone {name}',
+    caption: 'A new repository with the same configuration and stored credentials. Cached and uploaded content is not copied.',
+    submit: 'Clone repository',
+    dockerNote: 'Docker aliases and the default-repository setting stay with the original.',
+    done: 'Repository {name} created',
+  },
   repoCreate: {
     title: 'Create repository',
     formTitle: 'New {format} proxy',
@@ -1349,6 +1357,7 @@ export const en = {
       cleanup_run: 'Cleanup policy',
       quota_reconcile: 'Quota recount',
       storage_check: 'Low-disk check',
+      apt_refresh: 'apt refresh',
     },
     kindHelp: {
       stats_rollup: 'Rolls live counters into the statistics every few seconds',
@@ -1357,6 +1366,7 @@ export const en = {
       cleanup_run: 'Removes what the policy matches from its repositories',
       quota_reconcile: 'Recounts the bytes each repository stores and raises quota alerts',
       storage_check: 'Compares free disk space with the low-disk guard and raises alerts',
+      apt_refresh: 'Revalidates stale apt Release files, refreshes the Packages indexes clients use and re-verifies unverified package files',
     },
     queue: {
       index: 'Index',

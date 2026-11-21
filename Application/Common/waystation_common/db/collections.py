@@ -86,22 +86,29 @@ def _ix(name: str, keys: list[tuple[str, Any]], **kwargs: Any) -> IndexModel:
     return IndexModel(keys, name=name, **kwargs)
 
 
-# Global search (SPECIFICATION §4.6, ``waystation_common.searchkeys``): prefix ranges on the lower-cased name, results
-# in (key, repo_id, _id) order straight from the index; ``base_lc`` (last ``/`` segment) carries ``name_lc`` so the
-# "name did not match already" filter is evaluated on index keys. Partial: only searchable documents are indexed.
 def _ts_indexes() -> tuple[IndexModel, ...]:
     """Secondary indexes of the stats time-series collections: a repository's documents in time order (the stats
     API's per-repository ranges) and every repository's in time order (instance-wide ranges, rollups)."""
     return (_ix('repo_ts', [('m.repo_id', ASCENDING), ('ts', ASCENDING)]), _ix('ts', [('ts', ASCENDING)]))
 
 
+# Global search (SPECIFICATION §4.6, ``waystation_common.searchkeys``): prefix ranges on the lower-cased name, results
+# in (key, repo_id, _id) order straight from the index; ``base_lc`` (last ``/`` segment) carries ``name_lc`` so the
+# "name did not match already" filter is evaluated on index keys. Partial: only searchable documents are indexed.
+# Substring matches (adr/0009): ``search_sfx`` = a prefix range over the multikey ``name_sfx`` (name suffixes), read in
+# (suffix, repo_id, _id) order with min/max key bounds as the keyset.
 def _search_indexes(*, base: bool) -> tuple[IndexModel, ...]:
     indexes = [
         _ix(
             'search_name',
             [('name_lc', ASCENDING), ('repo_id', ASCENDING), ('_id', ASCENDING)],
             partialFilterExpression={'name_lc': {'$exists': True}},
-        )
+        ),
+        _ix(
+            'search_sfx',
+            [('name_sfx', ASCENDING), ('repo_id', ASCENDING), ('_id', ASCENDING)],
+            partialFilterExpression={'name_sfx': {'$exists': True}},
+        ),
     ]
     if base:
         indexes.append(

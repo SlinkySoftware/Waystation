@@ -9,10 +9,12 @@ from typing import Any
 import httpx
 import pytest
 from ws_fake_upstream import FakeUpstream, Respond, Seen
+from ws_testing import asgi_client
 
 from waystation_common.db.collections import ASSETS, DOCKER_TAGS, REPOSITORIES
 from waystation_common.events import keys
 from waystation_common.settings import Settings
+from waystation_server.formats.docker.upstream_auth import TOKEN_AAD
 from waystation_server.problems import ResponseAborted
 from waystation_server.services import Services
 
@@ -317,7 +319,8 @@ async def test_unknown_names_and_errors(client: httpx.AsyncClient, registry: Reg
     assert bad.status_code == 400
     assert bad.json()['errors'][0]['code'] == 'NAME_INVALID'
     referrers = await client.get(f'/repository/hub/v2/library/hello/referrers/{MANIFEST_DIGEST}')
-    assert referrers.status_code == 404
+    assert referrers.status_code == 200  # no referrers API, no tag schema upstream: an empty index
+    assert referrers.json()['manifests'] == []
 
 
 async def test_rate_limit_headers_are_recorded(
@@ -364,3 +367,141 @@ async def test_challenge_on_a_later_request_is_learned_and_retried(
     assert blob.status_code == 200
     assert [s.headers.get('authorization') for s in registry.gets(f'blobs/{digest(CONFIG)}')] == [f'Bearer {TOKEN}']
     assert [s.path for s in registry.up.seen].count('/v2/') == 1
+
+
+# ---------------------------------------------------------------------------- upstream tokens shared across processes
+async def test_upstream_token_and_challenge_are_shared_by_every_server_process(
+    client: httpx.AsyncClient, services: Services, settings: Settings, registry: Registry, hub: str
+) -> None:
+    """One process pings ``/v2/`` and fetches the pull token; another process (its own in-process cache) uses the
+    same token from Valkey: one ping and one token request in total. The token is stored encrypted."""
+    assert (await client.get('/repository/hub/v2/library/hello/manifests/latest')).status_code == 200
+    tokens = [s for s in registry.up.seen if s.path.startswith('/token')]
+    assert len(tokens) == 1
+    keys_found = [k async for k in services.valkey.scan_iter(match='uptok:*')]
+    assert len(keys_found) == 1
+    stored = await services.valkey.get(keys_found[0])
+    assert stored is not None and TOKEN not in stored  # never in clear
+    assert [k async for k in services.valkey.scan_iter(match='uprealm:*')]
+
+    replica = Services.create(settings)
+    await replica.start()
+    try:
+        async with asgi_client(replica) as other:
+            blob = await other.get(f'/repository/hub/v2/library/hello/blobs/{digest(CONFIG)}')
+            assert blob.status_code == 200
+    finally:
+        await replica.stop()
+    assert [s.headers.get('authorization') for s in registry.gets(f'blobs/{digest(CONFIG)}')] == [f'Bearer {TOKEN}']
+    assert len([s for s in registry.up.seen if s.path.startswith('/token')]) == 1
+    assert [s.path for s in registry.up.seen].count('/v2/') == 1
+
+
+async def test_a_rejected_shared_token_is_replaced(
+    client: httpx.AsyncClient, services: Services, registry: Registry, hub: str
+) -> None:
+    """The upstream refusing the shared token (revoked, rotated) makes the process fetch a new one for everyone."""
+    assert (await client.get('/repository/hub/v2/library/hello/manifests/latest')).status_code == 200
+    keys_found = [k async for k in services.valkey.scan_iter(match='uptok:*')]
+    plugin = services.formats.plugin('docker')
+    plugin.tokens._tokens.clear()  # type: ignore[union-attr]
+    # Another process stored a token the upstream no longer accepts.
+    key = keys_found[0]  # the Valkey client decodes responses
+    sealed = services.keyring.encrypt_str('stale-token', aad=TOKEN_AAD + key.encode())  # type: ignore[union-attr]
+    expiry = int((datetime.now(UTC).timestamp() + 200) * 1000)
+    await services.valkey.set(key, f'{expiry} {sealed}', px=200_000)
+    blob = await client.get(f'/repository/hub/v2/library/hello/blobs/{digest(CONFIG)}')
+    assert blob.status_code == 200
+    assert [s.headers.get('authorization') for s in registry.gets(f'blobs/{digest(CONFIG)}')] == [
+        'Bearer stale-token',
+        f'Bearer {TOKEN}',
+    ]
+    stored = await services.valkey.get(key)
+    assert stored is not None
+    sealed_now = stored.split(' ', 1)[1]
+    assert services.keyring.decrypt_str(sealed_now, aad=TOKEN_AAD + key.encode()) == TOKEN  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------- referrers
+SIGNATURE_TYPE = 'application/vnd.dev.cosign.artifact.sig.v1+json'
+SBOM_TYPE = 'application/spdx+json'
+
+
+def referrers_index(*entries: dict[str, Any]) -> bytes:
+    return json.dumps({'schemaVersion': 2, 'mediaType': OCI_INDEX, 'manifests': list(entries)}).encode()
+
+
+OCI_INDEX = 'application/vnd.oci.image.index.v1+json'
+SIG = {
+    'mediaType': OCI_MANIFEST,
+    'digest': 'sha256:' + 'a' * 64,
+    'size': 512,
+    'artifactType': SIGNATURE_TYPE,
+    'annotations': {'org.example.signed': 'yes'},
+    'urls': ['http://198.51.100.7/evil'],  # unknown fields are not passed on
+}
+SBOM = {'mediaType': OCI_MANIFEST, 'digest': 'sha256:' + 'b' * 64, 'size': 1024, 'artifactType': SBOM_TYPE}
+JUNK = [{'mediaType': OCI_MANIFEST, 'digest': 'md5:abc', 'size': 1}, 'x', {'digest': 'sha256:' + 'c' * 64}]
+
+
+async def test_referrers_from_the_upstream_referrers_api(
+    client: httpx.AsyncClient, registry: Registry, hub: str
+) -> None:
+    path = f'/v2/library/hello/referrers/{MANIFEST_DIGEST}'
+    registry.up.routes[path] = registry.guard(
+        lambda seen: Respond(200, {'Content-Type': OCI_INDEX}, referrers_index(SIG, SBOM, *JUNK))  # type: ignore[arg-type]
+    )
+    url = f'/repository/hub/v2/library/hello/referrers/{MANIFEST_DIGEST}'
+    response = await client.get(url)
+    assert response.status_code == 200
+    assert response.headers['content-type'] == OCI_INDEX
+    assert response.headers['docker-distribution-api-version'] == 'registry/2.0'
+    body = response.json()
+    assert body['mediaType'] == OCI_INDEX
+    assert body['manifests'] == [{k: v for k, v in SIG.items() if k != 'urls'}, SBOM]
+    filtered = await client.get(url, params={'artifactType': SBOM_TYPE})
+    assert filtered.headers['oci-filters-applied'] == 'artifactType'
+    assert filtered.json()['manifests'] == [SBOM]
+    assert len(registry.gets(f'referrers/{MANIFEST_DIGEST}')) == 1  # cached as metadata
+    assert (await client.get(url.replace(MANIFEST_DIGEST, 'sha256:xyz'))).status_code == 400
+
+
+async def test_referrers_fall_back_to_the_tag_schema(client: httpx.AsyncClient, registry: Registry, hub: str) -> None:
+    """An upstream without the referrers API (404) is asked for the ``sha256-<hex>`` tag instead; later lookups go
+    straight to the tag. Nothing there either = an empty index."""
+    tag = 'sha256-' + MANIFEST_DIGEST.split(':')[1]
+    index = referrers_index(SIG)
+    registry.up.routes[f'/v2/library/hello/manifests/{tag}'] = registry.guard(
+        lambda seen: Respond(200, {'Content-Type': OCI_INDEX, 'Docker-Content-Digest': digest(index)}, index)
+    )
+    response = await client.get(f'/repository/hub/v2/library/hello/referrers/{MANIFEST_DIGEST}')
+    assert response.status_code == 200
+    assert [m['digest'] for m in response.json()['manifests']] == [SIG['digest']]
+    assert len(registry.gets(f'referrers/{MANIFEST_DIGEST}')) == 1
+
+    other = 'sha256:' + 'd' * 64
+    empty = await client.get(f'/repository/hub/v2/library/hello/referrers/{other}')
+    assert empty.status_code == 200
+    assert empty.json() == {'schemaVersion': 2, 'mediaType': OCI_INDEX, 'manifests': []}
+    assert registry.gets(f'referrers/{other}') == []  # the upstream has no referrers API: not asked again
+    assert len(registry.gets(f'manifests/sha256-{"d" * 64}')) == 1
+    again = await client.get(f'/repository/hub/v2/library/hello/referrers/{other}')
+    assert again.json()['manifests'] == []
+    assert len(registry.gets(f'manifests/sha256-{"d" * 64}')) == 1  # negative cache
+
+
+async def test_referrers_refuse_a_tampered_fallback_tag(
+    client: httpx.AsyncClient, registry: Registry, hub: str
+) -> None:
+    tag = 'sha256-' + MANIFEST_DIGEST.split(':')[1]
+    registry.up.routes[f'/v2/library/hello/manifests/{tag}'] = registry.guard(
+        lambda seen: Respond(
+            200, {'Content-Type': OCI_INDEX, 'Docker-Content-Digest': 'sha256:' + 'e' * 64}, referrers_index(SIG)
+        )
+    )
+    response = await client.get(f'/repository/hub/v2/library/hello/referrers/{MANIFEST_DIGEST}')
+    assert response.status_code == 502
+    registry.up.routes[f'/v2/library/hello/manifests/{tag}'] = registry.guard(
+        lambda seen: Respond(200, {'Content-Type': OCI_MANIFEST}, MANIFEST)  # not an index
+    )
+    assert (await client.get(f'/repository/hub/v2/library/hello/referrers/{MANIFEST_DIGEST}')).status_code == 502

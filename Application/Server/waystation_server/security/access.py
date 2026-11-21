@@ -410,8 +410,9 @@ def hidden_repo(request: Request, principal: Principal) -> WaystationError:
 
     On the format routes (``/repository/<repo>/...``) a request with no credentials at all (anonymous principal, no
     ``Authorization`` header) gets ``401`` (the error handler adds ``WWW-Authenticate: Basic``), so clients that
-    only send credentials after a challenge retry with them. Everything else, including authenticated principals
-    and requests whose credentials were not accepted as a principal, gets ``404``. Missing and hidden repositories
+    only send credentials after a challenge retry with them. Authenticated principals get ``404``. Presented
+    credentials that are not valid never reach this point: authentication refuses them with ``401`` first
+    (``security.authn``; never downgraded to anonymous), whatever the repository. Missing and hidden repositories
     get the same answer, so repository names cannot be enumerated.
     """
     if (

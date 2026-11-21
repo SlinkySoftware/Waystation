@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from waystation_common.breaker import AutoBlockBreaker
 from waystation_common.crypto import Keyring
 from waystation_common.db import galaxy as galaxy_db
 from waystation_common.db import jobs as jobs_db
@@ -13,6 +14,7 @@ from waystation_common.db.jobs import Definition
 from waystation_common.events import keys
 from waystation_common.events.schema import ActivityEvent, EventType
 from waystation_common.jobs.model import (
+    AptRefresh,
     BlobGc,
     BlobVerify,
     CleanupRun,
@@ -29,7 +31,7 @@ from waystation_common.jobs.model import (
 )
 from waystation_common.signing import KeyStore
 from waystation_common.storage import BlobStore
-from waystation_worker import cleanup, galaxy, gc, helm, quota, rollup, verify, webhooks, yum
+from waystation_worker import apt, cleanup, galaxy, gc, helm, quota, rollup, upstream, verify, webhooks, yum
 from waystation_worker.jobs.context import JobContext
 from waystation_worker.jobs.registry import handles
 
@@ -46,6 +48,9 @@ BUILTIN_DEFINITIONS: tuple[Definition, ...] = (
     Definition(id='storage.check', kind=StorageCheck.kind, schedule='@every 1m'),
     # Webhook retries that are due (and deliveries whose job was lost), SPEC §4.12.
     Definition(id='webhook.sweep', kind=WebhookSweep.kind, schedule='@every 15s'),
+    # apt proxies (FORMATS.md "apt"): stale Release files revalidated, their Packages indexes refreshed, unverified
+    # pool files re-verified, hourly.
+    Definition(id='apt.refresh', kind=AptRefresh.kind, schedule='41 * * * *'),
 )
 log = logging.getLogger('waystation.worker.jobs')
 
@@ -215,6 +220,29 @@ async def yum_index(job: YumIndex, ctx: JobContext) -> dict[str, Any]:
         f'published repodata: {result.packages} packages, revision {result.revision}, key {result.fingerprint}'
     )
     return {'repo_id': job.repo_id, **result.as_dict()}
+
+
+@handles(AptRefresh)
+async def apt_refresh(job: AptRefresh, ctx: JobContext) -> dict[str, Any]:
+    """Refresh apt proxy repositories: Release revalidation, Packages refresh, pool re-verification
+    (``waystation_worker.apt``)."""
+    if ctx.settings is None:
+        raise RuntimeError('the apt refresh needs the worker settings (data directory, secret keys)')
+    store = BlobStore.from_settings(ctx.settings)
+    store.guard = MongoBlobGuard(ctx.db)  # the commit claims the blob against GC (ARCHITECTURE §5)
+    keyring = Keyring.from_settings(ctx.settings.secret_keys) if ctx.settings.secret_keys else None
+    breaker = AutoBlockBreaker(ctx.valkey)  # the server's auto-block state (ARCH §6.1)
+    async with upstream.Fetcher(ctx.settings, keyring, breaker=breaker) as fetcher:
+        return await apt.run(
+            ctx.db,
+            store,
+            fetcher,
+            job.repo_id,
+            valkey=ctx.valkey,
+            now=ctx.now(),
+            log_line=ctx.log,
+            progress=ctx.progress,
+        )
 
 
 @handles(GalaxyImport)

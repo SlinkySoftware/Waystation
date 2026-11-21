@@ -63,6 +63,8 @@ class UserRecord(BaseModel):
     failed_logins: int = 0
     locked_until: datetime | None = None
     last_login: datetime | None = None
+    # Docker registry tokens issued at or before this time are refused (``security.registry_revocation``).
+    tokens_not_before: datetime | None = None
     created_at: datetime
 
 

@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 
 import pytest
 
+from waystation_common.apt import deb822, suites
 from waystation_common.errors import ValidationFailed
-from waystation_server.formats.apt import deb822, suites
 from waystation_server.formats.apt.descriptor import DESCRIPTOR
 from waystation_server.formats.apt.plugin import (
     Target,

@@ -10,7 +10,9 @@ A group answers the registry API from its members, in order (proxy and hosted mi
   only a ``GET`` then asks the proxy members' upstreams in order. A ``HEAD`` never goes upstream (it is how clients
   check what a push still has to upload, and image names pushed to a group must not leak to public registries).
 - **tags/list**: the union of the members' tags (hosted: pushed tags; proxies: the upstream's first page, cached like
-  ``tags/list``), sorted, with ``n``/``last`` and ``Link``. **referrers**: the union over hosted members.
+  ``tags/list``), sorted, with ``n``/``last`` and ``Link``. **referrers**: the union over every member (hosted:
+  stored referrers; proxies: the upstream's referrers API or tag schema), first member first; failing members are
+  skipped.
 - **Writes** (pushes, upload sessions, deletes) go to the ``writable_member`` (a hosted docker repository); a group
   without one is read-only (``405 UNSUPPORTED``). The principal needs the action on the group (checked by the router)
   and on the writable member (RBAC; a registry token names only the group).
@@ -152,11 +154,9 @@ class DockerGroup:
         merged: dict[str, dict[str, object]] = {}
         filtered = False
         for member in members:
-            if member.type is not RepoType.HOSTED:
-                continue
             response = await self._serve(self._member_request(req, member), op)
             if response.status_code != 200:
-                continue
+                continue  # an upstream failure: the other members still answer
             filtered = filtered or 'oci-filters-applied' in response.headers
             body = json.loads(bytes(response.body))
             for entry in body.get('manifests', []):

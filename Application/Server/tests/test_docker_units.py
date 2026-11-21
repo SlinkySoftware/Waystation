@@ -1,12 +1,21 @@
 """Docker / OCI protocol helpers and upstream token cache (T-P2-DOCKERP), no I/O."""
 
 import hashlib
+import json
 
 import pytest
 
+from waystation_common.crypto import Keyring
 from waystation_common.errors import DigestMismatch, UpstreamError
 from waystation_server.formats.docker import protocol as p
-from waystation_server.formats.docker.upstream_auth import Realm, TokenCache, challenge_of, origin_of, parse_challenge
+from waystation_server.formats.docker.upstream_auth import (
+    Realm,
+    SharedTokens,
+    TokenCache,
+    challenge_of,
+    origin_of,
+    parse_challenge,
+)
 
 DIGEST = 'sha256:' + 'a' * 64
 
@@ -155,3 +164,97 @@ def test_token_cache_expiry() -> None:
     assert cache.token('r', 's') == 'tok2'
     cache.forget_token('r', 's')
     assert cache.token('r', 's') is None
+
+
+class FakeValkey:
+    def __init__(self, *, broken: bool = False) -> None:
+        self.data: dict[str, bytes] = {}
+        self.broken = broken
+
+    async def get(self, key: str) -> bytes | None:
+        if self.broken:
+            raise ConnectionError('down')
+        return self.data.get(key)
+
+    async def set(self, key: str, value: str, px: int) -> None:
+        if self.broken:
+            raise ConnectionError('down')
+        self.data[key] = value.encode()
+
+    async def delete(self, key: str) -> None:
+        if self.broken:
+            raise ConnectionError('down')
+        self.data.pop(key, None)
+
+
+async def test_shared_tokens_are_encrypted_and_expire() -> None:
+    now = [1000.0]
+    valkey = FakeValkey()
+    shared = SharedTokens(valkey, Keyring([b'k' * 32]), clock=lambda: now[0])  # type: ignore[arg-type]
+    await shared.put_token('repo:1', 'repository:a:pull', 'secret-token', 120)
+    [(key, value)] = valkey.data.items()
+    assert key.startswith('uptok:') and b'secret-token' not in value and 'repo' not in key
+    assert await shared.token('repo:1', 'repository:a:pull') == ('secret-token', 120)
+    assert await shared.token('repo:2', 'repository:a:pull') is None  # another repository or configuration
+    other_keys = SharedTokens(valkey, Keyring([b'o' * 32]))  # type: ignore[arg-type]
+    assert await other_keys.token('repo:1', 'repository:a:pull') is None  # unreadable: never an error
+    now[0] += 119.5
+    assert await shared.token('repo:1', 'repository:a:pull') is None  # less than a second left
+    await shared.forget_token('repo:1', 'repository:a:pull')
+    assert valkey.data == {}
+    without_keys = SharedTokens(valkey, None)  # type: ignore[arg-type]
+    await without_keys.put_token('repo:1', 'repository:a:pull', 'secret-token', 120)
+    assert valkey.data == {}  # never stored in clear
+    assert await without_keys.token('repo:1', 'repository:a:pull') is None
+
+
+async def test_shared_realms_and_valkey_failures() -> None:
+    valkey = FakeValkey()
+    shared = SharedTokens(valkey, Keyring([b'k' * 32]))  # type: ignore[arg-type]
+    assert await shared.realm('repo:1') is None
+    await shared.put_realm('repo:1', Realm('https://auth.example.com/token', 'registry.example.com'))
+    assert await shared.realm('repo:1') == Realm('https://auth.example.com/token', 'registry.example.com')
+    await shared.put_realm('repo:2', 'basic')
+    assert await shared.realm('repo:2') == 'basic'
+    valkey.data[next(iter(valkey.data))] = b'not json'  # repo:1's, stored first
+    assert await shared.realm('repo:1') is None
+    down = SharedTokens(FakeValkey(broken=True), Keyring([b'k' * 32]))  # type: ignore[arg-type]
+    await down.put_token('repo:1', 's', 'tok', 60)
+    await down.put_realm('repo:1', 'none')
+    await down.forget_token('repo:1', 's')
+    assert await down.token('repo:1', 's') is None
+    assert await down.realm('repo:1') is None
+
+
+def test_referrers_tag_schema() -> None:
+    assert p.referrers_tag(DIGEST) == 'sha256-' + 'a' * 64
+    assert p.referrers_tag('sha512:' + 'b' * 128) == 'sha512-' + 'b' * 64  # truncated to a valid tag
+    assert p.TAG_RE.fullmatch(p.referrers_tag('sha512:' + 'b' * 128))
+
+
+def test_referrer_entries_keep_only_well_formed_descriptors() -> None:
+    good = {'mediaType': p.OCI_MANIFEST, 'digest': DIGEST, 'size': 10, 'artifactType': 'application/x.sig'}
+    doc = {
+        'schemaVersion': 2,
+        'mediaType': p.OCI_INDEX,
+        'manifests': [
+            {**good, 'urls': ['http://198.51.100.7/'], 'annotations': {'a': 'b', 'n': 1}},
+            good,  # duplicate
+            {'mediaType': p.OCI_MANIFEST, 'digest': 'sha256:short', 'size': 1},
+            {'mediaType': 'not a type', 'digest': 'sha256:' + 'c' * 64, 'size': 1},
+            {'mediaType': p.OCI_MANIFEST, 'digest': 'sha256:' + 'd' * 64, 'size': True},
+            {'mediaType': p.OCI_MANIFEST, 'digest': 'sha256:' + 'e' * 64, 'size': 3, 'artifactType': 5},
+            'junk',
+        ],
+    }
+    assert p.referrer_entries(json.dumps(doc).encode()) == [
+        {**good, 'annotations': {'a': 'b'}},
+        {'mediaType': p.OCI_MANIFEST, 'digest': 'sha256:' + 'e' * 64, 'size': 3},
+    ]
+    assert p.referrer_entries(b'nope') == []
+    assert p.referrer_entries(b'[]') == []
+    p.check_referrers(json.dumps(doc).encode())
+    p.check_referrers(b'{"manifests": []}')
+    for bad in (b'nope', b'[]', b'{"manifests": {}}', json.dumps({'mediaType': p.OCI_MANIFEST}).encode()):
+        with pytest.raises(UpstreamError):
+            p.check_referrers(bad)

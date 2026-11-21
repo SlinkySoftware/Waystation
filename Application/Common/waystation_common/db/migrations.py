@@ -34,13 +34,16 @@ from waystation_common.db.collections import (
     ASSETS,
     COMPONENTS,
     DOCKER_TAGS,
+    GO_MODULES,
     NPM_PACKAGES,
+    PYPI_PACKAGES,
+    TERRAFORM_PROVIDERS,
     YUM_PACKAGES,
 )
 from waystation_common.db.collections import MIGRATIONS as MIGRATIONS_COLLECTION
 from waystation_common.errors import ConfigError
 from waystation_common.ids import new_id
-from waystation_common.searchkeys import file_keys, name_keys
+from waystation_common.searchkeys import SearchKeys, file_keys, name_keys, suffixes
 
 log = logging.getLogger('waystation.db.migrations')
 
@@ -64,7 +67,7 @@ BACKFILL_BATCH = 1000
 
 
 async def _backfill(
-    db: Database, collection: str, query: dict[str, Any], field: str, keys: Callable[[str], dict[str, str]]
+    db: Database, collection: str, query: dict[str, Any], field: str, keys: Callable[[str], SearchKeys]
 ) -> None:
     """Set the search keys on every document matching ``query`` that has none yet, in batches. Idempotent and
     resumable: a document is only touched while it lacks ``name_lc``."""
@@ -89,6 +92,35 @@ async def _search_keys(db: Database) -> None:
     await _backfill(db, ASSETS, {'kind': 'content'}, 'path', file_keys)
 
 
+SEARCHABLE = (
+    NPM_PACKAGES,
+    PYPI_PACKAGES,
+    GO_MODULES,
+    TERRAFORM_PROVIDERS,
+    DOCKER_TAGS,
+    APT_PACKAGES,
+    YUM_PACKAGES,
+    ASSETS,
+)
+
+
+async def _search_suffixes(db: Database) -> None:
+    """``name_sfx`` (substring search, adr/0009) on every document that has ``name_lc`` but no suffixes yet, from
+    its ``name_lc``, in batches. Idempotent and resumable: a document is only touched while it lacks ``name_sfx``."""
+    for collection in SEARCHABLE:
+        missing = {'name_lc': {'$exists': True}, 'name_sfx': {'$exists': False}}
+        ops: list[UpdateOne] = []
+        async for doc in db[collection].find(missing, {'name_lc': 1}):
+            value = doc.get('name_lc')
+            if isinstance(value, str):
+                ops.append(UpdateOne({'_id': doc['_id'], **missing}, {'$set': {'name_sfx': suffixes(value)}}))
+            if len(ops) >= BACKFILL_BATCH:
+                await db[collection].bulk_write(ops, ordered=False)
+                ops = []
+        if ops:
+            await db[collection].bulk_write(ops, ordered=False)
+
+
 async def _usage_artifacts(db: Database) -> None:
     """``repo_usage.artifacts`` (content assets per repository; the storage figures read it instead of aggregating
     ``assets`` per request): one recount of every repository, as the ``quota.reconcile`` job does."""
@@ -110,6 +142,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration('0002_search_keys', 'search keys on searchable content (T-U06)', _search_keys),
     Migration('0003_usage_artifacts', 'artifact counts in repo_usage (T-S05)', _usage_artifacts),
     Migration('0004_component_ids', 'string ids for components (T-S09)', _component_ids),
+    Migration('0005_search_suffixes', 'suffix keys for substring search (T-U06)', _search_suffixes),
 )
 
 

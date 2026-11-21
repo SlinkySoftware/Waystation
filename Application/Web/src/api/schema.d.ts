@@ -995,6 +995,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a repository with this one's configuration (content is not copied)
+         * @description Copies the type, format, upstream (including its stored secret, re-encrypted server-side and never returned),
+         *     policies, quota, group members, hosted write policy, attached cleanup policies and format options. Docker
+         *     `aliases` and `default_repo` are not copied (they name one repository). The clone is never managed by the
+         *     provisioning file. Needs `manage` on the source and `admin`; audited as `repository.create` with
+         *     `details.cloned_from`.
+         */
+        post: operations["cloneRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/setup": {
         parameters: {
             query?: never;
@@ -2022,10 +2048,12 @@ export interface paths {
         };
         /**
          * Search packages, images and files across every repository the principal can browse
-         * @description Name search: `q` is `<name prefix>[ <version prefix>]`, case-insensitive; the name prefix matches a full name
-         *     or its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`). Sources: docker tags,
-         *     npm packages, apt and yum index listings, cached files (by file name; not docker layers). Results are ordered
-         *     by the matched name. An empty `q` lists everything.
+         * @description Name search: `q` is `<name>[ <version prefix>]`, case-insensitive; the name matches as a prefix of a full name
+         *     or of its last `/` segment (`nginx` finds `library/nginx`, `node` finds `@types/node`) and, from three
+         *     characters on, anywhere in the name (`setup` finds `nginx-setup.sh`). Sources: docker tags, npm packages,
+         *     apt and yum index listings, cached files (by file name; not docker layers). Prefix matches come first, ordered
+         *     by the matched name, then substring matches, ordered by the name from the match on. An empty `q` lists
+         *     everything.
          *     Digest search: `sha256:<8-64 hex digits>` or 64 hex digits finds every cached file with that blob in any
          *     repository and format, and the docker tags pointing at it.
          *     Hidden repositories are never searched: they appear in no result, count or facet value.
@@ -3524,6 +3552,14 @@ export interface components {
             group?: components["schemas"]["GroupConfig"];
             storage?: components["schemas"]["StorageConfig"];
             format_options?: components["schemas"]["FormatOptions"];
+        };
+        /** @description Copy a repository's configuration (never its content) under a new name */
+        RepositoryClone: {
+            name: components["schemas"]["RepositoryName"];
+            /** @description null = the source's description */
+            description?: string | null;
+            /** @description null = the source's setting */
+            online?: boolean | null;
         };
         RepositorySummaryStats: {
             size_bytes: number;
@@ -7255,6 +7291,39 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    cloneRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepositoryClone"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    /** @description URL of the new repository resource */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Repository"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     getSetupGuide: {

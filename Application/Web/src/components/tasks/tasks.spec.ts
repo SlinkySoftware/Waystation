@@ -33,6 +33,7 @@ describe('task labels', () => {
     expect(kindLabel('blob.gc')).toBe('Blob garbage collection')
     expect(kindLabel('index.apt')).toBe('index.apt')
     expect(kindLabel('blob.verify')).toBe('Blob verify')
+    expect(kindLabel('apt.refresh')).toBe('apt refresh')
     expect(taskLabel({ kind: 'cleanup.run', owner: { kind: 'cleanup_policy', id: 'p1', name: 'npm-unused-90d' } })).toBe('Policy npm-unused-90d')
     expect(queueLabel('maintenance')).toBe('Maintenance')
     expect(queueLabel('custom')).toBe('custom')

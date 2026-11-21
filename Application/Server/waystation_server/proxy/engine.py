@@ -469,7 +469,7 @@ class ProxyEngine:
         asset = await self._cached(req.repo, spec)
         if asset is not None and (proxy.offline or self._fresh(asset, spec, proxy)):
             return asset
-        if asset is None and proxy.offline:
+        if asset is None and (proxy.offline or await self._negative(req.repo, spec)):
             raise NotFound('Not Found')
         for _ in range(MAX_ROUNDS):
             flight = await self.coalescer.claim(req.repo.id, spec.path)

@@ -7,9 +7,9 @@ import { type MessageKey, t } from '@/i18n'
 import { formatBytes, formatCount, formatDuration } from '@/utils/format'
 import { iconError, iconOk, iconWarning } from '@/utils/icons'
 
-const KNOWN_KINDS = ['stats.rollup', 'blob.gc', 'blob.verify', 'cleanup.run', 'quota.reconcile', 'storage.check'] as const
+const KNOWN_KINDS = ['stats.rollup', 'blob.gc', 'blob.verify', 'cleanup.run', 'quota.reconcile', 'storage.check', 'apt.refresh'] as const
 type KnownKind = (typeof KNOWN_KINDS)[number]
-type KindKey = 'stats_rollup' | 'blob_gc' | 'blob_verify' | 'cleanup_run' | 'quota_reconcile' | 'storage_check'
+type KindKey = 'stats_rollup' | 'blob_gc' | 'blob_verify' | 'cleanup_run' | 'quota_reconcile' | 'storage_check' | 'apt_refresh'
 
 const isKnown = (kind: string): kind is KnownKind => (KNOWN_KINDS as readonly string[]).includes(kind)
 const kindKey = (kind: KnownKind): KindKey => kind.replace('.', '_') as KindKey
