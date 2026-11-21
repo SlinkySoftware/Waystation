@@ -15,6 +15,8 @@
     :aria-busy="busy || undefined"
     @keydown="onKey"
     @scroll.passive="onScroll"
+    @wheel.passive="follow = false"
+    @pointerdown="follow = false"
     @focus="ensureActive"
   >
     <div class="vtree__space" role="none" :style="{ height: `${rows.length * ROW}px` }">
@@ -166,13 +168,23 @@ function ensureActive(): void {
   if (activeIndex.value < 0 && props.rows.length) activeKey.value = props.rows[0]!.key
 }
 
+/** After a keyboard move, keep the active row in view while folders above it load more rows (until the user
+ * scrolls or clicks). */
+let follow = false
 function moveTo(index: number): void {
   const i = Math.max(0, Math.min(props.rows.length - 1, index))
   const row = props.rows[i]
   if (!row) return
   activeKey.value = row.key
+  follow = true
   scrollIntoView(i)
 }
+watch(
+  () => props.rows,
+  () => {
+    if (follow && activeIndex.value >= 0) scrollIntoView(activeIndex.value)
+  },
+)
 
 function toggle(path: string): void {
   emit('toggle', path, !props.isExpanded(path))
@@ -273,7 +285,6 @@ function onKey(event: KeyboardEvent): void {
   white-space: nowrap;
   cursor: pointer;
   border-radius: var(--radius-sm);
-  will-change: transform;
 }
 
 .vtree__row:hover {

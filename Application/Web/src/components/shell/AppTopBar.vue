@@ -12,7 +12,7 @@
       <q-tooltip>{{ t('shell.mockHelp') }}</q-tooltip>
     </span>
 
-    <button type="button" class="topbar__search" :aria-label="t('shell.search')" aria-haspopup="dialog" :aria-keyshortcuts="keyshortcut" @click="emit('open-palette')">
+    <button type="button" class="topbar__search" aria-haspopup="dialog" :aria-keyshortcuts="keyshortcut" @click="emit('open-palette')">
       <q-icon :name="iconSearch" size="18px" />
       <span class="topbar__search-text">{{ t('shell.searchPlaceholder') }}</span>
       <kbd>{{ shortcut }}</kbd>

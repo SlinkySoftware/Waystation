@@ -153,7 +153,10 @@ def _guide(repo: RepoConfig) -> dict[str, list[str]]:
 
 def test_setup_snippets_windows_variants() -> None:
     ctx = SetupContext(
-        repo=make_repo('files'), base_url='https://registry.example.com', registry_host='registry.example.com', username=None
+        repo=make_repo('files'),
+        base_url='https://registry.example.com',
+        registry_host='registry.example.com',
+        username=None,
     )
     curl = next(c for c in DESCRIPTOR.setup_snippets(ctx) if c.id == 'curl')
     windows = {s.id: s for s in curl.snippets if s.os == 'windows'}

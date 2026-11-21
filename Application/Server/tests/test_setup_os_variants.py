@@ -41,7 +41,9 @@ def test_os_variants_replace_a_base_snippet(descriptor: FormatDescriptor) -> Non
                 assert len(keys) == len(set(keys)), f'{repo.name}/{client.id}: duplicate snippet'
                 bases = {s.id for s in client.snippets if s.os is None}
                 for s in client.snippets:
-                    assert s.os is None or s.id in bases, f'{repo.name}/{client.id}/{s.id}: {s.os} variant without a base'
+                    assert s.os is None or s.id in bases, (
+                        f'{repo.name}/{client.id}/{s.id}: {s.os} variant without a base'
+                    )
 
 
 def test_variants_where_the_os_matters() -> None:
@@ -49,7 +51,9 @@ def test_variants_where_the_os_matters() -> None:
 
     def variants(fmt: str, **fields: Any) -> dict[tuple[str, str | None], Any]:
         repo = make_repo('r', fmt, **fields)
-        clients = by_name[fmt].setup_snippets(SetupContext(repo, 'https://registry.example.com', 'registry.example.com', None))
+        clients = by_name[fmt].setup_snippets(
+            SetupContext(repo, 'https://registry.example.com', 'registry.example.com', None)
+        )
         return {(s.id, s.os): s for c in clients for s in c.snippets}
 
     docker = variants('docker', format_options={'default_repo': True, 'docker_hub': True})

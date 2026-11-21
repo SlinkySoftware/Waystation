@@ -88,7 +88,9 @@
     </PageCard>
 
     <PageCard :title="t('ui.showcase.live')" flush>
-      <TransferRow v-for="x in TRANSFERS" :key="x.id" :transfer="x" />
+      <div role="table" :aria-label="t('ui.showcase.live')">
+        <TransferRow v-for="x in TRANSFERS" :key="x.id" :transfer="x" />
+      </div>
     </PageCard>
 
     <PageCard :title="t('ui.showcase.empty')">

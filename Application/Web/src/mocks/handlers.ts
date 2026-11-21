@@ -4,7 +4,7 @@
 // CSRF header on unsafe methods, cursor pagination, realistic latency.
 import { delay, http, HttpResponse } from 'msw'
 
-import type { Action, AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, Problem, PypiYank, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
+import type { Action, AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, ProfileUpdate, Problem, PypiYank, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
 import { accessHandler } from './access'
@@ -42,7 +42,15 @@ const SESSION_KEY = 'ws.mock.session'
 const CSRF = 'mock-csrf-7f3a9c'
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$/
 
-let preferences: Preferences = { theme: 'system', density: 'comfortable' }
+// Kept in localStorage like the mock session, so a reload keeps them (the server stores them per user).
+const PREFS_KEY = 'ws.mock.preferences'
+let preferences: Preferences = (() => {
+  try {
+    return { theme: 'system', density: 'comfortable', ...(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Preferences>) }
+  } catch {
+    return { theme: 'system', density: 'comfortable' }
+  }
+})()
 const providers = seedProviders()
 ROLES.push(...CUSTOM_ROLES.map((r) => ({ ...r, permissions: [...r.permissions] })))
 const admin = new AdminWorld({ roles: ROLES, providers: () => providers, repos: () => world.repos, serviceAccounts })
@@ -314,10 +322,54 @@ export const handlers = [
     await latency()
     return new HttpResponse(null, { status: 204 })
   }),
+  // ---------------------------------------------------------------- profile and own sessions (T-U09)
+  http.patch(`${API}/auth/me`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const name = signedInUser()!
+    const known = admin.users.find((u) => u.username === name)
+    if (known && known.source !== 'local') return problem(409, 'Conflict', 'This account gets its profile from its sign-in provider.')
+    const body = (await request.json()) as ProfileUpdate
+    if (body.display_name !== undefined && body.display_name !== null && !body.display_name.trim()) {
+      return problem(422, 'Unprocessable Content', 'The request has invalid fields.', [{ field: 'display_name', message: 'required', code: 'required' }])
+    }
+    if (known) {
+      if (body.display_name) known.display_name = body.display_name.trim()
+      if (body.email !== undefined) known.email = body.email || null
+    }
+    return HttpResponse.json(session(name).user)
+  }),
+  http.get(`${API}/auth/sessions`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const name = signedInUser()!
+    const known = admin.users.find((u) => u.username === name)
+    return HttpResponse.json(known ? admin.userSessions(known.id, name) : [])
+  }),
+  http.delete(`${API}/auth/sessions`, async ({ request }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    const known = admin.users.find((u) => u.username === signedInUser())
+    const list = known ? (admin.sessions.get(known.id) ?? []) : []
+    if (known) admin.sessions.set(known.id, list.slice(0, 1))
+    return HttpResponse.json({ revoked: Math.max(0, list.length - 1) })
+  }),
+  http.delete(`${API}/auth/sessions/:id`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    const known = admin.users.find((u) => u.username === signedInUser())
+    const list = known ? (admin.sessions.get(known.id) ?? []) : []
+    if (!list.some((s) => s.id === params.id)) return notFound()
+    admin.sessions.set(known!.id, list.filter((s) => s.id !== params.id))
+    return new HttpResponse(null, { status: 204 })
+  }),
   http.put(`${API}/auth/me/preferences`, async ({ request }) => {
     const denied = guard(request)
     if (denied) return denied
     preferences = (await request.json()) as Preferences
+    localStorage.setItem(PREFS_KEY, JSON.stringify(preferences))
     return HttpResponse.json(preferences)
   }),
 

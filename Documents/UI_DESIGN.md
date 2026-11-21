@@ -26,7 +26,9 @@ and patterns carry over.
 - **Typography**: Inter (variable, self-hosted woff2) for UI, JetBrains Mono for digests, paths, commands.
   Sizes 12/13/14/16/20/24/32; tabular numerals for all metrics (`font-variant-numeric: tabular-nums`).
 - **Spacing**: 4 px base grid; cards 16/24 px padding; consistent 8 px gaps in toolbars.
-- **Density**: comfortable by default, compact toggle for tables (persisted).
+- **Density**: comfortable by default, compact toggle for tables (persisted). As built (T-U01): user menu and
+  profile "Appearance" card; saved in the account preferences (localStorage for first paint); `body.ws-compact`
+  gives 32 px table rows and tighter list items app-wide.
 - **Icons**: Material Symbols (outlined) via `@quasar/extras`; **format icons** as a bundled SVG sprite (Docker,
   npm, PyPI, Maven, Debian, Ubuntu, Raspberry Pi, Red Hat/Rocky/Alma, Go, Helm, Terraform, OpenTofu, Ansible,
   Swift, NuGet, Rust, Ruby, PHP, Conda, Alpine, Hugging Face) from Simple Icons (CC0), monochrome by default,
@@ -110,17 +112,37 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
 - Repository detail page: header (icon, name, type, status, URL copy, **Set me up** button), KPI strip, tabs:
   **Overview** (charts for this repo, upstream health, top artifacts), **Browse**, **Packages**, **Activity**,
   **Settings**, **Cleanup** (attached policies + last runs + preview), **Members** (groups).
+  As built (T-U04): tabs in the order Overview, Packages (the format view; formats without one, such as raw, have
+  no Packages tab), Browse (the two-pane file tree, §4.4), Activity (`stats.read`: the Activity page's live log
+  narrowed to the repository, with pause, the detail drawer and "Open in Activity"), Cleanup (`manage`), Members
+  (`users.admin`: a card per role that reaches the repository, its actions here as badges and the scopes that
+  matched, and the groups, users holding it directly (first 50), service accounts and anonymous access; "Manage
+  roles"), Settings (`manage`). Links of the form `browse?image=...` forward to Packages. The list has a
+  table/cards toggle (`?view=grid`, remembered per browser): cards show icon, name, type and format, status,
+  description, a 24 h request sparkline, stored, artifacts, hit ratio, requests, last activity and URL copy.
 - **Set me up** side panel: tabs per client (e.g. docker: daemon.json mirror, docker login, pull example;
   npm: `.npmrc`, `npm login`, yarn/pnpm variants), user's token inserted as a masked placeholder with "generate a
-  token" link; copy buttons; OS variants where relevant.
+  token" link; copy buttons; OS variants where relevant. As built: a "Your system" switch (Linux / macOS /
+  Windows, defaulting to the browser's OS and remembered) appears when a client has variants; a snippet with `os`
+  replaces the snippet of the same id on that system.
 
 ### 4.4 Browse
-Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. Format-aware views:
+Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. As built (T-U05, Browse tab): the
+tree renders only the rows in view (32 px rows, a margin of 12), loads folders on expand in pages of 500 with a
+"Load more" row that loads when it scrolls into view, and follows the WAI-ARIA tree pattern (one tab stop,
+`aria-activedescendant`, arrows, Home/End, Page Up/Down, Enter/Space); the right pane shows a folder's contents in a
+virtualised table or a file's size, type, dates, downloads, download URL and SHA-256. The selection is `?path=`.
+Format-aware views are on the Packages tab:
 - **Docker**: image list → tags table (tag, digest short, platforms as badges, size, created, last pulled, pulls)
   → manifest page (platform switcher, layers table with sizes and a stacked size bar, config/history view,
-  referrers (signatures, SBOM) list, pull commands by tag and by digest).
+  referrers (signatures, SBOM) list, pull commands by tag and by digest). As built: the referrers list sits under
+  the platform switcher (kind badge Signature / SBOM / Attestation / Artifact from the artifact type, type, digest,
+  size, created), for the index and the selected platform's manifest.
 - **npm / PyPI / Maven / NuGet / Helm / Galaxy / Swift**: package → versions table (version, published, size,
   downloads, deprecated/yanked flags), README rendered safely (sanitised markdown, no raw HTML), dependencies.
+  As built for npm (T-U05): a Versions / README switch (`?view=readme`); `MarkdownView` renders markdown-it tokens as
+  VNodes (raw HTML stays text, headings shifted below the page's, links only http(s)/mailto/#, new tab without a
+  referrer, images shown as links named by their alt text: no external requests).
   npm (T-P5-NPMH): hosted repositories show "N versions" and a Versions column instead of the cache columns
   (everything they list is stored); dist-tags and deprecation badges as for proxies.
   Built for Maven (T-P5-MAVEN): artifacts table (artifactId over its groupId, latest, version count, filter by
@@ -267,6 +289,9 @@ app; the 10 recovery codes follow in a persistent dialog with copy and download 
 browser) that closes only through "I have saved them"; "New recovery codes" (needs a code) and "Turn off"
 (password + code or recovery code); a warning when policy requires it, and the router keeps the user here until
 it is on), my API tokens (create with scopes/expiry, shown once with copy), sessions.
+As built (T-U09): Account (local accounts edit display name and e-mail; provider accounts read-only with a note) and
+Appearance (theme, density) side by side, then Password and Two-factor, API tokens, Sessions (browser, address,
+started, last used, expiry; end one, or "Sign out everywhere else").
 
 ## 5. Responsive behaviour
 - ≥ 1440: rail expanded, 12-col dashboard. 1024-1439: rail collapsed to icons. 600-1023: drawer nav, 2-col
@@ -303,6 +328,14 @@ every progress tick), full keyboard operation, no information by colour alone.
 - Route-level lazy loading; initial route JS < 250 kB gzip (CI bundle budget).
 - i18n-ready (strings via a single `t()` with English catalogue), dates in the user's locale and timezone.
 - Visual regression: Playwright screenshots of key pages in both themes at 3 widths (CI artifact, reviewed on change).
+  As built (T-U09): `make e2e` runs `Application/Web/e2e/` in the pinned Playwright image on the mock build:
+  `flows.spec.ts` (E2E), `a11y.spec.ts` (axe, WCAG 2.0/2.1/2.2 A and AA rules, every page, light, dark and phone:
+  zero serious or critical), `visual.spec.ts` (9 pages × light/dark × 1440/1024/390 against
+  `e2e/__screenshots__`), `perf.spec.ts` (run last, alone: 200 live transfers and a 100,000-file tree). Still mode
+  (`ws.mock.still`: no live generator, seeded randomness, fixed clock) makes screenshots repeatable. After an
+  intended UI change run `make e2e-update` and review the changed PNGs in the diff.
+- Dev-only showcase `/dev/showcase` (T-U01; dev server and mock builds, not production): every base component in a
+  `.ws-theme-light` and a `.ws-theme-dark` pane.
 
 ## 8. Brand
 Name: **Waystation**. Tagline: "Every package, one stop."
