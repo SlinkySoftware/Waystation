@@ -23,12 +23,15 @@ from waystation_server.security import access
 from waystation_server.security.access import Action
 from waystation_server.security.authn import authenticate
 from waystation_server.services import Services
+from waystation_server.stats import history as storage_history
 from waystation_server.stats import repos as repo_stats
-from waystation_server.stats import series
+from waystation_server.stats import series, top
 
 router = APIRouter(tags=['stats'])
 
-StatsRange = Literal['15m', '1h', '24h', '7d', '30d']
+StatsRange = Literal['15m', '1h', '24h', '7d', '30d', '90d', '1y']
+TopWindow = Literal['24h', '7d', '30d', 'all']
+HistoryRange = Literal['7d', '30d', '90d', '1y']
 Metric = Literal['bytes', 'requests']
 RangeQuery = Annotated[StatsRange, Query(alias='range')]
 
@@ -59,6 +62,8 @@ class StatsSummary(BaseModel):
     bytes_served: int
     bytes_saved: int
     bytes_upstream: int
+    latency_p50_ms: float | None = Field(description='Median request duration in the range (bucket upper bound)')
+    latency_p95_ms: float | None = Field(description='95th percentile request duration in the range')
     storage: StorageNow
     artifacts_cached: int
     active_transfers: int
@@ -73,7 +78,7 @@ class Series(BaseModel):
 
 class TimeSeries(BaseModel):
     range: StatsRange
-    step_s: int = Field(description='Bucket width: 15m and 1h → 1 min, 24h → 10 min, 7d → 1 h, 30d → 6 h')
+    step_s: int = Field(description='Bucket width: 15m and 1h → 1 min, 24h → 10 min, 7d → 1 h, 30d → 6 h, 90d/1y → 1 d')
     unit: Metric
     timestamps: list[datetime]
     series: list[Series]
@@ -90,6 +95,8 @@ class RepositoryStorage(BaseModel):
     format: Format
     bytes: int
     artifacts: int
+    dedup_saved_bytes: int = Field(description='From the newest hourly storage snapshot; 0 before the first')
+    components: int | None = None
 
 
 class StorageSummary(BaseModel):
@@ -154,8 +161,9 @@ async def get_summary(request: Request, svc: ServicesDep, range_: RangeQuery = '
     repos = await _visible(svc, request)
     ids = [r.id for r in repos]
     win = series.window(range_)
-    rows = await series.collect(svc.db, svc.valkey, win, repo_ids=ids)
+    rows = await series.collect(svc.db, svc.valkey, win, repo_ids=ids, latency=True)
     t = series.totals(rows)
+    p50, p95 = series.percentiles(rows)
     n = len(win.buckets)
     requests = series.series(rows, win, lambda r: r['requests'] / win.step_s).get('', [0.0] * n)
     served = series.series(rows, win, series.bytes_served).get('', [0.0] * n)
@@ -171,6 +179,7 @@ async def get_summary(request: Request, svc: ServicesDep, range_: RangeQuery = '
     storage = await svc.storage.get()
     active = int(await svc.valkey.hlen(keys.TRANSFERS))
     artifacts = sum(storage.by_repo[i].artifacts for i in ids if i in storage.by_repo)
+    history = await storage_history.series(svc.db, win, ids)
     return StatsSummary(
         range=range_,
         step_s=win.step_s,
@@ -181,6 +190,8 @@ async def get_summary(request: Request, svc: ServicesDep, range_: RangeQuery = '
         bytes_served=t['bytes_out_cache'] + t['bytes_out_upstream'],
         bytes_saved=t['bytes_out_cache'],
         bytes_upstream=t['bytes_in_upstream'],
+        latency_p50_ms=p50,
+        latency_p95_ms=p95,
         storage=StorageNow(
             used_bytes=storage.used_bytes, free_bytes=storage.free_bytes, total_bytes=storage.total_bytes
         ),
@@ -191,9 +202,9 @@ async def get_summary(request: Request, svc: ServicesDep, range_: RangeQuery = '
             hit_ratio=ratio,
             bytes_served=served,
             bytes_saved=saved,
-            # No storage history yet (hourly storage_snapshots arrive with the full T-F09): flat current values.
-            storage_used=[float(storage.used_bytes)] * n,
-            artifacts=[float(artifacts)] * n,
+            # Hourly storage snapshots, carried forward between them; the current bucket shows the current figures.
+            storage_used=storage_history.spark(history.used, float(storage.used_bytes)),
+            artifacts=storage_history.spark(history.artifacts, float(artifacts)),
             active_transfers=[0.0] * (n - 1) + [float(active)],
         ),
     )
@@ -259,7 +270,16 @@ async def get_storage(request: Request, svc: ServicesDep) -> StorageSummary:
     for repo in repos:
         figures = storage.by_repo.get(repo.id)
         size, artifacts = (figures.bytes, figures.artifacts) if figures else (0, 0)
-        by_repo.append(RepositoryStorage(repository=repo.name, format=repo.format, bytes=size, artifacts=artifacts))
+        by_repo.append(
+            RepositoryStorage(
+                repository=repo.name,
+                format=repo.format,
+                bytes=size,
+                artifacts=artifacts,
+                dedup_saved_bytes=figures.dedup_saved_bytes if figures else 0,
+                components=figures.components if figures else None,
+            )
+        )
         entry = by_format.setdefault(repo.format, FormatStorage(format=repo.format, bytes=0, artifacts=0))
         entry.bytes += size
         entry.artifacts += artifacts
@@ -299,11 +319,12 @@ async def upstream_health(svc: Services, visible: list[RepoConfig]) -> list[Upst
     repos = [r for r in visible if r.type is RepoType.PROXY and r.proxy is not None]
     states = await repo_stats.health(svc, repos)
     win = series.window('1h')
-    rows = await series.collect(svc.db, svc.valkey, win, repo_ids=[r.id for r in repos], group_repo=True)
+    rows = await series.collect(svc.db, svc.valkey, win, repo_ids=[r.id for r in repos], group_repo=True, latency=True)
     out = []
     for repo in repos:
         assert repo.proxy is not None
-        t = series.totals([r for r in rows if r.get('repo_id') == repo.id])
+        mine = [r for r in rows if r.get('repo_id') == repo.id]
+        t = series.totals(mine)
         h = states[repo.id]
         requests = t['upstream_requests']
         out.append(
@@ -314,7 +335,7 @@ async def upstream_health(svc: Services, visible: list[RepoConfig]) -> list[Upst
                 status=repo_stats.status_of(repo, h),
                 error_rate=round(min(1.0, t['upstream_errors'] / requests), 4) if requests else 0.0,
                 requests_1h=requests,
-                p95_latency_ms=None,
+                p95_latency_ms=series.percentiles(mine, 'ulat_hist')[1],
                 last_error=h.last_error,
                 last_error_at=h.last_error_at,
                 blocked_until=h.block.blocked_until if h.block.blocked else None,
@@ -322,3 +343,142 @@ async def upstream_health(svc: Services, visible: list[RepoConfig]) -> list[Upst
             )
         )
     return out
+
+
+# ---------------------------------------------------------------------------- top N and storage history
+class TopArtifact(BaseModel):
+    component_id: str
+    repository: str
+    format: Format
+    namespace: str | None
+    name: str
+    version: str | None
+    display: str
+    size_bytes: int
+    downloads: int
+    bytes_served: int
+    last_downloaded_at: datetime | None
+    created_at: datetime
+    path: str | None
+    sha256: str | None
+
+
+class TopArtifacts(BaseModel):
+    by: Literal['downloads', 'bytes', 'size', 'recent']
+    window: TopWindow
+    items: list[TopArtifact]
+
+
+class TopRepository(BaseModel):
+    repository: str
+    format: Format
+    requests: int
+    bytes_served: int
+    bytes_saved: int
+    hit_ratio: float | None
+    latency_p95_ms: float | None
+
+
+class TopRepositories(BaseModel):
+    range: StatsRange
+    by: Literal['requests', 'bytes', 'saved']
+    items: list[TopRepository]
+
+
+class StorageHistory(BaseModel):
+    range: HistoryRange
+    step_s: int
+    timestamps: list[datetime]
+    used_bytes: list[int | None]
+    stored_bytes: list[int | None]
+    artifacts: list[int | None]
+
+
+Limit = Annotated[int, Query(ge=1, le=100)]
+
+
+@router.get('/stats/top/artifacts', response_model=TopArtifacts, operation_id='getTopArtifacts')
+@access.requires(Action.STATS_READ)
+async def get_top_artifacts(
+    request: Request,
+    svc: ServicesDep,
+    by: Literal['downloads', 'bytes', 'size', 'recent'] = 'downloads',
+    window: TopWindow = '7d',
+    repo: str | None = None,
+    limit: Limit = 10,
+) -> TopArtifacts:
+    repos = {r.id: r for r in await _repo_filter(svc, request, repo)}
+    rows = await top.artifacts(svc.db, sorted(repos), by=by, window=window, limit=limit)
+    items = []
+    for row in rows:
+        comp = row.component
+        owner = repos.get(str(comp.get('repo_id')))
+        if owner is None:
+            continue
+        items.append(
+            TopArtifact(
+                component_id=str(comp['_id']),
+                repository=owner.name,
+                format=owner.format,
+                namespace=comp.get('namespace') or None,
+                name=str(comp.get('name') or ''),
+                version=comp.get('version') or None,
+                display=str(comp.get('display') or comp.get('name') or ''),
+                size_bytes=int(comp.get('size_bytes') or 0),
+                downloads=row.downloads,
+                bytes_served=row.bytes_served,
+                last_downloaded_at=comp.get('last_downloaded_at'),
+                created_at=comp.get('created_at') or datetime.now(UTC),
+                path=comp.get('path'),
+                sha256=comp.get('sha256'),
+            )
+        )
+    return TopArtifacts(by=by, window=window, items=items)
+
+
+@router.get('/stats/top/repositories', response_model=TopRepositories, operation_id='getTopRepositories')
+@access.requires(Action.STATS_READ)
+async def get_top_repositories(
+    request: Request,
+    svc: ServicesDep,
+    range_: RangeQuery = '24h',
+    by: Literal['requests', 'bytes', 'saved'] = 'requests',
+    limit: Limit = 10,
+) -> TopRepositories:
+    repos = {r.id: r for r in await _visible(svc, request)}
+    win = series.window(range_)
+    rows = await series.collect(svc.db, svc.valkey, win, repo_ids=sorted(repos), group_repo=True, latency=True)
+    items = []
+    for row in top.repositories(rows, by=by, limit=limit):
+        owner = repos.get(row.repo_id)
+        if owner is not None:
+            items.append(
+                TopRepository(
+                    repository=owner.name,
+                    format=owner.format,
+                    requests=row.requests,
+                    bytes_served=row.bytes_served,
+                    bytes_saved=row.bytes_saved,
+                    hit_ratio=row.hit_ratio,
+                    latency_p95_ms=row.latency_p95_ms,
+                )
+            )
+    return TopRepositories(range=range_, by=by, items=items)
+
+
+@router.get('/stats/storage/history', response_model=StorageHistory, operation_id='getStorageHistory')
+@access.requires(Action.STATS_READ)
+async def get_storage_history(
+    request: Request, svc: ServicesDep, range_: Annotated[HistoryRange, Query(alias='range')] = '30d'
+) -> StorageHistory:
+    repos = await _visible(svc, request)
+    win = storage_history.window(range_)
+    history = await storage_history.series(svc.db, win, [r.id for r in repos])
+    return StorageHistory(
+        range=range_,
+        step_s=win.step_s,
+        timestamps=_timestamps(win),
+        used_bytes=history.used,
+        stored_bytes=history.stored,
+        artifacts=history.artifacts,
+    )

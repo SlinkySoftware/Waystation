@@ -1,6 +1,7 @@
 """Storage figures (SPECIFICATION §4.7 "Storage"): bytes per repository and format, blobs, de-duplication savings,
-free space on the data directory. Cached in-process for ``TTL_S`` (hourly ``storage_snapshots`` replace this with
-T-F09's full scope).
+free space on the data directory. Cached in-process for ``TTL_S``. The per-repository de-duplication savings and
+component counts come from the newest hourly storage snapshot (``storage_snapshots``, written by the worker's stats
+rollup: they need an aggregation over every asset).
 
 Per repository the figures are the ``repo_usage`` counters (bytes and artifacts, kept by every asset write and
 reconciled hourly; ``waystation_common.db.usage``): one small read, whatever the number of assets. The blob totals
@@ -30,6 +31,8 @@ TTL_S = 30.0
 class RepoStorage:
     bytes: int = 0
     artifacts: int = 0
+    dedup_saved_bytes: int = 0  # from the newest storage snapshot
+    components: int | None = None  # from the newest storage snapshot (None before the first)
 
 
 @dataclass
@@ -89,7 +92,13 @@ class StorageStats:
         per_repo = await stats_db.repo_totals(self._db)
         count, used = await stats_db.blob_totals(self._db)
         free, total = await asyncio.to_thread(_disk, self._data_dir)
+        snapshot = await stats_db.latest_snapshots(self._db)
         by_repo = {repo_id: RepoStorage(size, artifacts) for repo_id, (size, artifacts) in per_repo.items()}
+        for repo_id, doc in snapshot.items():
+            if repo_id:
+                entry = by_repo.setdefault(repo_id, RepoStorage())
+                entry.dedup_saved_bytes = max(0, int(doc.get('dedup_saved_bytes') or 0))
+                entry.components = int(doc.get('components') or 0)
         self._at = time.monotonic()
         return Storage(
             used_bytes=used,
