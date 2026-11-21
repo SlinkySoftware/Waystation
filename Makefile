@@ -89,7 +89,8 @@ test-integration: private DEV_ENV = --network $(TEST_PROJECT)_default \
   -v $(TEST_PROJECT)_ldap-tls:/ldap-tls:ro -e WAYSTATION_TEST_LDAP_CA=/ldap-tls/ca.crt \
   -e WAYSTATION_TEST_OPENLDAP_HOST=ldap1.example.com -e WAYSTATION_TEST_SAMBA_HOST=dc1.example.com \
   -e WAYSTATION_TEST_KEYCLOAK_URL=http://keycloak.example.com:8080 \
-  -e WAYSTATION_TEST_AUTHENTIK_URL=$(TEST_AUTHENTIK_URL) -e WAYSTATION_TEST_AUTHENTIK_TOKEN=waystation-authentik-test-token
+  -e WAYSTATION_TEST_AUTHENTIK_URL=$(TEST_AUTHENTIK_URL) -e WAYSTATION_TEST_AUTHENTIK_TOKEN=waystation-authentik-test-token \
+  -e WAYSTATION_SEARCH_BENCH_ASSETS
 test-integration: sync ## Integration tests (pytest -m integration) against real MongoDB/Valkey/OpenLDAP/Samba AD/Keycloak containers
 	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
 	  flock -n 9 || { echo "test-integration: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
