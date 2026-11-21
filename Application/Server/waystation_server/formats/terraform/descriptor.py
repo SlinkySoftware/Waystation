@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, UiHints
-from waystation_server.formats.common.setup import TOKEN, host_of, snippet
+from waystation_server.formats.common.setup import TOKEN, host_of, on, powershell_env, snippet
 from waystation_server.formats.terraform.paths import is_hostname
 from waystation_server.repos.model import RepoType
 
@@ -95,37 +95,43 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
     if not https:
         note += ' Terraform and OpenTofu accept only https:// mirror URLs: put Waystation behind TLS.'
     env_host = host.replace('-', '__').replace('.', '_')
+    tf_config = snippet(
+        'terraform-cli-config',
+        'Terraform CLI configuration',
+        _cli_config(url, host),
+        language='hcl',
+        filename='~/.terraformrc',
+        description=f'{note} TF_CLI_CONFIG_FILE names another file.',
+    )
+    tf_token = snippet(
+        'terraform-token-env',
+        'Or pass the token in the environment',
+        f'export TF_TOKEN_{env_host}={TOKEN}',
+        description='Instead of the credentials block (host names without a port only).',
+    )
     terraform = [
-        snippet(
-            'terraform-cli-config',
-            'Terraform CLI configuration',
-            _cli_config(url, host),
-            language='hcl',
-            filename='~/.terraformrc',
-            description=f'{note} On Windows the file is %APPDATA%\\terraform.rc; TF_CLI_CONFIG_FILE names another.',
-        ),
+        tf_config,
+        on('windows', tf_config, filename='%APPDATA%\\terraform.rc'),
         snippet(
             'terraform-init',
             'Install providers',
             'terraform init\n# record the hashes of every platform your team uses in .terraform.lock.hcl:\n'
             'terraform providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=windows_amd64',
         ),
-        snippet(
-            'terraform-token-env',
-            'Or pass the token in the environment',
-            f'export TF_TOKEN_{env_host}={TOKEN}',
-            description='Instead of the credentials block (host names without a port only).',
-        ),
+        tf_token,
+        on('windows', tf_token, content=powershell_env([(f'TF_TOKEN_{env_host}', TOKEN)]), language='powershell'),
     ]
+    tofu_config = snippet(
+        'tofu-cli-config',
+        'OpenTofu CLI configuration',
+        _cli_config(url, host),
+        language='hcl',
+        filename='~/.tofurc',
+        description=f'{note} TF_CLI_CONFIG_FILE names another file.',
+    )
     tofu = [
-        snippet(
-            'tofu-cli-config',
-            'OpenTofu CLI configuration',
-            _cli_config(url, host),
-            language='hcl',
-            filename='~/.tofurc',
-            description=f'{note} On Windows the file is %APPDATA%\\tofu.rc; TF_CLI_CONFIG_FILE names another.',
-        ),
+        tofu_config,
+        on('windows', tofu_config, filename='%APPDATA%\\tofu.rc'),
         snippet('tofu-init', 'Install providers', 'tofu init'),
     ]
     return [

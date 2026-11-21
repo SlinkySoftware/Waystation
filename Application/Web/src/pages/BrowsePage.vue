@@ -1,11 +1,12 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Browse: pick a repository; its Browse tab holds the format-aware view (UI_DESIGN §4.4). -->
+<!-- Browse: pick a repository; it opens on its Packages tab (the format-aware view) or, for formats without one, the
+     file tree (UI_DESIGN §4.4). -->
 <template>
   <q-page class="ws-page">
     <PageHeader :title="t('nav.browse')" :caption="t('browse.pageCaption')" />
     <div class="pick">
       <q-skeleton v-for="i in (repos.items.length || repos.loaded ? 0 : 6)" :key="i" height="96px" />
-      <router-link v-for="r in repos.items" :key="r.name" :to="{ name: 'repository', params: { name: r.name, tab: 'browse' } }" class="pick__card">
+      <router-link v-for="r in repos.items" :key="r.name" :to="{ name: 'repository', params: { name: r.name, tab: contentTab(r.format) } }" class="pick__card">
         <FormatIcon :mark="repoMark(r)" :size="26" brand />
         <div class="pick__text">
           <div class="pick__name">{{ r.name }}</div>
@@ -21,6 +22,7 @@
 </template>
 
 <script setup lang="ts">
+import { contentTab } from '@/components/browse/packageViews'
 import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
 import PageHeader from '@/components/PageHeader.vue'

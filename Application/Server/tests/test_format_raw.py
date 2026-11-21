@@ -148,7 +148,18 @@ def _guide(repo: RepoConfig) -> dict[str, list[str]]:
     ctx = SetupContext(
         repo=repo, base_url='https://registry.example.com', registry_host='registry.example.com', username=None
     )
-    return {c.id: [s.id for s in c.snippets] for c in DESCRIPTOR.setup_snippets(ctx)}
+    return {c.id: [s.id for s in c.snippets if s.os is None] for c in DESCRIPTOR.setup_snippets(ctx)}
+
+
+def test_setup_snippets_windows_variants() -> None:
+    ctx = SetupContext(
+        repo=make_repo('files'), base_url='https://registry.example.com', registry_host='registry.example.com', username=None
+    )
+    curl = next(c for c in DESCRIPTOR.setup_snippets(ctx) if c.id == 'curl')
+    windows = {s.id: s for s in curl.snippets if s.os == 'windows'}
+    assert set(windows) == {'curl-get', 'curl-auth'}
+    assert windows['curl-get'].content.startswith('curl.exe -fSLO ')
+    assert windows['curl-get'].title == next(s.title for s in curl.snippets if s.id == 'curl-get' and s.os is None)
 
 
 def test_setup_snippets_per_type() -> None:

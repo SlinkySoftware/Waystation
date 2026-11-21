@@ -6,7 +6,7 @@
     <template #title><BrowseCrumbs :crumbs="[{ label: t('browse.pypi.projects') }]" /></template>
     <EmptyState compact illustration="repositories" :title="t('browse.pypi.groupTitle')" :text="t('browse.pypi.groupText')">
       <div class="members">
-        <router-link v-for="m in repo.group?.members ?? []" :key="m" :to="{ name: 'repository', params: { name: m, tab: 'browse' } }" class="member mono">{{ m }}</router-link>
+        <router-link v-for="m in repo.group?.members ?? []" :key="m" :to="{ name: 'repository', params: { name: m, tab: 'packages' } }" class="member mono">{{ m }}</router-link>
       </div>
     </EmptyState>
   </PageCard>

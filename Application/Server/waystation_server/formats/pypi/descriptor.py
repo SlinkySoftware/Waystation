@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, SetupSnippet, UiHints
-from waystation_server.formats.common.setup import TOKEN, USERNAME, host_of, snippet
+from waystation_server.formats.common.setup import TOKEN, USERNAME, host_of, on, powershell_env, snippet
 from waystation_server.repos.model import RepoType
 
 
@@ -36,20 +36,28 @@ def _install(ctx: SetupContext) -> list[SetupClient]:
     host = host_of(ctx.base_url)
     scheme, _, rest = index.partition('://')
     with_auth = f'{scheme}://{USERNAME}:{TOKEN}@{rest}'
+    pip_conf = snippet(
+        'pip-conf',
+        'Use this index for every pip command (pip.conf)',
+        f'[global]\nindex-url = {index}\n'
+        '# only when anonymous reads are not allowed (an API token as the password):\n'
+        f'# index-url = {with_auth}\n',
+        language='ini',
+        filename='~/.config/pip/pip.conf',
+        description=f'Add trusted-host = {host} when the base URL is plain HTTP.',
+    )
     pip = [
         snippet('pip-install', 'Install a package', f'pip install --index-url {index} requests'),
-        snippet(
-            'pip-conf',
-            'Use this index for every pip command (pip.conf)',
-            f'[global]\nindex-url = {index}\n'
-            '# only when anonymous reads are not allowed (an API token as the password):\n'
-            f'# index-url = {with_auth}\n',
-            language='ini',
-            filename='pip.conf',
-            description='~/.config/pip/pip.conf (Linux/macOS) or %APPDATA%\\pip\\pip.ini (Windows); '
-            f'add trusted-host = {host} when the base URL is plain HTTP.',
-        ),
+        pip_conf,
+        on('macos', pip_conf, filename='~/Library/Application Support/pip/pip.conf'),
+        on('windows', pip_conf, filename='%APPDATA%\\pip\\pip.ini'),
     ]
+    uv_auth = snippet(
+        'uv-auth',
+        'Credentials (when anonymous reads are not allowed)',
+        f'export UV_INDEX_WAYSTATION_USERNAME={USERNAME}\nexport UV_INDEX_WAYSTATION_PASSWORD={TOKEN}',
+    )
+    uv_env = [('UV_INDEX_WAYSTATION_USERNAME', USERNAME), ('UV_INDEX_WAYSTATION_PASSWORD', TOKEN)]
     uv = [
         snippet('uv-pip', 'uv pip', f'uv pip install --index-url {index} requests'),
         snippet(
@@ -59,11 +67,8 @@ def _install(ctx: SetupContext) -> list[SetupClient]:
             language='toml',
             filename='pyproject.toml',
         ),
-        snippet(
-            'uv-auth',
-            'Credentials (when anonymous reads are not allowed)',
-            f'export UV_INDEX_WAYSTATION_USERNAME={USERNAME}\nexport UV_INDEX_WAYSTATION_PASSWORD={TOKEN}',
-        ),
+        uv_auth,
+        on('windows', uv_auth, content=powershell_env(uv_env), language='powershell'),
     ]
     poetry = [
         snippet(
