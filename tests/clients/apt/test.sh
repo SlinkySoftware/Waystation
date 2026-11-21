@@ -2,7 +2,8 @@
 # apt through Waystation apt proxies (client-debian: Debian 13, client-ubuntu: Ubuntu 26.04, client-raspios: Raspberry
 # Pi OS arm64, opt-in with ARM64=1; HARNESS_CLIENT says which). apt keeps verifying the distribution's own signature (Signed-By unchanged): Waystation passes InRelease
 # through untouched, so a modified Release or index would fail apt-get update. Runs identically in every mode;
-# assertions use only what survives fixture scrubbing.
+# assertions use only what survives fixture scrubbing. The debian client also runs hosted.sh: a .deb built with
+# dpkg-deb uploaded to the hosted `apt-hosted` and installed by apt with the repository's signing key.
 set -eu
 . /harness/lib.sh
 
@@ -124,5 +125,9 @@ if apt-get update --error-on=any > /tmp/revoked.log 2>&1; then
 fi
 grep -q '401' /tmp/revoked.log || { cat /tmp/revoked.log; fail 'revoked token: no 401'; }
 rm -f /etc/apt/auth.conf.d/waystation.conf
+
+if [ "$HARNESS_CLIENT" = debian ]; then  # hosted apt (T-P5-APTH): dpkg-deb, upload, signed index, install, upgrade
+  bash /harness/apt/hosted.sh || exit 1
+fi
 
 pass

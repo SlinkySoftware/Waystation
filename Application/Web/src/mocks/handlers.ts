@@ -132,9 +132,9 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
     if (body.format === 'go' && body.type === 'hosted') {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
-    } else if (body.format === 'yum' && body.type === 'group') {
-      errors.push({ field: 'type', message: 'yum supports: proxy, hosted', code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum'].includes(body.format)) {
+    } else if ((body.format === 'yum' || body.format === 'apt') && body.type === 'group') {
+      errors.push({ field: 'type', message: `${body.format} supports: proxy, hosted`, code: 'unsupported' })
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }

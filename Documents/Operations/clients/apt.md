@@ -4,7 +4,9 @@ An apt proxy repository caches a Debian-style archive (`deb.debian.org/debian`, 
 `archive.ubuntu.com/ubuntu`, `security.ubuntu.com/ubuntu`, a vendor repository). Tested with apt on Debian 13 and
 Ubuntu 26.04 (`tests/clients/apt/`); a Raspberry Pi OS arm64 client (Debian 13 arm64 plus
 `archive.raspberrypi.com/debian`, `trixie`) runs in the same harness where arm64 containers can run (opt-in,
-`ARM64=1`; tests/clients/README.md). Protocol notes: FORMATS.md "apt".
+`ARM64=1`; tests/clients/README.md). A hosted apt repository publishes your own `.deb` packages, signed with its own
+key ("Hosted repositories" below; tested with dpkg-deb, curl-style uploads and apt on Debian 13). Protocol notes:
+FORMATS.md "apt".
 
 Examples use `https://registry.example.com` as the Waystation base URL and repositories named `debian`,
 `debian-security`, `ubuntu` and `ubuntu-security`.
@@ -114,6 +116,67 @@ Account passwords (local or LDAP) are refused here (401): apt, like every format
 a repository without anonymous access, and the refusals of a wrong password, an account password, a revoked token and
 no credentials (`tests/clients/auth/`).
 
+## Hosted repositories (your own packages)
+
+A hosted apt repository holds the `.deb` packages you upload and publishes one distribution for them, signed with a
+key Waystation generates for that repository (RSA 3072, stored encrypted under the data directory's `keys/`; never
+shown through the API). Create it with type *Hosted* and set:
+
+| Option | Meaning |
+|---|---|
+| Distribution | The suite clients use, e.g. `stable` or `trixie` (`dists/<distribution>/`; one name, no `/`). |
+| Components | Where uploads may go (default `main`); uploads use the first unless `?component=` names another. |
+| Architectures | Always published (`binary-<arch>`, default `amd64 arm64`). Packages with `Architecture: all` are listed under each; a package of another architecture adds its architecture. |
+| Write policy | `allow_redeploy` replaces a package version, `disable_redeploy` refuses an existing one (409), `read_only` refuses uploads and deletes (403). |
+
+Install the repository's public key, then point apt at it with `Signed-By` (the "Set me up" panel shows these with
+your repository's names):
+
+```shell
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL -u alice:<your-api-token> https://registry.example.com/repository/debs/public.asc \
+  | sudo tee /etc/apt/keyrings/debs.asc > /dev/null
+gpg --show-keys /etc/apt/keyrings/debs.asc   # compare the fingerprint with the one the index job logged
+```
+
+`/etc/apt/sources.list.d/debs.sources`:
+
+```text
+Types: deb
+URIs: https://registry.example.com/repository/debs/
+Suites: stable
+Components: main
+Signed-By: /etc/apt/keyrings/debs.asc
+```
+
+apt reads armored keys from files ending in `.asc` (apt 2.4 and later); `public.gpg` is the same key as a binary
+keyring for older clients. Credentials go into `auth.conf` as for proxies (above).
+
+Upload and delete with curl (an API token with the `write` / `delete` scope):
+
+```shell
+curl -fS -u alice:<your-api-token> --upload-file mytool_1.2-1_amd64.deb https://registry.example.com/repository/debs/
+curl -fS -u alice:<your-api-token> --upload-file mytool_1.2-1_amd64.deb 'https://registry.example.com/repository/debs/?component=contrib'
+curl -fS -u alice:<your-api-token> -X DELETE https://registry.example.com/repository/debs/pool/main/m/mytool/mytool_1.2-1_amd64.deb
+```
+
+`POST` to the repository URL with the package as the body (`--data-binary @file.deb`, as Nexus documents it) or as a
+form file (`-F package=@file.deb`) works too. Whatever the URL, the package is stored at its pool path
+`pool/<component>/<prefix>/<source>/<name>_<version>_<arch>.deb` (the answer's `Location`). Waystation reads the
+control file (one paragraph with valid `Package`, `Version` and `Architecture`; the archive layout, sizes and
+compression are checked, nothing is unpacked) and refuses anything else with 400. The same package version and
+architecture can be stored once per repository (another component answers 409).
+
+Within seconds of each upload or delete a worker rebuilds the distribution: `Packages`, `Packages.gz` and
+`Packages.xz` per component and architecture (also at their `by-hash/SHA256/` paths, `Acquire-By-Hash: yes`),
+`Release`, a clearsigned `InRelease` and a detached `Release.gpg`, switched together so clients never see a mix; the
+previous generation's `by-hash` files stay for clients in the middle of an update. Until the first upload
+`dists/<distribution>/InRelease` answers 404. Browse lists the published packages under the distribution, like a
+proxy's suites.
+
+Not offered yet: importing your own signing key or rotating the key, source packages (`.dsc`), several
+distributions per repository (create one repository per distribution), group repositories.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -126,3 +189,7 @@ no credentials (`tests/clients/auth/`).
 | `504 Gateway Timeout` | The upstream did not answer in time. A stale cached `InRelease` is served instead when one exists and *stale on error* is on. |
 | Updates appear late | The cached `InRelease` is served until it is older than the metadata max age (default 30 minutes). Lower it for security repositories if needed. |
 | `401` | Anonymous access was removed for this repository: add credentials (above). |
+| Hosted: `NO_PUBKEY` / `The following signatures couldn't be verified` | `Signed-By` does not point at the repository's own key (`public.asc`). Download it again; the key never changes for a repository. |
+| Hosted: `404` for `dists/<distribution>/InRelease` | Nothing was uploaded yet, the distribution in the sources differs from the repository's, or the index job has not run (check Tasks for `index.apt`). |
+| Hosted upload answers `400` | The file is not a Debian binary package Waystation accepts (the message says why), or `?component=` names a component the repository does not have. |
+| Hosted upload answers `409` | `disable_redeploy` and the version exists, or the same version and architecture is stored in another component. |

@@ -2,6 +2,22 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-22
+- T-P5-APTH: hosted apt repositories. `.deb` uploads by `PUT` or `POST` (raw or multipart, `?component=`), streamed
+  after the hard-quota check and read safely in a thread (`formats/apt/deb.py`: ar layout, bounded control-archive
+  decompression for gzip/xz/zstd, tar names checked, one control paragraph with valid `Package`/`Version`/
+  `Architecture`), stored at their pool path; write policy, the same version and architecture once per repository,
+  `DELETE`, audit `content.upload`/`content.delete`. New collection `apt_hosted_packages`; the worker job `index.apt`
+  (outbox, dirty-flag dedupe, also after cleanup runs) builds `Packages`/`.gz`/`.xz` per component and architecture
+  with by-hash copies, `Release`, a clearsigned `InRelease` and `Release.gpg` with the per-repository key and switches
+  them atomically, keeping the previous generation's by-hash files; public key at `public.asc`/`public.gpg`.
+  `waystation_common.signing` gained cleartext signing (canonical-text signatures; adr/0007 already provided for it)
+  and binary certificates; the generic publish helpers moved to `waystation_common.db.published`. apt options
+  `components` and `architectures`; browse and search through the existing apt views and the component index; "Set
+  me up" for hosted apt; create flow (Hosted tile, components, architectures); Nexus import of apt hosted
+  repositories. Harness: dpkg-deb, upload, apt update verifying `InRelease` with the served key, install, upgrade,
+  wrong key refused, delete, with an API token (`tests/clients/apt/hosted.sh`, Debian 13).
+
 ## 2026-11-21
 - T-A04: client-auth matrix in the real-client harness (`tests/clients/auth/`): with the `make test-integration`
   OpenLDAP directory and Keycloak realm next to the stack and anonymous access off, docker login with an LDAP

@@ -91,7 +91,7 @@ const SEEDS: Seed[] = [
     hitRatio: 0.911,
     requests24h: 31_448,
     createdDaysAgo: 41,
-    options: { distribution: 'trixie', flat: false },
+    options: { distribution: 'trixie', flat: false, components: ['main'], architectures: ['amd64', 'arm64'] },
     ...DISTRO,
   },
   {
@@ -104,7 +104,7 @@ const SEEDS: Seed[] = [
     hitRatio: 0.842,
     requests24h: 7_921,
     createdDaysAgo: 41,
-    options: { distribution: 'trixie-security', flat: false },
+    options: { distribution: 'trixie-security', flat: false, components: ['main'], architectures: ['amd64', 'arm64'] },
     ...SECURITY,
   },
   {
@@ -117,7 +117,7 @@ const SEEDS: Seed[] = [
     hitRatio: 0.903,
     requests24h: 19_877,
     createdDaysAgo: 35,
-    options: { distribution: 'resolute', flat: false },
+    options: { distribution: 'resolute', flat: false, components: ['main'], architectures: ['amd64', 'arm64'] },
     ...DISTRO,
   },
   {
@@ -130,7 +130,7 @@ const SEEDS: Seed[] = [
     hitRatio: 0.826,
     requests24h: 5_204,
     createdDaysAgo: 35,
-    options: { distribution: 'resolute-security', flat: false },
+    options: { distribution: 'resolute-security', flat: false, components: ['main'], architectures: ['amd64', 'arm64'] },
     ...SECURITY,
   },
   {
@@ -143,7 +143,7 @@ const SEEDS: Seed[] = [
     hitRatio: 0.879,
     requests24h: 2_215,
     createdDaysAgo: 18,
-    options: { distribution: 'trixie', flat: false },
+    options: { distribution: 'trixie', flat: false, components: ['main'], architectures: ['amd64', 'arm64'] },
     ...DISTRO,
   },
   {

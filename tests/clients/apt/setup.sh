@@ -24,6 +24,13 @@ case "$HARNESS_CLIENT" in
   debian)
     create debian https://deb.debian.org/debian/ trixie
     create debian-security https://deb.debian.org/debian-security/ trixie-security
+    if ! ws_api GET /repositories/apt-hosted >/dev/null 2>&1; then
+      step 'create hosted apt repository apt-hosted (distribution stable, component main)'
+      ws_api POST /repositories '{"name": "apt-hosted", "format": "apt", "type": "hosted", "online": true,
+        "description": "hosted apt (client harness)", "hosted": {"write_policy": "allow_redeploy"},
+        "format_options": {"distribution": "stable", "components": ["main"], "architectures": ["amd64"]}}' \
+        >/dev/null || fail 'could not create the repository apt-hosted'
+    fi
     ;;
   ubuntu)
     create ubuntu https://archive.ubuntu.com/ubuntu/ resolute
