@@ -37,6 +37,19 @@ In CI the dev image is built once per job by `docker/build-push-action` with the
 (`scope=dev-image`), loaded as `waystation-dev:local`, and `SKIP_DEV_IMAGE_BUILD=1` stops make from rebuilding it.
 The buildx builder is not made the default, so make, compose and the harness keep using the normal Docker builder.
 
+### Opt-in: Nexus import against a real Nexus (`make test-nexus`)
+
+Not part of `make check` or any workflow. `make test-nexus` starts `Build/Containers/compose.nexus.yaml` (MongoDB,
+Valkey and `sonatype/nexus3`, pinned, Community Edition, data on tmpfs, about 3 GB of memory, one to three minutes
+to start), then runs `pytest -m nexus` (`Application/Server/tests/test_nexus_live.py`) in the dev image: the test
+sets a throwaway admin password, accepts the EULA, deletes the sample repositories and creates the repositories of
+the hand-written fixtures (`Application/Server/tests/fixtures/nexus3`, each detail document posted back as the create
+request; Nexus contacts no upstream), previews the import against the real Nexus and against the fixtures and
+requires the same plan item by item, then applies it and checks the result and an idempotent re-apply. Two known
+deltas are allowed: Community Edition refuses a writable group member (a Pro feature), and the `npm` fixture has no
+detail document on purpose (the list fallback of older releases). It takes the machine-wide `TEST_LOCK` like
+`test-integration` and always ends with `down -v`. To move to a newer Nexus, change the image tag and run it.
+
 ### Gitea checks
 
 `.gitea/workflows/check.yml` runs the parts of `make check` one step each, so a failure names the part. The dev image
