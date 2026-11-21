@@ -66,7 +66,7 @@ variable:
 | Kind | Name | Required | Meaning |
 |---|---|---|---|
 | variable | `WAYSTATION_CI_INTEGRATION` | no | `false` skips the integration-test job; anything else (or unset) runs it |
-| variable | `WAYSTATION_CI_UI_SMOKE` | no | `false` skips the UI role smoke job (`make ui-smoke`: every rail page as minimal-permission users on the mock build); anything else (or unset) runs it |
+| variable | `WAYSTATION_CI_UI_SMOKE` | no | `false` skips the UI job (`make ui-smoke`: every rail page as minimal-permission users on the mock build, then `make e2e`: Playwright flows, axe, visual baseline and UI perf; the Playwright report is uploaded when it fails); anything else (or unset) runs it |
 
 The runner needs the `ubuntu-latest` label, Docker (about 6 GB of free memory for
 `integration`) and network access to the package registries. make starts its tools in containers that bind-mount
