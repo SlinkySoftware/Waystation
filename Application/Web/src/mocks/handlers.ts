@@ -440,6 +440,35 @@ export const handlers = [
     world.addActivity({ kind: 'repository', summary: `Repository ${existing.name} deleted`, outcome: 'info', repository: existing.name, format: existing.format, artifact: null, principal: signedInUser(), cache: null, bytes: null, duration_ms: null })
     return new HttpResponse(null, { status: 204 })
   }),
+  http.post(`${API}/repositories/:name/clone`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await delay(300)
+    const source = findRepo(String(params.name))
+    if (!source) return notFound()
+    const ask = (await request.json()) as { name: string; description?: string | null; online?: boolean | null }
+    // The copied configuration was valid already: only the new name is checked (as the server's create would).
+    const { aliases: _aliases, default_repo: _default, ...options } = (source.format_options ?? {}) as Record<string, unknown>
+    const body: RepositoryWrite = {
+      name: ask.name,
+      format: source.format,
+      type: source.type,
+      online: ask.online ?? source.online,
+      description: ask.description ?? source.description ?? '',
+      proxy: source.proxy ? { ...source.proxy, auth: { kind: source.proxy.auth?.kind ?? 'none', username: source.proxy.auth?.username, secret: source.proxy.auth?.secret_set ? 'stored' : undefined } } : undefined,
+      hosted: source.hosted ?? undefined,
+      group: source.group ?? undefined,
+      storage: source.storage,
+      format_options: source.format === 'docker' ? { ...options, aliases: [], default_repo: false } : options,
+    } as RepositoryWrite
+    const errors = validate(body).filter((e) => e.field === 'name')
+    if (errors.some((e) => e.code === 'taken')) return problem(409, 'Conflict', 'A repository with this name already exists.', errors)
+    if (errors.length) return problem(422, 'Validation failed', 'Some fields need attention.', errors)
+    const repo = toRepository(body)
+    world.repos.push(repo)
+    world.addActivity({ kind: 'repository', summary: `Repository ${repo.name} created (clone of ${source.name})`, outcome: 'info', repository: repo.name, format: repo.format, artifact: null, principal: signedInUser(), cache: null, bytes: null, duration_ms: null })
+    return HttpResponse.json(repo, { status: 201, headers: { Location: `${API}/repositories/${repo.name}` } })
+  }),
   http.get(`${API}/repositories/:name/setup`, async ({ request, params }) => {
     const denied = guard(request)
     if (denied) return denied

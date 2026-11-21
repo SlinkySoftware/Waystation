@@ -18,6 +18,7 @@
           </div>
         </template>
         <template #actions>
+          <q-btn v-if="auth.can('repositories.create')" flat no-caps :icon="iconClone" :label="t('repoClone.button')" data-test="clone-repository" @click="cloneOpen = true" />
           <q-btn unelevated no-caps color="primary" :icon="iconSetup" :label="t('setup.button')" @click="setupOpen = true" />
         </template>
       </PageHeader>
@@ -44,6 +45,7 @@
       <SettingsTab v-else :repo="repo" @saved="onSaved" />
 
       <SetupPanel v-model="setupOpen" :repo="repo" />
+      <CloneRepositoryDialog v-model="cloneOpen" :source="repo" @cloned="onCloned" />
     </template>
 
     <q-card v-else-if="state.error.value">
@@ -64,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { api, ApiError, call, errorMessage } from '@/api/client'
@@ -75,6 +77,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import FormatIcon from '@/components/FormatIcon.vue'
 import ManagedBadge from '@/components/ManagedBadge.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import CloneRepositoryDialog from '@/components/repositories/CloneRepositoryDialog.vue'
 import CleanupTab from '@/components/repositories/CleanupTab.vue'
 import OverviewTab from '@/components/repositories/OverviewTab.vue'
 import QuotaMeter from '@/components/repositories/QuotaMeter.vue'
@@ -90,7 +93,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRepositoriesStore } from '@/stores/repositories'
 import { formatLabel, repoMark, typeMeta } from '@/utils/domain'
 import { formatBytes, formatCount, formatPercent } from '@/utils/format'
-import { iconSetup } from '@/utils/icons'
+import { iconClone, iconSetup } from '@/utils/icons'
 
 const route = useRoute()
 const router = useRouter()
@@ -106,12 +109,17 @@ const tab = computed<Tab>(() => {
   return tabs.value.includes(asked) ? asked : 'overview'
 })
 const setupOpen = ref(route.query.setup === '1')
+const cloneOpen = ref(false)
 
 const state = useAsync(() => call(api.GET('/repositories/{name}', { params: { path: { name: name.value } } })), [name])
 const override = ref<Repository | null>(null)
 // Missing and hidden repositories are both 404; anything else is a load failure worth retrying.
 const missing = computed(() => state.error.value instanceof ApiError && state.error.value.status === 404)
 const repo = computed(() => override.value ?? state.data.value)
+// A saved configuration replaces the loaded one until another repository is opened (e.g. a clone).
+watch(name, () => {
+  override.value = null
+})
 
 useLiveTopic(() => [`repo:${name.value}`])
 void repos.load().catch(() => undefined)
@@ -128,6 +136,11 @@ const kpis = computed(() => {
     { label: t('detail.kpi.activity'), component: TimeCell, props: { value: s.last_activity_at, placeholder: t('repos.never') } },
   ]
 })
+
+async function onCloned(clone: Repository): Promise<void> {
+  repos.upsert(clone)
+  await router.push({ name: 'repository', params: { name: clone.name } })
+}
 
 function onSaved(next: Repository): void {
   override.value = next

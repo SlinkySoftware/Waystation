@@ -23,6 +23,11 @@ Validation, reported as 422 field errors (``errors[].field`` a dotted path into 
 - ``storage``: a quota (bytes, ``soft``/``hard``) for proxy and hosted repositories; groups store nothing, so a quota
   there is refused (set it on the members);
 - on update, ``name``, ``format`` and ``type`` cannot change.
+
+Clone (``clone``) copies a repository's configuration, never its content, under a new name and validates it like a
+create: the upstream secret is decrypted server-side and encrypted again for the new repository (the associated data
+names the repository), attached cleanup policies are kept, and what must stay unique is left out: docker
+``aliases`` and ``default_repo``. ``managed_by`` is not copied (a clone is never managed by the provisioning file).
 """
 
 from __future__ import annotations
@@ -56,7 +61,15 @@ from waystation_server.repos.model import (
     StoredUpstreamAuth,
     secret_aad,
 )
-from waystation_server.repos.schemas import GroupConfig, HostedConfig, ProxyConfig, RepositoryWrite
+from waystation_server.repos.schemas import (
+    AutoBlockConfig,
+    GroupConfig,
+    HostedConfig,
+    ProxyConfig,
+    RepositoryWrite,
+    StorageConfig,
+    UpstreamAuth,
+)
 from waystation_server.security.principal import Principal
 from waystation_server.services import Services
 
@@ -377,14 +390,83 @@ async def create(
     principal: Principal,
     *,
     managed_by: str | None = None,
+    cleanup_policy_ids: tuple[str, ...] = (),
 ) -> RepoConfig:
     if await services.catalog.get_ci(body.name) is not None:
         raise Conflict('A repository with this name already exists.', field='name')
     repo = await _build(services, body, principal, None, managed_by)
+    if cleanup_policy_ids:
+        repo = repo.model_copy(update={'cleanup_policy_ids': cleanup_policy_ids})
     await repos_db.insert(services.db, repo)
     await _after_write(services, repo)
     log.info('repository created', extra={'repo': repo.name, 'format': repo.format, 'type': repo.type.value})
     return repo
+
+
+# Options that name one repository only: a clone starts without them (docker aliases, the default repository).
+UNIQUE_OPTIONS = ('aliases', 'default_repo')
+
+
+def clone_body(
+    services: Services, source: RepoConfig, name: str, *, description: str | None = None, online: bool | None = None
+) -> RepositoryWrite:
+    """The create request that copies ``source``'s configuration under ``name`` (secret decrypted, in memory only)."""
+    proxy: ProxyConfig | None = None
+    if source.proxy is not None:
+        p = source.proxy
+        secret: str | None = None
+        if p.auth.secret_enc:
+            try:
+                secret = decrypt_secret(services, source.id, p.auth)
+            except Exception:  # no or rotated-away key: reported as a missing secret by the validation
+                log.warning('could not decrypt the source upstream secret', extra={'repo': source.name})
+        proxy = ProxyConfig(
+            upstream_url=p.upstream_url,
+            auth=UpstreamAuth(kind=p.auth.kind, username=p.auth.username, secret=secret),
+            metadata_max_age_s=p.metadata_max_age_s,
+            content_max_age_s=p.content_max_age_s,
+            negative_ttl_s=p.negative_ttl_s,
+            stale_on_error=p.stale_on_error,
+            offline=p.offline,
+            allow_private_upstream=p.allow_private_upstream,
+            ca_pem=p.ca_pem,
+            http_proxy=p.http_proxy,
+            auto_block=AutoBlockConfig(**p.auto_block.model_dump()),
+        )
+    hosted: HostedConfig | None = None
+    if source.type is RepoType.HOSTED:
+        h = source.hosted or StoredHosted()
+        hosted = HostedConfig(write_policy=h.write_policy, immutable_tag_patterns=list(h.immutable_tag_patterns))
+    group: GroupConfig | None = None
+    if source.type is RepoType.GROUP and source.group is not None:
+        group = GroupConfig(members=list(source.group.members), writable_member=source.group.writable_member)
+    options = {k: v for k, v in source.format_options.items() if k not in UNIQUE_OPTIONS}
+    return RepositoryWrite(
+        name=name,
+        format=source.format,
+        type=source.type,
+        online=source.online if online is None else online,
+        description=source.description if description is None else description,
+        proxy=proxy,
+        hosted=hosted,
+        group=group,
+        storage=StorageConfig(quota_bytes=source.storage.quota_bytes, quota_mode=source.storage.quota_mode),
+        format_options=options,
+    )
+
+
+async def clone(
+    services: Services,
+    source: RepoConfig,
+    name: str,
+    principal: Principal,
+    *,
+    description: str | None = None,
+    online: bool | None = None,
+) -> RepoConfig:
+    """Create a repository with ``source``'s configuration (no content) under ``name``; see the module notes."""
+    body = clone_body(services, source, name, description=description, online=online)
+    return await create(services, body, principal, cleanup_policy_ids=source.cleanup_policy_ids)
 
 
 async def update(

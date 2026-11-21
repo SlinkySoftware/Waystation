@@ -281,6 +281,14 @@ export const en = {
       activity: 'Last activity',
     },
   },
+  repoClone: {
+    button: 'Clone',
+    title: 'Clone {name}',
+    caption: 'A new repository with the same configuration and stored credentials. Cached and uploaded content is not copied.',
+    submit: 'Clone repository',
+    dockerNote: 'Docker aliases and the default-repository setting stay with the original.',
+    done: 'Repository {name} created',
+  },
   repoCreate: {
     title: 'Create repository',
     formTitle: 'New {format} proxy',

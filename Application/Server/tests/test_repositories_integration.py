@@ -301,3 +301,59 @@ async def test_hidden_repository_is_404_for_anonymous(admin: httpx.AsyncClient, 
         assert (await anon.get(f'{API}/internal')).status_code == 404
         assert 'internal' not in (await anon.get(API)).text
     assert (await admin.get(f'{API}/internal')).status_code == 200
+
+
+async def test_clone_copies_configuration_and_secret(admin: httpx.AsyncClient, services: Services) -> None:
+    source = docker_hub(
+        proxy={
+            'upstream_url': 'https://registry-1.docker.io',
+            'auth': {'kind': 'basic', 'username': 'ci', 'secret': 'hunter2'},
+            'metadata_max_age_s': 60,
+        },
+        storage={'quota_bytes': 1_000_000, 'quota_mode': 'hard'},
+    )
+    assert (await admin.post(API, json=source)).status_code == 201
+    cloned = await admin.post(f'{API}/docker-hub/clone', json={'name': 'docker-hub-2', 'online': False})
+    assert cloned.status_code == 201, cloned.text
+    assert cloned.headers['location'] == '/api/v1/repositories/docker-hub-2'
+    body = cloned.json()
+    assert 'hunter2' not in cloned.text
+    assert body['online'] is False
+    assert body['description'] == 'Docker Hub'
+    assert body['proxy']['auth'] == {'kind': 'basic', 'username': 'ci', 'secret_set': True}
+    assert body['proxy']['metadata_max_age_s'] == 60
+    assert body['storage'] == {'quota_bytes': 1_000_000, 'quota_mode': 'hard'}
+    # aliases and the default repository name one repository: the source keeps them
+    assert body['format_options'] == {'aliases': [], 'docker_hub': True, 'default_repo': False}
+    assert (await admin.get(f'{API}/docker-hub')).json()['format_options']['default_repo'] is True
+    doc = await services.db[REPOSITORIES].find_one({'name': 'docker-hub-2'})
+    src = await services.db[REPOSITORIES].find_one({'name': 'docker-hub'})
+    assert doc is not None and src is not None
+    assert doc['_id'] != src['_id']
+    assert doc['managed_by'] is None
+    assert doc['config_version'] == 1
+    enc = doc['proxy']['auth']['secret_enc']
+    assert enc != src['proxy']['auth']['secret_enc']
+    assert services.keyring is not None
+    assert services.keyring.decrypt_str(enc, aad=secret_aad(doc['_id'])) == 'hunter2'
+
+
+async def test_clone_rules(admin: httpx.AsyncClient, client: httpx.AsyncClient) -> None:
+    assert (await admin.post(API, json=docker_hub())).status_code == 201
+    hosted = {'name': 'raw-files', 'format': 'raw', 'type': 'hosted', 'online': True}
+    assert (await admin.post(API, json=hosted)).status_code == 201, 'raw hosted'
+    assert (await client.post(f'{API}/docker-hub/clone', json={'name': 'x-copy'})).status_code == 401
+    assert (await admin.post(f'{API}/missing/clone', json={'name': 'x-copy'})).status_code == 404
+    taken = await admin.post(f'{API}/docker-hub/clone', json={'name': 'RAW-FILES'})
+    assert taken.status_code == 409
+    assert fields(taken) == {'name': 'conflict'}
+    reserved = await admin.post(f'{API}/docker-hub/clone', json={'name': 'v2'})
+    assert fields(reserved) == {'name': 'reserved'}
+    alias = await admin.post(f'{API}/raw-files/clone', json={'name': 'docker.io'})
+    assert fields(alias) == {'name': 'alias'}
+    assert (await admin.post(f'{API}/docker-hub/clone', json={'name': 'xy', 'extra': 1})).status_code == 422
+    copy = await admin.post(f'{API}/raw-files/clone', json={'name': 'raw-files-2', 'description': 'copy'})
+    assert copy.status_code == 201, copy.text
+    assert copy.json()['hosted'] == {'write_policy': 'allow_redeploy', 'immutable_tag_patterns': []}
+    assert copy.json()['description'] == 'copy'
+    assert copy.json()['stats']['artifact_count'] == 0

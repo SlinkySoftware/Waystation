@@ -1,4 +1,4 @@
-"""``/api/v1/repositories``: list, create, read, replace, delete, test upstream, "Set me up" (OpenAPI contract)."""
+"""``/api/v1/repositories``: list, create, read, replace, delete, clone, test upstream, "Set me up"."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from waystation_common.errors import ValidationFailed
 from waystation_server import audit
@@ -23,6 +23,7 @@ from waystation_server.repos import service
 from waystation_server.repos.model import QuotaMode, RepoConfig, RepoType
 from waystation_server.repos.quota import QuotaStatus
 from waystation_server.repos.schemas import (
+    NAME_PATTERN,
     AutoBlockConfig,
     Format,
     GroupConfig,
@@ -94,6 +95,16 @@ class RepositoryPage(BaseModel):
     items: list[Repository]
     next_cursor: str | None
     total: int = Field(description='Matching repositories across all pages')
+
+
+class RepositoryClone(BaseModel):
+    """Copy a repository's configuration (never its content) under a new name."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    name: str = Field(pattern=NAME_PATTERN, description='Name of the new repository')
+    description: str | None = Field(default=None, max_length=500, description="null = the source's description")
+    online: bool | None = Field(default=None, description="null = the source's setting")
 
 
 class UpstreamCheck(BaseModel):
@@ -377,6 +388,35 @@ async def delete_repository(name: str, request: Request, svc: ServicesDep) -> Re
     await service.delete(svc, repo)
     audit.record(AuditAction.REPOSITORY_DELETE, target=_target(repo), changes=audit.diff(repo.to_doc(), None))
     return Response(status_code=204)
+
+
+@router.post(
+    '/repositories/{name}/clone',
+    status_code=201,
+    response_model=Repository,
+    operation_id='cloneRepository',
+    responses={409: PROBLEM, 422: PROBLEM},
+)
+@access.requires_repo(Action.MANAGE)
+async def clone_repository(
+    name: str, body: RepositoryClone, request: Request, response: Response, svc: ServicesDep
+) -> Repository:
+    """Create a repository with this one's configuration: upstream (and its stored secret), policies, options.
+
+    Content is not copied. Docker ``aliases`` and ``default_repo`` stay with the source (they name one repository);
+    the clone is never managed by the provisioning file. Needs ``manage`` on the source and ``admin`` (create)."""
+    principal = await authenticate(request)
+    access.require(principal, Action.ADMIN)
+    source: RepoConfig = request.state.repo
+    repo = await service.clone(svc, source, body.name, principal, description=body.description, online=body.online)
+    audit.record(
+        AuditAction.REPOSITORY_CREATE,
+        target=_target(repo),
+        details={'cloned_from': source.name},
+        changes=audit.diff(None, repo.to_doc()),
+    )
+    response.headers['Location'] = f'/api/v1/repositories/{repo.name}'
+    return await _view(svc, repo)
 
 
 @router.get('/repositories/{name}/setup', response_model=SetupGuide, operation_id='getSetupGuide')

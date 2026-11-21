@@ -651,6 +651,16 @@ settings changes, webhook changes. Searchable in the UI, exported via API; reten
   as `default_repo` clears it on the others. "Test upstream" checks DNS, the SSRF guard, TLS, HTTP and
   authentication of the format's probe path (docker `v2/`, npm `-/ping`, apt `dists/<distribution>/Release`, raw the
   URL itself) and always answers 200 with the findings.
+  **Clone** (`POST /api/v1/repositories/{name}/clone` with `{name, description?, online?}`; `manage` on the source and
+  `admin`): a new repository with the source's configuration and no content: type, format, upstream (the stored
+  secret is decrypted and re-encrypted for the new repository server-side, never returned), freshness, auto-block,
+  CA bundle and outbound proxy, quota, hosted write policy, group members, attached cleanup policies and format
+  options, validated like a create (409 when the name is taken). Docker `aliases` and `default_repo` stay with the
+  source (they name one repository); the clone is never `managed_by` the provisioning file. Audited as
+  `repository.create` with `details.cloned_from`. UI: a "Clone" action on the repository page asks for the name
+  (default `<name>-copy`) and opens the clone.
+  Repository status (list filter, detail header) is `ok`, `degraded` (an upstream failure in the last 10 minutes),
+  `blocked` (auto-blocked, §4.1) or `offline` (disabled or offline mode), from the upstream health hash.
 - **Set me up** per repo per client: generated config snippets (docker daemon.json, `docker login`, `.npmrc`,
   `pip.conf`, `settings.xml`, `sources.list`/`.sources`, `.repo`, Go env, Helm repo add, Terraform CLI config,
   `ansible.cfg`, Swift registry commands) with the current user's token placeholder.
@@ -819,7 +829,7 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
 - Versioned: breaking changes only in `/api/v2/`.
 - **Contract (M0)**: the API the UI depends on is written contract-first in
   `Application/Web/openapi/waystation-m0.yaml` (OpenAPI 3.1): config, auth/session, repositories (CRUD for proxy
-  repos with format options, test-upstream, Set me up snippets), stats (summary with sparklines, traffic series by
+  repos with format options, clone, test-upstream, Set me up snippets), stats (summary with sparklines, traffic series by
   range `15m|1h|24h|7d|30d` split hit/upstream or by format, storage, upstream health incl. Docker Hub rate limit),
   live transfers, activity, browse (generic folder listing, docker images/tags/manifest, npm packages/versions, apt
   suites/packages) and the SSE event schemas (`LiveEvent`: `transfers.snapshot`, `transfer.started|progress|finished|failed`,

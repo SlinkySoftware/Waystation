@@ -107,7 +107,8 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
   Waystation kind, upstream or members, Create / Exists / Not supported / Invalid with the reason, expandable
   field-level differences), checkboxes on the rows it can create (all by default) and "Import N repositories" with a
   confirmation; afterwards each row shows its outcome. Cards on phones.
-- Repository detail page: header (icon, name, type, status, URL copy, **Set me up** button), KPI strip, tabs:
+- Repository detail page: header (icon, name, type, status, URL copy, **Clone** (with `repositories.create`; a dialog
+  for the new name, then opens the clone) and **Set me up** buttons), KPI strip, tabs:
   **Overview** (charts for this repo, upstream health, top artifacts), **Browse**, **Packages**, **Activity**,
   **Settings**, **Cleanup** (attached policies + last runs + preview), **Members** (groups).
 - **Set me up** side panel: tabs per client (e.g. docker: daemon.json mirror, docker login, pull example;

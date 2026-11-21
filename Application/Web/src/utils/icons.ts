@@ -111,3 +111,6 @@ export { symOutlinedSend as iconSend, symOutlinedWebhook as iconWebhook } from '
 
 // Declarative provisioning (T-O09).
 export { symOutlinedDataObject as iconProvisioning } from '@quasar/extras/material-symbols-outlined'
+
+// Repository clone (T-S05).
+export { symOutlinedFileCopy as iconClone } from '@quasar/extras/material-symbols-outlined'

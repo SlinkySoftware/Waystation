@@ -995,6 +995,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a repository with this one's configuration (content is not copied)
+         * @description Copies the type, format, upstream (including its stored secret, re-encrypted server-side and never returned),
+         *     policies, quota, group members, hosted write policy, attached cleanup policies and format options. Docker
+         *     `aliases` and `default_repo` are not copied (they name one repository). The clone is never managed by the
+         *     provisioning file. Needs `manage` on the source and `admin`; audited as `repository.create` with
+         *     `details.cloned_from`.
+         */
+        post: operations["cloneRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/setup": {
         parameters: {
             query?: never;
@@ -3434,6 +3460,14 @@ export interface components {
             group?: components["schemas"]["GroupConfig"];
             storage?: components["schemas"]["StorageConfig"];
             format_options?: components["schemas"]["FormatOptions"];
+        };
+        /** @description Copy a repository's configuration (never its content) under a new name */
+        RepositoryClone: {
+            name: components["schemas"]["RepositoryName"];
+            /** @description null = the source's description */
+            description?: string | null;
+            /** @description null = the source's setting */
+            online?: boolean | null;
         };
         RepositorySummaryStats: {
             size_bytes: number;
@@ -7050,6 +7084,39 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    cloneRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepositoryClone"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    /** @description URL of the new repository resource */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Repository"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     getSetupGuide: {

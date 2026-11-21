@@ -1355,6 +1355,38 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/clone:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    post:
+      tags: [repositories]
+      operationId: cloneRepository
+      summary: Create a repository with this one's configuration (content is not copied)
+      description: |
+        Copies the type, format, upstream (including its stored secret, re-encrypted server-side and never returned),
+        policies, quota, group members, hosted write policy, attached cleanup policies and format options. Docker
+        `aliases` and `default_repo` are not copied (they name one repository). The clone is never managed by the
+        provisioning file. Needs `manage` on the source and `admin`; audited as `repository.create` with
+        `details.cloned_from`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RepositoryClone' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { schema: { type: string }, description: URL of the new repository resource }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Repository' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /repositories/{name}/setup:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4260,6 +4292,15 @@ components:
         group: { $ref: '#/components/schemas/GroupConfig' }
         storage: { $ref: '#/components/schemas/StorageConfig' }
         format_options: { $ref: '#/components/schemas/FormatOptions' }
+    RepositoryClone:
+      type: object
+      description: Copy a repository's configuration (never its content) under a new name
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: { $ref: '#/components/schemas/RepositoryName' }
+        description: { type: [string, 'null'], maxLength: 500, description: "null = the source's description" }
+        online: { type: [boolean, 'null'], description: "null = the source's setting" }
     RepositorySummaryStats:
       type: object
       required: [size_bytes, artifact_count, hit_ratio_24h, requests_24h, bytes_served_24h, requests_spark_24h, last_activity_at]
