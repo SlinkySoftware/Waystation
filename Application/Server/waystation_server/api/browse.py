@@ -2,7 +2,8 @@
 
 Every route needs ``browse`` on the repository (yanking: ``write``; hidden repositories answer 404, ARCHITECTURE §7).
 The generic folder listing works for every format; the format views (``/npm/*``, ``/apt/*``, ``/docker/*``,
-``/maven/*``, ``/pypi/*``, ``/go/*``, ``/cargo/*``) answer 404 for a repository of another format, or whose plugin
+``/maven/*``, ``/pypi/*``, ``/go/*``, ``/cargo/*``, ``/conda/*``) answer 404 for a repository of another format,
+or whose plugin
 has no browser yet. The REST layer reaches a format's views only through its registered plugin's ``browser``
 attribute and the protocols in ``waystation_server.browse.models`` (ARCHITECTURE §3).
 """
@@ -28,6 +29,9 @@ from waystation_server.browse.models import (
     ComposerBrowser,
     ComposerPackagePage,
     ComposerVersionPage,
+    CondaBrowser,
+    CondaFilePage,
+    CondaPackagePage,
     DockerBrowser,
     DockerImagePage,
     DockerManifest,
@@ -128,6 +132,13 @@ def _cargo(svc: Services, repo: RepoConfig) -> CargoBrowser:
     browser = _browser(svc, repo, 'cargo')
     if not isinstance(browser, CargoBrowser):
         raise NotFound('not a Cargo repository')
+    return browser
+
+
+def _conda(svc: Services, repo: RepoConfig) -> CondaBrowser:
+    browser = _browser(svc, repo, 'conda')
+    if not isinstance(browser, CondaBrowser):
+        raise NotFound('not a conda repository')
     return browser
 
 
@@ -866,6 +877,52 @@ async def list_cargo_versions(
 ) -> CargoVersionPage:
     repo: RepoConfig = request.state.repo
     return await _cargo(svc, repo).versions(_context(svc, repo), crate=crate, cursor=cursor, limit=limit)
+
+
+# ---------------------------------------------------------------------------- conda
+CondaName = Annotated[str, Query(max_length=128, description='Package name')]
+Subdir = Annotated[str | None, Query(max_length=41, description='Only this subdir (noarch, linux-64...)')]
+
+
+@router.get(
+    '/repositories/{name}/conda/packages',
+    response_model=CondaPackagePage,
+    operation_id='listCondaPackages',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_conda_packages(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> CondaPackagePage:
+    repo: RepoConfig = request.state.repo
+    return await _conda(svc, repo).packages(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/conda/files',
+    response_model=CondaFilePage,
+    operation_id='listCondaFiles',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_conda_files(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    package: CondaName,
+    subdir: Subdir = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> CondaFilePage:
+    repo: RepoConfig = request.state.repo
+    return await _conda(svc, repo).files(
+        _context(svc, repo), package=package, subdir=subdir, cursor=cursor, limit=limit
+    )
 
 
 # ---------------------------------------------------------------------------- go

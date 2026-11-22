@@ -25,6 +25,7 @@ import { terraformProviderList, terraformVersionsFor } from './fixtures/terrafor
 import { hostedProviderList, hostedProviderVersionsFor, terraformModuleList, terraformModuleVersionsFor } from './fixtures/terraformModules'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { composerPackageList, composerVersionsFor } from './fixtures/composer'
+import { condaFilesFor, condaPackageList } from './fixtures/conda'
 import { rubygemsGemList, rubygemsVersionsFor } from './fixtures/rubygems'
 import { nugetPackageList, nugetSetListing, nugetVersionsFor } from './fixtures/nuget'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
@@ -161,9 +162,9 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
     if (body.format === 'go' && body.type === 'hosted') {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
-    } else if ((body.format === 'yum' || body.format === 'apt' || body.format === 'swift') && body.type === 'group') {
+    } else if ((body.format === 'yum' || body.format === 'apt' || body.format === 'swift' || body.format === 'conda') && body.type === 'group') {
       errors.push({ field: 'type', message: `${body.format} supports: proxy, hosted`, code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget', 'composer', 'cargo', 'rubygems'].includes(body.format)) {
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget', 'composer', 'cargo', 'conda', 'rubygems'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -823,6 +824,26 @@ export const handlers = [
     const found = cargoVersionsFor(repo.name, repo.type === 'hosted', url.searchParams.get('crate') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ crate: found.crate, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/conda/packages`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'conda')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    return HttpResponse.json(paginate(condaPackageList(repo.type === 'hosted', url.searchParams.get('q') ?? undefined), url))
+  }),
+  http.get(`${API}/repositories/:name/conda/files`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'conda')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    const found = condaFilesFor(repo.name, repo.type === 'hosted', url.searchParams.get('package') ?? '', url.searchParams.get('subdir'))
+    if (!found) return notFound()
+    return HttpResponse.json({ package: found.package, ...paginate(found.files, url) })
   }),
   http.post(`${API}/repositories/:name/pypi/yank`, async ({ request, params }) => {
     const denied = guard(request)

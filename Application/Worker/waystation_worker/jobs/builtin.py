@@ -19,6 +19,7 @@ from waystation_common.jobs.model import (
     BlobGc,
     BlobVerify,
     CleanupRun,
+    CondaIndex,
     GalaxyImport,
     HelmIndex,
     JobEnvelope,
@@ -41,6 +42,7 @@ from waystation_worker import (
     apt,
     apt_index,
     cleanup,
+    conda,
     galaxy,
     gc,
     helm,
@@ -107,6 +109,9 @@ async def cleanup_run(job: CleanupRun, ctx: JobContext) -> dict[str, Any]:
             await jobs_db.outbox_add(ctx.db, envelope, now=now)
         if outcome.format == 'apt' and outcome.removed.items and outcome.repo_id:  # hosted .debs removed
             envelope = JobEnvelope.for_payload(AptIndex(repo_id=outcome.repo_id), now=now)
+            await jobs_db.outbox_add(ctx.db, envelope, now=now)
+        if outcome.format == 'conda' and outcome.removed.items and outcome.repo_id:  # hosted conda files removed
+            envelope = JobEnvelope.for_payload(CondaIndex(repo_id=outcome.repo_id), now=now)
             await jobs_db.outbox_add(ctx.db, envelope, now=now)
         # hosted Galaxy collection versions whose artifact a policy removed are no longer listed
         if outcome.format == 'galaxy' and outcome.removed.items and outcome.repo_id:
@@ -399,3 +404,17 @@ async def prefetch_warm(job: PrefetchWarm, ctx: JobContext) -> dict[str, Any]:
         )
     finally:
         await client.aclose()
+
+
+@handles(CondaIndex)
+async def conda_index(job: CondaIndex, ctx: JobContext) -> dict[str, Any]:
+    """Regenerate and publish a hosted conda repository's repodata and channeldata (``waystation_worker.conda``)."""
+    if ctx.settings is None:
+        raise RuntimeError('the conda index needs the worker settings (data directory)')
+    store = BlobStore.from_settings(ctx.settings)
+    store.guard = MongoBlobGuard(ctx.db)  # the commit claims the blob against GC (ARCHITECTURE §5)
+    result = await conda.rebuild(ctx.db, store, job.repo_id, now=ctx.now())
+    if result is None:
+        return {'repo_id': job.repo_id, 'skipped': 'not a hosted conda repository (deleted?)'}
+    await ctx.log(f'published repodata for {", ".join(result.subdirs)}: {result.packages} package files')
+    return {'repo_id': job.repo_id, **result.as_dict()}

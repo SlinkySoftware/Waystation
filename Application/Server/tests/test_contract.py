@@ -125,6 +125,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/go/versions', 'get'),
     ('/repositories/{name}/cargo/crates', 'get'),
     ('/repositories/{name}/cargo/versions', 'get'),
+    ('/repositories/{name}/conda/packages', 'get'),
+    ('/repositories/{name}/conda/files', 'get'),
     ('/repositories/{name}/galaxy/namespaces', 'get'),
     ('/repositories/{name}/galaxy/collections', 'get'),
     ('/repositories/{name}/galaxy/versions', 'get'),

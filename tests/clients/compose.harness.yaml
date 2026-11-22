@@ -240,6 +240,17 @@ services:
         RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
             && rm -rf /var/lib/apt/lists/*
     image: waystation-harness-cargo:1.99.1-1  # bump the suffix when the Dockerfile above changes
+  client-micromamba:  # micromamba, plus curl, zip, zstd and bzip2 to build and upload test packages (conda format)
+    <<: *client
+    build:
+      context: ${HARNESS_CLIENTS_DIR}/conda
+      dockerfile_inline: |
+        FROM mambaorg/micromamba:2.3.3
+        USER root
+        RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates zip zstd bzip2 \
+            && rm -rf /var/lib/apt/lists/*
+        USER $$MAMBA_USER
+    image: waystation-harness-micromamba:2.3.3-1  # bump the suffix when the Dockerfile above changes
   client-terraform:  # terraform, tofu, curl, gnupg and the TLS front of the go harness (terraform format)
     <<: *client
     build:

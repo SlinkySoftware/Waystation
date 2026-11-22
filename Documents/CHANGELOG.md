@@ -3,6 +3,22 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-23
+- T-P6-CONDA: conda channels (FORMATS.md "Conda"; `formats/conda/`, `Operations/clients/conda.md`). **Proxy** of a
+  channel (preset conda-forge): `channeldata.json` as metadata; `<subdir>/repodata.json`, its `.zst`/`.bz2`
+  encodings, `current_repodata.json` and `repodata_from_packages.json` streamed to the client while cached (content
+  fill, bounded at 1 GiB) and revalidated after the metadata max age; `repodata.jlap` and sharded repodata answer 404
+  so clients fall back. Cached repodata is scanned in the background with bounded memory
+  (`waystation_common.conda.repodata`) into the new collections `conda_packages` and `conda_names`; `.conda` and
+  `.tar.bz2` packages are verified against the listed sha256 (or md5) and size, and packages fetched before any
+  listing are recorded unverified and checked (or dropped) when one arrives. **Hosted**: `PUT`/`DELETE
+  <subdir>/<file>`, `info/index.json` read safely from the archive (bounded, nothing extracted) and checked against
+  the path, write policy, quota; the new worker job `index.conda` (outbox) publishes `repodata.json`, `.zst` and
+  `channeldata.json` (an empty listing is served before the first run). Groups are refused. Conda `VersionOrder`
+  (`waystation_common.conda`) for `version_sort`, cleanup and components; prefetch warm items
+  `subdir/name[==version[=build]]` and `channeldata.json` refresh; browse API `conda/packages`, `conda/files`
+  (OpenAPI, MSW mocks, conda browser and create flow in the UI); global search; Set me up (`.condarc` channels or
+  `custom_channels`, `.netrc`, micromamba, pixi, curl upload); Nexus `conda` proxies import with content kept forever.
+  Real-client harness `tests/clients/conda/` (micromamba 2.3, conda-forge fixtures trimmed to the entries used).
 - T-P6-GEMS: RubyGems repositories (FORMATS.md "RubyGems", `Operations/clients/rubygems.md`). **Proxy** of a
   compact index server (preset rubygems.org): `versions` (up to 512 MiB), `names` and `info/<gem>` cached as metadata
   and served by X-Accel with `Repr-Digest`/`Digest` of the whole file, so Bundler's `Range` appends are checked (the

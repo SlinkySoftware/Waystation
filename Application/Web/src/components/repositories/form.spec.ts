@@ -262,6 +262,13 @@ describe('repository form model', () => {
     expect(group).toMatchObject({ type: 'group', group: { members: ['cargo-hosted', 'cargo-proxy'], writable_member: 'cargo-hosted' } })
   })
 
+  it('builds conda proxies of conda-forge and hosted channels, never groups', () => {
+    expect([HOSTED_FORMATS.includes('conda'), GROUP_FORMATS.includes('conda')]).toEqual([true, false])
+    const proxy = toWrite({ ...emptyModel('conda'), ...PRESETS.conda[0]!.apply, warmText: 'noarch/tzdata==2024b' })
+    expect(proxy).toMatchObject({ name: 'conda-forge', format: 'conda', type: 'proxy', proxy: { upstream_url: 'https://conda.anaconda.org/conda-forge', prefetch: { warm: ['noarch/tzdata==2024b'] } }, format_options: {} })
+    expect(toWrite({ ...emptyModel('conda', 'hosted'), name: 'conda-hosted' })).toMatchObject({ type: 'hosted', format_options: {} })
+  })
+
   it('maps raw hosted and group repositories', () => {
     const hosted = { ...emptyModel('raw'), type: 'hosted' as const, name: 'files', metadataRegex: '^/x', writePolicy: 'disable_redeploy' as const }
     const w = toWrite(hosted)
@@ -365,7 +372,7 @@ describe('repository form model', () => {
   })
 
   it('writes prefetch for the formats that support it and reads it back', () => {
-    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'rubygems'])
+    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'conda', 'rubygems'])
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', refreshPopular: true, warmText: 'lodash@4.17.21\n\n @types/node@latest ', prefetchSchedule: '  0  3 * * * ' }
     const w = toWrite(m)
     expect(w.proxy?.prefetch).toEqual({ refresh_popular: true, warm: ['lodash@4.17.21', '@types/node@latest'], schedule: '0 3 * * *' })

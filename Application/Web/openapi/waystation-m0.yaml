@@ -1826,6 +1826,52 @@ paths:
               schema: { $ref: '#/components/schemas/CargoVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/conda/packages:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listCondaPackages
+      summary: Package names listed by a conda repository (indexed repodata of a proxy, uploads of a hosted channel)
+      parameters:
+        - { name: q, in: query, description: Name prefix, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CondaPackagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/conda/files:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listCondaFiles
+      summary: One conda package and its files (newest version first, conda version order)
+      parameters:
+        - name: package
+          in: query
+          required: true
+          description: Package name
+          schema: { type: string, maxLength: 128 }
+        - name: subdir
+          in: query
+          description: Only this subdir (noarch, linux-64...)
+          schema: { type: string, maxLength: 41 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Files
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CondaFilePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/helm/charts:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4761,6 +4807,10 @@ components:
       type: object
       description: 'Cargo (sparse registries): no options yet'
       properties: {}
+    CondaOptions:
+      type: object
+      description: 'Conda (channels): no options yet'
+      properties: {}
     NugetOptions:
       type: object
       properties:
@@ -4806,6 +4856,7 @@ components:
         - $ref: '#/components/schemas/CargoOptions'
         - $ref: '#/components/schemas/NugetOptions'
         - $ref: '#/components/schemas/ComposerOptions'
+        - $ref: '#/components/schemas/CondaOptions'
         - $ref: '#/components/schemas/RubygemsOptions'
     QuotaMode:
       type: string
@@ -5480,6 +5531,62 @@ components:
           type: array
           description: Newest first (SemVer)
           items: { $ref: '#/components/schemas/CargoVersion' }
+        next_cursor: { type: [string, 'null'] }
+    CondaPackage:
+      type: object
+      required: [name, latest, subdirs, file_count]
+      properties:
+        name: { type: string }
+        latest: { type: [string, 'null'], description: Highest version listed (conda version order) }
+        subdirs:
+          type: array
+          description: Subdirs listing the package (noarch, linux-64...)
+          items: { type: string }
+        file_count: { type: integer, description: Package files listed (every build of every version) }
+        summary: { type: [string, 'null'] }
+        license: { type: [string, 'null'] }
+    CondaPackagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CondaPackage' }
+        next_cursor: { type: [string, 'null'] }
+    CondaFile:
+      type: object
+      required: [filename, subdir, version, build, build_number, prerelease, sha256, verified, depends, cached, downloads]
+      properties:
+        filename: { type: string }
+        subdir: { type: string }
+        version: { type: string }
+        build: { type: string }
+        build_number: { type: integer }
+        prerelease: { type: boolean }
+        sha256: { type: [string, 'null'], description: SHA-256 from the listing (hex) }
+        md5: { type: [string, 'null'] }
+        size: { type: [integer, 'null'] }
+        timestamp: { type: [string, 'null'], format: date-time, description: Build time from the listing }
+        verified: { type: boolean, description: 'The checksum comes from a repodata listing (or an upload), not a fetch' }
+        depends:
+          type: array
+          description: 'Hosted: the dependencies of the build'
+          items: { type: string }
+        license: { type: [string, 'null'] }
+        cached: { type: boolean, description: The file is held (cached or uploaded) }
+        cached_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        uploaded_by: { type: [string, 'null'], description: 'Hosted: who uploaded it' }
+    CondaFilePage:
+      type: object
+      required: [package, items, next_cursor]
+      properties:
+        package: { $ref: '#/components/schemas/CondaPackage' }
+        items:
+          type: array
+          description: Newest version first (conda version order), then build number
+          items: { $ref: '#/components/schemas/CondaFile' }
         next_cursor: { type: [string, 'null'] }
     HelmChart:
       type: object

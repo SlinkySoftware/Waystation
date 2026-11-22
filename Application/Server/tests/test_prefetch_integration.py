@@ -256,6 +256,25 @@ async def test_warm_raw_npm_and_docker_without_counting_downloads(
     await no_downloads(services)
 
 
+async def test_warm_conda_packages(services: Services, server: prefetch.ServerClient, upstream: FakeUpstream) -> None:
+    from ws_conda import conda_package, entry, index_json, repodata
+
+    files: dict[str, dict[str, Any]] = {}
+    for version, build in (('2024a', 'h0_0'), ('2024b', 'h0_0'), ('2024b', 'h0_1')):
+        index = index_json('tzdata', version, build)
+        data = conda_package(index)
+        name = f'tzdata-{version}-{build}.conda'
+        files[name] = entry(index, data)
+        upstream.routes[f'/noarch/{name}'] = Respond(200, {}, data)
+    upstream.routes['/noarch/repodata.json'] = Respond(200, {}, repodata('noarch', files))
+    channel = await add(services, 'repo-conda', 'conda', upstream.url)
+    await set_warm(services, channel, 'noarch/tzdata', 'noarch/tzdata==2024a', 'noarch/nothere')
+    result = await prefetch.warm(services.db, services.valkey, server, repo_id=channel)
+    assert (result['items'], result['ok'], result['failed']) == (3, 2, 1), result
+    paths = {d['path'] async for d in services.db[ASSETS].find({'repo_id': channel}, {'path': 1})}
+    assert set(files) == {p.removeprefix('noarch/') for p in paths if p.endswith('.conda')}
+
+
 async def test_warm_cargo_crates(services: Services, server: prefetch.ServerClient, upstream: FakeUpstream) -> None:
     lines = [
         {'name': 'itoa', 'vers': v, 'deps': [], 'cksum': sha(TGZ + v.encode()), 'features': {}, 'yanked': v == '1.1.0'}

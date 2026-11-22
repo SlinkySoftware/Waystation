@@ -572,6 +572,48 @@ class CargoVersionPage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- conda
+class CondaPackage(BaseModel):
+    name: str
+    latest: str | None = Field(description='Highest version listed (conda version order)')
+    subdirs: list[str] = Field(description='Subdirs listing the package (noarch, linux-64...)')
+    file_count: int = Field(description='Package files listed (every build of every version)')
+    summary: str | None = None
+    license: str | None = None
+
+
+class CondaPackagePage(BaseModel):
+    items: list[CondaPackage]
+    next_cursor: str | None
+
+
+class CondaFile(BaseModel):
+    filename: str
+    subdir: str
+    version: str
+    build: str
+    build_number: int
+    prerelease: bool
+    sha256: str | None = Field(description='SHA-256 from the listing (hex)')
+    md5: str | None = None
+    size: int | None = None
+    timestamp: datetime | None = Field(default=None, description='Build time from the listing')
+    verified: bool = Field(description='The checksum comes from a repodata listing (or an upload), not a fetch')
+    depends: list[str] = Field(description='Hosted: the dependencies of the build')
+    license: str | None = None
+    cached: bool = Field(description='The file is held (cached or uploaded)')
+    cached_at: datetime | None = None
+    downloads: int
+    last_downloaded_at: datetime | None = None
+    uploaded_by: str | None = Field(default=None, description='Hosted: who uploaded it')
+
+
+class CondaFilePage(BaseModel):
+    package: CondaPackage
+    items: list[CondaFile] = Field(description='Newest version first (conda version order), then build number')
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- pypi
 class PypiProject(BaseModel):
     name: str = Field(description='Normalised project name (PEP 503)')
@@ -814,6 +856,17 @@ class CargoBrowser(Protocol):
 
     async def versions(self, ctx: BrowseContext, *, crate: str, cursor: str | None, limit: int) -> CargoVersionPage:
         """One crate's versions (newest first); raises ``NotFound`` for an unknown crate or a group."""
+
+
+@runtime_checkable
+class CondaBrowser(Protocol):
+    async def packages(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> CondaPackagePage:
+        """Package names the repository lists (indexed repodata or uploads), by name."""
+
+    async def files(
+        self, ctx: BrowseContext, *, package: str, subdir: str | None, cursor: str | None, limit: int
+    ) -> CondaFilePage:
+        """One package's files (newest version first); raises ``NotFound`` for an unknown package."""
 
 
 @runtime_checkable

@@ -153,6 +153,12 @@ cargo: fixtures are crates.io's `config.json`, the index files of `cfg-if` and `
 hosted registry is generated at run time. `client-cargo` is `rust:1.99.1-slim-trixie` with curl; every scenario uses
 its own `CARGO_HOME`, so registry caches and credentials never leak between them. The group also asks index.crates.io for the hosted crate
 (a recorded 404), as every group with a proxy member does for names only a hosted member has.
+conda: fixtures are conda-forge's `noarch` and `linux-64` repodata from conda.anaconda.org, **trimmed after
+recording** to the `tzdata` entries the test installs (the live files are tens of MB; each trimmed `.body` keeps its
+`.json` sha256 in step), and the `tzdata` `.conda` file (budget 512 KiB, `conda/format.env`). The packages uploaded
+to the hosted channel are built at run time with tar, zstd, zip and bzip2. `client-micromamba` is
+`mambaorg/micromamba:2.3.3` with those tools and curl; micromamba uses a scratch `MAMBA_ROOT_PREFIX` and package
+cache under `/tmp/conda-harness`, recreated on every run.
 nuget: fixtures are api.nuget.org's service index, the version list, registration (about 95 KB) and catalog leaf of
 `Ardalis.GuardClauses` and its 5.0.0 package (about 165 KB), plus the 404 for the hosted package's id that the group's
 proxy member asks about (about 280 KB, budget 1 MiB, `nuget/format.env`); the library pushed to the hosted repository
