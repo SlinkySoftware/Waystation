@@ -14,6 +14,7 @@
   <TerraformBrowser v-else-if="repo.format === 'terraform'" :repo="repo" />
   <SwiftBrowser v-else-if="repo.format === 'swift'" :repo="repo" />
   <NugetBrowser v-else-if="repo.format === 'nuget'" :repo="repo" />
+  <ComposerBrowser v-else-if="repo.format === 'composer'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
@@ -21,6 +22,7 @@
 import type { Repository } from '@/api/types'
 
 import AptBrowser from './AptBrowser.vue'
+import ComposerBrowser from './ComposerBrowser.vue'
 import DockerBrowser from './DockerBrowser.vue'
 import FolderBrowser from './FolderBrowser.vue'
 import GalaxyBrowser from './GalaxyBrowser.vue'

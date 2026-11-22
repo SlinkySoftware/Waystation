@@ -25,6 +25,27 @@ describe('repository form model', () => {
     expect(group.group).toEqual({ members: ['charts'], writable_member: 'charts' })
   })
 
+  it('builds composer proxy (dist hosts, source mode), hosted and group repositories', () => {
+    expect(HOSTED_FORMATS).toContain('composer')
+    expect(GROUP_FORMATS).toContain('composer')
+    expect(WRITABLE_GROUP_FORMATS).not.toContain('composer')
+    const proxy = toWrite({ ...emptyModel('composer'), ...PRESETS.composer[0]!.apply })
+    expect(proxy).toMatchObject({ name: 'composer-proxy', format: 'composer', type: 'proxy', proxy: { upstream_url: 'https://repo.packagist.org' } })
+    expect(proxy.format_options).toEqual({ dist_hosts: ['github.com', 'codeload.github.com', 'api.github.com', 'gitlab.com'], source_mode: 'keep' })
+    expect(toWrite({ ...emptyModel('composer'), composerDistHosts: [' GitHub.com ', ''], composerSourceMode: 'strip' }).format_options).toEqual({ dist_hosts: ['github.com'], source_mode: 'strip' })
+    expect(toWrite({ ...emptyModel('composer', 'hosted'), name: 'composer-hosted' }).format_options).toEqual({})
+    const group = toWrite({ ...emptyModel('composer', 'group'), name: 'composer-group', members: ['composer-hosted', 'composer-proxy'] })
+    expect(group.group).toEqual({ members: ['composer-hosted', 'composer-proxy'], writable_member: null })
+    expect(group.format_options).toEqual({})
+    const back = modelFromRepository({
+      name: 'composer-proxy', format: 'composer', type: 'proxy', online: true, status: 'online', url: 'https://registry.example.com/repository/composer-proxy/',
+      format_options: { dist_hosts: ['github.com'], source_mode: 'strip' },
+    } as unknown as Repository)
+    expect([back.composerDistHosts, back.composerSourceMode]).toEqual([['github.com'], 'strip'])
+    const defaults = modelFromRepository({ name: 'composer-hosted', format: 'composer', type: 'hosted', online: true, status: 'online', url: 'https://registry.example.com/repository/composer-hosted/', format_options: {} } as unknown as Repository)
+    expect([defaults.composerDistHosts.length, defaults.composerSourceMode]).toEqual([4, 'keep'])
+  })
+
   it('builds nuget proxy (catalog verification), hosted (delete mode) and group repositories', () => {
     expect(HOSTED_FORMATS).toContain('nuget')
     expect(GROUP_FORMATS).toContain('nuget')
@@ -322,7 +343,7 @@ describe('repository form model', () => {
   })
 
   it('writes prefetch for the formats that support it and reads it back', () => {
-    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget'])
+    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer'])
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', refreshPopular: true, warmText: 'lodash@4.17.21\n\n @types/node@latest ', prefetchSchedule: '  0  3 * * * ' }
     const w = toWrite(m)
     expect(w.proxy?.prefetch).toEqual({ refresh_popular: true, warm: ['lodash@4.17.21', '@types/node@latest'], schedule: '0 3 * * *' })

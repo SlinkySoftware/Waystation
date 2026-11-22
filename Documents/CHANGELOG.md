@@ -3,6 +3,26 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-P6-COMPOSER: Composer 2 repositories (FORMATS.md "Composer", `Operations/clients/composer.md`). Every Composer
+  repository serves its own `packages.json` (`metadata-url` = `<repo>/p2/%package%.json`; no Composer 1 `providers`).
+  **Proxy** of a Composer 2 repository (preset repo.packagist.org): `packages.json` and the minified `p2` documents
+  (tagged and `~dev`) cached as metadata, bounded, validated (only the published package keys kept) and rewritten:
+  `zip`/`tar` archives on an allowed host (new option `dist_hosts`, default github.com, codeload.github.com,
+  api.github.com, gitlab.com, plus the upstream's host) are served through the repository, `source` entries kept or
+  stripped (new option `source_mode`). Archives are fetched (GitHub API zipballs straight from codeload.github.com),
+  checked (zip-slip/zip-bomb guards), verified against the entry's `shasum` when there is one and against the SHA-256
+  pinned when first cached. **Hosted**: `PUT /repository/<repo>/packages/upload/<vendor>/<name>/<version>` (raw zip,
+  as Nexus's Composer plugin; `composer.json` validated against the name and version, version normalised; write
+  policy, quota, audit) and `DELETE` on the same path; `p2` rendered per request. **Group**: `p2` merged per package
+  (first member wins per version), archives from the members. Composer version order (`waystation_common.composer`)
+  for `version_sort`, cleanup and the component index; new collection `composer_packages` (browse, global search,
+  archive pins). Prefetch warm items `vendor/name[:version]` and `p2` refresh. Nexus `composer-*` repositories are
+  imported. REST: `GET composer/packages`, `GET composer/versions` (contract, regenerated client); UI: Composer in the
+  create flow (proxy, hosted, group; options), browse renderer, prefetch hints (also for NuGet), "Set me up"
+  (`composer config`, `auth.json`, `composer.json`, upload with curl), MSW mocks. Client harness
+  `tests/clients/composer/` (official composer 2.11 image; recorded repo.packagist.org and codeload.github.com
+  fixtures of `psr/container` 2.0.2): install through the proxy, upload + install through hosted and the group,
+  delete, refused credentials. Allowlisted host: `packagist.org`.
 - T-P6-DOCKERC: docker dedicated port connectors (Nexus style, SPEC §4.4, adr/0013 accepted). A docker repository
   (proxy, hosted or group) may set `format_options.connector_port` (1024-65535, unique, not the base URL port; clones
   start without it); clients then use `registry.example.com:<port>/<image>` without a prefix. The web container

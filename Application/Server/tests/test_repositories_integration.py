@@ -275,6 +275,7 @@ async def test_openapi_documents_format_options(client: httpx.AsyncClient) -> No
     schemas = doc['components']['schemas']
     assert {r['$ref'].rsplit('/', 1)[-1] for r in schemas['FormatOptions']['oneOf']} == {
         'AptOptions',
+        'ComposerOptions',
         'DockerOptions',
         'GalaxyOptions',
         'HelmOptions',

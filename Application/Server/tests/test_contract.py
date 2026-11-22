@@ -117,6 +117,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/nuget/packages', 'get'),
     ('/repositories/{name}/nuget/versions', 'get'),
     ('/repositories/{name}/nuget/listing', 'post'),
+    ('/repositories/{name}/composer/packages', 'get'),
+    ('/repositories/{name}/composer/versions', 'get'),
     ('/repositories/{name}/go/modules', 'get'),
     ('/repositories/{name}/go/versions', 'get'),
     ('/repositories/{name}/galaxy/namespaces', 'get'),

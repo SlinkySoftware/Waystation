@@ -442,6 +442,31 @@ function nuget(repo: Repository): SetupClient[] {
   ]
 }
 
+/** Composer: the repository in a project (config or composer.json), auth.json credentials; upload and delete for hosted repositories. */
+function composer(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const host = new URL(BASE_URL).host
+  const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupClient['snippets'][number] => ({ id, title, description, language, filename, os: null, content })
+  const members = repo.type === 'group' ? `One repository for the members, in order: ${(repo.group?.members ?? []).join(', ')}. ` : ''
+  const json = `{\n  "repositories": [\n    {"type": "composer", "url": "${url}"},\n    {"packagist.org": false}\n  ]\n}`
+  const snippets: SetupClient['snippets'] = [
+    s('composer-repo', 'Use this repository in a project', `composer config repositories.waystation composer ${url}\ncomposer config repositories.packagist.org false`, 'shell', null, `${members}The second line stops Composer asking packagist.org directly.`),
+  ]
+  if (BASE_URL.startsWith('http:')) snippets.push(s('composer-secure-http', 'Allow plain HTTP', 'composer config secure-http false'))
+  snippets.push(
+    s('composer-auth', 'Credentials (auth.json)', `composer config http-basic.${host} {{USERNAME}} {{TOKEN}}`, 'shell', null, 'An API token is the password; leave it out when anonymous reads are allowed.'),
+    s('composer-json', 'Or in composer.json', json, 'json', 'composer.json'),
+    s('composer-require', 'Add a package', 'composer require monolog/monolog'),
+  )
+  if (repo.type === 'hosted') {
+    snippets.push(
+      s('composer-upload', 'Upload a package', `cd my-package && zip -r ../acme-demo-1.0.0.zip . -x '.git/*' 'vendor/*'\ncurl -u {{USERNAME}}:{{TOKEN}} --upload-file ../acme-demo-1.0.0.zip ${url}packages/upload/acme/demo/1.0.0`, 'shell', null, 'The zip holds composer.json at its root (or in one top-level folder); its name must be acme/demo. Needs the write permission.'),
+      s('composer-delete', 'Delete a version', `curl -u {{USERNAME}}:{{TOKEN}} -X DELETE ${url}packages/upload/acme/demo/1.0.0`, 'shell', null, 'Needs the delete permission.'),
+    )
+  }
+  return [{ id: 'composer', label: 'Composer', snippets }]
+}
+
 /** Go: GOPROXY (the checksum database through the repository), private modules, .netrc credentials. */
 function go(repo: Repository): SetupClient[] {
   const url = `${BASE_URL}/repository/${repo.name}`
@@ -549,7 +574,7 @@ function terraformHosted(repo: Repository, host: string, s: Snip): SetupClient[]
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'nuget' ? nuget(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {

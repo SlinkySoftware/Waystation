@@ -50,6 +50,8 @@ galaxy.ansible.com
 nuget.org
 # The .nuspec XML namespace (http://schemas.microsoft.com/packaging/.../nuspec.xsd) in NuGet package tests
 schemas.microsoft.com
+# Composer (T-P6-COMPOSER): Packagist (repo.packagist.org) and its package pages
+packagist.org
 
 # Public upstreams: Linux distribution mirrors
 deb.debian.org

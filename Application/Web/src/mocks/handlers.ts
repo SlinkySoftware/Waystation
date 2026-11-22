@@ -23,6 +23,7 @@ import { goModuleList, goVersionsFor } from './fixtures/go'
 import { terraformProviderList, terraformVersionsFor } from './fixtures/terraform'
 import { hostedProviderList, hostedProviderVersionsFor, terraformModuleList, terraformModuleVersionsFor } from './fixtures/terraformModules'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
+import { composerPackageList, composerVersionsFor } from './fixtures/composer'
 import { nugetPackageList, nugetSetListing, nugetVersionsFor } from './fixtures/nuget'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { yumPackageList, yumVersionsFor } from './fixtures/yum'
@@ -160,7 +161,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
     } else if ((body.format === 'yum' || body.format === 'apt' || body.format === 'swift') && body.type === 'group') {
       errors.push({ field: 'type', message: `${body.format} supports: proxy, hosted`, code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget'].includes(body.format)) {
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget', 'composer'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -808,6 +809,26 @@ export const handlers = [
     const body = (await request.json()) as PypiYank
     if (!pypiYank(repo.name, body.project, body.version, body.reason ?? null, body.yanked)) return notFound()
     return HttpResponse.json({ project: body.project.toLowerCase(), version: body.version, yanked: body.yanked, files: 2 })
+  }),
+  http.get(`${API}/repositories/:name/composer/packages`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'composer')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    return HttpResponse.json(paginate(composerPackageList(repo.type, url.searchParams.get('q')), url))
+  }),
+  http.get(`${API}/repositories/:name/composer/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'composer')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    const found = composerVersionsFor(repo.name, repo.type, url.searchParams.get('package') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ package: found.package, ...paginate(found.items, url) })
   }),
   http.get(`${API}/repositories/:name/nuget/packages`, async ({ request, params }) => {
     const denied = guard(request)

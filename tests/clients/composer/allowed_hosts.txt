@@ -1,0 +1,4 @@
+# Public hosts that appear in the composer format's recorded upstream content: Packagist's blog (an announcement in
+# repo.packagist.org's packages.json) and the PHP-FIG home page (psr/container's homepage).
+packagist.com
+php-fig.org
