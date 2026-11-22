@@ -8,7 +8,7 @@ import { compareIdsDesc } from '@/utils/activity'
 
 import { seedRepositories } from './fixtures/repositories'
 import { aptRun, dnfRun, dockerPull, type JobPlan, npmInstall, rawDownload, type Spec, trickle } from './scenarios'
-import { between, GiB, MiB, pick } from './rng'
+import { between, GiB, MiB, pick, rng } from './rng'
 
 export const TICK_MS = 250
 const LAN_BPS = 117e6 // ~1 GbE to clients
@@ -95,6 +95,9 @@ export class MockWorld {
   start(): void {
     if (this.timer || this.started) return
     this.started = true
+    // Still mode: restart the random sequence here, so the opening picture does not depend on how many random numbers
+    // the mock handlers drew before the event stream attached (that order varies between runs).
+    if (this.knobs.still) Math.random = rng(0x5eed)
     // Open on a busy moment: a cold multi-hundred-MiB pull, a dnf run and an npm install in flight.
     this.spawn(dockerPull(true, 'ghcr-proxy'))
     this.spawn(dnfRun('rocky'))

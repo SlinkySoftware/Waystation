@@ -2,7 +2,18 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+The task-level engineering log (every task, with what landed) is [History/BUILD_HISTORY.md](History/BUILD_HISTORY.md).
+
 ## 2026-11-23
+- T-R02: documentation structure for v1.0. `Documents/TASKS.md` lists open work only (the v1.0.0 release and a
+  post-1.0 backlog collected from the follow-ups of completed tasks); every completed and dropped task row moved
+  verbatim to `Documents/History/BUILD_HISTORY.md`, and `Documents/Notes/` (the 0.1 UI tour and feedback log) moved to
+  `Documents/History/`. README rewritten as the product page with screenshots in `Documents/Images/`, retaken from the
+  mock build with `make readme-screenshots` (`Application/Web/e2e/readme-shots.spec.ts`, skipped unless
+  `README_SHOTS=1`). Agent instructions describe the as-built workflow (finishing a task moves its row to the build
+  history). Mock build: still mode restarts the seeded random sequence when the live generator starts, so the
+  repository page's live-transfer panel renders the same on every run (visual baseline stable again); the mock
+  reports version `1.0.0`.
 - T-R01: security review before v1.0.0. `Documents/Security/ASVS_L2.md` (OWASP ASVS 4.0.3 Level 2, requirement by
   requirement with code and test references, findings with severities) and `Documents/Security/DEPENDENCIES.md`
   (pip-audit, npm audit, Trivy results; container hardening table). Fixed: the SSRF guard now judges NAT64
