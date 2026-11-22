@@ -64,7 +64,9 @@ FORMATS: dict[str, str | None] = {
 # Content of these formats is addressed or verified by checksum (Go: module versions are immutable and checked
 # against the checksum database; Cargo: crates against the index cksum; conda: packages against the repodata sha256):
 # it never changes, so it is cached forever.
-IMMUTABLE_CONTENT = frozenset({'docker', 'npm', 'apt', 'yum', 'pypi', 'go', 'nuget', 'composer', 'cargo', 'conda'})
+IMMUTABLE_CONTENT = frozenset(
+    {'docker', 'npm', 'apt', 'yum', 'pypi', 'go', 'nuget', 'composer', 'cargo', 'rubygems', 'conda'}
+)
 DOCKER_HUB_HOSTS = frozenset({'registry-1.docker.io', 'docker.io', 'index.docker.io', 'registry.hub.docker.com'})
 WRITE_POLICIES = {'ALLOW': 'allow_redeploy', 'ALLOW_ONCE': 'disable_redeploy', 'DENY': 'read_only'}
 _HOST = re.compile(

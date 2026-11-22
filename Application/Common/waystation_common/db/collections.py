@@ -53,6 +53,7 @@ NUGET_PACKAGES = 'nuget_packages'  # one summary per NuGet package id a reposito
 COMPOSER_PACKAGES = 'composer_packages'  # one summary per Composer package a repository has (browse, search, pins)
 CONDA_PACKAGES = 'conda_packages'  # conda package files: repodata listings (proxy), uploads (hosted)
 CONDA_NAMES = 'conda_names'  # one summary per conda package name a repository has (browse, global search)
+RUBYGEMS_GEMS = 'rubygems_gems'  # one summary per gem a repository has (browse, search)
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -565,6 +566,15 @@ SPECS: tuple[CollectionSpec, ...] = (
         CONDA_NAMES,
         (
             # One summary per package name a repository lists (proxy: indexed repodata; hosted: uploads).
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        RUBYGEMS_GEMS,
+        (
+            # One summary per gem name (case-sensitive) a repository has: cached info file (proxy) or pushed gems
+            # (hosted); browse lists them by name.
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=False),
         ),

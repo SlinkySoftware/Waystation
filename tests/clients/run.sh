@@ -41,7 +41,7 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
   [ -f "$dir/test.sh" ] || { echo "$fmt: missing $dir/test.sh" >&2; exit 2; }
 
   # shellcheck disable=SC1091
-  local HOSTS='' CLIENT='' NEEDS_STACK=0 ORIGINS='' RECORD_SERVICES='' SERVICES='' DROP_JSON_KEYS='' CLIENT_ARM64='' STACK_ENV=''
+  local HOSTS='' CLIENT='' NEEDS_STACK=0 ORIGINS='' RECORD_SERVICES='' SERVICES='' DROP_JSON_KEYS='' KEEP_LINES='' CLIENT_ARM64='' STACK_ENV=''
   # shellcheck source=/dev/null
   . "$dir/format.env"
   [ -n "$HOSTS" ] && [ -n "$CLIENT" ] || { echo "$fmt: format.env needs HOSTS and CLIENT" >&2; exit 2; }
@@ -65,7 +65,7 @@ run_format() (  # subshell: the EXIT trap tears down this format's project
 
   export HARNESS_PROJECT="$project" HARNESS_RUN_DIR="$run_dir" HARNESS_FIXTURES="$fixtures" HARNESS_MODE="$MODE"
   export HARNESS_FORMAT="$fmt" HARNESS_HOSTS="$HOSTS" HARNESS_ORIGINS="$ORIGINS" HARNESS_STACK="$stack"
-  export HARNESS_DROP_JSON_KEYS="$DROP_JSON_KEYS"
+  export HARNESS_DROP_JSON_KEYS="$DROP_JSON_KEYS" HARNESS_KEEP_LINES="$KEEP_LINES"
   export HARNESS_UID HARNESS_GID HARNESS_CLIENTS_DIR="$CLIENTS"
   HARNESS_UID=$(id -u)
   HARNESS_GID=$(id -g)

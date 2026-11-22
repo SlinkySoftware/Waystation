@@ -22,6 +22,7 @@ location /_blobs/ {
     add_header Content-Version $upstream_http_content_version always;
     add_header Link $upstream_http_link always;
     add_header Digest $upstream_http_digest always;
+    add_header Repr-Digest $upstream_http_repr_digest always;  # RubyGems compact index (Bundler checks appends)
     add_header X-Swift-Package-Signature-Format $upstream_http_x_swift_package_signature_format always;
     add_header X-Swift-Package-Signature $upstream_http_x_swift_package_signature always;
     add_header X-Request-Id $upstream_http_x_request_id always;

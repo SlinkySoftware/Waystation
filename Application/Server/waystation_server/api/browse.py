@@ -63,6 +63,9 @@ from waystation_server.browse.models import (
     PypiVersionPage,
     PypiYank,
     PypiYankResult,
+    RubygemsBrowser,
+    RubygemsGemPage,
+    RubygemsVersionPage,
     SwiftBrowser,
     SwiftPackagePage,
     SwiftReleasePage,
@@ -644,6 +647,54 @@ async def list_composer_versions(
     repo: RepoConfig = request.state.repo
     browser = _composer(svc, repo)
     return await browser.versions(_context(svc, repo), package=package, cursor=cursor, limit=limit)
+
+
+# ---------------------------------------------------------------------------- rubygems
+def _rubygems(svc: Services, repo: RepoConfig) -> RubygemsBrowser:
+    browser = _browser(svc, repo, 'rubygems')
+    if not isinstance(browser, RubygemsBrowser):
+        raise NotFound('not a RubyGems repository')
+    return browser
+
+
+@router.get(
+    '/repositories/{name}/rubygems/gems',
+    response_model=RubygemsGemPage,
+    operation_id='listRubygemsGems',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_rubygems_gems(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> RubygemsGemPage:
+    repo: RepoConfig = request.state.repo
+    browser = _rubygems(svc, repo)
+    return await browser.gems(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/rubygems/versions',
+    response_model=RubygemsVersionPage,
+    operation_id='listRubygemsVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_rubygems_versions(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    gem: Annotated[str, Query(max_length=200, description='Gem name')],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> RubygemsVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _rubygems(svc, repo)
+    return await browser.versions(_context(svc, repo), gem=gem, cursor=cursor, limit=limit)
 
 
 # ---------------------------------------------------------------------------- yum

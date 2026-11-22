@@ -56,12 +56,14 @@ from waystation_common.db.collections import (
     NPM_PACKAGES,
     NUGET_PACKAGES,
     PYPI_PACKAGES,
+    RUBYGEMS_GEMS,
     SWIFT_PACKAGES,
     TERRAFORM_MODULES,
     TERRAFORM_PROVIDERS,
     YUM_PACKAGES,
 )
 from waystation_common.errors import ValidationFailed
+from waystation_common.rubygems import split_full_name
 from waystation_common.searchkeys import MIN_TERM, fold
 from waystation_server.browse.models import decode_cursor, encode_cursor
 from waystation_server.db import npm as npm_db
@@ -174,6 +176,15 @@ SOURCES: tuple[Source, ...] = (
         COMPOSER_PACKAGES,
         'package',
         'composer',
+        ('name_lc',),
+        {'name': 1, 'latest': 1, 'updated_at': 1},
+        version_field='latest',
+    ),
+    Source(
+        'rubygems',
+        RUBYGEMS_GEMS,
+        'package',
+        'rubygems',
         ('name_lc',),
         {'name': 1, 'latest': 1, 'updated_at': 1},
         version_field='latest',
@@ -529,6 +540,8 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {'project': path.split('/')[1]}
     if repo.format == 'nuget' and path.startswith('v3-flatcontainer/') and path.count('/') >= 2:
         return {'package': path.split('/')[1]}
+    if repo.format == 'rubygems' and path.startswith('gems/') and (gem := split_full_name(path[5:-4])):
+        return {'gem': gem[0][0]}
     if repo.format == 'composer' and path.startswith('dists/') and path.count('/') >= 3:
         return {'package': '/'.join(path.split('/')[1:3])}
     if repo.format == 'go' and '/@v/' in path:
@@ -619,6 +632,18 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 sha256=None,
                 cached=True,
                 browse=SearchBrowseLink(repository=repo.name, query={'package': str(doc['name'])}),
+            )
+        case 'rubygems':
+            return SearchHit(
+                **common,
+                name=str(doc['name']),
+                version=doc.get('latest'),
+                qualifier=None,
+                path=None,
+                size=None,
+                sha256=None,
+                cached=True,
+                browse=SearchBrowseLink(repository=repo.name, query={'gem': str(doc['name'])}),
             )
         case 'composer':
             return SearchHit(

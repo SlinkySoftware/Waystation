@@ -18,6 +18,7 @@
 * composer: Composer version order (``waystation_common.composer``: stability suffixes, ``dev-`` branches first).
 * conda: conda ``VersionOrder`` (``waystation_common.conda``: epoch, ``dev`` first, strings before numbers,
   ``post`` last).
+* rubygems: ``Gem::Version`` order (``waystation_common.rubygems``: a letter segment makes a prerelease).
 * everything else: a generic natural order (digit runs numerically, other runs as text).
 
 ``sort_key(fmt, version)`` returns a key usable with ``sorted``; ``is_prerelease(fmt, version)`` follows each
@@ -31,7 +32,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from waystation_common import composer, conda, nuget
+from waystation_common import composer, conda, nuget, rubygems
 
 _SEMVER = re.compile(
     r'^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$'
@@ -327,6 +328,8 @@ def sort_key(fmt: str, version: str) -> Any:
         return composer.sort_string(version)
     if fmt == 'conda':
         return conda.sort_string(version)
+    if fmt == 'rubygems':
+        return rubygems.sort_string(version)
     compare = _CMP.get(fmt)
     if compare is not None:
         return functools.cmp_to_key(compare)(version)
@@ -346,6 +349,8 @@ def is_prerelease(fmt: str, version: str) -> bool:
         return composer.is_prerelease(version)
     if fmt == 'conda' and conda.parse_version(version) is not None:
         return conda.is_prerelease(version)
+    if fmt == 'rubygems':
+        return rubygems.is_prerelease(version)
     if fmt in ('apt', 'yum') and '~' in version:
         return True
     return _MARKERS.search(version) is not None

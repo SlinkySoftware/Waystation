@@ -1609,6 +1609,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/rubygems/gems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Gems of a RubyGems repository (hosted pushes, a proxy's cached metadata, a group's members) */
+        get: operations["listRubygemsGems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/rubygems/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One gem and its versions (newest first, RubyGems version order) */
+        get: operations["listRubygemsVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/yum/packages": {
         parameters: {
             query?: never;
@@ -3947,8 +3985,13 @@ export interface components {
              */
             source_mode: "keep" | "strip";
         };
+        /**
+         * RubygemsOptions
+         * @description RubyGems: no options yet
+         */
+        RubygemsOptions: Record<string, never>;
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["CargoOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"] | components["schemas"]["CondaOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["CargoOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"] | components["schemas"]["CondaOptions"] | components["schemas"]["RubygemsOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -4716,6 +4759,67 @@ export interface components {
             package: components["schemas"]["ComposerPackage"];
             /** @description Newest first (Composer version order) */
             items: components["schemas"]["ComposerVersion"][];
+            next_cursor: string | null;
+        };
+        RubygemsGem: {
+            /** @description Gem name as published (case-sensitive) */
+            name: string;
+            /**
+             * @description Newest release version, else the newest version
+             * @default null
+             */
+            latest_version: string | null;
+            version_count: number;
+            /** @default null */
+            summary: string | null;
+            /**
+             * Format: date-time
+             * @default null
+             */
+            updated_at: string | null;
+        };
+        RubygemsGemPage: {
+            items: components["schemas"]["RubygemsGem"][];
+            next_cursor: string | null;
+        };
+        RubygemsDependency: {
+            name: string;
+            /** @description Version requirement, e.g. '>= 1.0, < 2' */
+            requirement: string;
+        };
+        RubygemsVersion: {
+            version: string;
+            /** @description 'ruby' for pure-Ruby gems, else the platform, e.g. x86_64-linux */
+            platform: string;
+            prerelease: boolean;
+            /** @description The .gem file is stored */
+            cached: boolean;
+            /** @default null */
+            size_bytes: number | null;
+            /** @default null */
+            sha256: string | null;
+            /**
+             * Format: date-time
+             * @default null
+             */
+            published_at: string | null;
+            /** @default null */
+            uploaded_by: string | null;
+            /**
+             * @description Required Ruby version, e.g. '>= 3.0'
+             * @default null
+             */
+            ruby_requirement: string | null;
+            /** @description Runtime dependencies */
+            dependencies: components["schemas"]["RubygemsDependency"][];
+            /** @description The .gem file's repository path: gems/<name>-<version>[-<platform>].gem */
+            path: string;
+            download_url: string;
+        };
+        RubygemsVersionPage: {
+            gem: components["schemas"]["RubygemsGem"];
+            /** @description Newest first (RubyGems version order) */
+            items: components["schemas"]["RubygemsVersion"][];
             next_cursor: string | null;
         };
         YumPackage: {
@@ -8935,6 +9039,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ComposerVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listRubygemsGems: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gems */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubygemsGemPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listRubygemsVersions: {
+        parameters: {
+            query: {
+                /** @description Gem name */
+                gem: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RubygemsVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];

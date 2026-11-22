@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://rubygems.org/info/hola"
+  },
+  "response": {
+    "body_sha256": "2242a5e2690a5b7c814b9f50e52da1960267c780c660adf014f8cb5943494b55",
+    "body_size": 1024,
+    "headers": [
+      [
+        "content-length",
+        "1024"
+      ],
+      [
+        "last-modified",
+        "Thu, 28 May 2026 23:32:58 GMT"
+      ],
+      [
+        "etag",
+        "\"44f6eb268b4a9fd8b168a285e05b60a8\""
+      ],
+      [
+        "cache-control",
+        "max-age=60, public"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

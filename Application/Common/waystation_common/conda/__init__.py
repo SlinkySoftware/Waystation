@@ -214,12 +214,12 @@ def is_prerelease(version: str) -> bool:
     if parsed is None:
         return False
     for component in parsed[0][1:]:
-        for i, token in enumerate(component):
-            if token == 'DEV':
+        for i, run in enumerate(component):
+            if run == 'DEV':
                 return True
             # a pre-release label is followed by its number (1.0b2, 2.0rc1); tzdata's 2025b is a release
             following = component[i + 1] if i + 1 < len(component) else None
-            if isinstance(token, str) and token in _PRERELEASE and isinstance(following, int):
+            if isinstance(run, str) and run in _PRERELEASE and isinstance(following, int):
                 return True
     return False
 

@@ -169,6 +169,29 @@ def scrub_response(
     return Exchange(status, kept, body)
 
 
+def parse_keep_lines(value: str) -> dict[str, re.Pattern[bytes]]:
+    """format.env ``KEEP_LINES``: space separated ``<path>=<regex>`` (the regex without spaces; ``\\s`` matches one)."""
+    out: dict[str, re.Pattern[bytes]] = {}
+    for item in value.split():
+        path, sep, pattern = item.partition('=')
+        if not sep or not path.startswith('/'):
+            raise ValueError(f'KEEP_LINES item {item!r} is not <path>=<regex>')
+        out[path] = re.compile(pattern.encode())
+    return out
+
+
+def keep_lines(exchange: Exchange, pattern: re.Pattern[bytes]) -> Exchange:
+    """A ``200`` text body reduced to the lines that fully match ``pattern`` (KEEP_LINES): huge line-oriented indexes
+    (RubyGems' compact index ``versions``) shrink to the entries the test uses. Record mode answers with the reduced
+    body too, so record and replay see the same document."""
+    if exchange.status != 200 or not exchange.body:
+        return exchange
+    lines = exchange.body.split(b'\n')
+    kept = b''.join(line + b'\n' for line in lines if line and pattern.fullmatch(line))
+    headers = [(k, str(len(kept)) if k == 'content-length' else v) for k, v in exchange.headers if k != 'etag']
+    return Exchange(exchange.status, headers, kept)
+
+
 def _scrub_json_body(body: bytes, drop_keys: frozenset[str] = frozenset()) -> bytes:
     try:
         doc = json.loads(body)
