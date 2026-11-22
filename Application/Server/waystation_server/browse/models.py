@@ -244,6 +244,46 @@ class HelmVersionPage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- nuget
+class NugetPackage(BaseModel):
+    name: str = Field(description='Package id in lower case (as in package URLs)')
+    id: str = Field(description='Package id as its author spelled it')
+    latest_version: str | None = Field(default=None, description='Newest stable version, else the newest version')
+    version_count: int
+    description: str | None = None
+    authors: str | None = None
+    updated_at: datetime | None = None
+
+
+class NugetPackagePage(BaseModel):
+    items: list[NugetPackage]
+    next_cursor: str | None
+
+
+class NugetVersion(BaseModel):
+    version: str = Field(description='Normalised version')
+    prerelease: bool
+    listed: bool
+    cached: bool
+    size_bytes: int | None = None
+    published_at: datetime | None = None
+    uploaded_by: str | None = None
+    path: str
+    download_url: str
+
+
+class NugetVersionPage(BaseModel):
+    package: NugetPackage
+    items: list[NugetVersion]
+    next_cursor: str | None
+
+
+class NugetListing(BaseModel):
+    package: str = Field(max_length=100)
+    version: str = Field(max_length=200)
+    listed: bool = Field(description='False: unlist the version; true: relist it')
+
+
 # ---------------------------------------------------------------------------- yum
 class YumPackage(BaseModel):
     name: str
@@ -730,6 +770,18 @@ class YumBrowser(Protocol):
 
     async def versions(self, ctx: BrowseContext, *, package: str, cursor: str | None, limit: int) -> YumVersionPage:
         """One package's files, newest EVR first; raises ``NotFound`` for an unknown package."""
+
+
+@runtime_checkable
+class NugetBrowser(Protocol):
+    async def packages(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> NugetPackagePage:
+        """Packages by id (hosted: pushed; proxy: version list cached; group: the members')."""
+
+    async def versions(self, ctx: BrowseContext, *, package: str, cursor: str | None, limit: int) -> NugetVersionPage:
+        """One package's versions, newest first; raises ``NotFound`` for an unknown package."""
+
+    async def listing(self, ctx: BrowseContext, body: NugetListing) -> NugetListing:
+        """Hosted: unlist or relist a version; raises ``NotFound`` when there is none."""
 
 
 @runtime_checkable

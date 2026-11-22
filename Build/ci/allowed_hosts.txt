@@ -46,6 +46,10 @@ registry.terraform.io
 registry.opentofu.org
 releases.hashicorp.com
 galaxy.ansible.com
+# NuGet (T-P6-NUGET): the gallery and its v3 API (api.nuget.org), the package-content and search hosts it names
+nuget.org
+# The .nuspec XML namespace (http://schemas.microsoft.com/packaging/.../nuspec.xsd) in NuGet package tests
+schemas.microsoft.com
 
 # Public upstreams: Linux distribution mirrors
 deb.debian.org

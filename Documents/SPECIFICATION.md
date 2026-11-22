@@ -98,8 +98,8 @@ Windows containers support for the server.
   Helm `index.yaml` URLs, Terraform download URLs).
 - SSRF guard: upstream URLs and redirects may not resolve to loopback/link-local/private ranges unless the repo
   sets `allow_private_upstream: true`.
-- **Prefetch** (T-O12, per proxy repository `proxy.prefetch`; adr/0012 accepted): formats docker, npm, raw, Maven and
-  Go (others refuse the settings).
+- **Prefetch** (T-O12, per proxy repository `proxy.prefetch`; adr/0012 accepted): formats docker, npm, raw, Maven,
+  Go and NuGet (T-P6-NUGET) (others refuse the settings).
   - *Keep popular metadata fresh* (`refresh_popular`, off by default): the built-in task `prefetch.refresh` (every
     15 minutes, queue `prefetch`) takes the repository's metadata files downloaded in the last 7 days, most downloaded
     first (at most 200), and revalidates those that are stale or go stale before the next run (conditional request;
@@ -108,7 +108,8 @@ Windows containers support for the server.
   - *Warm list* (`warm`, at most 200 items in the format's syntax, FORMATS.md "Prefetch"; `schedule` cron/macro/
     `@every`, at least 15 minutes apart, or none = "Warm now" only): each item is fetched the way its client would
     (a docker image's index, the chosen platforms' manifests, config and layers; an npm package's packument and
-    tarball; a Maven POM and artifact; a Go module's `.info`/`.mod`/`.zip`; a raw path). Items already cached cost
+    tarball; a Maven POM and artifact; a Go module's `.info`/`.mod`/`.zip`; a NuGet package's version list, `.nupkg`
+    and `.nuspec`; a raw path). Items already cached cost
     no upstream request. The repository page shows the last run and starts one ("Warm now"); the schedule is the
     task `prefetch:<repository id>` on the Tasks page (edited in the repository's settings).
   - Prefetch goes through the same proxy path as clients (validation, digests, coalescing: a client asking for the
@@ -313,7 +314,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 | Terraform / OpenTofu providers (network mirror) and modules | yes | yes (modules, providers) | no | 5 |
 | Ansible Galaxy (collections; roles read-only) | yes | yes (collections) | yes | 5 |
 | Swift Package Registry (SE-0292) | yes (source-archive proxy from git hosts) | yes | no | 5 |
-| NuGet v3 | yes | yes | yes | 6 |
+| NuGet v3 | yes | yes | yes | 6 (built, T-P6-NUGET) |
 | Cargo (sparse index) | yes | yes | no | 6 |
 | RubyGems | yes | yes | yes | 6 |
 | Composer (PHP) | yes | no | no | 6 |
@@ -357,6 +358,10 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   releases) show scopes, packages (latest version, release counts, description, source URL) and releases newest
   first by SemVer (state, tools version, checksum, size, signature and signer, tag and commit, publisher); search
   finds packages by `scope.name`.
+  NuGet (T-P6-NUGET): `nuget/packages` (summaries in `nuget_packages`: id as spelled, latest stable version, version
+  count, description, authors) and `nuget/versions?package=` (newest first in NuGet version order: listed or unlisted,
+  prerelease, cached, size, published, pusher) for proxy, hosted and group repositories (a group shows its members',
+  first member wins); `POST nuget/listing` unlists or relists a hosted version (`write`); search finds packages by id.
 - Global search across repositories the principal can read: name (prefix and substring), version, format,
   repository, digest/checksum lookup ("where is this sha256 used?"), with facets (format, repo, type).
   Target: results in < 150 ms p95 for 1M assets.
@@ -564,7 +569,8 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   after the 401 challenge, ADR 0005; preemptive authentication is optional),
   Helm classic repos (basic: `helm repo add --username --password`), Terraform/OpenTofu (`credentials` block → `Authorization: Bearer`), Ansible Galaxy
   (`Authorization: Token <api-token>`), Swift (`swift package-registry login`: basic or token), NuGet
-  (`X-NuGet-ApiKey` for push, basic for read), apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic;
+  (`X-NuGet-ApiKey` = an API token for push and delete, read only without an `Authorization` header; basic for read),
+  apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic;
   the go command sends credentials over HTTPS only).
   Each format's auth is part of its Definition of Done (FORMATS.md).
 - **Challenge on format routes** (ADR 0005): on `/repository/<repo>/...`, a request that carries **no credentials**
@@ -700,7 +706,8 @@ settings changes, webhook changes, secret-key rotation, support bundle downloads
   a docker hosted repository, with image, tag, digest, media type and size; a file uploaded to a PyPI hosted
   repository, with project, version, file name, sha256, size and whether it replaced one) and `content.delete` (a
   docker tag, manifest or blob deleted), `content.update` (a PyPI release yanked or un-yanked, with the reason and the
-  files changed), `settings.update` (the instance settings, with field changes), `webhook.create|update|delete`
+  files changed; a NuGet version unlisted or relisted, target `nuget_package`), `settings.update` (the instance
+  settings, with field changes), `webhook.create|update|delete`
   (field changes; a new secret or new custom headers show as redacted changes), `webhook.test` and
   `webhook.redeliver` (with the delivery ids), `cleanup_policy.create|update|delete` (field changes),
   `secrets.rotate` (worker, actor `system`: a secret-key rotation run that re-encrypted something or found values no
@@ -1245,7 +1252,8 @@ Waystation/
 | Terraform provider mirror (T-P5-TFP) | Done 2026-11-10: provider network mirror (proxy) repositories (FORMATS.md "Terraform / OpenTofu"): `index.json` and `<version>.json` rendered per request from cached origin metadata (`zh:` per platform from the signed `SHA256SUMS`, `h1:` for cached archives), archives cached as content; the origin is reached through service discovery and the provider registry protocol, archives from wherever the registry points (redirects and SSRF guard per hop); `SHA256SUMS` cached only after its OpenPGP signature verified with the registry's signing keys (`waystation_common.openpgp`, adr/0006 proposed) and archives verified against it; origin allowlist per repository; `terraform_providers` browse (`terraform/providers`, `terraform/versions`) and search; SemVer cleanup; UI create flow, options, browse renderer, "Set me up" (CLI configuration, credentials block); real-client harness `tests/clients/terraform/` (terraform 1.17 and tofu 1.13 init + apply through a TLS front, both registries, bearer token; replay passing); `Documents/Operations/clients/terraform.md`. Modules and the hosted repository: T-P5-TFM |
 | Swift Package Registry format (T-P5-SWIFT) | 2026-11-22: SE-0292 registry API (FORMATS.md "Swift Package Registry"): release lists, release information (`resources` checksum and signature, `Link` neighbours), manifests with `Link` alternates and `?swift-version=` (303 fallback), source archives (`Digest`, signature headers) by X-Accel, `/identifiers`, `POST login`, `Content-Version: 1`, problem details, `Accept` version negotiation (400/415). SCM-backed proxy (GitHub, GitLab, Gitea/Forgejo; scope → owner mapping, optional allowlist): tags from the smart-HTTP ref advertisement, the tag's tarball repackaged byte-deterministically in a thread, the checksum pinned in `swift_releases` (a rebuild that differs is refused; release files are never cleaned up), `/identifiers` from repository URLs. Hosted: SE-0391 publish (archive checks, metadata, signer recorded), immutable versions, removal as `410`, write policy, quotas, audit; `swift_packages` summaries, components with SemVer `version_sort`, global search source; browse API + UI renderer, create flow with the host options, "Set me up" (registry set, login, resolve, publish); OpenAPI, generated client and MSW mocks; unit + integration tests; real-client harness `tests/clients/swift/` (swift 6.4); `Documents/Operations/clients/swift.md` |
 | Terraform modules and hosted repository (T-P5-TFM) | Done 2026-11-22 (adr/0010 accepted 2026-11-22): module registry proxy (`v1/modules/...` on proxy repositories: version list, download answer kept, GitHub tag archives and HTTP(S)/S3 archives from `module_archive_hosts` cached with their sha256 pinned at the first fetch, other sources passed through; relative `X-Terraform-Get` naming the module's directory), the instance's one hosted Terraform repository (module uploads with bounded archive checks, provider releases with SHA256SUMS + signature verified against the uploaded key, immutable versions, deletes, both registry protocols), `/.well-known/terraform.json` (visibility-filtered), signed download grants for files (`security.download_urls`), browse (`terraform/modules`, `terraform/module-versions`, hosted providers), search, components, UI (create flow with the hosted type, options, Providers / Modules / Files views), "Set me up" (`host` block for the proxy, credentials, sources and publishing for the hosted repository), Nexus import note; harness: terraform 1.17 and tofu 1.13 with `hashicorp/subnets/cidr` through both registries' module proxies and a private module and provider from the hosted repository with a bearer token, negative auth (recorded, replay passing). Left: k6 perf budgets (T-P2-PERF) |
-| Prefetch (T-O12) | Done 2026-11-22 (adr/0012 accepted): per proxy repository `proxy.prefetch` (refresh popular metadata, warm list, schedule) for docker, npm, raw, Maven and Go; jobs `prefetch.refresh` (built-in, every 15 min) and `prefetch.warm` (`prefetch:<repo id>`, "Warm now") on queue `prefetch`, executed by a server through `POST /_internal/prefetch/<repo id>` with a signed system grant; never counted as downloads; `WAYSTATION_INTERNAL_URL`; repository form section, overview card, Tasks page owner. Left: PyPI, Helm, Galaxy, Terraform, Swift warm items |
+| Prefetch (T-O12) | Done 2026-11-22 (adr/0012 accepted): per proxy repository `proxy.prefetch` (refresh popular metadata, warm list, schedule) for docker, npm, raw, Maven, Go and (T-P6-NUGET) NuGet; jobs `prefetch.refresh` (built-in, every 15 min) and `prefetch.warm` (`prefetch:<repo id>`, "Warm now") on queue `prefetch`, executed by a server through `POST /_internal/prefetch/<repo id>` with a signed system grant; never counted as downloads; `WAYSTATION_INTERNAL_URL`; repository form section, overview card, Tasks page owner. Left: PyPI, Helm, Galaxy, Terraform, Swift warm items |
+| NuGet v3 format (T-P6-NUGET) | Done 2026-11-22: proxy, hosted and group repositories (FORMATS.md "NuGet v3"): per-request service index pointing at the repository; proxy of a v3 service index (version lists and registrations, gzip-encoded and paged, cached as metadata with every URL rewritten; packages cached as content after a bounded zip/nuspec check (zip-slip and zip-bomb guards, defusedxml) and, with `verify_catalog`, the catalog SHA-512 and size; search passed through); hosted push with `X-NuGet-ApiKey` = an API token (or basic credentials), write policy, quota, unlist (default) or delete per `delete_mode`, relist, local search, registrations rendered per request; groups merge version lists, registrations and search and take pushes for their writable member; NuGet version order for `version_sort`, cleanup and components; `nuget_packages` summaries for browse and global search; prefetch warm items `Package@version`; Nexus `nuget-*` import; browse API + UI renderer with Unlist/Relist, create flow and options, "Set me up" (dotnet CLI, `nuget.config`, NuGet.exe); OpenAPI, generated client, MSW mocks; unit + integration tests; real-client harness `tests/clients/nuget/` (.NET 10 SDK against recorded api.nuget.org fixtures); `Operations/clients/nuget.md`. Left: NuGet.exe in the harness, symbol packages, autocomplete, the live smoke |
 | Everything else | Not started |
 | M0 feedback build (T-V02) | Done 2026-11-09, tagged `v0.1.0-m0`: `make e2e-m0` runs real docker, npm, apt (Debian 13) and raw clients through a running stack and checks the live stream, stats, activity and browse; `Documents/Operations/TRY_IT.md` (fresh host from images and an env file); real-server screenshot tour `Documents/Notes/UI_TOUR_M0.md`; feedback log `Documents/Notes/UI_FEEDBACK.md` |
 

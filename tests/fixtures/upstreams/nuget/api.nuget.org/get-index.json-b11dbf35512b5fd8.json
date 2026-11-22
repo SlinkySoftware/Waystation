@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://api.nuget.org/v3-flatcontainer/ws.harness.demo/index.json"
+  },
+  "response": {
+    "body_sha256": "4201badbad5cc1c20d1d95f0860405587525692638f117fdeb563ec4a3fd0da1",
+    "body_size": 215,
+    "headers": [
+      [
+        "content-length",
+        "215"
+      ],
+      [
+        "content-type",
+        "application/xml"
+      ],
+      [
+        "expires",
+        "Sun, 22 Nov 2026 11:19:15 GMT"
+      ]
+    ],
+    "status": 404
+  }
+}

@@ -45,7 +45,7 @@ const REPO_ROUTE = /^\/repositories\/(?!test-upstream$|import\/)([^/]+)(\/.*)?$/
 
 function repoAction(method: string, rest: string): Action {
   if (rest === '/cleanup' || rest === '/prefetch' || rest === '/prefetch/run' || ((method === 'PUT' || method === 'DELETE') && rest === '')) return 'manage'
-  if (rest === '/pypi/yank') return 'write'
+  if (rest === '/pypi/yank' || rest === '/nuget/listing') return 'write'
   return 'browse'
 }
 

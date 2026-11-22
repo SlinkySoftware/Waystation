@@ -63,7 +63,7 @@ FORMATS: dict[str, str | None] = {
 }
 # Content of these formats is addressed or verified by checksum (Go: module versions are immutable and checked
 # against the checksum database): it never changes, so it is cached forever.
-IMMUTABLE_CONTENT = frozenset({'docker', 'npm', 'apt', 'yum', 'pypi', 'go'})
+IMMUTABLE_CONTENT = frozenset({'docker', 'npm', 'apt', 'yum', 'pypi', 'go', 'nuget'})
 DOCKER_HUB_HOSTS = frozenset({'registry-1.docker.io', 'docker.io', 'index.docker.io', 'registry.hub.docker.com'})
 WRITE_POLICIES = {'ALLOW': 'allow_redeploy', 'ALLOW_ONCE': 'disable_redeploy', 'DENY': 'read_only'}
 _HOST = re.compile(
@@ -310,6 +310,23 @@ def _format_options(m: Mapped, cfg: dict[str, Any], body: dict[str, Any], *, ali
         if layout_policy in ('strict', 'permissive'):
             out['layout_policy'] = layout_policy
         return out
+    if fmt == 'nuget' and m.type == 'proxy':  # T-P6-NUGET: NuGet v3 service indexes only
+        nuget_proxy = _dict(cfg.get('nugetProxy'))
+        if str(nuget_proxy.get('nugetVersion') or 'V3').upper() != 'V3':
+            m.refuse(
+                'invalid',
+                'the Nexus NuGet proxy speaks the V2 protocol: Waystation proxies NuGet v3 (a service '
+                'index such as https://api.nuget.org/v3/index.json)',
+            )
+            return None
+        if nuget_proxy.get('queryCacheItemMaxAge') is not None:
+            m.differ(
+                'nugetProxy.queryCacheItemMaxAge',
+                nuget_proxy.get('queryCacheItemMaxAge'),
+                None,
+                'searches pass through to the upstream (not cached); version lists follow the metadata max age',
+            )
+        return {}
     if fmt == 'yum' and _dict(cfg.get('yumSigning')):
         m.differ('yumSigning', 'set', None, 'the Nexus yum signing key is not imported')
     if fmt == 'terraform' and m.type == 'hosted':  # T-P5-TFM

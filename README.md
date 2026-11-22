@@ -52,10 +52,11 @@ docker pull ghcr.io/slinkysoftware/waystation-server:0.2.9     # multi-arch: lin
 | Go modules | yes | | | go (GOPROXY) |
 | Terraform / OpenTofu providers | yes (network mirror) | | | terraform, tofu |
 | Ansible Galaxy collections | yes | yes | yes | ansible-galaxy |
+| NuGet (v3) | yes | yes | yes | dotnet, NuGet.exe |
 | Raw files (GitHub releases, any HTTP) | yes | yes | yes | curl, wget |
 
 Client setup for every format is in [`Documents/Operations/clients/`](Documents/Operations/clients/), and each
-repository's "Set me up" panel in the UI shows the exact configuration. Coming next: NuGet, Cargo, RubyGems,
+repository's "Set me up" panel in the UI shows the exact configuration. Coming next: Cargo, RubyGems,
 Composer, Conda, Alpine apk, Hugging Face, Swift packages, Terraform modules.
 
 ## Get started

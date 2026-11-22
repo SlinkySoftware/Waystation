@@ -155,6 +155,10 @@ Format-aware views are on the Packages tab:
   referrer, images shown as links named by their alt text: no external requests).
   npm (T-P5-NPMH): hosted repositories show "N versions" and a Versions column instead of the cache columns
   (everything they list is stored); dist-tags and deprecation badges as for proxies.
+  Built for NuGet (T-P6-NUGET, `NugetBrowser.vue`): packages table (id as spelled, authors and description, latest
+  version, version count, updated; search), then the package page with a `dotnet add package` copy field and the
+  versions newest first in NuGet order (prerelease and unlisted badges, pushed by, published, size, cached state,
+  copy URL, download); hosted repositories offer Unlist / Relist per version (the server decides: `write`).
   Built for Maven (T-P5-MAVEN): artifacts table (artifactId over its groupId, latest, version count, filter by
   groupId or artifactId) → versions table (Maven order, SNAPSHOT badge, files, size, deployed by; a copyable
   `<dependency>` snippet) → the version's files (name, size, modified, copy download URL).
