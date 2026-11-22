@@ -13,7 +13,7 @@ login() {  # login <username> <password>: docker login, output in /tmp/login.out
 refused() {  # refused <what> <command...>: the command must fail with an auth error
   _what=$1; shift
   if "$@" > /tmp/refused.out 2>&1; then fail "$_what: not refused"; fi
-  grep -Eqi 'denied|unauthorized|authentication required|revoked|401|403|not found' /tmp/refused.out \
+  grep -Eqi 'denied|unauthorized|authentication required|invalid username or password|revoked|401|403|not found' /tmp/refused.out \
     || fail "$_what: $(cat /tmp/refused.out)"
 }
 
