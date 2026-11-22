@@ -20,6 +20,7 @@ import { helmChartList, helmVersionsFor } from './fixtures/helm'
 import { npmPackageList, npmReadme, npmVersionsFor } from './fixtures/npm'
 import { goModuleList, goVersionsFor } from './fixtures/go'
 import { terraformProviderList, terraformVersionsFor } from './fixtures/terraform'
+import { hostedProviderList, hostedProviderVersionsFor, terraformModuleList, terraformModuleVersionsFor } from './fixtures/terraformModules'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { yumPackageList, yumVersionsFor } from './fixtures/yum'
@@ -781,7 +782,8 @@ export const handlers = [
     if (!repo) return error ?? notFound()
     const url = new URL(request.url)
     const q = url.searchParams.get('q')?.toLowerCase()
-    const items = terraformProviderList().filter((p) => !q || p.provider.toLowerCase().includes(q))
+    const list = repo.type === 'hosted' ? hostedProviderList() : terraformProviderList()
+    const items = list.filter((p) => !q || p.provider.toLowerCase().includes(q))
     return HttpResponse.json(paginate(items, url))
   }),
   http.get(`${API}/repositories/:name/terraform/versions`, async ({ request, params }) => {
@@ -791,9 +793,32 @@ export const handlers = [
     const { repo, error } = repoGuard(params.name, 'terraform')
     if (!repo) return error ?? notFound()
     const url = new URL(request.url)
-    const found = terraformVersionsFor(repo.name, url.searchParams.get('provider') ?? '')
+    const address = url.searchParams.get('provider') ?? ''
+    const found = repo.type === 'hosted' ? hostedProviderVersionsFor(address) : terraformVersionsFor(repo.name, address)
     if (!found) return notFound()
     return HttpResponse.json({ provider: found.provider, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/terraform/modules`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'terraform')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.toLowerCase()
+    const items = terraformModuleList(repo.type === 'hosted').filter((m) => !q || m.module.toLowerCase().includes(q))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/terraform/module-versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'terraform')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    const found = terraformModuleVersionsFor(repo.name, url.searchParams.get('module') ?? '', repo.type === 'hosted')
+    if (!found) return notFound()
+    return HttpResponse.json({ module: found.module, ...paginate(found.versions, url) })
   }),
   http.get(`${API}/repositories/:name/apt/suites`, async ({ request, params }) => {
     const denied = guard(request)

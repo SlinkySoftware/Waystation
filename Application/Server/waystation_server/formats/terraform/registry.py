@@ -61,16 +61,24 @@ def discovery_url(hostname: str, scheme: str = 'https') -> str:
     return f'{scheme}://{hostname}/.well-known/terraform.json'
 
 
-def parse_discovery(data: bytes, hostname: str, scheme: str = 'https') -> str:
-    """The provider registry base URL (ending with ``/``) a host's discovery document announces."""
+def parse_discovery(data: bytes, hostname: str, scheme: str = 'https', service: str = 'providers.v1') -> str:
+    """The base URL (ending with ``/``) of ``service`` (the provider registry by default, ``modules.v1``: the module
+    registry) a host's discovery document announces."""
     doc = _json(data, 'service discovery document', MAX_DISCOVERY)
-    value = doc.get('providers.v1') if isinstance(doc, dict) else None
+    value = doc.get(service) if isinstance(doc, dict) else None
     if not isinstance(value, str) or not value:
-        raise UpstreamError(f'{hostname} does not offer a provider registry (no providers.v1)')
+        what = 'module' if service.startswith('modules') else 'provider'
+        raise UpstreamError(f'{hostname} does not offer a {what} registry (no {service})')
     base = _http_url(urljoin(discovery_url(hostname, scheme), value), 'service discovery document')
     if '?' in base or '#' in base:
         raise UpstreamError('service discovery document has no valid URL')
     return base if base.endswith('/') else base + '/'
+
+
+def check_discovery(data: bytes) -> None:
+    """A discovery document must be a JSON object (which services it offers is checked where one is used)."""
+    if not isinstance(_json(data, 'service discovery document', MAX_DISCOVERY), dict):
+        raise UpstreamError('service discovery document is not an object')
 
 
 # ---------------------------------------------------------------------------- versions

@@ -33,7 +33,7 @@ PACKAGE_FILES: dict[str, tuple[str, ...]] = {
     'apt': ('.deb', '.udeb', '.ddeb'),
     'yum': ('.rpm',),
     'go': ('.zip',),
-    'terraform': ('.zip',),
+    'terraform': ('.zip', '.tar.gz'),
     'galaxy': ('.tar.gz',),
 }
 

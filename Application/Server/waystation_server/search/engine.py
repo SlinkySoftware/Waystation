@@ -47,6 +47,7 @@ from waystation_common.db.collections import (
     GO_MODULES,
     NPM_PACKAGES,
     PYPI_PACKAGES,
+    TERRAFORM_MODULES,
     TERRAFORM_PROVIDERS,
     YUM_PACKAGES,
 )
@@ -150,6 +151,15 @@ SOURCES: tuple[Source, ...] = (
     Source(
         'terraform',
         TERRAFORM_PROVIDERS,
+        'package',
+        'terraform',
+        ('name_lc', 'base_lc'),
+        {'name': 1, 'latest': 1, 'updated_at': 1},
+        version_field='latest',
+    ),
+    Source(
+        'terraform-modules',
+        TERRAFORM_MODULES,
         'package',
         'terraform',
         ('name_lc', 'base_lc'),
@@ -451,6 +461,10 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {'project': path.split('/')[1]}
     if repo.format == 'go' and '/@v/' in path:
         return {'module': _GO_BANG.sub(lambda m: m.group(1).upper(), path.split('/@v/', 1)[0])}
+    if repo.format == 'terraform' and path.startswith('v1/modules/') and path.count('/') >= 5:
+        return {'module': '/'.join(path.split('/')[2:5])}
+    if repo.format == 'terraform' and path.startswith('v1/providers/') and path.count('/') >= 4:
+        return {'provider': '/'.join(path.split('/')[2:4])}
     if repo.format == 'terraform' and path.count('/') >= 3 and not path.split('/', 2)[1].startswith('.'):
         return {'provider': '/'.join(path.split('/', 3)[:3])}
     parent = _parent(path)
@@ -536,6 +550,18 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 sha256=None,
                 cached=True,
                 browse=SearchBrowseLink(repository=repo.name, query={'provider': str(doc['name'])}),
+            )
+        case 'terraform-modules':
+            return SearchHit(
+                **common,
+                name=str(doc['name']),
+                version=doc.get('latest'),
+                qualifier=None,
+                path=None,
+                size=None,
+                sha256=None,
+                cached=True,
+                browse=SearchBrowseLink(repository=repo.name, query={'module': str(doc['name'])}),
             )
         case 'apt':
             suite, component, arch = str(doc.get('suite', '')), str(doc.get('component', '')), str(doc.get('arch', ''))

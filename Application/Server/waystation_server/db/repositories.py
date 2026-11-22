@@ -26,6 +26,7 @@ from waystation_common.db.collections import (
     NPM_VERSIONS,
     PYPI_PACKAGES,
     REPOSITORIES,
+    TERRAFORM_MODULES,
     TERRAFORM_PROVIDERS,
     UPLOAD_SESSIONS,
     YUM_PACKAGES,
@@ -33,6 +34,9 @@ from waystation_common.db.collections import (
 from waystation_common.db.retry import read_retry
 from waystation_common.errors import Conflict
 from waystation_server.repos.model import RepoConfig
+
+HOSTED_TERRAFORM_TAKEN = 'An instance has one hosted Terraform repository, and it exists already.'
+
 
 # Per-repository content records dropped with the repository (blobs are reclaimed later by GC).
 CONTENT_COLLECTIONS = (
@@ -50,6 +54,7 @@ CONTENT_COLLECTIONS = (
     GALAXY_COLLECTIONS,
     GALAXY_IMPORTS,
     TERRAFORM_PROVIDERS,
+    TERRAFORM_MODULES,
     DOCKER_TAGS,
     DOCKER_MANIFESTS,
     YUM_PACKAGES,
@@ -82,7 +87,9 @@ async def get_by_name_ci(db: Database, name: str) -> RepoConfig | None:
 async def insert(db: Database, repo: RepoConfig) -> None:
     try:
         await db[REPOSITORIES].insert_one(repo.to_doc())
-    except DuplicateKeyError:
+    except DuplicateKeyError as exc:
+        if 'terraform_hosted_single' in str(exc):
+            raise Conflict(HOSTED_TERRAFORM_TAKEN, field='type') from None
         raise Conflict('A repository with this name already exists.', field='name') from None
 
 

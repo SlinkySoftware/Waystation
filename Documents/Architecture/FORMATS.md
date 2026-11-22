@@ -656,7 +656,7 @@ Discovery (`/.well-known/terraform.json`).
   HTTP(S) archive or a GitHub tag archive; git-only sources are passed through unchanged (documented limitation).
 - **Hosted**: private module registry (upload `.tar.gz` per version) and private providers (zip + SHA256SUMS +
   signature, served via the provider registry protocol). Service discovery (`/.well-known/terraform.json`) is per
-  host, so an instance advertises **one** hosted Terraform repository (setting `terraform_hosted_repo`); its
+  host, so an instance has **one** hosted Terraform repository (creating a second is refused); its
   `modules.v1`/`providers.v1` URLs point into that repo. Proxy (network mirror) repos need no discovery and any
   number can exist.
 - Works for registry.terraform.io and registry.opentofu.org upstreams. Clients: terraform 1.9+, tofu 1.8+.
@@ -700,6 +700,68 @@ proxy repositories only, the modules proxy and the hosted repository are T-P5-TF
   `hashicorp/null` 3.1.0 (linux_amd64) through the mirror over TLS: registry.terraform.io (HashiCorp's release site)
   and registry.opentofu.org (GitHub release assets behind a redirect), anonymous and with an API token in a
   `credentials` block (bearer); a token limited to other repositories is refused.
+
+As implemented (T-P5-TFM: the module registry proxy, the hosted repository and service discovery; `formats.terraform`
+`modules`, `hosted`; `waystation_server.wellknown`):
+- **Routes** (`paths.parse_registry_route`), below `/repository/<repo>/v1/`: `modules/<namespace>/<name>/<system>/
+  versions`, `.../<version>/download`, `.../<version>/archive.tar.gz` (or `archive.zip`); the hosted repository also
+  `PUT`/`DELETE .../<version>` and `providers/<namespace>/<type>/versions`, `.../<version>/download/<os>/<arch>`,
+  `.../<version>/<file>` (`terraform-provider-<type>_<version>_<os>_<arch>.zip`, `..._SHA256SUMS`, `.sig`),
+  `POST`/`DELETE .../<version>`. Names are lower-cased (namespace and name `[0-9a-z_-]`, system `[0-9a-z]`), versions
+  SemVer.
+- **Module proxy**: the origin is the upstream URL's registry (`modules.v1` from its cached discovery). The version list
+  is metadata (revalidated after the metadata max age, ≤ 8 MiB, ≤ 10 000 versions) and answered newest first
+  (`ETag`/`304`); a version's download answer is kept (`204` + `X-Terraform-Get` from the Terraform registry, `200` +
+  JSON `location` from the OpenTofu registry; relative locations resolved against the download URL; the engine's
+  `no_content_ok`). The location is cached as one archive when it is a **GitHub repository at a ref**
+  (`git::https://github.com/<owner>/<repo>[.git][//<dir>]?ref=<ref>` and the `github.com/...` shorthand: fetched from
+  `https://github.com/<owner>/<repo>/archive/<ref>.tar.gz`, redirects followed through the SSRF guard to the download
+  host) or an **HTTP(S)/S3 archive** (`.zip`, `.tar.gz`/`.tgz`, `?archive=`), on a host of the repository's
+  `module_archive_hosts` (default `github.com`) or the upstream's own host; anything else (other git hosts, ssh, no
+  ref, other hosts) is passed through unchanged and fetched by the client (documented limitation). A cacheable archive
+  is fetched (≤ 64 MiB, buffered) before the download is answered, so the answer can name the module's directory
+  inside it (GitHub's top directory read from the archive): `X-Terraform-Get: ./archive.tar.gz//<top>/<dir>`, relative
+  to the download URL. The archive must be readable; its sha256 is recorded in `terraform_modules` at the first fetch
+  and **pinned**: a later fetch (after cleanup) with other bytes is refused (`502`).
+- **Hosted modules**: `curl --upload-file module.tar.gz .../v1/modules/<ns>/<name>/<system>/<version>` (write):
+  ≤ 64 MiB, checked in a thread without extracting (gzip tar, ≤ 10 000 entries, ≤ 512 MiB unpacked, regular files and
+  directories only, no absolute, `..`, NUL or backslash names, at least one `.tf`/`.tf.json`/`.tofu`/`.tofu.json` file
+  at the root: the archive holds the module directory's contents). Versions are immutable (`409`, also across a race:
+  `add_module_version` is one conditional upsert); `read_only` refuses (`403`); `DELETE` removes a version. The download
+  answer is `204` + `X-Terraform-Get: ./archive.tar.gz`.
+- **Hosted providers**: `POST .../v1/providers/<ns>/<type>/<version>` as `multipart/form-data`: one `archive` part per
+  platform (file name `terraform-provider-<type>_<version>_<os>_<arch>.zip`, ≤ 1 GiB, ≤ 64 parts), `shasums` (the
+  `SHA256SUMS`, which must list every uploaded archive with its sha256), `signature` (detached, binary or armored;
+  stored binary) and `signing_key` (ASCII-armored public key; the signature must verify with it,
+  `waystation_common.openpgp`, as the clients will check), optional `protocols` (default `5.0`). Each zip must be
+  readable (its `h1:` is computed and shown in Browse). Releases are immutable (`409`); `DELETE .../<version>` removes a
+  release and its files. The download document gives the archive, `SHA256SUMS` and signature URLs relative to it
+  (`../../<file>`) and the uploaded key in `signing_keys`.
+- **Signed download URLs** (adr/0010): Terraform and OpenTofu send their token only to the registry API,
+  never with the file downloads (tofu sends nothing at all for provider files; terraform only `.netrc`). For a
+  signed-in caller every file URL in a download answer carries `?ws_grant=<expiry>.<mac>` (5 minutes, that one
+  file); anonymous callers get plain URLs.
+- **Service discovery**: `GET /.well-known/terraform.json` (public route, through the web tier's `/.well-known/`
+  location) answers `{"modules.v1": "/repository/<hosted>/v1/modules/", "providers.v1": "/repository/<hosted>/v1/
+  providers/"}` for a caller who can see the hosted repository (both clients send the host's credentials with
+  discovery; invalid credentials count as none), else `{}` (the clients then report that the host offers no
+  registry). Module sources are `<host>/<ns>/<name>/<system>`, provider sources `<host>/<ns>/<type>`; the host name
+  must contain a dot and be served over https.
+- **Using the proxy for public modules**: discovery names the hosted repository, so a CLI configuration `host` block
+  maps the public registry's `modules.v1` to the proxy (`host "registry.terraform.io" { services = { "modules.v1" =
+  ".../repository/<proxy>/v1/modules/" } }`, with a `credentials` block for that host name when anonymous reads are
+  not allowed); module sources stay `<ns>/<name>/<system>`. Works in terraform and tofu.
+- **Browse/search**: `terraform/modules` and `terraform/module-versions?module=` (proxy: the cached list and archives
+  held with their source; hosted: published versions with their publisher), `terraform/providers` and
+  `terraform/versions` also for the hosted repository (`<ns>/<type>`, releases with platforms, `h1:`, signing key ID
+  and publisher); search finds modules by address (kind `package`). Components: module archives and hosted provider
+  zips (`waystation_common.cleanup.plan` coordinates; SemVer order per module / provider).
+- **Clients verified** (harness, recorded fixtures): terraform 1.17 and tofu 1.13 `init` + `apply` of
+  `hashicorp/subnets/cidr` 1.0.0 (a GitHub tag archive behind a redirect) through module proxies of
+  registry.terraform.io (204 + `X-Terraform-Get`) and registry.opentofu.org (JSON `location`) via `host` blocks; a
+  module and a private provider (null 3.1.0 re-signed with a key generated by gpg) published to the hosted repository
+  and installed with a bearer token in a `credentials` block (signed downloads); an invalid token and a token limited
+  to other repositories are refused; an unsigned anonymous archive download answers `401`.
 
 ## Ansible Galaxy — Phase 5
 Spec: Galaxy NG / Pulp Ansible v3 API (what `ansible-galaxy` speaks to galaxy.ansible.com).

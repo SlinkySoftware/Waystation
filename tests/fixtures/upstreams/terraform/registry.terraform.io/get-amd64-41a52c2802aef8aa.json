@@ -21,11 +21,11 @@
       ],
       [
         "cache-control",
-        "stale-if-error=31536000, public, max-age=86400"
+        "max-age=86400, stale-if-error=31536000, public"
       ],
       [
         "last-modified",
-        "Sun, 08 Nov 2026 13:13:44 GMT"
+        "Fri, 20 Nov 2026 15:17:44 GMT"
       ],
       [
         "vary",

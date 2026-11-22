@@ -1475,7 +1475,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Providers a Terraform provider mirror has cached (version lists or archives), by address */
+        /** Providers a Terraform provider mirror has cached (version lists or archives), or the hosted repository's providers, by address */
         get: operations["listTerraformProviders"];
         put?: never;
         post?: never;
@@ -1496,6 +1496,44 @@ export interface paths {
         };
         /** One provider and its versions (cached registry version list and cached archives, newest first) */
         get: operations["listTerraformVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/terraform/modules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Modules of a Terraform repository (proxy - cached version lists or archives; hosted - published), by address */
+        get: operations["listTerraformModules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/terraform/module-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One module and its versions (newest first), with the archive held for each */
+        get: operations["listTerraformModuleVersions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3490,7 +3528,7 @@ export interface components {
         };
         TerraformOptions: {
             /**
-             * @description Provider registry host names this mirror serves providers of (the first part of a provider address, e.g. `registry.terraform.io/hashicorp/null`). The upstream URL's host is always allowed too
+             * @description Provider registry host names this mirror serves providers of (the first part of a provider address, e.g. `registry.terraform.io/hashicorp/null`). The upstream URL's host is always allowed too. Proxy repositories only
              * @default [
              *       "registry.terraform.io",
              *       "registry.opentofu.org"
@@ -3498,10 +3536,17 @@ export interface components {
              */
             origins: string[];
             /**
-             * @description Verify each version's SHA256SUMS against its OpenPGP signature and the signing keys the origin registry publishes before anything of that version is served
+             * @description Verify each version's SHA256SUMS against its OpenPGP signature and the signing keys the origin registry publishes before anything of that version is served. Proxy repositories only
              * @default true
              */
             verify_signatures: boolean;
+            /**
+             * @description Hosts the module registry proxy fetches and caches module archives from: GitHub repositories at a tag (`github.com`, fetched as tag archives) and HTTP(S) or S3 archive URLs on these hosts. Other sources are passed to the client unchanged. The upstream URL's host is always allowed too. Proxy repositories only
+             * @default [
+             *       "github.com"
+             *     ]
+             */
+            module_archive_hosts: string[];
         };
         /** @description Format-specific options; the shape follows the repository's `format` */
         FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"];
@@ -4172,7 +4217,7 @@ export interface components {
             next_cursor: string | null;
         };
         TerraformProvider: {
-            /** @description Provider address: `<hostname>/<namespace>/<type>` */
+            /** @description Provider address: `<hostname>/<namespace>/<type>` (the hosted repository: `<namespace>/<type>`, the host name being this instance's) */
             provider: string;
             /** @description Newest release in the cached version list, else the newest version */
             latest?: string | null;
@@ -4213,11 +4258,63 @@ export interface components {
             /** @description Archives of the version held by this repository */
             archives: components["schemas"]["TerraformArchive"][];
             size_bytes: number;
+            /** @description Hosted: ID of the key that signed the SHA256SUMS */
+            key_id?: string | null;
+            /** @description Hosted: who published the release */
+            uploaded_by?: string | null;
         };
         TerraformVersionPage: {
             provider: components["schemas"]["TerraformProvider"];
             /** @description Newest first (semantic version order) */
             items: components["schemas"]["TerraformVersion"][];
+            next_cursor: string | null;
+        };
+        TerraformModule: {
+            /** @description Module address on its registry: `<namespace>/<name>/<system>` */
+            module: string;
+            /** @description Newest release (proxy: of the cached version list) */
+            latest?: string | null;
+            /** @description Versions listed (proxy: the cached registry list; hosted: uploaded) */
+            version_count: number;
+            /** @description Versions whose archive this repository holds */
+            cached_versions: number;
+            /** @description Bytes of the archives held */
+            size_bytes: number;
+        };
+        TerraformModulePage: {
+            items: components["schemas"]["TerraformModule"][];
+            next_cursor: string | null;
+        };
+        TerraformModuleArchive: {
+            /** @description `archive.tar.gz` or `archive.zip` */
+            filename: string;
+            /** @description Repository path of the archive (a Browse tree path) */
+            path: string;
+            size: number;
+            /** @description Digest of the archive (proxy: pinned when it was first fetched) */
+            sha256: string;
+            /** @description Proxy: the source address the origin registry gave */
+            source?: string | null;
+            /** @description Hosted: who published the version */
+            uploaded_by?: string | null;
+            /** Format: date-time */
+            created_at?: string | null;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+            downloads?: number;
+        };
+        TerraformModuleVersion: {
+            version: string;
+            prerelease: boolean;
+            /** @description Proxy: in the cached registry version list; hosted: always */
+            listed: boolean;
+            /** @description The archive this repository holds, if any */
+            archive: components["schemas"]["TerraformModuleArchive"] | null;
+        };
+        TerraformModuleVersionPage: {
+            module: components["schemas"]["TerraformModule"];
+            /** @description Newest first (semantic version order) */
+            items: components["schemas"]["TerraformModuleVersion"][];
             next_cursor: string | null;
         };
         AptSuite: {
@@ -8027,7 +8124,7 @@ export interface operations {
     listTerraformVersions: {
         parameters: {
             query: {
-                /** @description Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null` */
+                /** @description Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null` (the hosted repository: `<namespace>/<type>`) */
                 provider: string;
                 /** @description Opaque cursor from a previous page's `next_cursor` */
                 cursor?: components["parameters"]["Cursor"];
@@ -8048,6 +8145,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TerraformVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listTerraformModules: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Modules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerraformModulePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listTerraformModuleVersions: {
+        parameters: {
+            query: {
+                /** @description Module address `<namespace>/<name>/<system>`, e.g. `hashicorp/consul/aws` */
+                module: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TerraformModuleVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];

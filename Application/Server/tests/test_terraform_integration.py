@@ -152,8 +152,6 @@ async def repos(admin: httpx.AsyncClient, upstream: FakeUpstream) -> str:
     loose = {'verify_signatures': False}
     made = await create(admin, {'name': 'tf-loose', 'type': 'proxy', 'proxy': proxy, 'format_options': loose})
     assert made.status_code == 201, made.text
-    hosted = await create(admin, {'name': 'tf-hosted', 'type': 'hosted'})
-    assert hosted.status_code == 422  # hosted Terraform repositories are T-P5-TFM
     return f'127.0.0.1:{upstream.port}/acme/demo'
 
 

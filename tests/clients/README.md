@@ -80,10 +80,11 @@ time, so keys always line up. Upstream requests are made with `Accept-Encoding: 
 
 Scrubbed at record time (`harness/upstream_store.py`):
 - Response headers are allowlisted (content type/length/range, ETag, Last-Modified, Cache-Control, Expires, Vary,
-  Location, Link, WWW-Authenticate, Docker digest/API headers, `ratelimit-limit/remaining`). Cookies, request ids,
-  CDN node names, client-IP headers (e.g. Docker Hub's rate-limit source) and everything else are dropped.
+  Location, Link, WWW-Authenticate, Docker digest/API headers, `ratelimit-limit/remaining`, `X-Terraform-Get`).
+  Cookies, request ids, CDN node names, client-IP headers (e.g. Docker Hub's rate-limit source) and everything else
+  are dropped.
 - Signed-URL query values (`X-Amz-*`, `Signature`, `Expires`, `token`, SAS params, ...) and URL credentials in
-  `Location` and in keys are replaced with `harness-redacted`.
+  `Location`, `X-Terraform-Get` and in keys are replaced with `harness-redacted`.
 - JSON bodies: string values of keys containing `token`, `secret`, `password`, `credential`, `session`, `cookie`
   are replaced with `harness-redacted`, and the format's `DROP_JSON_KEYS` are removed (upstream bytes are kept
   untouched when nothing matched). Only metadata the client does not verify byte-for-byte may be scrubbed this way.

@@ -260,6 +260,9 @@ class AssetSpec:
     on_upstream: OnUpstream | None = None  # sees every final upstream response's headers (rate limits); sync, cheap
     artifact: str | None = None  # display name in live transfers (default: last path segment)
     component: str | None = None
+    # ``ensure`` only: an upstream ``204 No Content`` is a valid (empty) document whose ``store_headers`` carry the
+    # answer (a Terraform module registry's download endpoint: ``X-Terraform-Get``).
+    no_content_ok: bool = False
 
 
 def _origin(url: str) -> tuple[str, str, int]:
@@ -519,6 +522,8 @@ class ProxyEngine:
             await response.aclose()
             await self._revalidated(asset, info)
             return asset
+        if info.status == 204 and spec.no_content_ok:
+            info = replace(info, status=200)
         if info.status != 200:
             await response.aclose()
             error = UpstreamError(f'upstream answered {info.status}')

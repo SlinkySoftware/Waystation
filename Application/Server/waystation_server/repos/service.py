@@ -313,6 +313,14 @@ async def _build(
     hosted: StoredHosted | None = None
     if body.type is RepoType.HOSTED:
         hosted = _stored_hosted(body.hosted or HostedConfig(), errors)
+        # SPECIFICATION §4.2: one hosted Terraform repository per instance (``/.well-known/terraform.json`` points at
+        # it); the ``terraform_hosted_single`` index settles a race between two creates.
+        if (
+            body.format == 'terraform'
+            and existing is None
+            and any(r.format == 'terraform' and r.type is RepoType.HOSTED for r in await services.catalog.all())
+        ):
+            errors.append(FieldError(field='type', message=repos_db.HOSTED_TERRAFORM_TAKEN, code='conflict'))
     elif body.hosted is not None:
         errors.append(
             FieldError(field='hosted', message='only hosted repositories have a write policy', code='invalid')

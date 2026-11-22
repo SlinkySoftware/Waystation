@@ -20,6 +20,7 @@ class AuthMethod(StrEnum):
     REGISTRY_TOKEN = 'registry_token'  # noqa: S105 - an enum label, not a secret
     BASIC = 'basic'
     API_TOKEN = 'api_token'  # noqa: S105 - an enum label, not a secret
+    SIGNED_URL = 'signed_url'  # a download grant in the URL (``security.download_urls``): one file, nothing else
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,8 @@ class Principal:
 
     @property
     def display(self) -> str:
+        if self.method is AuthMethod.SIGNED_URL:
+            return self.name
         return 'anonymous' if self.is_anonymous else self.name
 
 

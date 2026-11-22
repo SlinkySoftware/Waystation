@@ -3,6 +3,22 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-P5-TFM: Terraform module registry proxy and the hosted Terraform repository. Proxy repositories also serve the
+  Module Registry Protocol (`v1/modules/...`) of their upstream registry: GitHub tag archives and HTTP(S)/S3 archives
+  from `module_archive_hosts` (default `github.com`) are cached with their sha256 pinned at the first fetch, other
+  sources are passed through. An instance has one hosted Terraform repository (a second is refused; unique index
+  `terraform_hosted_single`): module uploads (`PUT`, bounded archive checks), provider releases (multipart: zips,
+  `SHA256SUMS`, signature verified against the uploaded key), immutable versions, deletes, both registry protocols,
+  announced by `/.well-known/terraform.json` (visibility-filtered). File URLs in registry answers carry short-lived
+  signed grants for signed-in callers (adr/0010, accepted 2026-11-22): terraform and tofu send no
+  token with file downloads. New collection `terraform_modules`; browse `terraform/modules`,
+  `terraform/module-versions` and hosted providers; search and components for modules; UI: hosted type in the create
+  flow, module archive hosts option, Providers / Modules / Files views; "Set me up" with a `host` block for the proxy
+  and credentials, sources and publishing for the hosted repository; Nexus import notes the one-hosted rule. The proxy
+  engine accepts `204` for opted-in metadata (`no_content_ok`). Harness: terraform 1.17 and tofu 1.13 install
+  `hashicorp/subnets/cidr` through both registries' module proxies and a private module and provider from the hosted
+  repository with a bearer token; invalid and narrowed tokens are refused (`client-terraform` image gains gnupg; the
+  TLS front takes extra names from `TLSFRONT_NAMES`; the fixture store keeps `X-Terraform-Get`).
 - T-P5-APTH: hosted apt repositories. `.deb` uploads by `PUT` or `POST` (raw or multipart, `?component=`), streamed
   after the hard-quota check and read safely in a thread (`formats/apt/deb.py`: ar layout, bounded control-archive
   decompression for gzip/xz/zstd, tar names checked, one control paragraph with valid `Package`/`Version`/
