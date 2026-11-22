@@ -26,7 +26,8 @@ release tag to its commit and replace the SHA and the comment everywhere it is u
 ### `make check`
 
 In order: `forbidden-strings`, `workflow-lint`, `fmt-check`, `lint` (ruff + import-linter), `typecheck` (mypy
-strict), `test` (unit + coverage), `test-nfs` (the blob store on NFS, below), `test-integration` (throwaway
+strict), `test` (unit + coverage; includes `test_api_docs.py`, which fails when the static API reference in
+`Documents/API/` no longer matches the server, fix with `make api-docs`), `test-nfs` (the blob store on NFS, below), `test-integration` (throwaway
 MongoDB/Valkey), `clients-check` (fixture scan +
 size budgets), `frontend-check` (generated-client check, ESLint, vue-tsc, Vitest, production build + bundle budget),
 `budgets` (report).
@@ -84,9 +85,9 @@ The runner needs the `ubuntu-latest` label, Docker (about 6 GB of free memory fo
 the checkout, so jobs must run on the host (an `ubuntu-latest:host` runner label) or in a job container whose
 checkout path is the same on the Docker host. With act_runner (Gitea runner) that means `container.bind_workdir: true`
 in the runner's `config.yaml`: the default (the workspace in a Docker volume) leaves every bind mount empty, and make
-fails with `can't open file '/src/...'`. The workflows pass `make workflow-lint` (actionlint). First runs on the
-Gitea runners (2026-11-10) failed on exactly that, on the unset `REGISTRY_HOST` variable (images) and on
-upload-artifact v4, which Gitea's artifact API does not support (perf now uses v3).
+fails with `can't open file '/src/...'`. The workflows pass `make workflow-lint` (actionlint). The images workflow
+needs the `REGISTRY_HOST` variable set, and the Gitea workflows use upload-artifact v3 (Gitea's artifact API does
+not support v4).
 
 ### Gitea live client smoke
 
@@ -163,12 +164,13 @@ skipped.
 `Build/ci/budgets.json` lists the SPECIFICATION §5.1 budgets. `make budgets` (`Build/ci/budgets.py`) prints each
 budget, its limit, the value measured by the check named in `source` and a status; `MARKDOWN=1` prints the table CI
 appends to the job summary. A budget with `"enforce": "warn"` is reported (a CI warning annotation when over) and
-never fails the build; `"fail"` fails `make budgets`. All budgets are `warn` until milestone M2, except the SPA
-initial-route bundle, which `make frontend-build` already enforces (its limit is read from `budgets.json`).
+never fails the build; `"fail"` fails `make budgets`. Every budget is `fail`; `warn` is only for a new budget
+being introduced. The SPA initial-route bundle is also enforced by `make frontend-build` (its limit is read from
+`budgets.json`).
 The latency, throughput and concurrency budgets are measured by the k6 suite (`make perf`, `tests/perf/README.md`),
 which leaves its values in `tests/perf/.results/measured.json` (their `source`); until a run has left that file they
-show "not measured". `make budgets STRICT=1` (and `make perf STRICT=1`) treats every budget as `fail`, to see what
-M2 will enforce. The dashboard paint budget needs a browser and is not measured yet.
+show "not measured". `make budgets STRICT=1` (and `make perf STRICT=1`) also treats `warn` budgets as `fail`. The
+dashboard paint budget needs a browser and is not measured by the k6 suite.
 
 ### Gitea perf runs
 

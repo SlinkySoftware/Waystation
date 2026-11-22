@@ -1,14 +1,22 @@
-# PyPI clients
+# PyPI client guide
 
 How to point pip, uv, Poetry and PDM at a Waystation **PyPI** repository, and how to upload with twine and
 `uv publish`. The repository's **Set me up** tab shows the same snippets with your real URL filled in. Examples below
 use `https://waystation.example.com` and repositories called `pypi-proxy` (a proxy of pypi.org), `pypi-internal`
 (hosted) and `pypi` (a group of both).
 
-Status (T-P5-PYPI): proxy, hosted and group repositories. Verified by the real-client harness (`tests/clients/pypi/`)
-with pip 26, uv 0.13, twine 7, Poetry 2.5 and PDM 2.29: installs through a proxy of pypi.org (PEP 691 JSON pages,
-PEP 658 `.metadata` files), `twine upload` and `uv publish` to a hosted repository and through a group, `poetry
-install` and `pdm install` (lock + install) through a group, yanking, a token narrowed to other repositories.
+## Overview
+
+Waystation serves the PyPI simple repository API (PEP 503 HTML and PEP 691 JSON pages), PEP 658 `.metadata` files,
+PEP 592 yanking and the legacy upload API used by twine and `uv publish`. Proxy, hosted and group repositories are
+supported.
+
+Every repository answers at `https://waystation.example.com/repository/<name>/simple/` (the index URL). Uploads go to
+the repository root, `https://waystation.example.com/repository/<name>/`.
+
+Tested with pip 26, uv 0.13, twine 7, Poetry 2.5 and PDM 2.29: installs through a proxy of pypi.org, `twine upload`
+and `uv publish` to a hosted repository and through a group, `poetry install` and `pdm install` (lock + install)
+through a group, yanking, and a token narrowed to other repositories.
 
 ## Repository types
 
@@ -20,9 +28,9 @@ install` and `pdm install` (lock + install) through a group, yanking, a token na
 - **Group**: one index URL for several PyPI repositories. Project pages are merged (the first member listing a file
   name wins, so put hosted repositories first); uploads go to the group's **writable member** (a hosted repository).
 
-Every repository answers at `https://waystation.example.com/repository/<name>/simple/`.
+## Client setup
 
-## pip
+### pip
 
 ```sh
 pip install --index-url https://waystation.example.com/repository/pypi/simple/ requests
@@ -37,7 +45,7 @@ index-url = https://waystation.example.com/repository/pypi/simple/
 
 Plain-HTTP deployments also need `trusted-host = waystation.example.com` (pip ignores insecure hosts otherwise).
 
-## uv
+### uv
 
 ```sh
 uv pip install --index-url https://waystation.example.com/repository/pypi/simple/ requests
@@ -55,14 +63,14 @@ default = true
 `uv.lock` records the file URLs it resolved (`https://waystation.example.com/repository/pypi/packages/...`). Those
 URLs keep working: they are served through the repository (and its cache) by project and file name.
 
-## Poetry
+### Poetry
 
 ```sh
 poetry source add --priority=primary waystation https://waystation.example.com/repository/pypi/simple/
 poetry config http-basic.waystation <username> <api-token>
 ```
 
-## PDM
+### PDM
 
 ```sh
 pdm config pypi.url https://waystation.example.com/repository/pypi/simple/
@@ -78,7 +86,23 @@ url = "https://__token__:${WAYSTATION_TOKEN}@waystation.example.com/repository/p
 
 A plain-HTTP deployment also needs `verify_ssl = false` on the source: PDM ignores untrusted hosts otherwise.
 
-## Uploading (twine, uv publish)
+## Authentication
+
+Proxy repositories are read anonymously when the deployment allows anonymous reads (the default for proxies). Hosted
+and group repositories, and uploads, need an API token: create one on your profile page (avatar menu → Profile → API
+tokens; shown once) or, for CI, on a service account.
+
+PyPI clients send it with HTTP basic auth: any username (for example `__token__`) and the token as the password, for
+example in the index URL `https://__token__:<api-token>@waystation.example.com/repository/pypi/simple/`, uv's
+`UV_INDEX_WAYSTATION_USERNAME` / `UV_INDEX_WAYSTATION_PASSWORD`, Poetry's `http-basic`, or twine's `.pypirc`. Account
+passwords are not accepted by package clients.
+
+A repository the token cannot read answers `404`. An index URL without credentials gets the `401` Basic challenge
+from a repository anonymous users cannot see
+([ADR 0005](../../Architecture/adr/0005-anonymous-challenge-on-format-routes.md)), so pip can take the credentials
+from a keyring (`--keyring-provider`) after the challenge.
+
+## Publishing
 
 Uploads use the legacy upload API (`POST` to the repository URL). The URL is the repository itself, not
 `.../simple/`. `~/.pypirc`:
@@ -101,7 +125,9 @@ uv publish --publish-url https://waystation.example.com/repository/pypi-internal
 
 Uploading to a group (`.../repository/pypi/`) lands in its writable member; you need `write` on both.
 
-What the server checks before a file is stored:
+### What the server checks
+
+Before a file is stored:
 
 - the file name is a wheel or an sdist (`.tar.gz`, `.zip`) and names a valid project and version;
 - the archive is sound: its core metadata (`*.dist-info/METADATA` of a wheel, `PKG-INFO` of an sdist) is read with
@@ -113,6 +139,8 @@ What the server checks before a file is stored:
 A wheel's `METADATA` is also served as `<file>.metadata` (PEP 658), so installers resolve dependencies without
 downloading wheels.
 
+### Write policy
+
 The repository's **write policy** decides what happens to a file name that exists already:
 
 | Policy | Same file name, different content | Same bytes again |
@@ -121,7 +149,7 @@ The repository's **write policy** decides what happens to a file name that exist
 | `disable_redeploy` | `400 File already exists` (`twine upload --skip-existing` skips it) | accepted |
 | `read_only` | `403` | `403` |
 
-## Yanking (PEP 592)
+### Yanking (PEP 592)
 
 A hosted release can be yanked from the repository's **Browse** tab (open the project, then **Yank** on the version,
 with an optional reason) or through the API:
@@ -135,17 +163,14 @@ curl -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer <api-
 Installers skip a yanked release unless it is pinned exactly (`my-lib==1.2.0`). `"yanked": false` un-yanks it. Needs
 `write`; audited as `content.update`.
 
-## Authentication
+## Limitations
 
-Proxy repositories are read anonymously when the deployment allows anonymous reads (the default for proxies). Hosted
-and group repositories, and uploads, need an API token: create one on your profile page (avatar menu → Profile → API
-tokens; shown once) or, for CI, on a service account. PyPI clients send it with HTTP basic auth: any username (for
-example `__token__`) and the token as the password, for example in the index URL
-`https://__token__:<api-token>@waystation.example.com/repository/pypi/simple/`, uv's
-`UV_INDEX_WAYSTATION_USERNAME` / `UV_INDEX_WAYSTATION_PASSWORD`, Poetry's `http-basic`, or twine's `.pypirc`. Account
-passwords are not accepted by package clients. A repository the token cannot read answers `404`. An index URL without
-credentials gets the `401` Basic challenge from a repository anonymous users cannot see (ADR 0005), so pip can take
-the credentials from a keyring (`--keyring-provider`) after the challenge.
+- Proxy repositories are read-only; upload to a hosted repository or a group with a writable member.
+- The legacy JSON API (`/pypi/<project>/json`) is proxied only by proxies of a root upstream URL (option `json_api`)
+  and answered by groups from their first proxy member that has it; hosted repositories do not serve it.
+- A group asks every member for a project page it merges, including proxies (as Nexus does), so a project that exists
+  only in a hosted member is also requested from the upstream.
+- Account passwords are not accepted by package clients; use an API token.
 
 ## Troubleshooting
 
@@ -155,8 +180,7 @@ the credentials from a keyring (`--keyring-provider`) after the challenge.
 - **`502` for a file**: the upstream bytes did not match the page's hash (the file is not cached; retry or check the
   upstream) or the upstream is down with nothing cached.
 - **pip ignores the index** on a plain-HTTP deployment: add `--trusted-host`.
-- **A project only on your hosted repository is also requested from pypi.org**: a group asks every member for a page
-  it merges, including proxies (as Nexus does). Name internal projects so they cannot be registered publicly, or use
-  the hosted repository directly for them.
-- The legacy JSON API (`/pypi/<project>/json`) is proxied for proxies of a root upstream URL (option `json_api`) and
-  answered by groups from their first proxy member that has it; hosted repositories do not serve it.
+- **A project only on your hosted repository is also requested from pypi.org**: name internal projects so they
+  cannot be registered publicly, or use the hosted repository directly for them.
+- **`400 File already exists` on upload**: the repository has `disable_redeploy`; bump the version or use
+  `twine upload --skip-existing`.

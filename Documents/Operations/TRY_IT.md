@@ -23,8 +23,8 @@ To try it on your own machine, use `localhost`.
 The release images are public on GitHub Container Registry (linux/amd64 and linux/arm64):
 
 ```sh
-git clone --branch v0.2.9 https://github.com/SlinkySoftware/Waystation.git && cd Waystation
-for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:0.2.9; done
+git clone --branch v1.0.0 https://github.com/SlinkySoftware/Waystation.git && cd Waystation
+for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:1.0.0; done
 ```
 
 To run an unreleased commit instead, build the images from the checkout (`make images IMAGE_TAG=dev`, Docker only)
@@ -38,7 +38,7 @@ cd ~/waystation
 umask 077
 cat > .env <<EOF
 WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware
-WAYSTATION_IMAGE_TAG=0.2.9
+WAYSTATION_IMAGE_TAG=1.0.0
 WAYSTATION_HTTP_PORT=8080
 # The URL clients use: it appears in "Set me up" snippets, docker pull names and registry tokens.
 WAYSTATION_BASE_URL=http://registry.example.com:8080
@@ -151,14 +151,14 @@ After `down -v` the next start is a fresh install with a new one-time admin pass
 
 ## Where to go next
 
-- **More formats**: PyPI, Maven, Helm, Go modules, Terraform providers, Ansible Galaxy, yum/dnf; hosted (private)
-  and group repositories for most of them. Client setup per format: [clients/](clients/).
+- **More formats**: PyPI, Maven, Go modules, Helm, Terraform/OpenTofu, Ansible Galaxy, Swift, NuGet, Cargo,
+  RubyGems, Composer, Conda, Alpine apk, Hugging Face and yum/dnf; hosted (private) and group repositories for most
+  of them. Client setup per format: [clients/](clients/).
 - **Users and sign-in**: Administration > Users, Groups, Roles and Auth providers (LDAP / Active Directory, OIDC).
   Format clients that send credentials (basic or bearer auth on `/repository/...`) use an API token from your
   profile page, not your password. The proxies in this guide allow anonymous reads, so the examples need none.
 - **HTTPS**: the web tier speaks plain HTTP; put a reverse proxy in front ([REVERSE_PROXIES.md](REVERSE_PROXIES.md)).
 - **Production**: [DEPLOYMENT.md](DEPLOYMENT.md), [BACKUP.md](BACKUP.md), [MONITORING.md](MONITORING.md),
   [PROVISIONING.md](PROVISIONING.md), [SECRET_KEY_ROTATION.md](SECRET_KEY_ROTATION.md); moving from Nexus: [MIGRATING_FROM_NEXUS.md](MIGRATING_FROM_NEXUS.md).
-- Menu items marked "soon" are placeholders.
-
-Send feedback in `Documents/Notes/UI_FEEDBACK.md`.
+- **Administration**: [ADMIN_GUIDE.md](ADMIN_GUIDE.md); the REST API: [../API/README.md](../API/README.md).
+- Report problems and ideas on the project's GitHub issue tracker.
