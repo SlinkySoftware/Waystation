@@ -1,9 +1,10 @@
 # Waystation site config (rendered by the nginx image's envsubst step; only ${WAYSTATION_*} variables are
 # substituted, nginx's own $variables are left alone).
 #   WAYSTATION_DATA_DIR     blob store mount, read-only here (default /var/lib/waystation)
-# The listeners (plain HTTP, or TLS + HTTP/2 with a plain-HTTP redirect) and the server list are rendered by
-# /docker-entrypoint.d/15-waystation.sh into the included *.inc files (WAYSTATION_SERVER_ADDR, WAYSTATION_WEB_PORT,
-# WAYSTATION_TLS_CERT/KEY).
+# The listeners (plain HTTP, or TLS + HTTP/2 with a plain-HTTP redirect), the server list and the docker dedicated
+# port connectors are rendered by /docker-entrypoint.d/15-waystation.sh into the included *.inc files and
+# waystation-connectors.conf (WAYSTATION_SERVER_ADDR, WAYSTATION_WEB_PORT, WAYSTATION_TLS_CERT/KEY,
+# WAYSTATION_DOCKER_CONNECTORS).
 
 upstream waystation_server {
     include /tmp/nginx-conf/waystation-upstream.inc;
@@ -14,25 +15,10 @@ server {
     include /tmp/nginx-conf/waystation-listen.inc;
     server_name _;
 
-    # Large artifacts pass through untouched (SPECIFICATION §8.4): no body size limit, no buffering.
-    client_max_body_size 0;
-    absolute_redirect off;
-
-    proxy_http_version 1.1;
-    proxy_set_header Connection "";
-    proxy_set_header Host $http_host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-Host $http_host;
-    proxy_set_header X-Request-Id $request_id;
-    proxy_request_buffering off;
-    proxy_buffering off;
-    proxy_connect_timeout 10s;
-    proxy_send_timeout 600s;
-    proxy_read_timeout 600s;
-    # The server answers with X-Accel-Redirect for cached content; let nginx follow it.
-    proxy_intercept_errors off;
+    # Proxy settings shared with the docker connector listeners (waystation-proxy.inc.template). A client never
+    # chooses the connector header: only connector listeners (15-waystation.sh) set it (ADR 0013).
+    include /tmp/nginx-conf/waystation-proxy.inc;
+    proxy_set_header X-Waystation-Connector "";
 
     # ---- container healthcheck (answered by nginx itself)
     location = /_web/healthz {
@@ -97,32 +83,8 @@ server {
         add_header X-Accel-Buffering no always;
     }
 
-    # ---- cached content via X-Accel-Redirect (ARCHITECTURE §4.5). Only reachable by an internal redirect from
-    # the server. The server answers conditional requests itself; nginx serves bytes and ranges.
-    location /_blobs/ {
-        internal;
-        alias ${WAYSTATION_DATA_DIR}/blobs/;
-        sendfile on;
-        etag off;
-        # Content-Type is taken from the server's response on the internal redirect; nginx copies it. The empty
-        # types map keeps nginx from guessing a type from the (extension-less) blob file name.
-        types { }
-        default_type application/octet-stream;
-        add_header ETag $upstream_http_x_ws_etag always;
-        add_header Docker-Content-Digest $upstream_http_docker_content_digest always;
-        add_header Docker-Distribution-API-Version $upstream_http_docker_distribution_api_version always;
-        add_header X-Ws-Digest $upstream_http_x_ws_digest always;
-        add_header X-Ws-Cache $upstream_http_x_ws_cache always;
-        add_header X-Ws-Group-Member $upstream_http_x_ws_group_member always;
-        # Swift Package Registry (SE-0292 §4.3, §4.4): API version, manifest alternates, archive digest, signature.
-        add_header Content-Version $upstream_http_content_version always;
-        add_header Link $upstream_http_link always;
-        add_header Digest $upstream_http_digest always;
-        add_header X-Swift-Package-Signature-Format $upstream_http_x_swift_package_signature_format always;
-        add_header X-Swift-Package-Signature $upstream_http_x_swift_package_signature always;
-        add_header X-Request-Id $upstream_http_x_request_id always;
-        add_header X-Content-Type-Options nosniff always;
-    }
+    # ---- cached content via X-Accel-Redirect (waystation-blobs.inc.template)
+    include /tmp/nginx-conf/waystation-blobs.inc;
 
     location / {
         return 404;

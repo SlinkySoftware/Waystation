@@ -136,6 +136,19 @@ function isPrivateHost(host: string): boolean {
   return /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|\[?::1\]?|\[?f[cd])/i.test(host)
 }
 
+/** A docker repository's dedicated port (SPEC §4.4), as the server checks it: range, unique, not the base URL port. */
+function validateConnectorPort(body: RepositoryWrite, existing?: Repository): FieldError[] {
+  const port = (body.format_options as { connector_port?: number | null } | undefined)?.connector_port
+  if (port === null || port === undefined) return []
+  const field = 'format_options.connector_port'
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) return [{ field, message: 'must be a whole number from 1024 to 65535', code: 'range' }]
+  const owner = world.repos.find((r) => r.name !== existing?.name && r.format === 'docker' && (r.format_options as { connector_port?: number | null } | undefined)?.connector_port === port)
+  if (owner) return [{ field, message: `is already the connector port of ${owner.name}`, code: 'taken' }]
+  const basePort = new URL(BASE_URL).port
+  if (basePort && Number(basePort) === port) return [{ field, message: 'is the base URL port', code: 'reserved' }]
+  return []
+}
+
 function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
   const errors: FieldError[] = []
   if (!existing) {
@@ -155,6 +168,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if ((existing?.type ?? body.type) === 'group') errors.push({ field: 'storage.quota_bytes', message: 'groups store nothing: set quotas on their members', code: 'invalid' })
     else if (!Number.isInteger(quota) || quota < 1) errors.push({ field: 'storage.quota_bytes', message: 'must be a whole number of bytes, at least 1', code: 'range' })
   }
+  if ((existing?.format ?? body.format) === 'docker') errors.push(...validateConnectorPort(body, existing))
   if (body.type === 'group') {
     const members = body.group?.members ?? []
     if (!members.length) errors.push({ field: 'group.members', message: 'Pick at least one member.', code: 'required' })
@@ -512,7 +526,7 @@ export const handlers = [
     if (!source) return notFound()
     const ask = (await request.json()) as { name: string; description?: string | null; online?: boolean | null }
     // The copied configuration was valid already: only the new name is checked (as the server's create would).
-    const { aliases: _aliases, default_repo: _default, ...options } = (source.format_options ?? {}) as Record<string, unknown>
+    const { aliases: _aliases, default_repo: _default, connector_port: _port, ...options } = (source.format_options ?? {}) as Record<string, unknown>
     const body: RepositoryWrite = {
       name: ask.name,
       format: source.format,
@@ -523,7 +537,7 @@ export const handlers = [
       hosted: source.hosted ?? undefined,
       group: source.group ?? undefined,
       storage: source.storage,
-      format_options: source.format === 'docker' ? { ...options, aliases: [], default_repo: false } : options,
+      format_options: source.format === 'docker' ? { ...options, aliases: [], default_repo: false, connector_port: null } : options,
     } as RepositoryWrite
     const errors = validate(body).filter((e) => e.field === 'name')
     if (errors.some((e) => e.code === 'taken')) return problem(409, 'Conflict', 'A repository with this name already exists.', errors)

@@ -6,6 +6,11 @@
   repository with the whole name (mirror mode). An unprefixed name with containerd's ``?ns=<registry>`` goes to the
   repository with that alias, else to the default repository only if ``ns`` is its own upstream, else nowhere (404:
   containerd falls back to the registry itself rather than getting another registry's image under that name).
+- A request the web tier received on a dedicated port connector (T-P6-DOCKERC, ADR 0013) carries
+  ``X-Waystation-Connector: <port>``: every ``/v2/<name>`` then addresses the docker repository with that
+  ``connector_port`` (no prefix, no alias, no ``ns``), or nothing. The header is honoured only from an internal hop
+  (``clientip``: the web tier, which sets it on connector listeners and strips any client copy elsewhere); it only
+  selects a repository, exactly like a ``<repo>/`` prefix would, so it grants nothing by itself.
 
 The router resolves the repository, normalises the path (``waystation_common.paths``), authorises the request and
 hands it to the format plugin. Unknown repositories answer exactly like hidden ones (``access.hidden_repo``: 404, or
@@ -91,8 +96,27 @@ async def _serves_namespace(services: Services, repo: RepoConfig, ns: str) -> bo
     return bool(proxies) and all(ns in _upstream_hosts(m) for m in proxies)
 
 
-async def resolve_docker(services: Services, name_path: str, ns: str | None = None) -> DockerRoute | None:
-    """Resolve ``/v2/<name_path>`` to a docker repository (SPECIFICATION §4.4); ``ns`` from ``mirror_namespace``."""
+CONNECTOR_HEADER = 'x-waystation-connector'
+
+
+def connector_port(request: Request) -> int | None:
+    """The dedicated port connector the web tier received this request on (``X-Waystation-Connector``), None for
+    the main listeners. Ignored unless the direct peer is an internal hop; a malformed value routes nowhere (0)."""
+    raw = request.headers.get(CONNECTOR_HEADER)
+    if not raw or not getattr(request.state, 'internal_hop', False):
+        return None
+    raw = raw.strip()
+    return int(raw) if raw.isascii() and raw.isdigit() and len(raw) <= 5 else 0
+
+
+async def resolve_docker(
+    services: Services, name_path: str, ns: str | None = None, connector: int | None = None
+) -> DockerRoute | None:
+    """Resolve ``/v2/<name_path>`` to a docker repository (SPECIFICATION §4.4); ``ns`` from ``mirror_namespace``,
+    ``connector`` from ``connector_port`` (the connector's repository takes every name)."""
+    if connector is not None:
+        repo = await services.catalog.docker_connector(connector) if connector else None
+        return DockerRoute(repo, name_path) if repo is not None and name_path else None
     first, _, rest = name_path.partition('/')
     if rest:
         repo = await services.catalog.get(first, reload_on_miss=True)  # created a moment ago on another process
@@ -113,13 +137,19 @@ async def resolve_docker(services: Services, name_path: str, ns: str | None = No
     return None
 
 
-async def _resolve_name(services: Services, name: str) -> tuple[RepoConfig, str] | None:
-    route = await resolve_docker(services, name)
+async def _resolve_name(services: Services, name: str, connector: int | None = None) -> tuple[RepoConfig, str] | None:
+    route = await resolve_docker(services, name, connector=connector)
     return (route.repo, route.path) if route is not None else None
 
 
 async def _dispatch(
-    request: Request, repo: RepoConfig, root: Root, path: str, *, action: Action | None = None
+    request: Request,
+    repo: RepoConfig,
+    root: Root,
+    path: str,
+    *,
+    action: Action | None = None,
+    connector: int | None = None,
 ) -> Response:
     services = services_of(request)
     request.state.log.update(repo=repo.name, format=repo.format)
@@ -159,7 +189,7 @@ async def _dispatch(
         base_url=services.base_url,
         _require=lambda action: access.require_repo(principal, action, repo),
         _allows=lambda action, other: access.check(principal, action, other),
-        _resolve=lambda name: _resolve_name(services, name),
+        _resolve=lambda name: _resolve_name(services, name, connector),
         _repository=services.catalog.get,
         _allows_member=lambda action, member: access.check(
             dataclasses.replace(principal, token_access=None), action, member
@@ -208,10 +238,10 @@ CATALOG_DEFAULT_N = 1000
 CATALOG_MAX_N = 10_000
 
 
-async def catalog(request: Request, services: Services, principal: Principal) -> Response:
+async def catalog(request: Request, services: Services, principal: Principal, connector: int | None = None) -> Response:
     """``GET /v2/_catalog`` (``n``/``last``, ``Link``): ``<repository>/<image>`` for every tagged image of the docker
     repositories the principal can see (RBAC with its API token limits; the registry token's per-repository grants do
-    not apply here), by name."""
+    not apply here), by name. On a dedicated port connector: the connector repository's images, unprefixed."""
     n_raw, last = request.query_params.get('n'), request.query_params.get('last') or None
     if n_raw is not None and (not n_raw.isdigit() or int(n_raw) > CATALOG_MAX_N):
         return oci_error(
@@ -219,6 +249,12 @@ async def catalog(request: Request, services: Services, principal: Principal) ->
         )
     limit = int(n_raw) if n_raw is not None else CATALOG_DEFAULT_N
     viewer = dataclasses.replace(principal, token_access=None)
+    if connector is not None:
+        repo = await services.catalog.docker_connector(connector) if connector else None
+        images: list[str] = []
+        if repo is not None and access.can_see(viewer, repo):
+            images = await docker_db.image_names(services.db, repo.id, after=last, limit=limit + 1)
+        return _catalog_page(images, limit)
     repos = sorted(
         (r for r in await services.catalog.all() if r.format == 'docker' and access.can_see(viewer, r)),
         key=lambda r: r.name,
@@ -233,6 +269,10 @@ async def catalog(request: Request, services: Services, principal: Principal) ->
         after = last_image if last and repo.name == last_repo else None
         images = await docker_db.image_names(services.db, repo.id, after=after, limit=limit + 1 - len(names))
         names.extend(f'{repo.name}/{image}' for image in images)
+    return _catalog_page(names, limit)
+
+
+def _catalog_page(names: list[str], limit: int) -> Response:
     headers = dict(DOCKER_API_VERSION)
     if len(names) > limit:
         names = names[:limit]
@@ -259,19 +299,20 @@ async def docker_v2(request: Request, name_path: str = '') -> Response:
         return oci_error(400, 'invalid repository name', code='NAME_INVALID', headers=DOCKER_API_VERSION)
     principal = await authenticate(request)
     scope = registry_auth.request_scope(clean, request.method)
-    ns = mirror_namespace(services, request.query_params.get('ns'))
+    connector = connector_port(request)
+    ns = mirror_namespace(services, request.query_params.get('ns')) if connector is None else None
     if principal.method is not AuthMethod.REGISTRY_TOKEN:
-        return registry_auth.challenge(services, scope=scope, ns=ns)
+        return registry_auth.challenge(services, scope=scope, ns=ns, connector=connector)
     if clean == '':
         return await v2_base(request)
     if clean == '_catalog':
         if not registry_auth.token_allows(principal, registry_auth.CATALOG, Action.BROWSE):
-            return registry_auth.challenge(services, scope=scope, error='insufficient_scope')
-        return await catalog(request, services, principal)
-    route = await resolve_docker(services, clean, ns)
+            return registry_auth.challenge(services, scope=scope, error='insufficient_scope', connector=connector)
+        return await catalog(request, services, principal, connector)
+    route = await resolve_docker(services, clean, ns, connector)
     if route is None:
         return oci_error(404, 'repository name not known to registry', headers=DOCKER_API_VERSION)
     action = registry_auth.request_action(clean, request.method)
     if not registry_auth.token_allows(principal, route.repo.name, action):
-        return registry_auth.challenge(services, scope=scope, error='insufficient_scope', ns=ns)
-    return await _dispatch(request, route.repo, 'v2', route.path, action=action)
+        return registry_auth.challenge(services, scope=scope, error='insufficient_scope', ns=ns, connector=connector)
+    return await _dispatch(request, route.repo, 'v2', route.path, action=action, connector=connector)

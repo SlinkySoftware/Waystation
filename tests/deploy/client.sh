@@ -31,6 +31,15 @@ case "${1:-}" in
     curl -fsS "$WAYSTATION_URL/healthz" | grep -q ok || fail '/healthz through the web tier'
     curl -fsS -o /dev/null --tlsv1.2 --tls-max 1.2 "$WAYSTATION_URL/ui/" || fail 'TLS 1.2'
     if curl -sS -o /dev/null --tlsv1.1 --tls-max 1.1 "$WAYSTATION_URL/ui/" 2>/dev/null; then fail 'TLS 1.1 accepted'; fi
+    step 'docker connector 5001: HTTPS + HTTP/2, registry API only, challenge names the connector'
+    connector="https://registry.example.com:5001"
+    code=$(curl -sS --http2 -o /dev/null -D h -w '%{http_code} %{http_version}' "$connector/v2/") || fail 'connector'
+    [ "$code" = '401 2' ] || fail "connector /v2/ answered $code"
+    case $(header www-authenticate h) in
+      *"realm=\"$WAYSTATION_URL/auth/token?connector=5001\""*) ;;
+      *) fail "connector challenge: $(header www-authenticate h)" ;;
+    esac
+    [ "$(curl -sS -o /dev/null -w '%{http_code}' "$connector/ui/")" = 404 ] || fail 'the connector served the UI'
     pass
     ;;
   seed)

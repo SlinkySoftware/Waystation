@@ -52,8 +52,8 @@ const fieldErrors = ref<Record<string, string>>({})
 const formError = ref<string | null>(null)
 
 const dropsUniqueOptions = computed(() => {
-  const options = (props.source.format_options ?? {}) as { aliases?: unknown[]; default_repo?: boolean }
-  return props.source.format === 'docker' && (!!options.aliases?.length || !!options.default_repo)
+  const options = (props.source.format_options ?? {}) as { aliases?: unknown[]; default_repo?: boolean; connector_port?: number | null }
+  return props.source.format === 'docker' && (!!options.aliases?.length || !!options.default_repo || options.connector_port != null)
 })
 
 watch(

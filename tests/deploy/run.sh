@@ -6,7 +6,8 @@
 #   - a worker host from compose.standalone.worker.yaml;
 #   - a web host from compose.standalone.web.yaml + compose.tls.yaml with a throwaway certificate, balancing over both
 #     server hosts; all hosts share one blob directory (as an NFS export would be shared).
-# Checks: the web container refuses half a TLS configuration; HTTP -> HTTPS redirect, HTTP/2, TLS 1.2+; sign-in,
+# Checks: the web container refuses half a TLS configuration; HTTP -> HTTPS redirect, HTTP/2, TLS 1.2+; a docker
+# dedicated port connector over HTTPS; sign-in,
 # repositories, a 64 MiB upload and download, a proxied file; a worker job on the shared blob store; with one server
 # host stopped everything is still served. KEEP=1 leaves everything in place. IMAGE_TAG=<tag> reuses built images.
 set -euo pipefail

@@ -3,6 +3,20 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-P6-DOCKERC: docker dedicated port connectors (Nexus style, SPEC §4.4, adr/0013 accepted). A docker repository
+  (proxy, hosted or group) may set `format_options.connector_port` (1024-65535, unique, not the base URL port; clones
+  start without it); clients then use `registry.example.com:<port>/<image>` without a prefix. The web container
+  renders one extra `server` per port in its new `WAYSTATION_DOCKER_CONNECTORS` (validated at start; `/v2/` only;
+  HTTPS + HTTP/2 on the same certificate when TLS is on) that sends `X-Waystation-Connector: <port>`; the main
+  listeners clear the header, and the server honours it only from internal hops. Every `/v2/<name>` on a connector
+  goes to that repository; the challenge realm is `/auth/token?connector=<port>` and granted scopes are renamed
+  `<repository>/<image>`; `/v2/_catalog` lists the repository's images unprefixed. Nexus import maps connector ports
+  (HTTPS first; the other port, subdomains, low or taken ports are differences). UI: "Dedicated port (connector)"
+  field on docker repositories, "Set me up" connector snippets, the port on the Docker routing card, MSW mocks.
+  nginx: the proxy settings and `/_blobs/` moved to shared include templates. New `make web-config-test` (in
+  `make check`); the client harness pulls and pushes through connector ports; `make deploy-test` checks an HTTPS
+  connector. Operators: list the ports in `WAYSTATION_DOCKER_CONNECTORS` and publish the same numbers
+  (DEPLOYMENT.md §8 "Docker port connectors").
 - **Release 0.2.9**: support bundle (T-O10), secret-key rotation (T-O11), prefetch jobs with adr/0012 accepted
   (T-O12; new setting `WAYSTATION_INTERNAL_URL` for split-host workers), and the Docker Hub pull-limit meter line.
   Docs and examples point at the 0.2.9 images.

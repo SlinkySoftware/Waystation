@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
@@ -15,6 +16,10 @@ from waystation_server.repos.model import RepoType
 _HOST = re.compile(
     r'^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*(:\d{1,5})?$'
 )
+
+# Dedicated port connectors: unprivileged ports only (the web container runs as uid 101).
+CONNECTOR_PORT_MIN = 1024
+CONNECTOR_PORT_MAX = 65535
 
 Alias = Annotated[str, StringConstraints(max_length=253, strip_whitespace=True, to_lower=True)]
 
@@ -32,6 +37,14 @@ class DockerOptions(BaseModel):
     )
     default_repo: bool = Field(
         default=False, description='Make this the default docker repository (mirror mode, unprefixed names)'
+    )
+    connector_port: int | None = Field(
+        default=None,
+        ge=CONNECTOR_PORT_MIN,
+        le=CONNECTOR_PORT_MAX,
+        description='Dedicated port connector (Nexus style, SPEC §4.4): clients on <host>:<port> reach this repository '
+        'without a prefix. Unique across repositories, not the base URL port; the web tier must listen on it too '
+        '(WAYSTATION_DOCKER_CONNECTORS, operator work). null = none',
     )
 
     @field_validator('aliases')
@@ -69,12 +82,49 @@ def _login(host: str) -> SetupSnippet:
     )
 
 
+def connector_host(base_url: str, port: object) -> str | None:
+    """``<base URL host>:<connector port>`` (the base URL's own port dropped), or None without a connector port."""
+    if not isinstance(port, int) or isinstance(port, bool):
+        return None
+    host = urlsplit(base_url).hostname or 'localhost'
+    return f'[{host}]:{port}' if ':' in host else f'{host}:{port}'
+
+
+def _connector(ctx: SetupContext, kind: str, image: str) -> list[SetupSnippet]:
+    """The dedicated port connector snippet (SPECIFICATION §4.4), when the repository has one."""
+    port = ctx.repo.format_options.get('connector_port')
+    chost = connector_host(ctx.base_url, port)
+    if chost is None:
+        return []
+    if kind == 'hosted':
+        return [
+            snippet(
+                'docker-connector',
+                f'Push and pull through the dedicated port {port}',
+                f'docker login {chost}\ndocker tag myapp:1.0 {chost}/myapp:1.0\ndocker push {chost}/myapp:1.0',
+                description='No repository prefix on this port; it needs its own docker login.',
+            )
+        ]
+    description = 'No repository prefix on this port.'
+    if kind == 'proxy':
+        description += f' Sign in with docker login {chost} when anonymous pulls are not allowed.'
+    return [
+        snippet(
+            'docker-connector',
+            f'Pull through the dedicated port {port}',
+            f'docker pull {chost}/{image}',
+            description=description,
+        )
+    ]
+
+
 def _hosted_snippets(ctx: SetupContext) -> list[SetupClient]:
     host, name = ctx.registry_host, ctx.repo.name
     image = f'{host}/{name}/myapp'
     docker = [
         _login(host),
         snippet('docker-push', 'Tag and push an image', f'docker tag myapp:1.0 {image}:1.0\ndocker push {image}:1.0'),
+        *_connector(ctx, 'hosted', 'myapp:1.0'),
         snippet(
             'docker-buildx',
             'Build and push a multi-platform image',
@@ -125,6 +175,7 @@ def _group_snippets(ctx: SetupContext) -> list[SetupClient]:
             f'docker pull {host}/{name}/team/app:1.0',
             description=f'Members are searched in order: {members}.' if members else None,
         ),
+        *_connector(ctx, 'group', 'team/app:1.0'),
         _login(host),
     ]
     if group is not None and group.writable_member:
@@ -154,6 +205,7 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
     lines += [f'docker pull {host}/{alias}/{image}' for alias in opts.aliases[:3]]
     docker = [
         snippet('docker-pull', 'Pull through this repository', '\n'.join(lines)),
+        *_connector(ctx, 'proxy', image),
         snippet(
             'docker-login',
             'Sign in (only needed when anonymous pulls are not allowed)',

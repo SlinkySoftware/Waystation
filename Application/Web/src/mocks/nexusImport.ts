@@ -21,7 +21,9 @@ interface NexusRepo {
 }
 
 const AUTH_DIFF = { field: 'proxy.auth', nexus: 'username (nexus-reader)', waystation: 'none', note: 'Nexus does not return upstream passwords: set the credentials on the repository after the import' }
-const CONNECTOR = { field: 'docker connector', nexus: 'httpPort 8082', waystation: '/v2/docker-group/', note: 'Nexus connectors are not imported: clients pull through <host>/<repository>/<image> or an upstream alias' }
+// The Nexus connector port becomes the dedicated port connector (T-P6-DOCKERC), with the server's note.
+const CONNECTOR_PORT = 8082
+const CONNECTOR_NOTE = `The Nexus connector port ${CONNECTOR_PORT} becomes the dedicated port connector: list it in the web container's WAYSTATION_DOCKER_CONNECTORS and publish it (MIGRATING_FROM_NEXUS.md)`
 const IMMUTABLE = (fmt: string) => ({ field: 'proxy.content_max_age_s', nexus: '1440 min', waystation: 'forever', note: `${fmt} content is verified by checksum and never changes, so Waystation keeps it until cleanup` })
 
 const NEXUS: NexusRepo[] = [
@@ -29,7 +31,7 @@ const NEXUS: NexusRepo[] = [
   { name: 'ghcr-proxy', format: 'docker', type: 'proxy', upstream: 'https://ghcr.io', options: { aliases: ['ghcr.io'], docker_hub: false, default_repo: false }, differences: [AUTH_DIFF] },
   { name: 'quay-proxy', format: 'docker', type: 'proxy', upstream: 'https://quay.io', options: { aliases: ['quay.io'], docker_hub: false, default_repo: false }, differences: [IMMUTABLE('docker')] },
   { name: 'docker-hosted', format: 'docker', type: 'hosted' },
-  { name: 'docker-group', format: 'docker', type: 'group', differences: [CONNECTOR] },
+  { name: 'docker-group', format: 'docker', type: 'group' },
   { name: 'debian', format: 'apt', type: 'proxy', upstream: 'http://deb.debian.org/debian/', options: { distribution: 'trixie', flat: false } },
   { name: 'debian-security', format: 'apt', type: 'proxy', upstream: 'http://security.debian.org/debian-security/', options: { distribution: 'trixie-security', flat: false } },
   { name: 'ubuntu', format: 'apt', type: 'proxy', upstream: 'http://archive.ubuntu.com/ubuntu/', options: { distribution: 'noble', flat: false } },
@@ -64,10 +66,11 @@ function plan(body: NexusImportRequest, applied: Set<string> | null, selected: s
         ...(n.type === 'hosted'
           ? { hosted: { write_policy: 'allow_redeploy', immutable_tag_patterns: [] } }
           : { group: { members: ['docker-hosted', 'dockerhub-proxy', 'ghcr-proxy'], writable_member: 'docker-hosted' } }),
-        format_options: { aliases: [], docker_hub: false, default_repo: false },
+        format_options: { aliases: [], docker_hub: false, default_repo: false, connector_port: n.type === 'group' ? CONNECTOR_PORT : null },
       } as RepositoryWrite
-      if (found && !applied?.has(n.name)) return { ...base, action: 'exists', reason: 'already in Waystation; left unchanged', repository }
-      return { ...base, action: 'create', repository }
+      const notes = n.type === 'group' ? [CONNECTOR_NOTE] : []
+      if (found && !applied?.has(n.name)) return { ...base, notes, action: 'exists', reason: 'already in Waystation; left unchanged', repository }
+      return { ...base, notes, action: 'create', repository }
     }
     if (n.type !== 'proxy') return { ...base, action: 'unsupported', reason: `Waystation has no ${n.format} ${n.type} repositories yet` }
     const options = { ...(n.options ?? {}) }

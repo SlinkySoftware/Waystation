@@ -19,7 +19,8 @@ Validation, reported as 422 field errors (``errors[].field`` a dotted path into 
   hosted member; other types must not send it. A repository that is a group member cannot be deleted;
 - ``format_options`` against the format's ``options_model`` and its per-type rules (``check_options``); docker
   aliases must not collide with repository names or other repositories' aliases; one default docker repository
-  (setting it clears the others);
+  (setting it clears the others); a docker ``connector_port`` (T-P6-DOCKERC) is unique across repositories and is
+  not the base URL's port;
 - ``storage``: a quota (bytes, ``soft``/``hard``) for proxy and hosted repositories; groups store nothing, so a quota
   there is refused (set it on the members);
 - ``proxy.prefetch`` (T-O12): warm items in the format's syntax (``FormatDescriptor.warm_item``; formats without one
@@ -31,7 +32,8 @@ Validation, reported as 422 field errors (``errors[].field`` a dotted path into 
 Clone (``clone``) copies a repository's configuration, never its content, under a new name and validates it like a
 create: the upstream secret is decrypted server-side and encrypted again for the new repository (the associated data
 names the repository), attached cleanup policies are kept, and what must stay unique is left out: docker
-``aliases`` and ``default_repo``. ``managed_by`` is not copied (a clone is never managed by the provisioning file).
+``aliases``, ``default_repo`` and ``connector_port``. ``managed_by`` is not copied (a clone is never managed by the
+provisioning file).
 """
 
 from __future__ import annotations
@@ -246,6 +248,25 @@ async def _check_names(
             )
 
 
+async def _check_connector(
+    services: Services, options: dict[str, Any], repo_id: str | None, errors: list[FieldError]
+) -> None:
+    """A docker dedicated port connector (SPECIFICATION §4.4) names one repository and is not the main port."""
+    port = options.get('connector_port')
+    if not isinstance(port, int):
+        return
+    field = 'format_options.connector_port'
+    if port == urlsplit(services.base_url).port:
+        errors.append(FieldError(field=field, message='is the base URL port', code='reserved'))
+        return
+    for other in await services.catalog.all():
+        if other.id != repo_id and other.format == 'docker' and other.format_options.get('connector_port') == port:
+            errors.append(
+                FieldError(field=field, message=f'is already the connector port of {other.name}', code='taken')
+            )
+            return
+
+
 MIN_WARM_INTERVAL_S = 900
 
 
@@ -343,6 +364,7 @@ async def _build(
     repo_id = existing.id if existing else new_id()
     options = _options(services, body, errors)
     await _check_names(services, body, options, repo_id, errors)
+    await _check_connector(services, options, repo_id, errors)
     proxy: StoredProxy | None = None
     if body.type is RepoType.PROXY:
         if body.proxy is None:
@@ -456,8 +478,9 @@ async def create(
     return repo
 
 
-# Options that name one repository only: a clone starts without them (docker aliases, the default repository).
-UNIQUE_OPTIONS = ('aliases', 'default_repo')
+# Options that name one repository only: a clone starts without them (docker aliases, the default repository, the
+# dedicated port connector).
+UNIQUE_OPTIONS = ('aliases', 'default_repo', 'connector_port')
 
 
 def clone_body(

@@ -152,6 +152,13 @@ class RepoCatalog:
                     return repo
         return None
 
+    async def docker_connector(self, port: int) -> RepoConfig | None:
+        """The docker repository with dedicated port connector ``port`` (SPECIFICATION §4.4)."""
+        await self._ensure()
+        return next(
+            (r for r in self._repos if r.format == 'docker' and r.format_options.get('connector_port') == port), None
+        )
+
     async def default_docker(self) -> RepoConfig | None:
         await self._ensure()
         return next((r for r in self._repos if r.format == 'docker' and r.format_options.get('default_repo')), None)

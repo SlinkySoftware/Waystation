@@ -3,14 +3,14 @@ import { describe, expect, it } from 'vitest'
 
 import type { Repository } from '@/api/types'
 
-import { emptyModel, GROUP_FORMATS, HOSTED_FORMATS, modelFromRepository, NAME_PATTERN, parseWarm, PREFETCH_FORMATS, prefetchErrors, PRESETS, toWrite, WARM_MAX_ITEMS, WRITABLE_GROUP_FORMATS } from './form'
+import { connectorPortError, emptyModel, GROUP_FORMATS, HOSTED_FORMATS, modelFromRepository, NAME_PATTERN, parseConnectorPort, parseWarm, PREFETCH_FORMATS, prefetchErrors, PRESETS, toWrite, WARM_MAX_ITEMS, WRITABLE_GROUP_FORMATS } from './form'
 
 describe('repository form model', () => {
   it('builds a docker proxy from a preset', () => {
     const m = { ...emptyModel('docker'), ...PRESETS.docker[0]!.apply }
     const w = toWrite(m)
     expect(w).toMatchObject({ name: 'docker-hub', format: 'docker', type: 'proxy', proxy: { upstream_url: 'https://registry-1.docker.io', metadata_max_age_s: 1800 } })
-    expect(w.format_options).toEqual({ aliases: ['docker.io'], docker_hub: true, default_repo: false })
+    expect(w.format_options).toEqual({ aliases: ['docker.io'], docker_hub: true, default_repo: false, connector_port: null })
   })
 
   it('builds helm proxy, hosted and group repositories (no format options)', () => {
@@ -132,7 +132,7 @@ describe('repository form model', () => {
       description: '',
       hosted: { write_policy: 'disable_redeploy', immutable_tag_patterns: ['v[0-9]+'] },
       storage: { quota_bytes: null, quota_mode: 'soft' },
-      format_options: { aliases: [], docker_hub: false, default_repo: false },
+      format_options: { aliases: [], docker_hub: false, default_repo: false, connector_port: null },
     })
     expect(w.proxy).toBeUndefined()
     const back = modelFromRepository({ ...w, status: 'ok', url: '', created_at: '', updated_at: '', stats: {} } as unknown as Repository)
@@ -151,7 +151,7 @@ describe('repository form model', () => {
       description: '',
       group: { members: ['docker-hosted', 'docker-hub'], writable_member: 'docker-hosted' },
       storage: { quota_bytes: null, quota_mode: 'soft' },
-      format_options: { aliases: [], docker_hub: false, default_repo: false },
+      format_options: { aliases: [], docker_hub: false, default_repo: false, connector_port: null },
     })
     expect(toWrite({ ...m, writableMember: 'gone' }).group?.writable_member).toBeNull()
     const back = modelFromRepository({ ...toWrite(m), status: 'ok' } as unknown as Repository)
@@ -202,6 +202,32 @@ describe('repository form model', () => {
     expect(HOSTED_FORMATS).toContain('raw')
     expect(GROUP_FORMATS).toContain('raw')
     expect(WRITABLE_GROUP_FORMATS).toContain('raw')
+  })
+
+  it('round-trips the docker dedicated port for proxy and hosted (none by default)', () => {
+    expect(emptyModel('docker').connectorPort).toBeNull()
+    expect(modelFromRepository({ ...toWrite({ ...emptyModel('docker'), name: 'hub' }), status: 'ok' } as unknown as Repository).connectorPort).toBeNull()
+    for (const type of ['proxy', 'hosted', 'group'] as const) {
+      const m = { ...emptyModel('docker', type), name: `docker-${type}`, connectorPort: 5001 }
+      const w = toWrite(m)
+      expect((w.format_options as { connector_port?: number | null }).connector_port).toBe(5001)
+      expect(modelFromRepository({ ...w, status: 'ok' } as unknown as Repository).connectorPort).toBe(5001)
+    }
+  })
+
+  it('checks the dedicated port range on the client (blank is none)', () => {
+    const m = emptyModel('docker', 'hosted')
+    expect(parseConnectorPort('')).toBeNull()
+    expect(parseConnectorPort(null)).toBeNull()
+    expect(parseConnectorPort(' 5001 ')).toBe(5001)
+    expect(parseConnectorPort(5002)).toBe(5002)
+    expect(connectorPortError(m)).toBe('')
+    expect(connectorPortError({ ...m, connectorPort: 1024 })).toBe('')
+    expect(connectorPortError({ ...m, connectorPort: 65535 })).toBe('')
+    expect(connectorPortError({ ...m, connectorPort: 443 })).toBe('A whole number from 1024 to 65535')
+    expect(connectorPortError({ ...m, connectorPort: 65536 })).not.toBe('')
+    expect(connectorPortError({ ...m, connectorPort: 5000.5 })).not.toBe('')
+    expect(connectorPortError({ ...m, connectorPort: Number('abc') })).not.toBe('')
   })
 
   it('maps the storage quota (bytes from size and unit; none for groups or when off)', () => {

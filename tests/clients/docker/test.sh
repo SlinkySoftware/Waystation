@@ -37,6 +37,19 @@ step 'alias: <registry>/docker.io/library/hello-world'
 docker pull -q --platform "$platform" "$registry/docker.io/library/$hub_image" || fail 'docker pull by docker.io alias'
 [ "$(pulled_digest "$registry/docker.io/library/$hub_image")" = "$mirror_digest" ] || fail 'alias pull: different digest'
 
+step 'dedicated port connector: <host>:5001/hello-world reaches docker-hub without a prefix (T-P6-DOCKERC)'
+connector_hub=${registry%:*}:5001
+docker pull -q --platform "$platform" "$connector_hub/$hub_image" || fail 'docker pull through the connector port'
+[ "$(pulled_digest "$connector_hub/$hub_image")" = "$mirror_digest" ] || fail 'connector pull: different digest'
+challenge=$(curl -sS -o /dev/null -D - "http://$connector_hub/v2/library/hello-world/manifests/latest" | tr -d '\r')
+echo "$challenge" | grep -qi '^www-authenticate: Bearer realm=".*/auth/token?connector=5001"' \
+  || fail "connector challenge: $challenge"
+step 'connector header sent by a client to the main port is ignored (no connector realm, normal routing)'
+challenge=$(curl -sS -o /dev/null -D - -H 'X-Waystation-Connector: 5001' \
+  "$WAYSTATION_URL/v2/docker-hub/library/hello-world/manifests/latest" | tr -d '\r')
+echo "$challenge" | grep -qi '^www-authenticate: Bearer realm="[^"]*/auth/token"' || fail "main port challenge: $challenge"
+if echo "$challenge" | grep -q 'connector='; then fail "a client-sent connector header was honoured: $challenge"; fi
+
 step 'generic OCI upstream (GHCR, WWW-Authenticate challenge): alias ghcr.io and prefix ghcr'
 docker pull -q --platform "$platform" "$registry/ghcr.io/$ghcr_image" || fail 'docker pull by ghcr.io alias'
 ghcr_digest=$(pulled_digest "$registry/ghcr.io/$ghcr_image")

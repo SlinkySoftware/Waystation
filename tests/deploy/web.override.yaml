@@ -4,6 +4,8 @@ services:
   web:
     container_name: ${DT_ID}-web
     ports: !reset []
+    environment:
+      WAYSTATION_DOCKER_CONNECTORS: "5001"  # a docker dedicated port connector, HTTPS on the same certificate
     networks:
       lan:
         aliases: [registry.example.com]

@@ -73,7 +73,12 @@ async def test_preview_then_apply_is_idempotent(
     assert maven['proxy']['upstream_url'] == 'https://repo.maven.apache.org/maven2/'
 
     hub = (await admin.get('/api/v1/repositories/dockerhub-proxy')).json()
-    assert hub['format_options'] == {'aliases': ['docker.io'], 'docker_hub': True, 'default_repo': True}
+    assert hub['format_options'] == {
+        'aliases': ['docker.io'],
+        'docker_hub': True,
+        'default_repo': True,
+        'connector_port': None,
+    }
     assert hub['proxy']['upstream_url'] == 'https://registry-1.docker.io'
     assert hub['proxy']['metadata_max_age_s'] == 86400
     assert (await admin.get('/api/v1/config')).json()['docker']['default_repo'] == 'dockerhub-proxy'
@@ -92,6 +97,7 @@ async def test_preview_then_apply_is_idempotent(
     group = (await admin.get('/api/v1/repositories/docker-group')).json()
     assert group['group']['members'] == ['docker-hosted', 'dockerhub-proxy', 'ghcr-proxy']
     assert group['group']['writable_member'] == 'docker-hosted'
+    assert group['format_options']['connector_port'] == 8082  # the Nexus connector port (T-P6-DOCKERC)
     assert (await admin.get('/api/v1/repositories/docker-hosted')).json()['type'] == 'hosted'
     assert {'files', 'raw-group'} <= creates  # raw hosted and group (T-P2-RAW)
     files = (await admin.get('/api/v1/repositories/files')).json()

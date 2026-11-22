@@ -9,7 +9,7 @@ with your own; nothing here needs to change in Nexus.
 
 | Moves automatically | Moves with a command per repository | Does not move (redo by hand) |
 |---|---|---|
-| Repositories: names, formats, types, upstream URLs, cache ages, negative cache, auto-block, online state, docker Hub flag and aliases, the default docker repository, apt distribution, raw content disposition, hosted write policy, group members and writable member (step 2) | Hosted content you still need: docker images (`skopeo`/`crane`), raw files (`curl`) (step 4) | Upstream credentials (Nexus never returns passwords), users, roles, LDAP/OIDC settings, cleanup policies, routing rules, docker connector ports, signing keys (steps 3 and 7) |
+| Repositories: names, formats, types, upstream URLs, cache ages, negative cache, auto-block, online state, docker Hub flag and aliases, the default docker repository, apt distribution, raw content disposition, hosted write policy, group members and writable member, docker connector ports (step 2; the web container must also listen on them) | Hosted content you still need: docker images (`skopeo`/`crane`), raw files (`curl`) (step 4) | Upstream credentials (Nexus never returns passwords), users, roles, LDAP/OIDC settings, cleanup policies, routing rules, docker subdomain connectors, signing keys (steps 3 and 7) |
 
 Cached proxy content is never copied: Waystation fetches it again on first use, verifies it and keeps it.
 
@@ -38,7 +38,10 @@ certificates**.
 1. **Preview** (writes nothing) lists every Nexus repository as *create*, *exists* (a Waystation repository already
    has the name: left alone), *unsupported* (a format or type Waystation does not serve yet, with the reason) or
    *invalid*. Expand an item to see every setting that differs and why (cleanup policies, routing rules, blob
-   stores, connector ports, credentials that cannot be read).
+   stores, a second connector port or a subdomain connector, credentials that cannot be read). A Nexus connector port
+   becomes the repository's dedicated port connector (`connector_port`, HTTPS port first); list it in the web
+   container's `WAYSTATION_DOCKER_CONNECTORS` and publish it ([DEPLOYMENT.md](DEPLOYMENT.md) §8 "Docker port
+   connectors").
 2. Check the **default docker repository**: the Docker Hub proxy behind a Nexus connector, else the only Docker Hub
    proxy; it receives unprefixed pulls (`registry.example.com/library/alpine`) and daemon `registry-mirrors`
    traffic. Pick another one in the form if needed.
@@ -175,7 +178,7 @@ Each client guide has the exact configuration, authentication and troubleshootin
 
 | Format | Nexus today | Waystation |
 |---|---|---|
-| Docker | `nexus.example.com:8082/library/alpine` (connector port), `registry-mirrors` | `registry.example.com/library/alpine` (default repository), `registry.example.com/<repo>/<image>`, `registry.example.com/docker.io/<image>` (alias); `registry-mirrors: ["https://registry.example.com"]` |
+| Docker | `nexus.example.com:8082/library/alpine` (connector port), `registry-mirrors` | `registry.example.com:8082/library/alpine` (the imported connector port), `registry.example.com/library/alpine` (default repository), `registry.example.com/<repo>/<image>`, `registry.example.com/docker.io/<image>` (alias); `registry-mirrors: ["https://registry.example.com"]` |
 | npm | `registry=https://nexus.example.com/repository/npm/` | the same path on `registry.example.com`; `//registry.example.com/repository/npm/:_authToken=<token>` |
 | apt | `deb https://nexus.example.com/repository/debian trixie main` | the same path; credentials in `/etc/apt/auth.conf.d/` |
 | Go | `GOPROXY=https://nexus.example.com/repository/go-proxy/` | the same path; credentials in `~/.netrc`; `GOSUMDB` can stay at its default (the checksum database is proxied) |
@@ -209,9 +212,9 @@ location / {
   response buffering, no body size limit, long timeouts, `X-Forwarded-*`), and set `WAYSTATION_BASE_URL` to the
   host name clients use, so rewritten metadata (npm tarball URLs, docker token realm) points back through the proxy.
 - **Docker connector ports**: a Nexus connector (`nexus.example.com:8082`) is a whole host:port for one repository.
-  Point that port at Waystation's web tier: unprefixed names land in the default docker repository (step 2). A second
-  connector for another repository needs a client change (`registry.example.com/<repo>/<image>`) because only one
-  repository can be the default.
+  The import gives that repository the same `connector_port`; list it in `WAYSTATION_DOCKER_CONNECTORS` and point
+  the port at the same port of Waystation's web tier (a TCP or HTTP forward), so every connector keeps working
+  without a client change. Docker clients get their tokens from `WAYSTATION_BASE_URL`, which must be reachable too.
 - **Credentials**: switch a repository only once its clients use Waystation API tokens (step 3). A client still
   sending its Nexus password is refused (401) by Waystation.
 - Move the Nexus UI and REST paths (`/`, `/service/`) last, when nothing uses Nexus any more.

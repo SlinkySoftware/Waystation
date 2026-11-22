@@ -120,6 +120,19 @@ for tag in latest order v1.0; do
   grep -qx "$tag" "$work/group-tags.out" || fail "merged tags: $(cat "$work/group-tags.out")"
 done
 
+step 'dedicated port connector: push to <host>:5002/connector-app (docker-hosted, no prefix), same image by prefix'
+connector_hosted=${registry%:*}:5002
+printf '%s' "$push_token" | docker login "$connector_hosted" --username ci-bot --password-stdin \
+  || fail 'docker login on the connector port'
+printf 'pushed through a connector\n' > "$work/ctx/hello.txt"
+docker buildx build -q --platform linux/amd64 -t "$connector_hosted/connector-app:1.0" --push "$work/ctx" > /dev/null \
+  || fail 'docker buildx build --push through the connector port'
+connector_digest=$(crane digest --insecure "$connector_hosted/connector-app:1.0") || fail 'crane digest (connector)'
+[ "$(crane digest --insecure "$hosted/connector-app:1.0")" = "$connector_digest" ] \
+  || fail 'the image pushed through the connector is not in docker-hosted'
+crane catalog --insecure "$connector_hosted" | grep -qx 'connector-app' || fail 'connector catalog: no unprefixed image'
+docker logout "$connector_hosted" > /dev/null 2>&1 || true
+
 step 'hard quota: docker-quota (64 KiB) takes a small image, refuses the push that goes over it, still serves pulls'
 quota=$registry/docker-quota
 mkdir -p "$work/quota"

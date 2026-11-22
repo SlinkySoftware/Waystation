@@ -28,6 +28,10 @@ Traefik 3, Caddy 2 and HAProxy 3.2.
 | **Pass `X-Forwarded-For`** (and `X-Forwarded-Proto` / `X-Forwarded-Host`) | Client addresses in logs, sign-in rate limits and the `/metrics` allow list come from it, once trusted (section 2) |
 | Do not rewrite `Location`, `WWW-Authenticate`, `Link` or `Docker-*` headers, and do not compress `application/octet-stream` or `application/vnd.*` responses | Registry clients check digests and follow the URLs Waystation generates from `WAYSTATION_BASE_URL` |
 
+Docker port connectors (DEPLOYMENT.md §8, "Docker port connectors") are extra ports of the web container. Forward
+each one to the same port of `web` with the same requirements (or as a plain TCP stream when `web` terminates TLS),
+and never pass a client's `X-Waystation-Connector` header to the web tier yourself (the web tier sets it).
+
 Set `WAYSTATION_BASE_URL` to exactly the URL clients use (`https://registry.example.com`, no trailing slash). It is
 used for every generated URL (Docker token realm, npm tarball URLs, "Set me up" snippets), so the proxy does not
 need to forward `Host` correctly for Waystation to work, but forwarding it does no harm.

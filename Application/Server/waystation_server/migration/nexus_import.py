@@ -10,7 +10,8 @@ against this Waystation:
 - ``unsupported`` / ``invalid``: with the reason.
 
 Docker routing: an upstream alias already used (by an existing repository or an earlier import) or equal to a
-repository name is dropped with a difference. The default docker repository (unprefixed names, mirror mode) is the
+repository name is dropped with a difference, and so is a connector port already used (by an existing repository or
+an earlier import) or equal to the base URL's port. The default docker repository (unprefixed names, mirror mode) is the
 Nexus repository that received unprefixed pulls when that can be told: the one the request names, else a Docker Hub
 proxy served by a Nexus connector (directly or as the first Docker Hub member of a connector group), else the only
 Docker Hub proxy. It is never changed when Waystation already has one.
@@ -26,6 +27,7 @@ import asyncio
 import logging
 from collections.abc import Iterable
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
@@ -244,6 +246,32 @@ def _plan_aliases(items: list[Mapped], existing: list[RepoConfig]) -> None:
         options['aliases'] = kept
 
 
+def _plan_connectors(items: list[Mapped], existing: list[RepoConfig], base_url: str) -> None:
+    """Dedicated port connectors stay unique: a port already taken (or the base URL's port) is left out."""
+    taken: dict[int, str] = {
+        r.format_options['connector_port']: r.name
+        for r in existing
+        if r.format == 'docker' and isinstance(r.format_options.get('connector_port'), int)
+    }
+    main = urlsplit(base_url).port
+    for m in items:
+        if m.action != 'create' or m.body is None or m.format != 'docker':
+            continue
+        options = m.body.get('format_options') or {}
+        port = options.get('connector_port')
+        if not isinstance(port, int):
+            continue
+        if port == main:
+            why = 'the port is the base URL port'
+        elif port in taken:
+            why = f'the port is already the connector of {taken[port]}'
+        else:
+            taken[port] = m.name
+            continue
+        del options['connector_port']
+        m.differ('format_options.connector_port', port, None, why)
+
+
 def _plan_groups(items: list[Mapped], existing: list[RepoConfig]) -> None:
     have = {r.name.lower(): r for r in existing}
     planned = {m.name.lower(): m for m in items}
@@ -376,6 +404,7 @@ async def plan(
             except ValidationError:
                 m.shown = None
     _plan_aliases(items, existing)
+    _plan_connectors(items, existing, svc.base_url)
     _plan_groups(items, existing)
     default = _default_docker(items, existing, body.default_docker_repo)
     pending = {m.name.lower() for m in items if m.action == 'create'}

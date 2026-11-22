@@ -12,8 +12,8 @@ What maps (SPECIFICATION §4.12):
 - upstream credentials: Nexus never returns passwords, so they cannot be imported: the repository is created
   without authentication and the difference says so (set the secret after the import);
 - docker: ``dockerProxy.indexType`` ``HUB`` (or a Docker Hub remote) → ``docker_hub``; the upstream host becomes an
-  upstream alias (``docker.io`` for Docker Hub) unless disabled; connector ports/subdomains are reported (clients use
-  ``/v2/<name>/`` or an alias instead; dedicated connectors are T-P6-DOCKERC);
+  upstream alias (``docker.io`` for Docker Hub) unless disabled; a connector port (``httpsPort``, else ``httpPort``)
+  → ``connector_port`` (T-P6-DOCKERC; the other port and subdomains are reported: one connector per repository);
 - apt: ``apt.distribution``/``apt.flat`` (hosted: the distribution, component ``main``); raw:
   ``raw.contentDisposition``; maven: ``maven.versionPolicy``/``maven.layoutPolicy``; yum and npm need no options;
 - hosted: ``storage.writePolicy`` (``ALLOW``/``ALLOW_ONCE``/``DENY``) → ``hosted.write_policy``; group:
@@ -247,20 +247,56 @@ def _facts(m: Mapped, cfg: dict[str, Any]) -> None:
         m.docker_hub = _dict(cfg.get('dockerProxy')).get('indexType') == 'HUB' or host in DOCKER_HUB_HOSTS
 
 
+# Waystation's dedicated port connectors (``DockerOptions.connector_port``): unprivileged ports only.
+CONNECTOR_PORT_MIN, CONNECTOR_PORT_MAX = 1024, 65535
+
+
+def _connector_port(m: Mapped, docker: dict[str, Any]) -> int | None:
+    """The Nexus connector port that becomes the dedicated port connector (HTTPS first: one per repository)."""
+    ports = [(k, docker[k]) for k in ('httpsPort', 'httpPort') if _port(docker.get(k))]
+    chosen: int | None = None
+    for key, port in ports:
+        if chosen is not None:
+            m.differ(
+                f'docker.{key}',
+                port,
+                chosen,
+                'one connector port per repository: it is HTTPS when the web tier terminates TLS, else HTTP',
+            )
+        elif CONNECTOR_PORT_MIN <= port <= CONNECTOR_PORT_MAX:
+            chosen = port
+        else:
+            m.differ(
+                f'docker.{key}', port, None, 'connector ports below 1024 are not available (unprivileged web tier)'
+            )
+    subdomain = docker.get('subdomain')
+    if isinstance(subdomain, str) and subdomain:
+        m.differ(
+            'docker.subdomain',
+            subdomain,
+            None,
+            'subdomain connectors are not imported: use the dedicated port, <host>/<repository>/<image> or an alias',
+        )
+    if chosen is not None:
+        m.notes.append(
+            f"The Nexus connector port {chosen} becomes the dedicated port connector: list it in the web container's "
+            'WAYSTATION_DOCKER_CONNECTORS and publish it (MIGRATING_FROM_NEXUS.md)'
+        )
+    return chosen
+
+
+def _port(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
 def _docker(m: Mapped, cfg: dict[str, Any], body: dict[str, Any], *, aliases: bool) -> dict[str, Any]:
     docker = _dict(cfg.get('docker'))
-    ports = _connectors(cfg)
-    if ports:
-        m.differ(
-            'docker connector',
-            ', '.join(ports),
-            f'/v2/{m.name}/',
-            'Nexus connectors are not imported: clients pull through <host>/<repository>/<image> or an upstream '
-            'alias (or as the default docker repository)',
-        )
     if docker.get('v1Enabled') is True:
         m.differ('docker.v1Enabled', True, None, 'the Docker V1 API is not supported')
     options: dict[str, Any] = {}
+    port = _connector_port(m, docker)
+    if port is not None:
+        options['connector_port'] = port
     if m.type != 'proxy':
         return options
     proxy_cfg = _dict(cfg.get('dockerProxy'))
