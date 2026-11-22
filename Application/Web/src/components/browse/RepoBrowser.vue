@@ -19,12 +19,14 @@
   <ComposerBrowser v-else-if="repo.format === 'composer'" :repo="repo" />
   <RubygemsBrowser v-else-if="repo.format === 'rubygems'" :repo="repo" />
   <HuggingfaceBrowser v-else-if="repo.format === 'huggingface'" :repo="repo" />
+  <ApkBrowser v-else-if="repo.format === 'apk'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
 <script setup lang="ts">
 import type { Repository } from '@/api/types'
 
+import ApkBrowser from './ApkBrowser.vue'
 import AptBrowser from './AptBrowser.vue'
 import CargoBrowser from './CargoBrowser.vue'
 import CondaBrowser from './CondaBrowser.vue'

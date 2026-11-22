@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/tree-2.2.1-r0.apk"
+  },
+  "response": {
+    "body_sha256": "a066dce29224e78ab232cfd94e65c983b94aaa56e2730f213bcb6b033fa9a9ee",
+    "body_size": 30381,
+    "headers": [
+      [
+        "content-length",
+        "30381"
+      ],
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "etag",
+        "\"680907c7-76ad\""
+      ],
+      [
+        "last-modified",
+        "Wed, 23 Apr 2025 15:31:19 GMT"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "vary",
+        "Origin"
+      ]
+    ],
+    "status": 200
+  }
+}

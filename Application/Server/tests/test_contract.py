@@ -121,6 +121,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/composer/versions', 'get'),
     ('/repositories/{name}/rubygems/gems', 'get'),
     ('/repositories/{name}/rubygems/versions', 'get'),
+    ('/repositories/{name}/apk/packages', 'get'),
+    ('/repositories/{name}/apk/versions', 'get'),
     ('/repositories/{name}/go/modules', 'get'),
     ('/repositories/{name}/go/versions', 'get'),
     ('/repositories/{name}/cargo/crates', 'get'),

@@ -39,6 +39,7 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | NuGet | `Package@version` (`Newtonsoft.Json@13.0.3`), `Package` (= the newest stable version, else the newest) | the flat container version list, the version's `.nupkg` (checked and verified against the catalog hash as for a client) and `.nuspec` | version lists (`v3-flatcontainer/<id>/index.json`) and registration indexes (`v3/registration/<id>/index.json`) |
 | Composer | `vendor/name:version` (`monolog/monolog:3.8.1`, any spelling that normalises the same; `dev-main` reads the `~dev` document), `vendor/name` (= the newest stable version, else the newest) | the package's `p2` document, the version's archive when the repository serves it (checked, verified and pinned as for a client) | `p2` documents (tagged and `~dev`, same path) |
 | Cargo | `crate@<exact SemVer version>` (`serde@1.0.228`), `crate` (= highest non-yanked release) | the crate's index file, then the version's `.crate` (verified against the index `cksum`) | index files `index/<prefix>/<crate>` (same path) |
+| apk | `name=version` (`busybox=1.37.0-r19`), `name` (= the version the index lists, the newest when several), each in the default branch for every configured architecture (the first configured repository that lists it), or `<branch>/<repo>/<arch>/name[=version]` | the directory's `APKINDEX.tar.gz`, then the package (verified against the index `C:` checksum as for a client) | `APKINDEX.tar.gz` files (same path) |
 | Conda | `<subdir>/<name>` (newest version listed), `<subdir>/<name>==<version>` (every build), `<subdir>/<name>==<version>=<build>` (`noarch/tzdata==2025b`, `linux-64/numpy==2.1.3`) | the subdir's `repodata.json.zst` (else `repodata.json`), its indexing awaited, then the matching package files (verified against the listing) | `channeldata.json` (repodata files are revalidated on client requests) |
 | Hugging Face | `<repo_id>[@<revision>]` (every file of the revision, default `main`; ≤ 2,000 files and 200 GiB), `<repo_id>[@<revision>]:<path>` (one file); datasets as `datasets/<repo_id>...` (`julien-c/dummy-unknown`, `openai-community/gpt2@main:config.json`) | the revision's info document, then each file at its commit (verified as for a client) | info documents of branches and tags (`api/<kind>s/<id>[/revision/<rev>]`, same path) |
 | RubyGems | `gem:version` (`rake:13.2.1`), `gem:version-platform` (`nokogiri:1.18.8-x86_64-linux`), `gem` (= the newest release of the `ruby` platform, else the newest) | the gem's info file, the version's `.gem` (verified against the info checksum as for a client) and its `quick/Marshal.4.8` gemspec | `versions`, `names`, info files (same path) |
@@ -1240,8 +1241,66 @@ Clients verified (harness, recorded conda-forge fixtures trimmed to the entries 
 environment through the proxy; `.conda` and `.tar.bz2` uploads to a hosted channel installed with a token; anonymous
 refused). Not yet: JLAP and sharded repodata, groups, conda and pixi in the harness, the live smoke.
 
-## Alpine apk — Phase 6
-`<branch>/<repo>/<arch>/APKINDEX.tar.gz` (signed by Alpine keys; pass through) + `.apk` files. Proxy only. Client: apk.
+## Alpine apk — Phase 6 (built, T-P6-APK)
+Alpine apk v2 repositories (`formats/apk/`, shared parsing in `waystation_common.apk`), proxy and hosted. Client: apk
+(`Operations/clients/apk.md`). Groups are not supported: an index is signed per repository and apk trusts one key per
+signature, so merged indexes would need re-signing (the create form and the API refuse apk groups).
+
+**Layout** (`/repository/<repo>/`, an Alpine mirror's): `<branch>/<repository>/<arch>/APKINDEX.tar.gz` and
+`<branch>/<repository>/<arch>/<name>-<version>.apk` (apk asks for `<repositories line>/<arch>/...`). An index is a
+signature segment (a gzip'd tar of `.SIGN.RSA[256].<key name>`, no end-of-archive) followed by a tar.gz of
+`DESCRIPTION` and `APKINDEX` (stanzas of `X:value` lines: `C:` checksum, `P:` name, `V:` version, `A:` arch, `S:` file
+size, `I:` installed size, `T:`, `U:`, `L:`, `o:`, `m:`, `t:`, `c:`, `D:`, `p:`, `i:`, `k:`). A v2 package is up to
+three concatenated gzip streams: the optional signature segment, the control segment (`.PKGINFO`, no end-of-archive)
+and the data segment. Versions follow apk-tools: `<digits>{.<digits>}[<letter>]{_<suffix>[<n>]}[-r<n>]`, `_alpha <
+_beta < _pre < _rc <` release `< _cvs < _svn < _git < _hg < _p`, a dotted part with leading zeros compares as a
+fraction (`waystation_common.apk.compare`, a port of `apk_version_compare_blob`; `sort_string` is the same order as a
+string). A file name `<name>-<version>.apk` splits at the first `-` followed by a valid version.
+
+**Proxy** (upstream URL: a mirror root, e.g. `https://dl-cdn.alpinelinux.org/alpine/`; one repository serves every
+branch, repository and architecture below it):
+- `APKINDEX.tar.gz` (in a directory 1-8 levels deep) is metadata (revalidated after the metadata max age), passed
+  through untouched: apk verifies the Alpine signature with its own keys. It must be an index (every gzip member
+  inflates, at most 64 MiB compressed and 512 MiB unpacked, a tar holding `APKINDEX`), else 502 and nothing cached.
+  Once cached it is parsed in the background (a thread; at most 1 M entries; stanzas without a valid name, version or
+  `Q1` checksum skipped) into `apk_packages`, replacing that directory's previous listing.
+- **What can be verified**: `C:` is `Q1` + base64 SHA-1 of the package's compressed *control segment*, not of the
+  file; `S:` is the file size. A fetched `.apk` is checked before anything is committed (`CheckedExpected`): the size,
+  then the gzip stream boundaries are found by inflating (signature segment at most 1 MiB, control segment 16 MiB
+  unpacked, `.PKGINFO` 1 MiB), the control segment's SHA-1 must equal `C:`, and the data segment's SHA-256 must equal
+  the `.PKGINFO` `datahash` (which the matching control segment vouches for), so the whole file is verified. A
+  mismatch revalidates the directory's index once and retries with the new entry, else 502.
+- A package with no listing makes sure its directory's index is cached and indexed (fetching it if needed, waiting
+  for the indexing); if none lists it the package is served and recorded `unverified` with its computed `C:` and size,
+  and dropped from the cache when a later listing disagrees. Other paths (`last-updated`, `MIRRORS.txt`...) are
+  metadata by path; release images over 128 MiB are not supported.
+
+**Hosted**: `PUT <branch>/<repository>/<arch>/<file>.apk` (`curl --upload-file`; write permission; quota first, at most
+`WAYSTATION_MAX_UPLOAD_GB`). The package is read in a thread (`read_package`: v2 gzip streams, `.PKGINFO` lines `key =
+value` without control characters, `pkgname`/`pkgver`/`arch` validated, the data segment checked against `datahash`
+when present; apk v3 `.adb` packages are refused); its arch must be the directory's or `noarch` (listed with the
+directory's arch, as `apk index --rewrite-arch` does). Stored as `<dir>/<pkgname>-<pkgver>.apk` whatever the URL file
+name; the stanza is rendered at upload (`C:` computed, `S:` the file size, `I:`/`T:`/`U:`/`L:`/`o:`/`m:`/`t:`/`c:`/`k:`
+and `D:`/`p:`/`i:` from `.PKGINFO`). Write policies as everywhere (`disable_redeploy` → 409). `DELETE` on the stored path
+removes it. Record + `index.apk` outbox entry in one transaction; the worker (`waystation_worker.apk`) rebuilds the
+`APKINDEX.tar.gz` of every directory with uploads (or a published index: an emptied directory gets an empty index),
+signs it with the repository's RSA 3072 key (`waystation_common.signing`, the key apt/yum use, adr/0007 amendment:
+RSA PKCS#1 v1.5 over the SHA-256 of the index tar.gz, `.SIGN.RSA256.<repository name>-<last 8 of its id>.rsa.pub`,
+apk-tools 2.12+), and publishes every index and the PEM public key (`keys/<key name>`, for `/etc/apk/keys/`) in one
+transaction. Hosted indexes are revalidated by ETag only: apk sends `If-Modified-Since` = the local time it saved its
+copy, so an index republished within that second would otherwise look unchanged. Packages need no signature of their
+own: apk trusts them through the signed index. Audited as
+`content.upload` / `content.delete`, target `apk_package`.
+
+**Components, cleanup, browse**: `.apk` files are the component files (per directory and package, apk version order
+for `version_sort` and cleanup; display `name-version`); browse `GET apk/packages`, `GET apk/versions?package=` (branch,
+repository, arch, `C:`, verified, cached, size, installed size, license, origin, dependencies, build time, uploader);
+global search finds packages by name. Prefetch: see "Prefetch". Nexus: `apk` proxy and hosted repositories import
+(content kept forever: verified). Options (`branch`, `repositories`, `architectures`) shape "Set me up", "test
+upstream" and path-less warm items only. Real client: apk-tools on Alpine 3.22 (`tests/clients/apk/`): proxy
+`apk update` + `apk add` (fixtures: the whole signed v3.22 main x86_64 index and one package), hosted upload of a
+package assembled with busybox tools, the signed index refused until the served key is trusted, then `apk add`,
+upgrade and delete. Not yet: groups, apk v3 indexes and packages, verifying upstream index signatures in Waystation.
 
 ## Hugging Face — Phase 6 (built, T-P6-HF)
 A proxy of the Hugging Face Hub (`formats/huggingface/`) for `huggingface_hub` and everything built on it

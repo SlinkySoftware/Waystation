@@ -28,6 +28,7 @@ import { composerPackageList, composerVersionsFor } from './fixtures/composer'
 import { condaFilesFor, condaPackageList } from './fixtures/conda'
 import { huggingfaceFilesFor, huggingfaceModelList, huggingfaceRevisionsFor } from './fixtures/huggingface'
 import { rubygemsGemList, rubygemsVersionsFor } from './fixtures/rubygems'
+import { apkPackageList, apkVersionsFor } from './fixtures/apk'
 import { nugetPackageList, nugetSetListing, nugetVersionsFor } from './fixtures/nuget'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { yumPackageList, yumVersionsFor } from './fixtures/yum'
@@ -163,9 +164,9 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
     if (body.format === 'go' && body.type === 'hosted') {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
-    } else if ((body.format === 'yum' || body.format === 'apt' || body.format === 'swift' || body.format === 'conda') && body.type === 'group') {
+    } else if ((body.format === 'yum' || body.format === 'apt' || body.format === 'swift' || body.format === 'conda' || body.format === 'apk') && body.type === 'group') {
       errors.push({ field: 'type', message: `${body.format} supports: proxy, hosted`, code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget', 'composer', 'cargo', 'conda', 'rubygems'].includes(body.format)) {
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'apk'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -924,6 +925,26 @@ export const handlers = [
     const found = rubygemsVersionsFor(repo.name, repo.type, url.searchParams.get('gem') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ gem: found.gem, ...paginate(found.items, url) })
+  }),
+  http.get(`${API}/repositories/:name/apk/packages`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'apk')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    return HttpResponse.json(paginate(apkPackageList(repo.type, url.searchParams.get('q')), url))
+  }),
+  http.get(`${API}/repositories/:name/apk/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'apk')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    const found = apkVersionsFor(repo.name, repo.type, url.searchParams.get('package') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ package: found.package, ...paginate(found.items, url) })
   }),
   http.get(`${API}/repositories/:name/nuget/packages`, async ({ request, params }) => {
     const denied = guard(request)

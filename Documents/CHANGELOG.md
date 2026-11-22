@@ -3,6 +3,27 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-23
+- T-P6-APK: Alpine apk repositories (FORMATS.md "Alpine apk", `Operations/clients/apk.md`). **Proxy** of an Alpine
+  mirror (preset dl-cdn): `<branch>/<repo>/<arch>/APKINDEX.tar.gz` cached as metadata (gzip members and the tar
+  checked, bounded) and passed through untouched (apk verifies the Alpine signature), parsed in the background into
+  the new collection `apk_packages`; `.apk` files verified before they are stored: size `S:`, the SHA-1 of the control
+  segment against `C:` (gzip stream boundaries found by inflating, bounded) and the data segment against the
+  `.PKGINFO` `datahash`; a package no index lists is served `unverified` and dropped if a later listing disagrees; one
+  index revalidation on a mismatch. **Hosted**: `PUT <branch>/<repo>/<arch>/<file>.apk` (v2 packages read in a thread,
+  architecture checked, stored as `<pkgname>-<pkgver>.apk`, write policy, quota, audit `apk_package`), `DELETE`; the
+  worker job `index.apk` (outbox) builds each directory's `APKINDEX.tar.gz`, signed `.SIGN.RSA256.<repo>-<id>.rsa.pub`
+  with the repository's RSA key (`RepoKey.sign_pkcs1_sha256`, adr/0007 amendment), and publishes the PEM key under
+  `keys/`. apk version order (`waystation_common.apk`, a port of apk-tools' comparison) for `version_sort`, cleanup
+  and the component index; browse (`GET apk/packages`, `GET apk/versions`; contract, regenerated client), global
+  search, prefetch warm items `[<branch>/<repo>/<arch>/]name[=version]` and APKINDEX refresh, Nexus `apk` import.
+  UI: apk in the create flow (proxy, hosted; options `branch`, `repositories`, `architectures`), browse renderer,
+  prefetch hints, MSW mocks; "Set me up" (`/etc/apk/repositories`, key install, upload, delete). Groups are refused
+  (signed indexes cannot be merged). Client harness `tests/clients/apk/` (Alpine 3.22 apk-tools against recorded
+  dl-cdn fixtures: `apk add` through the proxy; a package assembled with abuild-tar uploaded, the signed index refused
+  until the served key is trusted, then `apk add`, upgrade and delete). Allowlisted host: `alpinelinux.org`.
+  Fix found on the way: hosted files answer `If-Modified-Since` against the time their content last changed
+  (`updated_at`; republished yum/apt/apk indexes kept their first `created_at`, so a revalidating client was told 304
+  for a newer index).
 - T-P6-HF: Hugging Face Hub proxy (FORMATS.md "Hugging Face"; `formats/huggingface/`,
   `Operations/clients/huggingface.md`). huggingface_hub, transformers and the `hf` CLI use a proxy repository as
   `HF_ENDPOINT`: info documents (`api/<kind>s/<id>[/revision/<rev>]`, fetched with `blobs=true`) are cached as

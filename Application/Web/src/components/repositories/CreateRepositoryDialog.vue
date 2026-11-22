@@ -76,6 +76,7 @@ const FORMATS: { format: Format; available: boolean; phase?: number }[] = [
   { format: 'composer', available: true },
   { format: 'rubygems', available: true },
   { format: 'huggingface', available: true },
+  { format: 'apk', available: true },
 ]
 const TYPES: RepositoryType[] = ['proxy', 'hosted', 'group']
 
