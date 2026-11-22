@@ -19,6 +19,19 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `hashicorp/subnets/cidr` through both registries' module proxies and a private module and provider from the hosted
   repository with a bearer token; invalid and narrowed tokens are refused (`client-terraform` image gains gnupg; the
   TLS front takes extra names from `TLSFRONT_NAMES`; the fixture store keeps `X-Terraform-Get`).
+
+
+- T-P5-MAVEN (done): Maven 4 (4.0.0-rc-7), Gradle 8.14 and 9.9 and sbt 1.13 join mvn 3.9 in the real-client harness
+  (`client-jvm`, one image on client-maven's JDK 21 base with pinned, checksum-verified distributions). Each resolves
+  hamcrest/reactive-streams through the Central proxy and the group with checksum verification (Maven
+  `--strict-checksums`, Gradle strict dependency verification plus a tampered-checksum failure, coursier with SHA-1
+  required), publishes a release and SNAPSHOTs with credentials after the 401 challenge (Gradle `maven-publish` with
+  module metadata, sbt Maven-style publish, mvn 4 deploy), is refused a redeploy, an anonymous publish and (Gradle,
+  sbt) a wrong token, and consumes its artifacts through the group. One new fixture (a Central 404); replay passing;
+  the nightly live run includes them (`FORMAT=all`). No server changes were needed. Maven components are now a
+  global search source (kind `package`, matched on the artifactId, named `groupId:artifactId`, Browse link to the
+  version; Maven files link to their version too): `search_name`/`search_sfx` on `components`, partial on
+  `format: maven`, and migration `0006_maven_search` backfills the suffix keys.
 - T-P5-APTH: hosted apt repositories. `.deb` uploads by `PUT` or `POST` (raw or multipart, `?component=`), streamed
   after the hard-quota check and read safely in a thread (`formats/apt/deb.py`: ar layout, bounded control-archive
   decompression for gzip/xz/zstd, tar names checked, one control paragraph with valid `Package`/`Version`/

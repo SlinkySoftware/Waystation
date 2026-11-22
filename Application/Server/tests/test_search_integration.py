@@ -15,10 +15,13 @@ from pymongo import monitoring
 from redis.asyncio import Redis
 from ws_testing import asgi_client
 
+from waystation_common.components import ComponentKey
+from waystation_common.db import components as components_db
 from waystation_common.db.client import Database, create_client
 from waystation_common.db.collections import (
     APT_PACKAGES,
     ASSETS,
+    COMPONENTS,
     DOCKER_MANIFESTS,
     DOCKER_TAGS,
     NPM_PACKAGES,
@@ -34,9 +37,11 @@ from waystation_server.bootstrap import ensure_bootstrap_admin
 from waystation_server.db import apt as apt_db
 from waystation_server.db import assets as assets_db
 from waystation_server.db import docker as docker_db
+from waystation_server.db import maven as maven_db
 from waystation_server.db import npm as npm_db
 from waystation_server.db import pypi as pypi_db
 from waystation_server.db import yum as yum_db
+from waystation_server.formats.maven.version import sort_key
 from waystation_server.proxy.records import AssetKind, StoredAsset, UpstreamMeta
 from waystation_server.services import Services
 
@@ -44,7 +49,7 @@ pytestmark = pytest.mark.integration
 
 API = '/api/v1/search'
 PASSWORD = 'correct horse battery staple'
-WATCHED = {ASSETS, NPM_PACKAGES, PYPI_PACKAGES, APT_PACKAGES, YUM_PACKAGES, DOCKER_TAGS, DOCKER_MANIFESTS}
+WATCHED = {ASSETS, COMPONENTS, NPM_PACKAGES, PYPI_PACKAGES, APT_PACKAGES, YUM_PACKAGES, DOCKER_TAGS, DOCKER_MANIFESTS}
 NOISE = {'lsid', 'txnNumber', '$db', '$clusterTime', '$readPreference', 'readConcern', 'apiVersion', 'cursor'}
 NOW = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
 NGINX_DIGEST = 'sha256:' + 'a1' * 32
@@ -549,3 +554,66 @@ async def test_pypi_projects_and_files(admin: httpx.AsyncClient, services: Servi
     assert [(f['name'], f['browse']['query']) for f in files] == [
         ('requests-2.32.5-py3-none-any.whl', {'project': 'requests'})
     ]
+
+
+async def test_maven_components(admin: httpx.AsyncClient, services: Services, recorder: Recorder) -> None:
+    """Maven components (one per GAV) are packages found by artifactId (prefix and substring), named
+    ``groupId:artifactId`` and linking to the version in Browse, as Maven files do; components of other formats are
+    never Maven hits. Components written before they were searchable are backfilled by ``0006_maven_search``."""
+    db = services.db
+    central = await insert_repo(services, 'maven-central', 'maven')
+    hosted = await insert_repo(services, 'maven-releases', 'maven', 'hosted')
+    npm = await insert_repo(services, 'npm-proxy', 'npm')
+    for version in ('1.3', '2.2'):
+        await maven_db.upsert_version(
+            db, central, 'org.hamcrest', 'hamcrest-library', version, version_sort=sort_key(version)
+        )
+    await maven_db.upsert_version(
+        db, hosted, 'com.example', 'hamcrest-extras', '1.0.0', version_sort=sort_key('1.0.0'), uploaded_by='admin'
+    )
+    jar = 'org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar'
+    core = ComponentKey('maven', 'org.hamcrest', 'hamcrest-core', '1.3')
+    await components_db.upsert(db, central, core, {'path': jar})  # the component indexer's writer
+    await components_db.upsert(db, npm, ComponentKey('npm', '', 'hamcrest', '1.0.0'), {'path': 'hamcrest/-/h.tgz'})
+    await save_file(services, central, jar, b'jar')
+
+    recorder.on = True
+    body = (await admin.get(API, params={'q': 'hamcrest', 'kind': 'package'})).json()
+    await assert_indexed(db, recorder)
+    assert summary(body['items']) == [  # in artifactId order
+        ('maven-central', 'package', 'org.hamcrest:hamcrest-core', '1.3'),
+        ('maven-releases', 'package', 'com.example:hamcrest-extras', '1.0.0'),
+        ('maven-central', 'package', 'org.hamcrest:hamcrest-library', '1.3'),
+        ('maven-central', 'package', 'org.hamcrest:hamcrest-library', '2.2'),
+    ]
+    assert body['items'][1]['browse'] == {
+        'repository': 'maven-releases',
+        'query': {'artifact': 'com.example:hamcrest-extras', 'version': '1.0.0'},
+    }
+    assert facet(body, 'format') == {'maven': 4}
+    assert facet(body, 'kind') == {'package': 4, 'file': 1}
+
+    # a version term; a substring of the artifactId (the package's suffix 'crest-core' sorts before the file's)
+    versioned = (await admin.get(API, params={'q': 'hamcrest-library 2'})).json()['items']
+    assert summary(versioned) == [('maven-central', 'package', 'org.hamcrest:hamcrest-library', '2.2')]
+    inner = (await admin.get(API, params={'q': 'crest-c'})).json()['items']
+    await assert_indexed(db, recorder)
+    assert [(i['kind'], i['name'], i['browse']['query']) for i in inner] == [
+        ('package', 'org.hamcrest:hamcrest-core', {'artifact': 'org.hamcrest:hamcrest-core', 'version': '1.3'}),
+        ('file', 'hamcrest-core-1.3.jar', {'artifact': 'org.hamcrest:hamcrest-core', 'version': '1.3'}),
+    ]
+
+    # written before Maven components were searchable: no suffixes yet
+    await db[COMPONENTS].update_many({'format': 'maven'}, {'$unset': {'name_sfx': ''}})
+    assert (await admin.get(API, params={'q': 'crest-l'})).json()['items'] == []
+    migration = next(m for m in MIGRATIONS if m.id == '0006_maven_search')
+    await migration.apply(db)
+    await migration.apply(db)  # idempotent
+    found = (await admin.get(API, params={'q': 'crest-l'})).json()['items']
+    assert [(i['name'], i['version']) for i in found] == [
+        ('org.hamcrest:hamcrest-library', '1.3'),
+        ('org.hamcrest:hamcrest-library', '2.2'),
+    ]
+    npm_doc = await db[COMPONENTS].find_one({'repo_id': npm})
+    assert npm_doc is not None
+    assert 'name_sfx' not in npm_doc

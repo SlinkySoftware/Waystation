@@ -555,8 +555,12 @@ Spec: Maven 2 repository layout (maven-resolver behaviour); `maven-metadata.xml`
 - Browse: `GET /api/v1/repositories/{name}/maven/artifacts` (groupId, artifactId, latest, version count; `q`
   substring) and `/maven/versions?group_id=&artifact_id=` (highest first by `version_sort`, file count and bytes of
   the version folder, deployer); a version's files are the generic folder listing of its `path`.
-- Clients: mvn 3.9 (harness: resolve via proxy and group with `--strict-checksums`, deploy release + SNAPSHOT,
-  redeploy/policy/anonymous refusals); gradle 8/9 and sbt not yet in the harness; mvn 4 later.
+- Clients (harness `tests/clients/maven/`): mvn 3.9 and Maven 4 (resolve via proxy and group with
+  `--strict-checksums`, deploy release + SNAPSHOTs, redeploy/policy/anonymous refusals), Gradle 8 and 9 (strict
+  dependency verification, `maven-publish` release + timestamped SNAPSHOTs with module metadata, redeploy, anonymous
+  and wrong-token refusals) and sbt 1.x (coursier with SHA-1 required, Maven-style publish of a release and a
+  non-timestamped SNAPSHOT, refusals); each consumes what it published through the group.
+- Search: Maven components are a global search source (artifactId, named `groupId:artifactId`, per version).
 
 ## Go modules — Phase 5
 Spec: GOPROXY protocol (`go help goproxy`), checksum database (`sum.golang.org`).

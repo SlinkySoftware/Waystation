@@ -21,7 +21,7 @@ from pymongo.errors import DuplicateKeyError
 from waystation_common.db.client import Database
 from waystation_common.db.collections import ASSETS, COMPONENTS
 from waystation_common.ids import new_id
-from waystation_common.searchkeys import fold
+from waystation_common.searchkeys import name_keys
 from waystation_server.db.browse import subtree_end
 
 FORMAT = 'maven'
@@ -43,7 +43,7 @@ async def upsert_version(
 ) -> None:
     now = datetime.now(UTC)
     update: dict[str, Any] = {
-        '$set': {'version_sort': version_sort, 'updated_at': now, 'name_lc': fold(artifact_id)},
+        '$set': {'version_sort': version_sort, 'updated_at': now, **name_keys(artifact_id)},
         '$setOnInsert': {'_id': new_id(), 'created_at': now},
     }
     if uploaded_by is not None:

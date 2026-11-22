@@ -99,17 +99,19 @@ def _ts_indexes() -> tuple[IndexModel, ...]:
 # "name did not match already" filter is evaluated on index keys. Partial: only searchable documents are indexed.
 # Substring matches (adr/0009): ``search_sfx`` = a prefix range over the multikey ``name_sfx`` (name suffixes), read in
 # (suffix, repo_id, _id) order with min/max key bounds as the keyset.
-def _search_indexes(*, base: bool) -> tuple[IndexModel, ...]:
+# ``only``: an extra partial filter (``components``: Maven only), which every search query on the collection repeats.
+def _search_indexes(*, base: bool, only: dict[str, Any] | None = None) -> tuple[IndexModel, ...]:
+    extra = only or {}
     indexes = [
         _ix(
             'search_name',
             [('name_lc', ASCENDING), ('repo_id', ASCENDING), ('_id', ASCENDING)],
-            partialFilterExpression={'name_lc': {'$exists': True}},
+            partialFilterExpression={'name_lc': {'$exists': True}, **extra},
         ),
         _ix(
             'search_sfx',
             [('name_sfx', ASCENDING), ('repo_id', ASCENDING), ('_id', ASCENDING)],
-            partialFilterExpression={'name_sfx': {'$exists': True}},
+            partialFilterExpression={'name_sfx': {'$exists': True}, **extra},
         ),
     ]
     if base:
@@ -226,6 +228,9 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('repo_bytes_served', [('repo_id', ASCENDING), ('bytes_served', DESCENDING)]),
             _ix('repo_size', [('repo_id', ASCENDING), ('size_bytes', DESCENDING)]),
             _ix('repo_created', [('repo_id', ASCENDING), ('created_at', DESCENDING)]),
+            # Global search over Maven components (artifactId; T-P5-MAVEN). Other formats are found through their
+            # own package indexes, so only Maven components are indexed.
+            *_search_indexes(base=False, only={'format': 'maven'}),
         ),
     ),
     CollectionSpec(
