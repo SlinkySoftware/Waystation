@@ -1,6 +1,6 @@
 # OWASP ASVS 4.0.3 Level 2: Waystation checklist
 
-Review T-R01, 2026-11-23, against the code at that date (claims checked in code, not taken from the docs). Status:
+Security review of the v1.0 release against the released code (claims checked in code, not taken from the docs). Status:
 **Pass** (met, reference given), **Fixed** (a finding of this review, fixed with a regression test), **N/A** (the
 requirement does not apply to Waystation, reason given), **Accepted** (a known gap, with the reason it is acceptable
 for v1.0). Paths are relative to `Application/` unless they start with `tests/`, `Build/` or `Documents/`; `S/` is

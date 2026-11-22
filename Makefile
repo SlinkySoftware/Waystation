@@ -152,6 +152,12 @@ budgets: dev-image ## Report performance budgets (Build/ci/budgets.json); over-b
 env-example: sync ## Regenerate .env.example from waystation_common.settings (idempotent)
 	$(DEV_RUN) sh -c "uv run --frozen python -m waystation_common.settings env-example > .env.example.tmp && mv .env.example.tmp .env.example"
 
+.PHONY: api-docs api-docs-check
+api-docs: sync ## Regenerate the static REST API reference in Documents/API/ from the server's OpenAPI document
+	$(DEV_RUN) uv run --frozen python Build/ci/api_docs.py
+api-docs-check: sync ## Fail if Documents/API/ is stale (also checked by the unit test test_api_docs.py)
+	$(DEV_RUN) uv run --frozen python Build/ci/api_docs.py --check
+
 .PHONY: provision-schema provision-check provision-plan
 provision-schema: sync ## Regenerate Documents/Operations/provisioning.schema.json (the provisioning file's JSON Schema)
 	$(DEV_RUN) sh -c "uv run --frozen python -m waystation_server.provisioning schema > Documents/Operations/provisioning.schema.json.tmp && mv Documents/Operations/provisioning.schema.json.tmp Documents/Operations/provisioning.schema.json"

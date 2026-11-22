@@ -1,8 +1,8 @@
 # Deploying Waystation
 
-This guide describes how to run Waystation on one Docker host, or split across hosts (section 9), **as the code works
-today** (release 0.2.9).
-Anything not built yet is marked **Planned** with its task ID. For a five-minute evaluation run,
+This guide describes how to run Waystation in production on one Docker host, or split across hosts (section 9).
+Day-2 administration (users, repositories, tasks, monitoring, upgrades) is in [ADMIN_GUIDE.md](ADMIN_GUIDE.md). For a
+five-minute evaluation run,
 see [TRY_IT.md](TRY_IT.md); for putting a reverse proxy in front, see [REVERSE_PROXIES.md](REVERSE_PROXIES.md); for
 client configuration per format, see [clients/](clients/).
 
@@ -14,7 +14,7 @@ Examples use `registry.example.com` as the public host name and `/srv/waystation
 |---|---|---|---|
 | `waystation-web` | `waystation-web` (nginx, non-root) | Serves the UI under `/ui/`, proxies dynamic paths to the server, serves cached files from the blob store via `X-Accel-Redirect` | yes: `WAYSTATION_HTTP_PORT` (default 8080), plain HTTP |
 | `waystation-server` | `waystation-server` | Format protocols, REST API, live event stream, Docker token service | no (port 8000 on the compose network) |
-| `waystation-worker` | `waystation-worker` | Background jobs (stats rollups, indexing; more job types arrive with later tasks) | no (no HTTP listener at all) |
+| `waystation-worker` | `waystation-worker` | Background jobs: index generation and signing, cleanup, blob GC and verify, stats rollups, prefetch, webhooks, secret-key rotation | no (no HTTP listener at all) |
 | `waystation-init` | `waystation-server` (one-shot) | Fixes data-dir ownership and modes, initiates the MongoDB replica set, applies schema and migrations, creates the first administrator | no; exits 0 |
 | `waystation-mongodb` | `mongo:8` | System of record: configuration, metadata, users, stats | no |
 | `waystation-valkey` | `valkey/valkey:8-alpine` | Coordination: coalescing locks, live counters, job queues (`noeviction`, AOF) | no |
@@ -53,7 +53,7 @@ checks latency budgets on a CI-sized stack, not host sizing).
 On a shared host, cap MongoDB's cache with a compose override (`command: ["mongod", "--replSet", "rs0",
 "--bind_ip_all", "--quiet", "--wiredTigerCacheSizeGB", "1"]`).
 
-Raspberry Pi 5 (8 GB, arm64, Debian 13) runs the whole stack (tested with the 0.2.8 images). Raspberry Pi kernels
+Raspberry Pi 5 (8 GB, arm64, Debian 13) runs the whole stack (tested with the arm64 release images). Raspberry Pi kernels
 ship without the memory cgroup, so `mem_limit` in an override is ignored ("Your kernel does not support memory limit
 capabilities") unless `cgroup_enable=memory` is added to the kernel command line; cap MongoDB's cache as above.
 
@@ -127,7 +127,7 @@ Minimal `/srv/waystation/waystation.env`:
 ```bash
 # Compose
 WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware
-WAYSTATION_IMAGE_TAG=0.2.9
+WAYSTATION_IMAGE_TAG=1.0.0
 WAYSTATION_HTTP_BIND=0.0.0.0
 WAYSTATION_HTTP_PORT=8080
 
@@ -261,8 +261,8 @@ file: an `https://` base URL makes the session cookie `Secure`, so a plain-HTTP 
 (section 8, "No TLS at all"; switch the base URL when the proxy is in place). Change the password on your profile (avatar menu → Profile), or set
 `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE` before the first start to choose it. Each repository's "Set me up" panel
 shows client configuration; the per-format guides are in [clients/](clients/). For scripted installs, the REST API
-is described by `GET /api/v1/openapi.json` on the running server; [AGENT_DEPLOYMENT.md](AGENT_DEPLOYMENT.md) section 8
-shows repository creation through it.
+is documented in [../API/README.md](../API/README.md) (also `GET /api/v1/openapi.json` on the running server);
+[AGENT_DEPLOYMENT.md](AGENT_DEPLOYMENT.md) section 8 shows repository creation through it.
 
 To keep the configuration in version control instead, declare repositories, roles, providers, policies, webhooks and
 settings in a provisioning file ([PROVISIONING.md](PROVISIONING.md)); `init` applies it at every start.
@@ -315,7 +315,8 @@ reason in `docker logs waystation-web`, when only one is set or a file is unread
 `docker exec waystation-web nginx -s reload`. For certbot, either copy the renewed files in a deploy hook (as above),
 or set `WAYSTATION_TLS_DIR=/etc/letsencrypt` with `WAYSTATION_TLS_CERT_NAME=live/<name>/fullchain.pem` and
 `WAYSTATION_TLS_KEY_NAME=live/<name>/privkey.pem` (the `live/` links point into `archive/`, inside the same mount)
-and give group `WAYSTATION_GID` read access to the key. HSTS is not sent; add it at a proxy in front if you want it.
+and give group `WAYSTATION_GID` read access to the key. With TLS on, every answer carries
+`Strict-Transport-Security: max-age=31536000`.
 
 When the reverse proxy runs in Docker on the same host, the simplest setup is to attach `web` to the proxy's network
 with an override and not publish a port at all; `Build/Containers/examples/traefik.override.example.yaml` shows
@@ -364,7 +365,7 @@ stream (REVERSE_PROXIES.md §1 requirements apply).
 | External MongoDB (replica set) | **Supported**: set `WAYSTATION_MONGO_URI` to the replica set, `WAYSTATION_MONGO_REPLSET_INIT=false`, and either leave the bundled `mongodb` service running unused or replace the `depends_on` of server, worker and init in an override (`depends_on: !reset {...}`). Server and worker reach it through the `frontend` network, but `init` is only on the `internal` backend network, so the override must also attach `init` to `frontend` |
 | External Valkey | **Supported** if it runs with `maxmemory-policy noeviction` and AOF enabled (job streams and locks must never be evicted) |
 | Split hosts: web, server and worker on separate hosts, several server or worker hosts | **Supported**: `compose.standalone.{web,server,worker}.yaml`, below |
-| Blob store on S3 | **Planned** post-v1 (D5) |
+| Blob store on S3 or other object storage | **Not supported** (out of scope for v1) |
 
 ### Split hosts
 

@@ -1,19 +1,39 @@
-# Terraform and OpenTofu clients
+# Terraform client guide
 
-How to point Terraform and OpenTofu at Waystation **Terraform** repositories: a proxy repository is a provider
-network mirror and a module registry proxy; the instance's one **hosted** Terraform repository is a private module
-and provider registry. The repository's **Set me up** tab shows the same snippets with your real URL filled in.
-Examples below use `https://waystation.example.com`, a proxy called `terraform-mirror` and the hosted repository
-`terraform`.
+How to point Terraform and OpenTofu at Waystation **Terraform** repositories. The repository's **Set me up** tab shows
+the same snippets with your real URL filled in. Examples below use `https://waystation.example.com`, a proxy called
+`terraform-mirror` and the hosted repository `terraform`.
 
-Status: provider network mirror (T-P5-TFP), module registry proxy and the hosted repository (T-P5-TFM). Verified by
-the real-client harness (`tests/clients/terraform/`) with terraform 1.17 and tofu 1.13: `init` and `apply` of a
-configuration using `hashicorp/null` through the mirror, from registry.terraform.io (archives on HashiCorp's release
-site) and from registry.opentofu.org (archives on GitHub release assets, behind a redirect), anonymously and with an
-API token in a `credentials` block; `hashicorp/subnets/cidr` (a GitHub tag archive) through module proxies of both
-registries; a module and a private provider published to the hosted repository and installed with an API token.
+## Overview
 
-## What the mirror does
+A Terraform **proxy** repository is a provider network mirror and a module registry proxy; the instance's one
+**hosted** Terraform repository is a private module and provider registry. Both Terraform and OpenTofu are supported.
+
+URL layout:
+
+- Provider network mirror: `https://waystation.example.com/repository/<name>/<hostname>/<namespace>/<type>/...`
+- Module registry (proxy and hosted): `https://waystation.example.com/repository/<name>/v1/modules/...`
+- Provider registry (hosted): `https://waystation.example.com/repository/<name>/v1/providers/...`
+- Service discovery for the hosted repository: `https://waystation.example.com/.well-known/terraform.json`
+
+Terraform and OpenTofu accept only `https://` mirror and registry URLs: Waystation must be reached over TLS (see
+[DEPLOYMENT.md](../DEPLOYMENT.md) and [REVERSE_PROXIES.md](../REVERSE_PROXIES.md)).
+
+Tested with terraform 1.17 and tofu 1.13: `init` and `apply` of a configuration using `hashicorp/null` through the
+mirror, from registry.terraform.io (archives on HashiCorp's release site) and from registry.opentofu.org (archives on
+GitHub release assets, behind a redirect), anonymously and with an API token in a `credentials` block;
+`hashicorp/subnets/cidr` (a GitHub tag archive) through module proxies of both registries; a module and a private
+provider published to the hosted repository and installed with an API token.
+
+## Repository types
+
+- **Proxy**: a provider network mirror for every origin registry it allows, and a module registry proxy of its
+  upstream registry.
+- **Hosted**: one per instance (creating a second is refused), a private module and provider registry found through
+  the host name's service discovery.
+- **Group**: not available for Terraform.
+
+### The provider mirror (proxy)
 
 One repository serves providers of every **origin registry** it allows: option **origin registries**, by default
 `registry.terraform.io` and `registry.opentofu.org`, plus the host of the repository's upstream URL. A provider is
@@ -38,12 +58,38 @@ Caching: discovery for a day; version lists are metadata, revalidated after the 
 (a release never changes) until a cleanup policy removes them (newest versions per provider in semantic version
 order).
 
-## CLI configuration
+### Modules through a proxy
 
-Terraform and OpenTofu accept only `https://` mirror URLs: Waystation must be reached over TLS (SPECIFICATION §8.4).
+A proxy repository also answers the **module registry protocol** of its upstream registry
+(`.../repository/terraform-mirror/v1/modules/`). What is cached: the registry's version list (revalidated after the
+metadata max age) and each version's download answer; then the module itself when Waystation can fetch it as **one
+archive**: a GitHub repository at a tag or commit (`git::https://github.com/<owner>/<repo>?ref=...`, what the public
+registries answer for most modules: fetched as GitHub's tag archive) or an HTTP(S)/S3 archive (`.zip`, `.tar.gz`),
+from a host in the option **module archive hosts** (default `github.com`) or the upstream's own host. The archive's
+sha256 is recorded at the first fetch and pinned: if a cleanup removed it and the source later serves other bytes,
+Waystation refuses them. Other sources (other git hosts, `ssh://`, a branch without a ref) are handed to the client
+unchanged: the client fetches them itself, as without Waystation.
 
-`~/.terraformrc` (Linux, macOS), `%APPDATA%\terraform.rc` (Windows) for Terraform; `~/.tofurc` or
-`%APPDATA%\tofu.rc` for OpenTofu; or any file named by `TF_CLI_CONFIG_FILE` (both read it):
+### Repository options
+
+- **Origin registries**: host names whose providers the mirror serves. Add a private registry's host to mirror it;
+  its upstream credentials (repository **Upstream authentication**, bearer) are sent only to the host of the
+  repository's upstream URL, so point the upstream URL at that registry. The upstream URL's own host is reached with
+  its scheme, so a registry in a lab without TLS works as the upstream.
+- **Verify signatures**: on by default. Turn off only for an origin whose providers are not signed with a key type
+  Waystation supports (version 4 RSA ≥ 2048 bits, ECDSA P-256/384/521, Ed25519/Ed448).
+- **Module archive hosts** (proxies): hosts module archives are fetched and cached from (default `github.com`); the
+  upstream's own host is always allowed. Sources elsewhere are passed to the client.
+- The SSRF guard applies to every request, including the redirects to archive hosts: archives on private addresses
+  need **allow private upstream**.
+- The hosted repository has no format options; its write policy `read_only` refuses uploads and deletes.
+
+## Client setup
+
+The CLI configuration file is `~/.terraformrc` (Linux, macOS) or `%APPDATA%\terraform.rc` (Windows) for Terraform;
+`~/.tofurc` or `%APPDATA%\tofu.rc` for OpenTofu; or any file named by `TF_CLI_CONFIG_FILE` (both read it).
+
+### Terraform and OpenTofu: provider mirror
 
 ```hcl
 provider_installation {
@@ -71,6 +117,45 @@ provider_installation {
 Then `terraform init` / `tofu init` as usual. Provider sources keep their usual addresses: `hashicorp/null` means
 `registry.terraform.io/hashicorp/null` for Terraform and `registry.opentofu.org/hashicorp/null` for OpenTofu, and the
 mirror serves both.
+
+### Terraform and OpenTofu: module proxy
+
+Module sources such as `terraform-aws-modules/vpc/aws` are looked up on the public registry's host name, and that
+host's service discovery cannot be changed, so a `host` block in the CLI configuration sends the module lookups for
+that host to Waystation (both clients support it). Module sources stay unchanged:
+
+```hcl
+host "registry.terraform.io" {
+  services = {
+    "modules.v1" = "https://waystation.example.com/repository/terraform-mirror/v1/modules/"
+  }
+}
+```
+
+For OpenTofu's registry create a second proxy with the upstream `https://registry.opentofu.org` and a block for
+`registry.opentofu.org`. Combine the block with the `network_mirror` above: the `host` block names only the module
+service, so providers must come through the mirror.
+
+### Terraform and OpenTofu: hosted registry
+
+Module sources are `<host>/<namespace>/<name>/<system>`, provider sources `<host>/<namespace>/<type>`. The host name
+must contain a dot, and Waystation must be served over https.
+
+```hcl
+terraform {
+  required_providers {
+    example = {
+      source  = "waystation.example.com/my-namespace/example"
+      version = "1.0.0"
+    }
+  }
+}
+
+module "network" {
+  source  = "waystation.example.com/my-namespace/network/aws"
+  version = "1.0.0"
+}
+```
 
 ### Lock files
 
@@ -103,40 +188,8 @@ export TF_TOKEN_waystation_example_com=<api token>
 
 The clients send the token only to that host. Account passwords are not accepted here.
 
-## Repository options
-
-- **Origin registries**: host names whose providers the mirror serves. Add a private registry's host to mirror it;
-  its upstream credentials (repository **Upstream authentication**, bearer) are sent only to the host of the
-  repository's upstream URL, so point the upstream URL at that registry. The upstream URL's own host is reached with
-  its scheme, so a registry in a lab without TLS works as the upstream.
-- **Verify signatures**: on by default. Turn off only for an origin whose providers are not signed with a key type
-  Waystation supports (version 4 RSA ≥ 2048 bits, ECDSA P-256/384/521, Ed25519/Ed448).
-- **Module archive hosts** (proxies): hosts module archives are fetched and cached from (default `github.com`); the
-  upstream's own host is always allowed. Sources elsewhere are passed to the client.
-- The SSRF guard applies to every request, including the redirects to archive hosts: archives on private addresses
-  need **allow private upstream**.
-- The hosted repository has no format options; its write policy `read_only` refuses uploads and deletes.
-
-## Modules through a proxy
-
-A proxy repository also answers the **module registry protocol** of its upstream registry (`.../repository/
-terraform-mirror/v1/modules/`). Module sources such as `terraform-aws-modules/vpc/aws` are looked up on the public
-registry's host name, and that host's service discovery cannot be changed, so a `host` block in the CLI configuration
-sends the module lookups for that host to Waystation (both clients support it). Module sources stay unchanged:
-
-```hcl
-host "registry.terraform.io" {
-  services = {
-    "modules.v1" = "https://waystation.example.com/repository/terraform-mirror/v1/modules/"
-  }
-}
-```
-
-For OpenTofu's registry create a second proxy with the upstream `https://registry.opentofu.org` and a block for
-`registry.opentofu.org`. Combine the block with the `network_mirror` above: the `host` block names only the module
-service, so providers must come through the mirror. When anonymous reads are not allowed, the token goes in a
-`credentials` block **for the public registry's host name** (Terraform sends it to the URLs that host's services
-point at, here Waystation):
+**Module proxy**: the token goes in a `credentials` block **for the public registry's host name** (Terraform sends it
+to the URLs that host's services point at, here Waystation):
 
 ```hcl
 credentials "registry.terraform.io" {
@@ -144,44 +197,17 @@ credentials "registry.terraform.io" {
 }
 ```
 
-What is cached: the registry's version list (revalidated after the metadata max age) and each version's download
-answer; then the module itself when Waystation can fetch it as **one archive**: a GitHub repository at a tag or commit
-(`git::https://github.com/<owner>/<repo>?ref=...`, what the public registries answer for most modules: fetched as
-GitHub's tag archive) or an HTTP(S)/S3 archive (`.zip`, `.tar.gz`), from a host in the option **module archive
-hosts** (default `github.com`) or the upstream's own host. The archive's sha256 is recorded at the first fetch and
-pinned: if a cleanup removed it and the source later serves other bytes, Waystation refuses them. Other sources
-(other git hosts, `ssh://`, a branch without a ref) are handed to the client unchanged: the client fetches them
-itself, as without Waystation.
-
-## The hosted repository: private modules and providers
-
-An instance has **one** hosted Terraform repository (creating a second is refused), because Terraform finds a
-registry through its host name: `https://waystation.example.com/.well-known/terraform.json` names that repository's
-module and provider registries. Module sources are `<host>/<namespace>/<name>/<system>`, provider sources
-`<host>/<namespace>/<type>`. The host name must contain a dot, and Waystation must be served over https.
-
-```hcl
-terraform {
-  required_providers {
-    example = {
-      source  = "waystation.example.com/my-namespace/example"
-      version = "1.0.0"
-    }
-  }
-}
-
-module "network" {
-  source  = "waystation.example.com/my-namespace/network/aws"
-  version = "1.0.0"
-}
-```
-
-Credentials: a `credentials "waystation.example.com"` block (or `TF_TOKEN_waystation_example_com`, or
+**Hosted repository**: a `credentials "waystation.example.com"` block (or `TF_TOKEN_waystation_example_com`, or
 `terraform login waystation.example.com` with an API token) with an API token holding `read` on the repository.
 Terraform and OpenTofu send it to the registry API, discovery included (a caller who cannot see the repository gets
 an empty discovery document: "host does not provide a module registry"). They do **not** send it when they download
 the files the registry points at, so for a signed-in caller Waystation adds a short-lived signed grant to each file
-URL (`?ws_grant=...`, valid five minutes for that one file; adr/0010). Nothing else to configure; no `.netrc`.
+URL (`?ws_grant=...`, valid five minutes for that one file;
+[ADR 0010](../../Architecture/adr/0010-signed-download-urls.md)). Nothing else to configure; no `.netrc`.
+
+## Publishing
+
+Only the hosted repository accepts uploads. Publishing needs `write`, deleting `delete`.
 
 ### Publish a module
 
@@ -194,10 +220,9 @@ curl --fail -H "Authorization: Bearer <api token>" --upload-file network.tar.gz 
   https://waystation.example.com/repository/terraform/v1/modules/my-namespace/network/aws/1.0.0
 ```
 
-Publishing needs `write`. Waystation reads the archive without unpacking it and refuses links, absolute or `..`
-names, more than 10 000 entries or 512 MiB unpacked, and an archive without a `.tf`/`.tf.json` file at its root (the
-usual mistake: archiving the directory itself). A version cannot be replaced (`409`); delete it first:
-`curl -X DELETE` on the same URL (`delete` permission).
+Waystation reads the archive without unpacking it and refuses links, absolute or `..` names, more than 10 000 entries
+or 512 MiB unpacked, and an archive without a `.tf`/`.tf.json` file at its root (the usual mistake: archiving the
+directory itself). A version cannot be replaced (`409`); delete it first: `curl -X DELETE` on the same URL.
 
 ### Publish a provider
 
@@ -224,10 +249,21 @@ URL, every archive must be listed in `SHA256SUMS` with its sha256, and the signa
 release cannot be replaced; `curl -X DELETE` on the release URL removes it and its files. GoReleaser's usual
 Terraform provider configuration produces exactly these files.
 
+## Limitations
+
+- One hosted Terraform repository per instance; no group repositories.
+- Only `https://` URLs work with the clients; Waystation must be served over TLS.
+- Hosted module and provider sources need a host name containing a dot (`localhost` does not work).
+- Published module versions and provider releases cannot be replaced; delete and publish again.
+- The module proxy caches only modules it can fetch as one archive (GitHub at a tag or commit, or an HTTP(S)/S3
+  archive from an allowed host); other sources are fetched by the client directly.
+- A mirror records only `h1:` hashes for the current platform in lock files unless `terraform providers lock` is run
+  for each platform.
+
 ## Troubleshooting
 
 - `invalid module registry hostname: must contain at least one dot`: hosted module sources need a host name with a
-  dot (`localhost` does not work); use the name Waystation is served under.
+  dot; use the name Waystation is served under.
 - `... does not provide a module registry` / `... does not offer a provider registry`: discovery answered `{}`: no
   hosted Terraform repository exists, it is offline, or your token cannot see it (or no token was sent and anonymous
   users cannot read it).
@@ -250,6 +286,6 @@ Terraform provider configuration produces exactly these files.
 - `the cached package ... does not match any of the checksums recorded in the dependency lock file`: the lock file
   was made for another build of the provider (OpenTofu's registry serves its own builds of many providers: a
   Terraform lock file does not fit OpenTofu and vice versa).
-- Browse → the repository lists the providers, their versions and the archives held with their `zh:` and `h1:`
-  hashes (hosted: the releases with their signing key ID and publisher), and under **Modules** the modules, their
-  versions and the archive held (proxy: its pinned sha256 and the source the registry gave).
+- To inspect what is held: Browse → the repository lists the providers, their versions and the archives held with
+  their `zh:` and `h1:` hashes (hosted: the releases with their signing key ID and publisher), and under **Modules**
+  the modules, their versions and the archive held (proxy: its pinned sha256 and the source the registry gave).

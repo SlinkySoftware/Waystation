@@ -72,16 +72,16 @@ Released images are public on GitHub Container Registry, for `linux/amd64` and `
 signed build provenance:
 
 ```sh
-for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:0.2.9; done
+for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:1.0.0; done
 ```
 
-Use them in the env file (`WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware`, `WAYSTATION_IMAGE_TAG=0.2.9`). Pin an
+Use them in the env file (`WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware`, `WAYSTATION_IMAGE_TAG=1.0.0`). Pin an
 exact release, never `latest`, so an upgrade is always an explicit change. To check the provenance:
-`gh attestation verify oci://ghcr.io/slinkysoftware/waystation-server:0.2.9 --owner SlinkySoftware`.
+`gh attestation verify oci://ghcr.io/slinkysoftware/waystation-server:1.0.0 --owner SlinkySoftware`.
 
 You also need `Build/Containers/compose.yaml` (and for backups `Build/Containers/backup/waystation-backup.sh`) from
 the same release: take them from the release's source archive or the tag
-(`https://github.com/SlinkySoftware/Waystation/tree/v0.2.9`).
+(`https://github.com/SlinkySoftware/Waystation/tree/v1.0.0`).
 
 **Build from source instead** (an unreleased commit, a fork, or a host without access to GHCR). Build on the target
 if it has the CPU and network for it, otherwise on any machine with Docker and copy the images over (about 650 MB):
@@ -136,7 +136,7 @@ and a database backup is only partly usable without it (BACKUP.md).
 
 ```sh
 WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware   # waystation for images built from source
-WAYSTATION_IMAGE_TAG=0.2.9
+WAYSTATION_IMAGE_TAG=1.0.0
 WAYSTATION_HTTP_BIND=127.0.0.1        # 127.0.0.1 when the reverse proxy runs on this host; else the host's address
 WAYSTATION_HTTP_PORT=8080
 WAYSTATION_DATA_MOUNT_TYPE=bind
@@ -420,7 +420,7 @@ browser-like `User-Agent` for calls to the IdP itself (Waystation's own API is n
 | Clients still reach the old registry after the DNS change | a caching resolver (often the router) kept the old answer | flush it; forward the old front door to the new host (section 10) |
 | MongoDB slow or the SSD wearing on btrfs | copy-on-write on database files | `chattr +C` on the empty MongoDB directory before the first start |
 | The OIDC button fails or the IdP shows "Redirect URI Error" | issuer or client wrong, or the callback (with the provider id) not registered | `test-connection`; register the exact or regex callback (section 7) |
-| pnpm/Yarn via corepack fail with 404 on `<registry>/<pkg>/<version>` | an older Waystation build without npm version documents | upgrade (served since 2026-11-11) |
+| pnpm/Yarn via corepack fail with 404 on `<registry>/<pkg>/<version>` | an older Waystation build without npm version documents | upgrade |
 | yum `repomd.xml` differs from Nexus in a side-by-side check | Nexus removes the `*_db` entries; Waystation serves the upstream file unchanged | expected; compare with the upstream instead |
 | Gitea Actions: `make` targets fail with `can't open file '/src/...'` | act_runner's default volume workspaces leave bind mounts empty | runner `container.bind_workdir: true` (CI.md) |
 | Synology: `scp` fails | DSM's root has no SFTP subsystem | stream files: `ssh root@nas 'cat > file' < file` |

@@ -1,12 +1,12 @@
 # Dependency and container audit
 
-How Waystation checks the components it ships for known vulnerabilities, the result of the last full run and the
-findings accepted for now. Rerun with `make security-scan` (Build/ci/security_scan.sh: pip-audit over `uv.lock`,
+How Waystation checks the components it ships for known vulnerabilities, the result of the release scan and the
+findings accepted for the release. Rerun with `make security-scan` (Build/ci/security_scan.sh: pip-audit over `uv.lock`,
 `npm audit --omit=dev` over `Application/Web/package-lock.json`, Trivy over the built server, worker and web images;
 `SKIP_IMAGES=1` scans images already built, `IMAGE_PREFIX`/`IMAGE_TAG` name them). It fails on any pip-audit or npm
 audit finding and on any HIGH/CRITICAL image finding that has a fix; findings without a fix are listed below.
 
-## Run of 2026-11-23 (T-R01)
+## Scan for the v1.0 release
 
 | Check | Tool | Scope | Result |
 |---|---|---|---|

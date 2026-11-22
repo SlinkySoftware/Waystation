@@ -1,33 +1,27 @@
-# Docker / OCI: client guide
+# Docker / OCI client guide
+
+How to pull images through Waystation with Docker, containerd, podman, skopeo and crane, and how to push images and
+OCI artifacts to a hosted repository. The repository's **Set me up** tab shows the same snippets with your real host
+filled in. Examples use `registry.example.com` as the Waystation host (base URL `https://registry.example.com`), a
+Docker Hub proxy named `docker-hub`, a GHCR proxy named `ghcr`, a hosted repository named `docker-hosted` and a group
+named `docker-all`.
+
+## Overview
 
 A docker proxy repository pulls images from an upstream registry (Docker Hub, GHCR, Quay, any OCI registry) and
-caches them. A docker hosted repository stores the images and OCI artifacts you push (see "Hosted repositories").
-Tested clients (`tests/clients/docker/`): the Docker Engine daemon (`registry-mirrors`, prefix and alias pulls,
-`docker push`, `docker buildx --push` multi-platform), skopeo, crane, oras and cosign, plus the OCI
-distribution-spec conformance suite against a hosted repository. Protocol notes: FORMATS.md "Docker / OCI".
+caches them. A docker hosted repository stores the images and OCI artifacts you push. A group puts several docker
+repositories behind one name. Protocol notes: [FORMATS.md](../../Architecture/FORMATS.md), section "Docker / OCI".
 
-Examples use `registry.example.com` as the Waystation host (base URL `https://registry.example.com`), a Docker Hub
-repository named `docker-hub` and a GHCR repository named `ghcr`.
+Tested with the Docker Engine daemon (`registry-mirrors`, prefix and alias pulls, `docker push`, `docker buildx
+--push` multi-platform), containerd (`ctr`), podman, skopeo, crane, oras and cosign, plus the OCI distribution-spec
+conformance suite against a hosted repository.
 
-## Create the repositories
+### URL layout and name routing
 
-In the UI (Repositories → Create → Docker / OCI → Proxy) or the API:
-
-| Setting | Docker Hub | GHCR / other OCI registries |
-|---|---|---|
-| Upstream URL | `https://registry-1.docker.io` | `https://ghcr.io`, `https://quay.io`, ... |
-| Docker Hub (`docker_hub`) | on: token service `auth.docker.io`, `library/` for one-segment names, rate-limit tracking | off: the upstream's `WWW-Authenticate` challenge decides |
-| Aliases (`aliases`) | `docker.io` | `ghcr.io` |
-| Default repository (`default_repo`) | on: receives mirror-mode pulls and names without a repository prefix | off |
-| Upstream credentials | optional Docker Hub username + access token (higher pull limits) | optional, e.g. a GHCR username + PAT with `read:packages` for private images |
-
-Only one repository can be the default. Aliases are unique across repositories and cannot equal a repository name.
-
-## How names are routed
-
-`/v2/<first segment>/...`: when the first segment is a repository name it selects that repository; else when it is
-an alias (`docker.io`, `ghcr.io`) it selects the repository that declares it; else the whole name goes to the default
-repository. The same API is also served under `/repository/<repo>/v2/...` (Nexus-style paths).
+The registry API is served at `/v2/...` on the Waystation host, and also under `/repository/<repo>/v2/...`
+(Nexus-style paths). For `/v2/<first segment>/...`: when the first segment is a repository name it selects that
+repository; else when it is an alias (`docker.io`, `ghcr.io`) it selects the repository that declares it; else the
+whole name goes to the default repository.
 
 | Client asks for | Repository | Upstream image |
 |---|---|---|
@@ -38,14 +32,84 @@ repository. The same API is also served under `/repository/<repo>/v2/...` (Nexus
 | `registry.example.com/ghcr.io/owner/app:1.0` | `ghcr` (alias) | `owner/app` |
 | `registry.example.com:5001/library/nginx:1.27` | the repository whose dedicated port is 5001 | `library/nginx` |
 
-A repository can also have a **dedicated port** (a Nexus-style connector, `format_options.connector_port`): on that
-port every name belongs to that one repository, with no prefix. The administrator must also list the port for the
-web container ([DEPLOYMENT.md](../DEPLOYMENT.md) §8, "Docker port connectors"). Sign in once per port
+A repository can also have a **dedicated port** (a Nexus-style connector, `format_options.connector_port`; see
+[ADR 0013](../../Architecture/adr/0013-docker-port-connectors.md)): on that port every name belongs to that one
+repository, with no prefix. The administrator must also list the port for the web container
+([DEPLOYMENT.md](../DEPLOYMENT.md), "Docker port connectors"). Sign in once per port
 (`docker login registry.example.com:5001`); without TLS add the port to `insecure-registries` too.
 
-## Docker Engine
+### What Waystation does with the upstream
 
-### Mirror mode (Docker Hub images, no image name changes)
+- Tags are metadata: a tag is re-checked with the upstream after the repository's metadata max age, first with a
+  `HEAD` (same `Docker-Content-Digest` = unchanged; Docker Hub does not count `HEAD`s against the pull limit).
+- Manifests by digest and blobs are content: verified against their digest before they are cached, kept forever
+  (subject to cleanup policies), shared between images of the same repository.
+- Manifests are never converted: the client's `Accept` list goes upstream, and the bytes and digest are served as
+  the upstream sent them.
+- `docker pull` answers carry `Docker-Content-Digest`, the manifest media type and
+  `Docker-Distribution-API-Version: registry/2.0`; `X-Ws-Cache` tells `FETCHING`, `HIT` or `REVALIDATED`.
+- Docker Hub's `ratelimit-limit` / `ratelimit-remaining` headers appear on the repository's upstream health card.
+- Referrers (signatures, SBOMs) of proxied images: proxies answer the referrers API from the upstream's referrers
+  API, or from its `sha256-<hex>` tag schema when it has none (cached; groups merge every member's).
+- `GET /v2/_catalog` lists `<repository>/<image>` for every tagged image of the docker repositories you can see.
+
+## Repository types
+
+### Proxy
+
+Create one in the UI (Repositories → Create → Docker / OCI → Proxy) or the API:
+
+| Setting | Docker Hub | GHCR / other OCI registries |
+|---|---|---|
+| Upstream URL | `https://registry-1.docker.io` | `https://ghcr.io`, `https://quay.io`, ... |
+| Docker Hub (`docker_hub`) | on: token service `auth.docker.io`, `library/` for one-segment names, rate-limit tracking | off: the upstream's `WWW-Authenticate` challenge decides |
+| Aliases (`aliases`) | `docker.io` | `ghcr.io` |
+| Default repository (`default_repo`) | on: receives mirror-mode pulls and names without a repository prefix | off |
+| Upstream credentials | optional Docker Hub username + access token (higher pull limits) | optional, e.g. a GHCR username + PAT with `read:packages` for private images |
+
+Only one repository can be the default. Aliases are unique across repositories and cannot equal a repository name.
+Proxy repositories are read-only.
+
+### Hosted
+
+Create one in the UI (Repositories → Create → Docker / OCI → Hosted) or the API:
+
+```json
+{"name": "docker-hosted", "format": "docker", "type": "hosted", "online": true,
+ "hosted": {"write_policy": "allow_redeploy", "immutable_tag_patterns": ["v[0-9]+(\\.[0-9]+)*"]}}
+```
+
+| Setting | Meaning |
+|---|---|
+| Write policy (`write_policy`) | `allow_redeploy` (default): tags may move and be deleted; `disable_redeploy`: no tag ever moves or is deleted by a client; `read_only`: no pushes or deletes at all |
+| Immutable tags (`immutable_tag_patterns`) | Regular expressions matched against the whole tag: a matching tag never moves or goes away once pushed (`v1.2.3` stays, `latest` moves) |
+| Default repository (`default_repo`) | Names without a repository prefix are pushed and pulled here (only one docker repository can be the default) |
+
+Images are addressed by repository prefix, like proxies: `registry.example.com/docker-hosted/team/app:1.0`. The
+Browse tab shows pushed images, tags and platforms like a proxy's.
+
+### Group
+
+A group puts several docker repositories behind one name: `registry.example.com/docker-all/team/app:1.0` is looked
+up in each member in order. Create one in the UI (Repositories → Create → Docker / OCI → Group) or the API:
+
+```json
+{"name": "docker-all", "format": "docker", "type": "group", "online": true,
+ "group": {"members": ["docker-hosted", "docker-hub", "ghcr"], "writable_member": "docker-hosted"}}
+```
+
+- Put hosted repositories first: a name missing there is then asked of the proxies' upstreams in order.
+- Blobs are found in any member's stored or cached copy before an upstream is asked; checking whether a layer exists
+  (`HEAD`, as `docker push` does) never goes upstream.
+- `tags/list` is the union of the members' tags (a proxy contributes its upstream's first page).
+- Reading through the group needs `read` on the group; members' content is served through it.
+- A repository that is a group member cannot be deleted until it is removed from the group.
+- Answers name the member that served them in the `X-Ws-Group-Member` header.
+- Pushes go to the writable member (see "Publishing").
+
+## Client setup
+
+### Docker Engine: mirror mode (Docker Hub images, no image name changes)
 
 `/etc/docker/daemon.json`, then reload the daemon (`systemctl reload docker`: `registry-mirrors` is applied on
 reload, without restarting running containers):
@@ -61,7 +125,7 @@ serves. The daemon only uses mirrors for Docker Hub images, and silently falls b
 fails: check `docker info` (Registry Mirrors) and the repository's live transfers to see that pulls go through
 Waystation.
 
-### Prefix and alias pulls (any upstream)
+### Docker Engine: prefix and alias pulls (any upstream)
 
 ```sh
 docker pull registry.example.com/docker-hub/nginx:1.27
@@ -69,12 +133,10 @@ docker pull registry.example.com/docker.io/library/nginx:1.27
 docker pull registry.example.com/ghcr.io/owner/app:1.0
 ```
 
-The repository's **Set me up** tab shows these with your host filled in.
-
 A Waystation reached over plain HTTP (test setups only) must be listed in `"insecure-registries":
 ["registry.example.com:8080"]`; the mirror URL is then `http://registry.example.com:8080`.
 
-## containerd / nerdctl / Kubernetes nodes
+### containerd, nerdctl and Kubernetes nodes
 
 Mirror a registry with `hosts.toml` (`/etc/containerd/certs.d/<upstream host>/hosts.toml`; containerd's
 `config_path` must point at `/etc/containerd/certs.d`):
@@ -108,43 +170,60 @@ and containerd pulls from `server` directly: it never gets another registry's im
 
 containerd 2.x (Kubernetes nodes): set `config_path = "/etc/containerd/certs.d"` both under
 `[plugins."io.containerd.cri.v1.images".registry]` and under `[plugins."io.containerd.transfer.v1.local"]`
-(the CRI pulls through the transfer service). Reported working with containerd 2.4.2 for Docker Hub, GHCR, Quay and
-registry.k8s.io. The client harness pulls Docker Hub and GHCR images with `ctr` (containerd 2.4, `--hosts-dir`) in mirror
-mode, and by repository prefix and alias as plain registry names (`tests/clients/docker/containerd.sh`).
+(the CRI pulls through the transfer service). This works for Docker Hub, GHCR, Quay and registry.k8s.io; the client
+tests pull Docker Hub and GHCR images with `ctr --hosts-dir` in mirror mode, and by repository prefix and alias as
+plain registry names.
 
-## skopeo, crane, podman
+### podman
 
 ```sh
-skopeo inspect docker://registry.example.com/docker-hub/library/nginx:1.27
-skopeo copy docker://registry.example.com/ghcr.io/owner/app:1.0 oci:/tmp/app:1.0
 podman pull registry.example.com/docker-hub/library/nginx:1.27
-crane digest registry.example.com/docker-hub/library/nginx:1.27
 ```
 
 podman can also use a mirror for `docker.io` in `/etc/containers/registries.conf`
 (`[[registry]] location = "docker.io"` with `[[registry.mirror]] location = "registry.example.com/docker-hub"`).
 The bare registry host also works as the mirror location: podman sends no `?ns=`, so mirror requests then go to the
-default docker repository. skopeo, crane and podman 6.2 (mirror for `docker.io`, prefix and alias pulls from Docker
-Hub and GHCR) are tested by the client harness.
+default docker repository.
 
-## Hosted repositories
+### skopeo and crane
 
-Create one in the UI (Repositories → Create → Docker / OCI → Hosted) or the API:
-
-```json
-{"name": "docker-hosted", "format": "docker", "type": "hosted", "online": true,
- "hosted": {"write_policy": "allow_redeploy", "immutable_tag_patterns": ["v[0-9]+(\\.[0-9]+)*"]}}
+```sh
+skopeo inspect docker://registry.example.com/docker-hub/library/nginx:1.27
+skopeo copy docker://registry.example.com/ghcr.io/owner/app:1.0 oci:/tmp/app:1.0
+crane digest registry.example.com/docker-hub/library/nginx:1.27
 ```
 
-| Setting | Meaning |
-|---|---|
-| Write policy (`write_policy`) | `allow_redeploy` (default): tags may move and be deleted; `disable_redeploy`: no tag ever moves or is deleted by a client; `read_only`: no pushes or deletes at all |
-| Immutable tags (`immutable_tag_patterns`) | Regular expressions matched against the whole tag: a matching tag never moves or goes away once pushed (`v1.2.3` stays, `latest` moves) |
-| Default repository (`default_repo`) | Names without a repository prefix are pushed and pulled here (only one docker repository can be the default) |
+### oras and cosign
 
-Images are addressed by repository prefix, like proxies: `registry.example.com/docker-hosted/team/app:1.0`. Pushing
-needs `write` on the repository (the `deployer` role, or a custom grant); deleting needs `delete`. Sign in with an
-API token that has the `write` (and `delete`) scope:
+Used against hosted repositories; see "Publishing".
+
+## Authentication
+
+Proxy repositories are readable anonymously by default. Clients get an anonymous pull token from Waystation's token
+service (`/auth/token`, announced in the `WWW-Authenticate` challenge of `/v2/`) automatically; no `docker login`
+is needed. When an administrator removes anonymous access, sign in with an API token as the password (any
+username). Create an API token on your profile page (avatar menu → Profile → API tokens; shown once, copy it then)
+or, for CI, on a service account. Give it only the scopes it needs (`read` to pull; `write` and `delete` to push and
+delete) and, ideally, restrict it to the repositories the client needs: a token only ever narrows what its owner may
+do. A revoked or expired token is refused at once (401); it never falls back to anonymous access.
+
+```sh
+echo "$WAYSTATION_TOKEN" | docker login registry.example.com --username <username> --password-stdin
+```
+
+The registry tokens Docker then fetches carry the API token's id and the API token is re-checked on every request,
+so revoking it stops pulls at once, not when the 5-minute registry token expires. `docker login` with your account
+password also works for local and LDAP accounts (prefer a token for CI); users who sign in through an OpenID provider
+have no password at Waystation and use an API token.
+
+Upstream credentials (Docker Hub account, GHCR PAT) are set on the repository, never on the clients. They are sent
+only to the upstream registry and its token service, never to blob CDNs the upstream redirects to.
+
+## Publishing
+
+Push to a hosted repository, or to a group with a writable member. Pushing needs `write` on the repository (the
+`deployer` role, or a custom grant); deleting needs `delete`. Sign in with an API token that has the `write` (and
+`delete`) scope:
 
 ```sh
 echo "$WAYSTATION_TOKEN" | docker login registry.example.com --username ci --password-stdin
@@ -159,7 +238,7 @@ cosign sign --key cosign.key registry.example.com/docker-hosted/team/app@sha256:
 cosign verify --key cosign.pub registry.example.com/docker-hosted/team/app:1.0
 ```
 
-What happens on a push:
+### What happens on a push
 
 - Blobs are streamed to disk and verified against their sha256 before they are stored; uploads may be monolithic,
   chunked or resumed after an interruption (the client asks for the upload status and continues). Identical content
@@ -172,67 +251,26 @@ What happens on a push:
   API (`GET /v2/<name>/referrers/<digest>`, with the `artifactType` filter), so clients find it without the
   `sha256-<digest>` tag workaround.
 - Every pushed manifest and every delete is in the audit log (`content.upload` / `content.delete`) and the activity
-  feed; layer uploads show as live upload transfers on the dashboard. The Browse tab shows pushed images, tags and
-  platforms like a proxy's.
-- Deletes: a tag (`DELETE /v2/<name>/manifests/<tag>`), a manifest by digest (with its tags; refused while an
-  immutable tag points at it) and a blob no manifest of the repository uses. Disk space comes back with blob GC.
-- `GET /v2/_catalog` lists `<repository>/<image>` for every tagged image of the docker repositories you can see.
+  feed; layer uploads show as live upload transfers on the dashboard.
 
-## Group repositories
+### Deletes
 
-A group puts several docker repositories behind one name: `registry.example.com/docker-all/team/app:1.0` is looked
-up in each member in order. Create one in the UI (Repositories → Create → Docker / OCI → Group) or the API:
+A tag (`DELETE /v2/<name>/manifests/<tag>`), a manifest by digest (with its tags; refused while an immutable tag
+points at it) and a blob no manifest of the repository uses. Disk space comes back with blob GC.
 
-```json
-{"name": "docker-all", "format": "docker", "type": "group", "online": true,
- "group": {"members": ["docker-hosted", "docker-hub", "ghcr"], "writable_member": "docker-hosted"}}
-```
+### Pushing through a group
 
-- Put hosted repositories first: a name missing there is then asked of the proxies' upstreams in order.
-- Blobs are found in any member's stored or cached copy before an upstream is asked; checking whether a layer exists
-  (`HEAD`, as `docker push` does) never goes upstream.
-- `tags/list` is the union of the members' tags (a proxy contributes its upstream's first page).
-- `docker push` to the group stores the image in the writable member; you need `write` on the group and on that
-  member. Without a writable member the group is read-only (`unsupported`). Deletes through the group act on the
-  writable member only.
-- Reading through the group needs `read` on the group; members' content is served through it.
-- A repository that is a group member cannot be deleted until it is removed from the group.
-- Answers name the member that served them in the `X-Ws-Group-Member` header.
+`docker push` to the group stores the image in the writable member; you need `write` on the group and on that
+member. Without a writable member the group is read-only (`unsupported`). Deletes through the group act on the
+writable member only.
 
-## Authentication
+## Limitations
 
-Proxy repositories are readable anonymously by default. Clients get an anonymous pull token from Waystation's token
-service (`/auth/token`, announced in the `WWW-Authenticate` challenge of `/v2/`) automatically; no `docker login`
-is needed. When an administrator removes anonymous access, sign in with an API token as the password (any
-username). Create an API token on your profile page (avatar menu → Profile → API tokens; shown once, copy it then) or, for
-CI, on a service account. Give it only the `read` scope and, ideally, restrict it to the repositories the client
-needs: a token only ever narrows what its owner may do. A revoked or expired token is refused at once (401); it
-never falls back to anonymous access.
-
-```sh
-echo "$WAYSTATION_TOKEN" | docker login registry.example.com --username alice --password-stdin
-```
-
-The registry tokens Docker then fetches carry the API token's id and the API token is re-checked on every request,
-so revoking it stops pulls at once, not when the 5-minute registry token expires. `docker login` with your account
-password also works for local and LDAP accounts (prefer a token for CI); users who sign in through an OpenID provider
-have no password at Waystation and use an API token. The client harness checks all three against private
-repositories, with wrong-password, revoked-token, no-role and anonymous refusals (`tests/clients/auth/`).
-
-Upstream credentials (Docker Hub account, GHCR PAT) are set on the repository, never on the clients. They are sent
-only to the upstream registry and its token service, never to blob CDNs the upstream redirects to.
-
-## What Waystation does with the upstream
-
-- Tags are metadata: a tag is re-checked with the upstream after the repository's metadata max age, first with a
-  `HEAD` (same `Docker-Content-Digest` = unchanged; Docker Hub does not count `HEAD`s against the pull limit).
-- Manifests by digest and blobs are content: verified against their digest before they are cached, kept forever
-  (subject to cleanup policies), shared between images of the same repository.
-- Manifests are never converted: the client's `Accept` list goes upstream, and the bytes and digest are served as
-  the upstream sent them.
-- `docker pull` answers carry `Docker-Content-Digest`, the manifest media type and
-  `Docker-Distribution-API-Version: registry/2.0`; `X-Ws-Cache` tells `FETCHING`, `HIT` or `REVALIDATED`.
-- Docker Hub's `ratelimit-limit` / `ratelimit-remaining` headers appear on the repository's upstream health card.
+- `docker search` is not supported.
+- Proxy repositories are read-only: pushes and deletes go to a hosted repository (or a group's writable member).
+- Docker Engine uses `registry-mirrors` only for Docker Hub images; other upstreams need prefix or alias names, or
+  containerd/podman mirror configuration.
+- Manifests larger than 4 MiB are refused.
 
 ## Troubleshooting
 
@@ -252,6 +290,4 @@ only to the upstream registry and its token service, never to blob CDNs the upst
 | `denied: write permission required on <member>` when pushing to a group | You may write to the group but not to its writable member: ask for `write` on the member. |
 | `unauthorized` / `insufficient_scope` on push | Your token or account has no `write` on the repository: use an API token with the `write` scope and a role that may write there. |
 | `manifest blob unknown` on push | The manifest names a blob the repository does not hold (an interrupted push): push again; the client re-uploads what is missing. |
-| `docker search` | Not available. |
-| Referrers (signatures, SBOMs) of proxied images | Proxies answer the referrers API from the upstream's referrers API, or from its `sha256-<hex>` tag schema when it has none (cached; groups merge every member's). |
 | `unauthorized` after an administrator disabled you, reset your password or ended your sessions | `docker login` stores a refresh token instead of your password; those actions revoke it. Run `docker login` again. |

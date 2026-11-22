@@ -1,9 +1,8 @@
 # Waystation UI design
 
-Goal: it should look and feel like professional, commercial-grade software from the first screen: calm,
-information-dense where it matters, fast, and alive (activity visibly moving). Built with Quasar 2 / Vue 3 /
-TypeScript, following the conventions of the owner's other apps (DeviceVault, fw-data-manager, bgpmon) so code
-and patterns carry over.
+The design system and every page of the Waystation web UI. The UI looks and feels like professional,
+commercial-grade software from the first screen: calm, information-dense where it matters, fast, and alive
+(activity visibly moving). Built with Quasar 2 / Vue 3 / TypeScript.
 
 ## 1. What to borrow (and what to avoid)
 | Source | Borrow | Avoid |
@@ -26,7 +25,7 @@ and patterns carry over.
 - **Typography**: Inter (variable, self-hosted woff2) for UI, JetBrains Mono for digests, paths, commands.
   Sizes 12/13/14/16/20/24/32; tabular numerals for all metrics (`font-variant-numeric: tabular-nums`).
 - **Spacing**: 4 px base grid; cards 16/24 px padding; consistent 8 px gaps in toolbars.
-- **Density**: comfortable by default, compact toggle for tables (persisted). As built (T-U01): user menu and
+- **Density**: comfortable by default, compact toggle for tables (persisted). User menu and
   profile "Appearance" card; saved in the account preferences (localStorage for first paint); `body.ws-compact`
   gives 32 px table rows and tighter list items app-wide.
 - **Icons**: Material Symbols (outlined) via `@quasar/extras`; **format icons** as a bundled SVG sprite (Docker,
@@ -43,7 +42,7 @@ and patterns carry over.
 - **Left navigation rail** (collapsible to icons; drawer on mobile): Dashboard, Repositories, Browse, Search,
   Activity, Storage, Cleanup, Tasks, then an Administration group (Users, Groups, Roles, Auth providers,
   API tokens, Audit log, Settings, System). Items hidden when the user lacks permission.
-- **Minimal permissions** (T-U10, SPEC §4.10): every page route names the session capability it needs
+- **Minimal permissions** (SPEC §4.10): every page route names the session capability it needs
   (`meta.capability`, the same as its rail item: Repositories/Browse/Search `repositories.browse`, Activity/Storage
   `stats.read`, Cleanup `repositories.manage`, Tasks and the admin pages their admin capability). The rail and the
   command palette show only what the session holds; a link or typed URL to anything else shows the calm "No access
@@ -59,7 +58,7 @@ and patterns carry over.
 - **Command palette**: jump to any repo, component, page or action ("create docker proxy", "copy npm config").
 - **Breadcrumbs** on detail pages. **Toasts** for results (`useNotify`). **Empty states** with an illustration
   (§8), one sentence and the primary action.
-- **Low-disk banner** (T-O03) under the top bar while the low-disk guard is tripped (`GET /storage/guard`, checked
+- **Low-disk banner** under the top bar while the low-disk guard is tripped (`GET /storage/guard`, checked
   every minute and at once on a `storage` activity event): free space, the guard, "new cache fills and uploads are
   refused; cached content is still served", a link to Storage. Dismissible for the session; it comes back when the
   disk runs low again.
@@ -69,7 +68,7 @@ and patterns carry over.
 ### 4.1 Sign-in
 Centered card with logo, local username/password form, one button per OIDC provider ("Continue with
 <name>"), LDAP uses the same form (provider auto-resolved or a select when several). Error messages generic.
-Two-factor sign-in (T-O08): when the password is accepted for an account with it on, the same card asks for the 6-digit code from the authenticator app (numeric keyboard, `one-time-code` autofill), with "Use a recovery code" (switches the field to `xxxxx-xxxxx`) and "Back"; a wrong code keeps the step with a generic message; an expired step (5 min) returns to the password form with a note.
+Two-factor sign-in: when the password is accepted for an account with it on, the same card asks for the 6-digit code from the authenticator app (numeric keyboard, `one-time-code` autofill), with "Use a recovery code" (switches the field to `xxxxx-xxxxx`) and "Back"; a wrong code keeps the step with a generic message; an expired step (5 min) returns to the password form with a note.
 
 ### 4.2 Dashboard (landing)
 Grid, responsive (12 cols ≥ 1440, 8 cols ≥ 1024, 1 col mobile):
@@ -85,8 +84,7 @@ Grid, responsive (12 cols ≥ 1440, 8 cols ≥ 1024, 1 col mobile):
 4. **Format breakdown**: donut of storage by format + legend with sizes.
 5. **Upstream health**: card per proxy repo: status pill, error rate, p95 latency, last error, auto-block
    countdown, Docker Hub rate-limit meter line ("142 / 200 pulls left, resets in 3 h").
-6. **Top artifacts** (downloads / bytes, toggle; window 24h/7d/30d/all) and **Recently added** (built 2026-11-21:
-   one card each, rows link to the artifact in Browse).
+6. **Top artifacts** (downloads / bytes, toggle; window 24h/7d/30d/all) and **Recently added** (one card each, rows link to the artifact in Browse).
 7. **Recent activity** feed (pushes, deletes, cleanup runs, failures), linking to details.
 All widgets update live via SSE; no page refresh, no polling except as SSE fallback.
 
@@ -99,9 +97,9 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
   open by themselves when they hold a setting or a field error: **Caching and resilience** (max ages, stale on error,
   offline, private upstream, auto-block threshold and periods) and **Network and TLS** (outbound HTTP proxy, extra
   CA certificates as PEM). The overview's upstream card shows "Auto-blocked: next probe in m:ss" while blocked.
-  **Storage quota** (proxy and hosted; T-O03): on/off, size with a MiB/GiB/TiB unit, mode soft (warn) / hard (refuse
+  **Storage quota** (proxy and hosted): on/off, size with a MiB/GiB/TiB unit, mode soft (warn) / hard (refuse
   new writes), field errors from the server.
-  **Prefetch** (proxies of docker, npm, raw, Maven and Go; T-O12): "Keep popular metadata fresh" toggle, the warm
+  **Prefetch** (proxies of the formats that support it, SPEC §4.1): "Keep popular metadata fresh" toggle, the warm
   list (textarea, one item per line, per-format placeholder and syntax help, "N of 200 items"; blank lines and
   repeats dropped) and the schedule (cron/macro/`@every` read back in words, clickable examples, empty = run by hand
   only); a server error on one item names that item. The repository overview (with `repositories.manage`) has a
@@ -109,7 +107,7 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
   failed / fetched of files, "View run" for administrators: `/tasks?run=<id>`), "Warm now" (says whether it queued or
   joined a running warm; polls while one runs). The Tasks page labels a repository-owned schedule "Warm <repository>"
   and sends schedule edits to the repository's settings.
-- Quotas (T-O03): a repository with a quota shows a usage meter (bar with an 80 % mark, "used of quota", a state
+- Quotas: a repository with a quota shows a usage meter (bar with an 80 % mark, "used of quota", a state
   badge: ok / warning from 80 % / over quota; icon and label, not colour alone) in the list's Size cell (compact,
   tooltip) and as a strip under the detail page's KPI row (with the mode explained and the note that shared blobs
   count in each repository).
@@ -122,7 +120,7 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
   for the new name, then opens the clone) and **Set me up** buttons), KPI strip, tabs:
   **Overview** (charts for this repo, upstream health, top artifacts), **Browse**, **Packages**, **Activity**,
   **Settings**, **Cleanup** (attached policies + last runs + preview), **Members** (groups).
-  As built (T-U04): tabs in the order Overview, Packages (the format view; formats without one, such as raw, have
+  Tabs in the order Overview, Packages (the format view; formats without one, such as raw, have
   no Packages tab), Browse (the two-pane file tree, §4.4), Activity (`stats.read`: the Activity page's live log
   narrowed to the repository, with pause, the detail drawer and "Open in Activity"), Cleanup (`manage`), Members
   (`users.admin`: a card per role that reaches the repository, its actions here as badges and the scopes that
@@ -132,12 +130,12 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
   description, a 24 h request sparkline, stored, artifacts, hit ratio, requests, last activity and URL copy.
 - **Set me up** side panel: tabs per client (e.g. docker: daemon.json mirror, docker login, pull example;
   npm: `.npmrc`, `npm login`, yarn/pnpm variants), user's token inserted as a masked placeholder with "generate a
-  token" link; copy buttons; OS variants where relevant. As built: a "Your system" switch (Linux / macOS /
+  token" link; copy buttons; OS variants where relevant. A "Your system" switch (Linux / macOS /
   Windows, defaulting to the browser's OS and remembered) appears when a client has variants; a snippet with `os`
   replaces the snippet of the same id on that system.
 
 ### 4.4 Browse
-Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. As built (T-U05, Browse tab): the
+Two-pane: left virtualised tree (lazy-loaded paths), right asset/folder detail. The
 tree renders only the rows in view (32 px rows, a margin of 12), loads folders on expand in pages of 500 with a
 "Load more" row that loads when it scrolls into view, and follows the WAI-ARIA tree pattern (one tab stop,
 `aria-activedescendant`, arrows, Home/End, Page Up/Down, Enter/Space); the right pane shows a folder's contents in a
@@ -145,50 +143,50 @@ virtualised table or a file's size, type, dates, downloads, download URL and SHA
 Format-aware views are on the Packages tab:
 - **Docker**: image list → tags table (tag, digest short, platforms as badges, size, created, last pulled, pulls)
   → manifest page (platform switcher, layers table with sizes and a stacked size bar, config/history view,
-  referrers (signatures, SBOM) list, pull commands by tag and by digest). As built: the referrers list sits under
+  referrers (signatures, SBOM) list, pull commands by tag and by digest). The referrers list sits under
   the platform switcher (kind badge Signature / SBOM / Attestation / Artifact from the artifact type, type, digest,
   size, created), for the index and the selected platform's manifest.
 - **npm / PyPI / Maven / NuGet / Composer / RubyGems / Helm / Galaxy / Swift**: package → versions table (version, published, size,
   downloads, deprecated/yanked flags), README rendered safely (sanitised markdown, no raw HTML), dependencies.
-  As built for npm (T-U05): a Versions / README switch (`?view=readme`); `MarkdownView` renders markdown-it tokens as
+  npm: a Versions / README switch (`?view=readme`); `MarkdownView` renders markdown-it tokens as
   VNodes (raw HTML stays text, headings shifted below the page's, links only http(s)/mailto/#, new tab without a
   referrer, images shown as links named by their alt text: no external requests).
-  npm (T-P5-NPMH): hosted repositories show "N versions" and a Versions column instead of the cache columns
+  npm: hosted repositories show "N versions" and a Versions column instead of the cache columns
   (everything they list is stored); dist-tags and deprecation badges as for proxies.
-  Built for NuGet (T-P6-NUGET, `NugetBrowser.vue`): packages table (id as spelled, authors and description, latest
+  NuGet (`NugetBrowser.vue`): packages table (id as spelled, authors and description, latest
   version, version count, updated; search), then the package page with a `dotnet add package` copy field and the
   versions newest first in NuGet order (prerelease and unlisted badges, pushed by, published, size, cached state,
   copy URL, download); hosted repositories offer Unlist / Relist per version (the server decides: `write`).
-  Built for Composer (T-P6-COMPOSER, `ComposerBrowser.vue`): packages table (vendor/name, type and description,
+  Composer (`ComposerBrowser.vue`): packages table (vendor/name, type and description,
   latest version, version count, updated; search), then the package page with a `composer require` copy field and the
   versions newest first in Composer order (stability badge for RC / beta / alpha / dev, uploaded by, source reference
   as a short hash, published, size, cached state, copy URL and download when the archive is stored). The repository
   form shows the proxy's archive hosts (a host list) and whether VCS sources stay in the metadata (keep / strip).
-  Built for RubyGems (T-P6-GEMS, `RubygemsBrowser.vue`): gems table (name, summary, latest version, version count,
+  RubyGems (`RubygemsBrowser.vue`): gems table (name, summary, latest version, version count,
   updated; search), then the gem page (`?gem=<name>`, case-sensitive) with `gem install` and Gemfile
   (`gem '<name>', '~> <latest>'`) copy fields and the versions newest first in RubyGems order, one row per platform
   build (platform badge when not `ruby`, prerelease badge, pushed by, required Ruby, dependency count with the list in
   a tooltip, published, size, short SHA-256 with copy, cached state, copy URL and download when the .gem is stored).
   The repository form has no RubyGems options.
-  Built for Maven (T-P5-MAVEN): artifacts table (artifactId over its groupId, latest, version count, filter by
+  Maven: artifacts table (artifactId over its groupId, latest, version count, filter by
   groupId or artifactId) → versions table (Maven order, SNAPSHOT badge, files, size, deployed by; a copyable
   `<dependency>` snippet) → the version's files (name, size, modified, copy download URL).
-  Built for PyPI (T-P5-PYPI): projects table (name, summary, latest, files held / versions, size) → project page
+  PyPI: projects table (name, summary, latest, files held / versions, size) → project page
   (summary, latest, `pip install` snippet; versions newest first with pre-release and yanked badges, expandable to
   their wheels and sdist with kind, size, cache state, PEP 658 metadata badge, uploader, short sha256). Hosted
   repositories add Yank / Un-yank per version (dialog with an optional reason); groups show their members to browse.
-- **Go** (T-P5-GO): modules table (module path, latest, tagged versions, cached versions, size) → module page
+- **Go**: modules table (module path, latest, tagged versions, cached versions, size) → module page
   (latest, `go get <module>@<latest>` snippet; versions newest first in semver order with pseudo-version,
   pre-release, `+incompatible` and "not in version list" badges, commit time, cache state, expandable to the
   `.info`/`.mod`/`.zip` files held with size, cached time, copyable sha256 and a per-version `go get` snippet).
   Groups show their members to browse. The repository form's Go options: checksum database proxy and verification
   toggles, database name and URL, private module patterns (GONOSUMDB syntax, chips).
-- **Terraform** (T-P5-TFP): providers table (address `<hostname>/<namespace>/<type>`, latest, versions listed,
+- **Terraform**: providers table (address `<hostname>/<namespace>/<type>`, latest, versions listed,
   archives cached, size) → provider page (latest, a copyable `required_providers` entry; versions newest first with
   pre-release and "not in version list" badges, protocols, platform count, cache state, expandable to the archives
   held per platform with size, cached time, copyable `zh:` and `h1:` hashes, and the platforms the registry lists).
   The repository form's Terraform options: origin registries (chips) and the signature verification toggle.
-  T-P5-TFM: a Providers / Modules / Files toggle (`view` query parameter, like yum). Modules table (address
+  a Providers / Modules / Files toggle (`view` query parameter, like yum). Modules table (address
   `<namespace>/<name>/<system>`, latest, versions, archives held, size) → module page (a copyable `module` block;
   versions newest first with pre-release and "not in version list" badges and the archive held, expandable to its
   size, time, copyable sha256, the source the registry gave or the publisher, and downloads). The hosted repository
@@ -196,7 +194,7 @@ Format-aware views are on the Packages tab:
   instance's host name. Create flow: the Hosted tile is enabled for Terraform (one per instance; a second is refused
   with the server's message); proxy options add module archive hosts (chips); the hosted form explains discovery.
 - **apt / yum**: suites/components/arches tree → package list with versions and arch.
-- **Alpine apk** (T-P6-APK, `ApkBrowser.vue`): a Packages / Files toggle like yum. Packages table (name over its
+- **Alpine apk** (`ApkBrowser.vue`): a Packages / Files toggle like yum. Packages table (name over its
   description, latest version, architectures, version count; search) → the package page (`?package=<name>`) with an
   `apk add` copy field and the files newest first in apk version order: version (uploaded by), arch badge,
   branch/repository (directory in a tooltip), build time, license, dependency count (list in a tooltip), size
@@ -212,7 +210,7 @@ repo, size, last downloaded; digest search ("sha256:..." shows every asset using
 ### 4.6 Activity
 Live, filterable event log (virtual scroll, follows tail until the user scrolls): time, type icon, principal,
 repo, artifact, outcome, duration, bytes. Pause/resume, export CSV for the selected range.
-As built (T-U07): newest first; following = new events appear at the top in 4 Hz batches; scrolling away from the
+Newest first; following = new events appear at the top in 4 Hz batches; scrolling away from the
 top or pressing Pause holds them behind an "N new events" pill (Resume or scrolling back to the top applies them).
 Filters (URL keys `kind`, `repo`, `format`, `user`, `cache`, `outcome`, `range` or `from`/`to`) apply to history and
 the live tail alike; a window ending in the past shows "History" and does not follow. Rows open a side drawer with
@@ -222,20 +220,20 @@ duration move to the drawer) and become two-line rows < 900 px.
 ### 4.7 Storage
 Total and free space (from the data dir), growth chart, by-repo table (bytes, % of total, assets, de-dup savings),
 largest artifacts, GC status (last run, bytes reclaimed, next run).
-As built (T-U07): KPIs (stored, free, saved by de-duplication, blobs), data volume bar (Waystation blobs / other
+KPIs (stored, free, saved by de-duplication, blobs), data volume bar (Waystation blobs / other
 files / free, warning under 15 % free), by-format donut, largest repositories bar list, repository table (size,
 share bar, artifacts, average artifact size, de-dup saved; sort and filter in the URL; link to the repository's
-activity). Since 2026-11-21: the growth chart (on disk vs saved by de-duplication from the hourly storage snapshots,
+activity). The growth chart (on disk vs saved by de-duplication from the hourly storage snapshots,
 7d/30d/90d/1y), Largest artifacts with a "Where used" dialog (repositories, paths, docker images using the digest).
-The Blob GC card (T-O02, shared with
-the Cleanup page) shows GC status to admins. The **Low-disk guard** card (T-O03) shows the state (with "since"
+The Blob GC card (shared with
+the Cleanup page) shows GC status to admins. The **Low-disk guard** card shows the state (with "since"
 when tripped), free space, the effective floor and how it is worked out; `settings-admin` users edit the minimum free
 GiB and percent in a dialog.
 
 ### 4.8 Cleanup
 Policies list → editor with criteria builder; **Preview** shows matches (count, bytes, sample table) before
 saving; run history with reclaimed bytes.
-As built (T-O01/T-O02): the policies table (format, criteria chips with protections marked, attached repositories,
+The policies table (format, criteria chips with protections marked, attached repositories,
 last run with progress, schedule and next run, enabled toggle, run now / history / edit / delete); the editor is a
 wide dialog with the form on the left (criteria read as sentences with a switch and an inline value; schedule
 presets manual/daily/weekly/custom cron with a plain-language reading) and a **live impact panel** on the right
@@ -248,7 +246,7 @@ and what they would remove from this repository.
 ### 4.9 Tasks and workers
 Scheduled tasks table (kind, schedule, last result, next run, run now), job runs with progress bars and log
 viewer (live), workers list (host, version, queues, current jobs, heartbeat), dead-letter jobs with retry.
-As built (T-O04, admin only): a **summary strip** (workers online, jobs running, jobs waiting with the oldest wait,
+A **summary strip** (workers online, jobs running, jobs waiting with the oldest wait,
 dead letters tinted when non-zero; each tile opens its tab), then tabs in the URL (`?tab=`): **Scheduled** (task
 named after its kind or owning policy, schedule in words plus the raw cron, last run with progress or error, next
 run, enabled toggle (pausing the stats rollup asks first); run now, its runs, edit schedule in a dialog with presets
@@ -268,7 +266,7 @@ connection" and "Test user lookup"; OIDC form with discovery "Fetch" and "Test l
 revoke), Audit log (filters in the URL: time range, actor, action, target, outcome; detail drawer with the
 change diff, secrets shown only as "changed"; CSV/NDJSON export), Settings (general, docker routing, security, stats retention, UI),
 System (versions, Mongo/Valkey health, storage path, support bundle).
-As built (T-U08): **Users**: table (initials, display name and username, source badge Local/LDAP/OIDC with the
+**Users**: table (initials, display name and username, source badge Local/LDAP/OIDC with the
 provider in a tooltip, direct roles as chips (administrator in amber), local group count, last sign-in, status badge
 Active/Disabled/Locked/Password change pending/Awaiting first sign-in), filters in the URL (`q` username prefix,
 `source`, `status`, `role`), "Load more" keyset paging, a row menu (open, edit, reset password for local accounts,
@@ -289,11 +287,11 @@ the profile's token dialog, secret shown once) and permissions). **Settings**: G
 local administrators", saved at once; turning it on for yourself takes you to the profile page), Docker
 routing (default repository, aliases), and the environment limits read-only with their variable names. **System**:
 version tiles, MongoDB/Valkey cards (status, version, round trip), the data volume bar with a marker at the
-free-space floor; refreshes every 15 s; a "Support bundle" card (T-O10): what the zip holds, a note that secrets are
+free-space floor; refreshes every 15 s; a "Support bundle" card: what the zip holds, a note that secrets are
 removed but host names, repository names and log messages remain (review before sharing), and a primary "Download
 support bundle" button (spinner while the server builds it; success or failure toast). Refusals: 403 shows "Not allowed", 409 "Not possible", with the server's
 reason (dialogs for row actions, a banner in forms). Phones: every table becomes cards with the actions inline.
-**Webhooks** (T-O05, `/admin/webhooks`, rail item for `admin`): one table (webhook icon, name, target URL in mono,
+**Webhooks** (`/admin/webhooks`, rail item for `admin`): one table (webhook icon, name, target URL in mono,
 description; events in words ("All events", "Content: upload, delete"); repository scope; last delivery as a status
 pill Delivered/Queued/Retrying/Failed with when, the event and "HTTP 503 · 198 ms"; on/off toggle; row actions send
 test event, deliveries, and a menu with edit and delete (confirm)). The editor (dialog): name and on/off, payload URL,
@@ -309,7 +307,7 @@ attempts newest first (status icon, HTTP status, latency, error, the answer's fi
 drawer and the table refresh every few seconds while something is queued or retrying. Phones: cards, full-screen
 drawer.
 
-**Provisioning** (T-O09, `/admin/provisioning`, rail item for `admin`): without a configured file, an empty state
+**Provisioning** (`/admin/provisioning`, rail item for `admin`): without a configured file, an empty state
 explaining `WAYSTATION_PROVISION_FILE`. With one: two fact tiles (the file path in mono; the last apply as an
 outcome pill, when, by whom and the short sha256), then the plan card: counts (to create / update / delete,
 unchanged, failed) in the header, the validation errors in a red block when the file is invalid ("nothing can be
@@ -332,7 +330,7 @@ app; the 10 recovery codes follow in a persistent dialog with copy and download 
 browser) that closes only through "I have saved them"; "New recovery codes" (needs a code) and "Turn off"
 (password + code or recovery code); a warning when policy requires it, and the router keeps the user here until
 it is on), my API tokens (create with scopes/expiry, shown once with copy), sessions.
-As built (T-U09): Account (local accounts edit display name and e-mail; provider accounts read-only with a note) and
+Account (local accounts edit display name and e-mail; provider accounts read-only with a note) and
 Appearance (theme, density) side by side, then Password and Two-factor, API tokens, Sessions (browser, address,
 started, last used, expiry; end one, or "Sign out everywhere else").
 
@@ -348,16 +346,14 @@ charts have an accessible table alternative ("View data"), live regions throttle
 every progress tick), full keyboard operation, no information by colour alone.
 
 ## 7. Front-end engineering rules
-- **Mock mode first** (owner priority on speed and early feedback): `npm run dev:mock` runs the whole UI on MSW
-  handlers generated from the contract-first OpenAPI (TASKS T-V01) with seeded fixtures and a fake live-event
-  generator, so every page can be built and reviewed before its server endpoint exists. Keep mock mode working
-  after the real server lands (it is the fastest way to iterate on visuals and to take screenshots).
+- **Mock mode**: `npm run dev:mock` runs the whole UI on MSW handlers that follow the OpenAPI contract, with seeded
+  fixtures and a fake live-event generator, so every page can be developed and reviewed without a server. Mock mode
+  is kept working: it is the fastest way to iterate on visuals and to take screenshots.
   Where things live: contract `Application/Web/openapi/waystation-m0.yaml`, generated types `src/api/schema.d.ts`,
   mocks `src/mocks/` (`handlers.ts`, `world.ts` = live generator, `fixtures/`), live store `src/stores/live.ts`
   (mock mode swaps its source for the generator), strings `src/i18n/en.ts`. Run it with `make frontend-mock`
   (http://localhost:9000/ui/, any username/password; password `wrong` shows the error state). A static mock build
-  (`make frontend-build-mock`) serves the same tour. Screenshot tour: `scripts/screenshots.mjs` (Playwright image; `REAL=1` tours a running stack instead of mocks, as
-  for the M0 tour in `Documents/Notes/UI_TOUR_M0.md`). The mocks apply the server's route rules (`mocks/access.ts`:
+  (`make frontend-build-mock`) serves the same tour. Screenshot tour: `scripts/screenshots.mjs` (Playwright image; `REAL=1` tours a running stack instead of mocks). The mocks apply the server's route rules (`mocks/access.ts`:
   403 `permission_required`, hidden repositories 404, filtered listings, a refused event stream without
   `stats-read`); sign in as `nina` (no role), `reed` (reader), `gus` (the anonymous-access grants only) or `grace`
   (viewer) to see minimal-permission sessions. `make ui-smoke` (`scripts/role-smoke.mjs`, Playwright on the mock
@@ -371,13 +367,13 @@ every progress tick), full keyboard operation, no information by colour alone.
 - Route-level lazy loading; initial route JS < 250 kB gzip (CI bundle budget).
 - i18n-ready (strings via a single `t()` with English catalogue), dates in the user's locale and timezone.
 - Visual regression: Playwright screenshots of key pages in both themes at 3 widths (CI artifact, reviewed on change).
-  As built (T-U09): `make e2e` runs `Application/Web/e2e/` in the pinned Playwright image on the mock build:
+  `make e2e` runs `Application/Web/e2e/` in the pinned Playwright image on the mock build:
   `flows.spec.ts` (E2E), `a11y.spec.ts` (axe, WCAG 2.0/2.1/2.2 A and AA rules, every page, light, dark and phone:
   zero serious or critical), `visual.spec.ts` (9 pages × light/dark × 1440/1024/390 against
   `e2e/__screenshots__`), `perf.spec.ts` (run last, alone: 200 live transfers and a 100,000-file tree). Still mode
   (`ws.mock.still`: no live generator, seeded randomness, fixed clock) makes screenshots repeatable. After an
   intended UI change run `make e2e-update` and review the changed PNGs in the diff.
-- Dev-only showcase `/dev/showcase` (T-U01; dev server and mock builds, not production): every base component in a
+- Dev-only showcase `/dev/showcase` (dev server and mock builds, not production): every base component in a
   `.ws-theme-light` and a `.ws-theme-dark` pane.
 
 ## 8. Brand
@@ -401,4 +397,4 @@ Name: **Waystation**. Tagline: "Every package, one stop."
   weight, a brand-tinted backdrop, one accent, painted only through theme variables (no hard-coded colours, no
   requests). Set: `repositories` (no repositories yet), `cache` (nothing cached yet), `search` (no results / no
   match), `activity` (no activity or transfers), `error` (failed to load), `notFound` (404 and hidden objects),
-  `soon` (planned page or renderer).
+  `soon` (a view a format does not offer).
