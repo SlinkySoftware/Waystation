@@ -1495,6 +1495,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/composer/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Packages of a Composer repository (hosted uploads, a proxy's cached metadata, a group's members) */
+        get: operations["listComposerPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/composer/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One package and its versions (newest first, Composer version order) */
+        get: operations["listComposerVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/yum/packages": {
         parameters: {
             query?: never;
@@ -3810,8 +3848,27 @@ export interface components {
              */
             delete_mode: "unlist" | "delete";
         };
+        /** ComposerOptions */
+        ComposerOptions: {
+            /**
+             * @description Hosts the proxy fetches and caches package archives (dist URLs) from; the upstream URL's host is always allowed too; dist URLs on other hosts are left unchanged (the client fetches them itself). Proxy repositories only
+             * @default [
+             *       "github.com",
+             *       "codeload.github.com",
+             *       "api.github.com",
+             *       "gitlab.com"
+             *     ]
+             */
+            dist_hosts: string[];
+            /**
+             * @description `keep` leaves each version's `source` (VCS) entry in the metadata; `strip` removes it so clients can only install the cached archives (dev branches without an archive become uninstallable). Proxy repositories only
+             * @default keep
+             * @enum {string}
+             */
+            source_mode: "keep" | "strip";
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["NugetOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -4438,6 +4495,50 @@ export interface components {
             version: string;
             /** @description False: unlist the version; true: relist it */
             listed: boolean;
+        };
+        ComposerPackage: {
+            /** @description Package name vendor/name in lower case */
+            name: string;
+            /**
+             * @description Newest stable version, else the newest version
+             * @default null
+             */
+            latest_version: string | null;
+            version_count: number;
+            description?: string | null;
+            /** @description The package type, e.g. library */
+            type?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        ComposerPackagePage: {
+            items: components["schemas"]["ComposerPackage"][];
+            next_cursor: string | null;
+        };
+        ComposerVersion: {
+            /** @description As published, e.g. v1.2.3 or dev-main */
+            version: string;
+            /** @description Normalised version (four numbers and a stability suffix, as Composer writes it) */
+            version_normalized: string;
+            /** @enum {string} */
+            stability: "stable" | "RC" | "beta" | "alpha" | "dev";
+            /** @description The archive is stored */
+            cached: boolean;
+            size_bytes?: number | null;
+            /** Format: date-time */
+            published_at?: string | null;
+            uploaded_by?: string | null;
+            /** @description The source commit or reference of the archive */
+            reference?: string | null;
+            /** @description The archive's repository path */
+            path?: string | null;
+            download_url?: string | null;
+        };
+        ComposerVersionPage: {
+            package: components["schemas"]["ComposerPackage"];
+            /** @description Newest first (Composer version order) */
+            items: components["schemas"]["ComposerVersion"][];
+            next_cursor: string | null;
         };
         YumPackage: {
             name: string;
@@ -8484,6 +8585,63 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listComposerPackages: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerPackagePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listComposerVersions: {
+        parameters: {
+            query: {
+                /** @description Package name vendor/name (case-insensitive) */
+                package: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposerVersionPage"];
+                };
+            };
             404: components["responses"]["NotFound"];
         };
     };

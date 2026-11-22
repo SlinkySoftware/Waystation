@@ -1,0 +1,53 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://repo.packagist.org/p2/psr/container.json"
+  },
+  "response": {
+    "body_sha256": "4800966be768fb7c89bf6863e81e80f952880d539aff5ced80256706de77e75a",
+    "body_size": 4696,
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "content-length",
+        "4696"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ],
+      [
+        "cache-control",
+        "public, max-age=900"
+      ],
+      [
+        "etag",
+        "\"6a439ec0-1331\""
+      ],
+      [
+        "last-modified",
+        "Tue, 30 Jun 2026 10:47:28 GMT"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

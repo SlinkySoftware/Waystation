@@ -14,7 +14,8 @@ Components and versions come from asset paths (``coordinates``) until components
   version shares its rank), module archives ``v1/modules/<namespace>/<name>/<system>/<version>/archive.*`` and
   hosted provider packages ``v1/providers/<namespace>/<type>/<version>/*.zip`` (per module / provider, semver); nuget
   ``v3-flatcontainer/<id>/<version>/<id>.<version>.nupkg`` and its ``.nuspec`` (per package, NuGet version order,
-  both files of a version share its rank); every
+  both files of a version share its rank); composer
+  ``dists/<vendor>/<name>/<version>/<file>`` (per package, Composer version order); every
   other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
@@ -47,6 +48,7 @@ DAY = timedelta(days=1)
 # SCM proxy's cached upstream tarballs are cleanup candidates.
 SWIFT_SCM_PREFIX = '_scm/'
 NUGET_FLAT = 'v3-flatcontainer/'
+COMPOSER_DISTS = 'dists/'
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,11 @@ def coordinates(fmt: str, path: str) -> Coord:
         parts = path.split('/')
         if len(parts) == 4 and parts[1] and parts[2]:  # v3-flatcontainer/<id>/<version>/<file>
             return Coord(parts[1], parts[2], parts[1], True)
+    if fmt == 'composer' and path.startswith(COMPOSER_DISTS):
+        parts = path.split('/')
+        if len(parts) == 5 and all(parts[1:]):  # dists/<vendor>/<name>/<version>/<file>
+            name = f'{parts[1]}/{parts[2]}'
+            return Coord(name, parts[3], name, True)
     if fmt == 'go' and '/@v/' in path and filename.endswith(('.zip', '.mod', '.info')):
         escaped, _, _ = path.partition('/@v/')
         stem = filename.rsplit('.', 1)[0]

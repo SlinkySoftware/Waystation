@@ -1,0 +1,37 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://repo.packagist.org/p2/ws-harness/demo.json"
+  },
+  "response": {
+    "body_sha256": "392115b382d6c23d526906ca001ab18cc94e43607a022c0beeadb63a034cce85",
+    "body_size": 35,
+    "headers": [
+      [
+        "content-type",
+        "text/html"
+      ],
+      [
+        "content-length",
+        "35"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ],
+      [
+        "cache-control",
+        "public, max-age=900"
+      ]
+    ],
+    "status": 404
+  }
+}

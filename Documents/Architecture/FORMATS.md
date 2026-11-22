@@ -38,6 +38,8 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | Go | `module@<canonical version>`, `module@latest`, `module` (= latest) | `@latest` when asked, then the version's `.info`, `.mod`, `.zip` (checked against the checksum database) | `@v/list`, `@latest` (same path) |
 | NuGet | `Package@version` (`Newtonsoft.Json@13.0.3`), `Package` (= the newest stable version, else the newest) | the flat container version list, the version's `.nupkg` (checked and verified against the catalog hash as for a client) and `.nuspec` | version lists (`v3-flatcontainer/<id>/index.json`) and registration indexes (`v3/registration/<id>/index.json`) |
 
+| Composer | `vendor/name:version` (`monolog/monolog:3.8.1`, any spelling that normalises the same; `dev-main` reads the `~dev` document), `vendor/name` (= the newest stable version, else the newest) | the package's `p2` document, the version's archive when the repository serves it (checked, verified and pinned as for a client) | `p2` documents (tagged and `~dev`, same path) |
+
 Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
 below). Left for later: PyPI (`project==version`), Helm (`chart@version`), Galaxy, Terraform, Swift.
 
@@ -1005,8 +1007,60 @@ Client: cargo with `sparse+https://.../repository/<repo>/index/`.
 Compact index (`/versions`, `/info/<gem>`, `/names`) + `/gems/<name>.gem`, `/quick/Marshal.4.8/*.gemspec.rz`;
 hosted `POST /api/v1/gems`. Clients: gem, bundler.
 
-## Composer — Phase 6
-`packages.json` with `metadata-url` (`/p2/%package%.json`); dist URLs rewritten; proxy only. Client: composer 2.
+## Composer — Phase 6 (built, T-P6-COMPOSER)
+Composer 2 repositories (`formats/composer/`), proxy, hosted and group. Client: composer 2 (`Operations/clients/composer.md`).
+
+**Layout** (`/repository/<repo>/`): `packages.json` (rendered per request: `{"packages": [], "metadata-url":
+"<repo>/p2/%package%.json"}`; Composer 2 only, no `providers`; hosted repositories add `available-packages`, a group
+of hosted members only their union; a proxy passes on its upstream's `available-packages` /
+`available-package-patterns`); `p2/<vendor>/<name>.json` (tagged versions) and `p2/<vendor>/<name>~dev.json`
+(branches), minified (`"minified": "composer/2.0"`, `composer/metadata-minifier`); archives
+`dists/<vendor>/<name>/<version>/<file>.zip|.tar` (`<version>`: the normalised version, a branch name with `/` or other
+unsafe characters replaced by a readable, hashed stand-in; `<file>`: the source reference (proxy) or
+`<name>-<version>` (hosted)); hosted `PUT`/`DELETE packages/upload/<vendor>/<name>/<version>`. Names are
+`vendor/name`, lower case (Composer's rule); versions are normalised as Composer's `VersionParser` does
+(`waystation_common.composer`: four numbers and an expanded stability suffix, so `v1.2`, `1.2` and `1.2.0` are one
+version and `1.0-b2` is beta 2 of 1.0; branches `1.x-dev`, `dev-<branch>`).
+
+**Proxy** (upstream URL: a Composer 2 repository, e.g. `https://repo.packagist.org`):
+- The upstream's `packages.json` is cached as metadata (`_upstream/packages.json`, reduced to `metadata-url`, which
+  must be on the upstream's host, and its available-package lists). A repository that only has `providers` is
+  refused (502).
+- `p2` documents are cached as metadata (revalidated after the metadata max age; Packagist answers `If-Modified-Since`),
+  bounded (64 MiB, 20,000 versions), expanded, validated (entries without a valid version skipped; only the keys
+  Composer repositories publish kept: `scripts` and anything else are dropped), rewritten and stored minified (served
+  by X-Accel). A `dist` of type `zip`/`tar` on an allowed host (option `dist_hosts`, default `github.com`,
+  `codeload.github.com`, `api.github.com`, `gitlab.com`, plus the upstream's host) points at
+  `dists/...` of the repository; the upstream URL is kept in the entry as `dist.ws-upstream-url` (ignored by
+  Composer), so the stored document alone says where an archive comes from. Other `dist` URLs are left as they are
+  (the client fetches them itself). `source` entries are kept or removed (option `source_mode`: `keep`/`strip`).
+  Option changes apply as documents are refreshed.
+- Archives are cached as content (at most 256 MiB, kept forever): a GitHub API zipball
+  (`api.github.com/repos/<o>/<r>/zipball/<ref>`, rate-limited) is fetched from `codeload.github.com/<o>/<r>/legacy.zip/<ref>`
+  directly when that host is allowed (the same bytes the API redirects to). Before an archive is committed it is
+  checked (readable zip/tar, zip-slip and zip-bomb guards, no links or special files in a tar), verified against the
+  entry's `shasum` (SHA-1) when it has one, and against the SHA-256 **pinned** when the archive was first cached
+  (`composer_packages.pins`; Packagist's `shasum` is usually empty): an archive refetched after cleanup must be the
+  same bytes. Redirects are followed by the engine with the SSRF guard on every hop.
+- A package summary (`composer_packages`) is written in the background when a tagged `p2` document is cached.
+
+**Hosted**: `PUT packages/upload/<vendor>/<name>/<version>` with the zip as the body (`curl --upload-file`, as Nexus's
+Composer plugin): at most 256 MiB, quota first; `composer.json` at the root or in the single top-level folder, at most
+1 MiB, a JSON object whose `name` (when given) is the uploaded package and whose `version` (when given) normalises to
+the uploaded one; the published fields kept (the same allowlist, at most 256 KiB). SHA-1 of the zip = `shasum` and
+`reference`. Write policies as everywhere (`disable_redeploy` → 409 for a version that normalises the same). `DELETE`
+on the same path removes the version. Uploads need `write`, deletes `delete`; both are audited (`composer_package`).
+`p2` documents are rendered per request from the assets (`ETag`, `304`).
+
+**Group**: `p2` documents merged per package (the first member that has a version, by normalised version, wins it;
+newest first), archive URLs pointing at the group; archives from the first member that stores or caches them, else
+the proxy members in order. No writable member: upload to the hosted repository.
+
+**Components, cleanup, browse**: archives are the component files (`dists/<vendor>/<name>/<version>/...`, per package);
+Composer version order (`dev-*` branches first, then numbers, `-dev` < alpha < beta < RC < stable < patch) for
+`version_sort`, cleanup and the browse views (`GET composer/packages`, `GET composer/versions?package=`); global search
+finds packages by name. Prefetch: see "Prefetch". Nexus: `composer-*` repositories (the Composer plugin's) are
+imported with default options; content is kept forever (pinned).
 
 ## Conda — Phase 6
 Channel `channeldata.json`, `<subdir>/repodata.json(.zst)` (metadata), `.conda`/`.tar.bz2` (content, sha256 from
