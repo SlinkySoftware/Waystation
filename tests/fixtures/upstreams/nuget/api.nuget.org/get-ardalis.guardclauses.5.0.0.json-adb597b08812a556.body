@@ -1,0 +1,216 @@
+{
+  "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json",
+  "@type": [
+    "PackageDetails",
+    "catalog:Permalink"
+  ],
+  "authors": "Steve Smith (@ardalis)",
+  "catalog:commitId": "dd73e2db-1aa9-4ffc-9e5e-8cffea8ff616",
+  "catalog:commitTimeStamp": "2024-09-30T18:36:38.5073205Z",
+  "created": "2024-09-30T18:33:16.01Z",
+  "description": "A simple package by @ardalis and @nimblepros with guard clause helper methods. See docs for how to extend using your own extension methods defined in your project.",
+  "iconFile": "icon.png",
+  "id": "Ardalis.GuardClauses",
+  "isPrerelease": false,
+  "lastEdited": "2024-09-30T18:36:03.437Z",
+  "licenseFile": "LICENSE",
+  "licenseUrl": "https://aka.ms/deprecateLicenseUrl",
+  "listed": true,
+  "packageHash": "eHeeaQoDPH1ry4dqaOgjWWTtkyoPZFKQyzjdLLnJoIP3ak/J4vxHI4ko5PVRfIG2DhBNDXFWgjR8rpRSBizm0Q==",
+  "packageHashAlgorithm": "SHA512",
+  "packageSize": 168259,
+  "projectUrl": "https://github.com/ardalis/guardclauses",
+  "published": "2024-09-30T18:33:16.01Z",
+  "readmeFile": "README.md",
+  "releaseNotes": "* Updating to 5.0 because 4.6 had breaking logic (see #354)\n            * Updated Obsolete message for Guard.Against.Expression to clarify reversal of logic (#457)",
+  "repository": "",
+  "title": "Ardalis.GuardClauses",
+  "verbatimVersion": "5.0.0",
+  "version": "5.0.0",
+  "dependencyGroups": [
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#dependencygroup/net8.0",
+      "@type": "PackageDependencyGroup",
+      "targetFramework": "net8.0"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#dependencygroup/.netstandard2.0",
+      "@type": "PackageDependencyGroup",
+      "targetFramework": ".NETStandard2.0"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#dependencygroup/.netstandard2.1",
+      "@type": "PackageDependencyGroup",
+      "targetFramework": ".NETStandard2.1"
+    }
+  ],
+  "packageEntries": [
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#Ardalis.GuardClauses.nuspec",
+      "@type": "PackageEntry",
+      "compressedLength": 676,
+      "fullName": "Ardalis.GuardClauses.nuspec",
+      "length": 1313,
+      "name": "Ardalis.GuardClauses.nuspec"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#lib/net8.0/Ardalis.GuardClauses.pdb",
+      "@type": "PackageEntry",
+      "compressedLength": 10933,
+      "fullName": "lib/net8.0/Ardalis.GuardClauses.pdb",
+      "length": 20768,
+      "name": "Ardalis.GuardClauses.pdb"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#lib/netstandard2.0/Ardalis.GuardClauses.pdb",
+      "@type": "PackageEntry",
+      "compressedLength": 10344,
+      "fullName": "lib/netstandard2.0/Ardalis.GuardClauses.pdb",
+      "length": 19472,
+      "name": "Ardalis.GuardClauses.pdb"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#lib/netstandard2.1/Ardalis.GuardClauses.pdb",
+      "@type": "PackageEntry",
+      "compressedLength": 9645,
+      "fullName": "lib/netstandard2.1/Ardalis.GuardClauses.pdb",
+      "length": 18364,
+      "name": "Ardalis.GuardClauses.pdb"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#lib/net8.0/Ardalis.GuardClauses.dll",
+      "@type": "PackageEntry",
+      "compressedLength": 15439,
+      "fullName": "lib/net8.0/Ardalis.GuardClauses.dll",
+      "length": 38912,
+      "name": "Ardalis.GuardClauses.dll"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#lib/net8.0/Ardalis.GuardClauses.xml",
+      "@type": "PackageEntry",
+      "compressedLength": 14423,
+      "fullName": "lib/net8.0/Ardalis.GuardClauses.xml",
+      "length": 119707,
+      "name": "Ardalis.GuardClauses.xml"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#lib/netstandard2.0/Ardalis.GuardClauses.dll",
+      "@type": "PackageEntry",
+      "compressedLength": 15631,
+      "fullName": "lib/netstandard2.0/Ardalis.GuardClauses.dll",
+      "length": 39936,
+      "name": "Ardalis.GuardClauses.dll"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#lib/netstandard2.0/Ardalis.GuardClauses.xml",
+      "@type": "PackageEntry",
+      "compressedLength": 14561,
+      "fullName": "lib/netstandard2.0/Ardalis.GuardClauses.xml",
+      "length": 122763,
+      "name": "Ardalis.GuardClauses.xml"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#lib/netstandard2.1/Ardalis.GuardClauses.dll",
+      "@type": "PackageEntry",
+      "compressedLength": 15318,
+      "fullName": "lib/netstandard2.1/Ardalis.GuardClauses.dll",
+      "length": 38912,
+      "name": "Ardalis.GuardClauses.dll"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#lib/netstandard2.1/Ardalis.GuardClauses.xml",
+      "@type": "PackageEntry",
+      "compressedLength": 14561,
+      "fullName": "lib/netstandard2.1/Ardalis.GuardClauses.xml",
+      "length": 122763,
+      "name": "Ardalis.GuardClauses.xml"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#LICENSE",
+      "@type": "PackageEntry",
+      "compressedLength": 645,
+      "fullName": "LICENSE",
+      "length": 1089,
+      "name": "LICENSE"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#icon.png",
+      "@type": "PackageEntry",
+      "compressedLength": 27526,
+      "fullName": "icon.png",
+      "length": 27524,
+      "name": "icon.png"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#README.md",
+      "@type": "PackageEntry",
+      "compressedLength": 2203,
+      "fullName": "README.md",
+      "length": 5269,
+      "name": "README.md"
+    },
+    {
+      "@id": "https://api.nuget.org/v3/catalog0/data/2024.09.30.18.36.38/ardalis.guardclauses.5.0.0.json#.signature.p7s",
+      "@type": "PackageEntry",
+      "compressedLength": 12926,
+      "fullName": ".signature.p7s",
+      "length": 12926,
+      "name": ".signature.p7s"
+    }
+  ],
+  "tags": [
+    "guard",
+    "clause",
+    "clauses",
+    "assert",
+    "assertion"
+  ],
+  "@context": {
+    "@vocab": "http://schema.nuget.org/schema#",
+    "catalog": "http://schema.nuget.org/catalog#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+    "dependencies": {
+      "@id": "dependency",
+      "@container": "@set"
+    },
+    "dependencyGroups": {
+      "@id": "dependencyGroup",
+      "@container": "@set"
+    },
+    "packageEntries": {
+      "@id": "packageEntry",
+      "@container": "@set"
+    },
+    "packageTypes": {
+      "@id": "packageType",
+      "@container": "@set"
+    },
+    "supportedFrameworks": {
+      "@id": "supportedFramework",
+      "@container": "@set"
+    },
+    "tags": {
+      "@id": "tag",
+      "@container": "@set"
+    },
+    "vulnerabilities": {
+      "@id": "vulnerability",
+      "@container": "@set"
+    },
+    "published": {
+      "@type": "xsd:dateTime"
+    },
+    "created": {
+      "@type": "xsd:dateTime"
+    },
+    "lastEdited": {
+      "@type": "xsd:dateTime"
+    },
+    "catalog:commitTimeStamp": {
+      "@type": "xsd:dateTime"
+    },
+    "reasons": {
+      "@container": "@set"
+    }
+  }
+}

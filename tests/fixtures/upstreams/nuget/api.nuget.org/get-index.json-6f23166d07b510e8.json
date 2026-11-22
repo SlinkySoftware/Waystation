@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://api.nuget.org/v3/registration5-gz-semver2/ardalis.guardclauses/index.json"
+  },
+  "response": {
+    "body_sha256": "6a8f4c4ba3718bc594c3f89003ae3823a1f6785f43ad5503e3880f1a5cb36f52",
+    "body_size": 93945,
+    "headers": [
+      [
+        "content-length",
+        "93945"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "last-modified",
+        "Mon, 30 Sep 2024 18:37:28 GMT"
+      ],
+      [
+        "etag",
+        "0x8DCE17EEF9EAD4C"
+      ],
+      [
+        "expires",
+        "Sun, 22 Nov 2026 11:19:06 GMT"
+      ],
+      [
+        "cache-control",
+        "max-age=0, no-cache, no-store"
+      ],
+      [
+        "vary",
+        "Accept-Encoding"
+      ]
+    ],
+    "status": 200
+  }
+}

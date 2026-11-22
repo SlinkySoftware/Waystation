@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://codeload.github.com/php-fig/container/legacy.zip/c71ecc56dfe541dbd90c5360474fbc405f8d5963"
+  },
+  "response": {
+    "body_sha256": "3111f5b69d3a0f690f5f92d7aeacfb247f5ebd3c175088cce4b098e5d1b06ad7",
+    "body_size": 3631,
+    "headers": [
+      [
+        "content-disposition",
+        "attachment; filename=php-fig-container-2.0.2-0-gc71ecc5.zip"
+      ],
+      [
+        "content-length",
+        "3631"
+      ],
+      [
+        "content-type",
+        "application/zip"
+      ],
+      [
+        "etag",
+        "\"42c304f664949b8ed74442bfbd98bafcde5c6ebd7578ce5adf8379f38aa2de64\""
+      ],
+      [
+        "vary",
+        "Authorization,Accept-Encoding"
+      ]
+    ],
+    "status": 200
+  }
+}

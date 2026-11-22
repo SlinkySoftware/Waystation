@@ -25,6 +25,9 @@ from waystation_server.browse.models import (
     CargoBrowser,
     CargoCratePage,
     CargoVersionPage,
+    ComposerBrowser,
+    ComposerPackagePage,
+    ComposerVersionPage,
     DockerBrowser,
     DockerImagePage,
     DockerManifest,
@@ -47,6 +50,10 @@ from waystation_server.browse.models import (
     NpmBrowser,
     NpmPackagePage,
     NpmVersionPage,
+    NugetBrowser,
+    NugetListing,
+    NugetPackagePage,
+    NugetVersionPage,
     PypiBrowser,
     PypiProjectPage,
     PypiVersionPage,
@@ -516,6 +523,116 @@ async def list_helm_versions(
     repo: RepoConfig = request.state.repo
     browser = _helm(svc, repo)
     return await browser.versions(_context(svc, repo), chart=chart, cursor=cursor, limit=limit)
+
+
+# ---------------------------------------------------------------------------- nuget
+def _nuget(svc: Services, repo: RepoConfig) -> NugetBrowser:
+    browser = _browser(svc, repo, 'nuget')
+    if not isinstance(browser, NugetBrowser):
+        raise NotFound('not a NuGet repository')
+    return browser
+
+
+@router.get(
+    '/repositories/{name}/nuget/packages',
+    response_model=NugetPackagePage,
+    operation_id='listNugetPackages',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_nuget_packages(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> NugetPackagePage:
+    repo: RepoConfig = request.state.repo
+    browser = _nuget(svc, repo)
+    return await browser.packages(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/nuget/versions',
+    response_model=NugetVersionPage,
+    operation_id='listNugetVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_nuget_versions(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    package: Annotated[str, Query(max_length=100, description='Package id (case-insensitive)')],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> NugetVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _nuget(svc, repo)
+    return await browser.versions(_context(svc, repo), package=package, cursor=cursor, limit=limit)
+
+
+@router.post(
+    '/repositories/{name}/nuget/listing',
+    response_model=NugetListing,
+    operation_id='setNugetListing',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.WRITE)
+async def set_nuget_listing(name: str, request: Request, svc: ServicesDep, body: NugetListing) -> NugetListing:
+    """Hosted repositories: unlist or relist a version. Needs `write`."""
+    repo: RepoConfig = request.state.repo
+    browser = _nuget(svc, repo)
+    return await browser.listing(_context(svc, repo), body)
+
+
+# ---------------------------------------------------------------------------- composer
+def _composer(svc: Services, repo: RepoConfig) -> ComposerBrowser:
+    browser = _browser(svc, repo, 'composer')
+    if not isinstance(browser, ComposerBrowser):
+        raise NotFound('not a Composer repository')
+    return browser
+
+
+@router.get(
+    '/repositories/{name}/composer/packages',
+    response_model=ComposerPackagePage,
+    operation_id='listComposerPackages',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_composer_packages(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> ComposerPackagePage:
+    repo: RepoConfig = request.state.repo
+    browser = _composer(svc, repo)
+    return await browser.packages(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/composer/versions',
+    response_model=ComposerVersionPage,
+    operation_id='listComposerVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_composer_versions(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    package: Annotated[str, Query(max_length=200, description='Package name vendor/name (case-insensitive)')],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> ComposerVersionPage:
+    repo: RepoConfig = request.state.repo
+    browser = _composer(svc, repo)
+    return await browser.versions(_context(svc, repo), package=package, cursor=cursor, limit=limit)
 
 
 # ---------------------------------------------------------------------------- yum

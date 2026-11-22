@@ -28,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from upstream_store import Exchange, FixtureStore, RequestKey, scrub_response
+from upstream_store import Exchange, FixtureStore, RequestKey, identity_body, scrub_response
 
 HOP_BY_HOP = frozenset(
     {
@@ -167,7 +167,8 @@ class Handler(BaseHTTPRequestHandler):
             data = b'' if self.command == 'HEAD' else resp.read(self.config.max_body + 1)
             if len(data) > self.config.max_body:
                 raise ValueError(f'upstream body exceeds HARNESS_MAX_BODY_MB ({self.config.max_body} bytes)')
-            return Exchange(resp.status, [(k, v) for k, v in resp.getheaders()], data)
+            kept, data = identity_body([(k, v) for k, v in resp.getheaders()], data, self.config.max_body)
+            return Exchange(resp.status, kept, data)
         finally:
             conn.close()
 

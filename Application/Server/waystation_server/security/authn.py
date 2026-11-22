@@ -9,7 +9,9 @@ Order:
    - a bare API token without a scheme (Cargo sends its registry token as the whole header value);
    - ``Bearer <jwt>`` on ``/v2/``: a Docker registry token (``registry_auth``; ``/v2/`` accepts nothing else, so API
      tokens there are ignored and the client gets the Bearer challenge);
-3. else ``anonymous``.
+3. without an ``Authorization`` header, ``X-NuGet-ApiKey: <api-token>`` on ``/repository/...`` (``dotnet nuget push``
+   and ``delete``; a value that is not a valid API token is refused like a bad header);
+4. else ``anonymous``.
 
 Credentials that are presented but not valid are refused (401) rather than downgraded to anonymous, so a revoked
 or expired token never silently keeps working through anonymous access: an ``Authorization`` header outside
@@ -42,6 +44,7 @@ from waystation_server.services import Services
 
 TOKEN_ONLY = 'use an API token as the password'  # noqa: S105 - a message
 INVALID = 'invalid credentials'
+NUGET_API_KEY = 'x-nuget-apikey'
 
 
 def user_principal(
@@ -116,10 +119,20 @@ async def _from_session(services: Services, request: Request) -> Principal | Non
     return principal
 
 
+async def _from_api_key(services: Services, request: Request) -> Principal | None:
+    """NuGet's ``X-NuGet-ApiKey`` (``dotnet nuget push/delete --api-key``): an API token, on format routes only."""
+    key = request.headers.get(NUGET_API_KEY, '').strip()
+    if not key or not request.url.path.startswith('/repository/'):
+        return None
+    if not looks_like_token(key):
+        raise Unauthorized(INVALID)
+    return await services.tokens.authenticate(key, client_ip=client_address(request))
+
+
 async def _from_header(services: Services, request: Request) -> Principal | None:
     header = request.headers.get('authorization', '')
     if not header:
-        return None
+        return await _from_api_key(services, request)
     registry = request.url.path == '/v2' or request.url.path.startswith('/v2/')
     scheme, _, credentials = header.partition(' ')
     credentials = credentials.strip()

@@ -36,6 +36,8 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | raw | a file path of the repository | that file | metadata paths (`metadata_path_regex`) |
 | Maven | `groupId:artifactId:version[:extension[:classifier]]` (no snapshots) | the POM, then the artifact: the given extension/classifier, else what `<packaging>` implies (`pom`: nothing more; `war`, `ear`, `aar`, `rar`, `zip`: that; otherwise `jar`) | `maven-metadata.xml` (same path) |
 | Go | `module@<canonical version>`, `module@latest`, `module` (= latest) | `@latest` when asked, then the version's `.info`, `.mod`, `.zip` (checked against the checksum database) | `@v/list`, `@latest` (same path) |
+| NuGet | `Package@version` (`Newtonsoft.Json@13.0.3`), `Package` (= the newest stable version, else the newest) | the flat container version list, the version's `.nupkg` (checked and verified against the catalog hash as for a client) and `.nuspec` | version lists (`v3-flatcontainer/<id>/index.json`) and registration indexes (`v3/registration/<id>/index.json`) |
+| Composer | `vendor/name:version` (`monolog/monolog:3.8.1`, any spelling that normalises the same; `dev-main` reads the `~dev` document), `vendor/name` (= the newest stable version, else the newest) | the package's `p2` document, the version's archive when the repository serves it (checked, verified and pinned as for a client) | `p2` documents (tagged and `~dev`, same path) |
 | Cargo | `crate@<exact SemVer version>` (`serde@1.0.228`), `crate` (= highest non-yanked release) | the crate's index file, then the version's `.crate` (verified against the index `cksum`) | index files `index/<prefix>/<crate>` (same path) |
 
 Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
@@ -936,6 +938,65 @@ Service index `index.json` (resources: `PackageBaseAddress/3.0.0` flat container
 `SearchQueryService`, `PackagePublish/2.0.0`). Rewrite every resource URL; registration pages contain absolute
 URLs (rewrite); `.nupkg` content validated against catalog/registration hash when available. Hosted push with
 `X-NuGet-ApiKey` = API token. Clients: dotnet CLI, nuget.exe (smoke).
+- Versions (`waystation_common.nuget`): `Major[.Minor[.Patch[.Revision]]][-label][+metadata]`; normalised = no
+  leading zeros, three numbers at least, the fourth only when not 0, metadata kept (registrations); package URLs use
+  the normalised version without metadata, lower case (`01.2.3` → `1.2.3`, `1.0.0-Beta` → `1.0.0-beta`). Order:
+  numbers, then a release after its prereleases, labels by dot-separated identifiers (numeric before text,
+  case-insensitive), metadata ignored. SemVer 2.0.0 versions (dotted label or metadata) are hidden from clients that do
+  not send `semVerLevel=2.0.0`. Ids: letters, digits, `.`, `_`, `-`, at most 100, compared case-insensitively.
+- Built (T-P6-NUGET, `formats/nuget/`):
+  - Routes under `/repository/<repo>/`: `index.json` (service index, rendered per request for every type, absolute
+    URLs from `WAYSTATION_BASE_URL`: `v3-flatcontainer/` as `PackageBaseAddress/3.0.0`, `v3/registration/` as every
+    `RegistrationsBaseUrl` variant (SemVer 2 included), `query` as every `SearchQueryService` variant, and
+    `api/v2/package` as `PackagePublish/2.0.0` for hosted repositories and groups with a writable member);
+    `v3-flatcontainer/<id>/index.json`, `.../<version>/<id>.<version>.nupkg`, `.../<version>/<id>.nuspec`;
+    `v3/registration/<id>/index.json` and (proxies) the upstream's pages and leaves below it; `query`;
+    `PUT api/v2/package`, `DELETE`/`POST api/v2/package/<id>/<version>`. Ids and versions in paths are normalised
+    (a zero fourth number or leading zeros name the same asset). `_upstream/` and `_catalog/` are asset keys, never routes.
+  - Proxy (upstream URL = a v3 service index; without `.json` `/index.json` is appended): the upstream's service
+    index cached as metadata `_upstream/index.json`, reduced to `PackageBaseAddress/3.0.0`, the best registration hive
+    (`3.6.0`, `Versioned`, `3.4.0`, ..., i.e. SemVer 2 first), every registration hive (search answers may name any)
+    and `SearchQueryService`. Version lists and registrations (index, pages, leaves) are metadata, JSON-validated
+    (≤ 64 MiB; nuget.org's `registration5-gz` hives arrive gzip-encoded) and rewritten: every string under an upstream
+    registration hive or the flat container now points at the repository; catalog `@id`s stay upstream identifiers.
+    `.nupkg` and `.nuspec` are content. A package is checked before it is committed (`CheckedExpected`, in a thread):
+    a zip whose entry names are safe (`\` read as `/`; no absolute paths, drive letters, `..`, NUL/control
+    characters), at most 100,000 entries and 16 GiB declared, no encryption, exactly one root `.nuspec` (≤ 1 MiB,
+    decompressed bounded) parsed by defusedxml that names the requested id and version. With `verify_catalog`
+    (default) the version's registration leaf is found (pages not inlined are fetched through the repository's own
+    routes, at most 64) and its catalog leaf, on a host the upstream's resources use, is cached as
+    `_catalog/<id>/<version>.json` (id, version, `packageHash`, `packageHashAlgorithm`, `packageSize`; ten-year max
+    age): the package must match its SHA-512 and size. Without a catalog entry only the package check applies.
+    Search passes through to the upstream's `SearchQueryService` (`relay`: not cached, bounded, `q`/`skip` ≤ 3000/
+    `take` ≤ 1000/`prerelease`/`semVerLevel`), URLs rewritten.
+  - Hosted (`hosted.py`): push = the first file part of a multipart body (what dotnet and NuGet.exe send) or the raw
+    body, streamed into the blob store (≤ 512 MiB, hard quota first, live upload transfer), checked as above and hashed
+    (SHA-512 for `packageHash`); stored as `v3-flatcontainer/<id>/<version>/<id>.<version>.nupkg` with
+    `assets.nuget` details, plus its `.nuspec`; the first push decides how the id is spelled. Write policy as for every
+    hosted format (`disable_redeploy` → `409`). `DELETE` unlists (`delete_mode: unlist`, default: kept, restorable,
+    `listed: false` and nuget.org's `1900-01-01` published date in registrations, left out of search) or removes both
+    files (`delete`); `POST` relists. Version lists (all versions, unlisted included, as nuget.org), registrations
+    (one inlined page; leaves `<version>.json`) and local search (terms match the id, title, tags or description;
+    `id:`/`packageid:` exact) are rendered per request (`ETag`, `304`, `HEAD`). Auth: `X-NuGet-ApiKey` = API token on
+    requests without an `Authorization` header (`security.authn`); pushes need `write`, deletes `delete`. Audited
+    `content.upload`/`content.update`/`content.delete` (`nuget_package`).
+  - Group (`group.py`): service index; version lists = union; registrations = every member's leaves (proxy pages
+    fetched and inlined) in one page, first member wins a version, URLs re-prefixed to the group; leaves/pages from
+    the first member that has them; files from the first member that holds them, else proxy members in order
+    (`X-Ws-Group-Member`); search = the members' answers merged (first wins per id, then `skip`/`take`); pushes and
+    deletes to the writable member (RBAC on the member).
+  - Browse/search: `nuget_packages` summaries (proxy: background after a version list or registration is cached;
+    hosted: on every change); `nuget/packages`, `nuget/versions`, `POST nuget/listing`; global search kind `package`.
+    Components: the `.nupkg` (`<id>`, normalised version, NuGet `version_sort`); cleanup ranks versions per package
+    in NuGet order (`.nupkg` and `.nuspec` share the version's rank).
+  - Prefetch: warm `Package@version` or `Package` (newest stable listed); refresh of version lists and registration
+    indexes.
+  - Clients verified (harness, recorded api.nuget.org fixtures of `Ardalis.GuardClauses` 5.0.0): .NET 10 SDK
+    (`dotnet restore`/`build` through proxy, hosted and group, `dotnet list package --outdated`, `pack`,
+    `nuget push` (directly and through the group), `nuget delete` (unlist), `package search`), the push API with the
+    API key alone (curl).
+  - Not yet: NuGet.exe in the harness (needs Windows or Mono), symbol packages (`.snupkg`, `SymbolPackagePublish`),
+    `SearchAutocompleteService`, vulnerability data, NuGet v2 upstreams, the live smoke.
 
 ## Cargo (sparse index) — Phase 6
 Specs: Cargo's registry index (sparse protocol, RFC 2789), registry web API (`cargo publish`/`yank`/`owner`/`search`),
@@ -1000,8 +1061,60 @@ registry authentication (RFC 3139, `auth-required`). Client: `sparse+<base>/repo
 Compact index (`/versions`, `/info/<gem>`, `/names`) + `/gems/<name>.gem`, `/quick/Marshal.4.8/*.gemspec.rz`;
 hosted `POST /api/v1/gems`. Clients: gem, bundler.
 
-## Composer — Phase 6
-`packages.json` with `metadata-url` (`/p2/%package%.json`); dist URLs rewritten; proxy only. Client: composer 2.
+## Composer — Phase 6 (built, T-P6-COMPOSER)
+Composer 2 repositories (`formats/composer/`), proxy, hosted and group. Client: composer 2 (`Operations/clients/composer.md`).
+
+**Layout** (`/repository/<repo>/`): `packages.json` (rendered per request: `{"packages": [], "metadata-url":
+"<repo>/p2/%package%.json"}`; Composer 2 only, no `providers`; hosted repositories add `available-packages`, a group
+of hosted members only their union; a proxy passes on its upstream's `available-packages` /
+`available-package-patterns`); `p2/<vendor>/<name>.json` (tagged versions) and `p2/<vendor>/<name>~dev.json`
+(branches), minified (`"minified": "composer/2.0"`, `composer/metadata-minifier`); archives
+`dists/<vendor>/<name>/<version>/<file>.zip|.tar` (`<version>`: the normalised version, a branch name with `/` or other
+unsafe characters replaced by a readable, hashed stand-in; `<file>`: the source reference (proxy) or
+`<name>-<version>` (hosted)); hosted `PUT`/`DELETE packages/upload/<vendor>/<name>/<version>`. Names are
+`vendor/name`, lower case (Composer's rule); versions are normalised as Composer's `VersionParser` does
+(`waystation_common.composer`: four numbers and an expanded stability suffix, so `v1.2`, `1.2` and `1.2.0` are one
+version and `1.0-b2` is beta 2 of 1.0; branches `1.x-dev`, `dev-<branch>`).
+
+**Proxy** (upstream URL: a Composer 2 repository, e.g. `https://repo.packagist.org`):
+- The upstream's `packages.json` is cached as metadata (`_upstream/packages.json`, reduced to `metadata-url`, which
+  must be on the upstream's host, and its available-package lists). A repository that only has `providers` is
+  refused (502).
+- `p2` documents are cached as metadata (revalidated after the metadata max age; Packagist answers `If-Modified-Since`),
+  bounded (64 MiB, 20,000 versions), expanded, validated (entries without a valid version skipped; only the keys
+  Composer repositories publish kept: `scripts` and anything else are dropped), rewritten and stored minified (served
+  by X-Accel). A `dist` of type `zip`/`tar` on an allowed host (option `dist_hosts`, default `github.com`,
+  `codeload.github.com`, `api.github.com`, `gitlab.com`, plus the upstream's host) points at
+  `dists/...` of the repository; the upstream URL is kept in the entry as `dist.ws-upstream-url` (ignored by
+  Composer), so the stored document alone says where an archive comes from. Other `dist` URLs are left as they are
+  (the client fetches them itself). `source` entries are kept or removed (option `source_mode`: `keep`/`strip`).
+  Option changes apply as documents are refreshed.
+- Archives are cached as content (at most 256 MiB, kept forever): a GitHub API zipball
+  (`api.github.com/repos/<o>/<r>/zipball/<ref>`, rate-limited) is fetched from `codeload.github.com/<o>/<r>/legacy.zip/<ref>`
+  directly when that host is allowed (the same bytes the API redirects to). Before an archive is committed it is
+  checked (readable zip/tar, zip-slip and zip-bomb guards, no links or special files in a tar), verified against the
+  entry's `shasum` (SHA-1) when it has one, and against the SHA-256 **pinned** when the archive was first cached
+  (`composer_packages.pins`; Packagist's `shasum` is usually empty): an archive refetched after cleanup must be the
+  same bytes. Redirects are followed by the engine with the SSRF guard on every hop.
+- A package summary (`composer_packages`) is written in the background when a tagged `p2` document is cached.
+
+**Hosted**: `PUT packages/upload/<vendor>/<name>/<version>` with the zip as the body (`curl --upload-file`, as Nexus's
+Composer plugin): at most 256 MiB, quota first; `composer.json` at the root or in the single top-level folder, at most
+1 MiB, a JSON object whose `name` (when given) is the uploaded package and whose `version` (when given) normalises to
+the uploaded one; the published fields kept (the same allowlist, at most 256 KiB). SHA-1 of the zip = `shasum` and
+`reference`. Write policies as everywhere (`disable_redeploy` → 409 for a version that normalises the same). `DELETE`
+on the same path removes the version. Uploads need `write`, deletes `delete`; both are audited (`composer_package`).
+`p2` documents are rendered per request from the assets (`ETag`, `304`).
+
+**Group**: `p2` documents merged per package (the first member that has a version, by normalised version, wins it;
+newest first), archive URLs pointing at the group; archives from the first member that stores or caches them, else
+the proxy members in order. No writable member: upload to the hosted repository.
+
+**Components, cleanup, browse**: archives are the component files (`dists/<vendor>/<name>/<version>/...`, per package);
+Composer version order (`dev-*` branches first, then numbers, `-dev` < alpha < beta < RC < stable < patch) for
+`version_sort`, cleanup and the browse views (`GET composer/packages`, `GET composer/versions?package=`); global search
+finds packages by name. Prefetch: see "Prefetch". Nexus: `composer-*` repositories (the Composer plugin's) are
+imported with default options; content is kept forever (pinned).
 
 ## Conda — Phase 6
 Channel `channeldata.json`, `<subdir>/repodata.json(.zst)` (metadata), `.conda`/`.tar.bz2` (content, sha256 from

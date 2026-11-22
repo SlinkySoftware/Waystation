@@ -71,6 +71,8 @@ const FORMATS: { format: Format; available: boolean; phase?: number }[] = [
   { format: 'terraform', available: true },
   { format: 'swift', available: true },
   { format: 'cargo', available: true },
+  { format: 'nuget', available: true },
+  { format: 'composer', available: true },
 ]
 const TYPES: RepositoryType[] = ['proxy', 'hosted', 'group']
 

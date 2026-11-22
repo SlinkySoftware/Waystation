@@ -82,7 +82,7 @@ class AuditAction(StrEnum):
     REPOSITORY_TEST_UPSTREAM = 'repository.test_upstream'
     CONTENT_UPLOAD = 'content.upload'
     CONTENT_DELETE = 'content.delete'
-    CONTENT_UPDATE = 'content.update'  # stored content changed in place (PyPI yank / un-yank)
+    CONTENT_UPDATE = 'content.update'  # stored content changed in place (PyPI yank / un-yank, NuGet unlist / relist)
     CLEANUP_RUN = 'cleanup.run'
     CLEANUP_POLICY_CREATE = 'cleanup_policy.create'
     CLEANUP_POLICY_UPDATE = 'cleanup_policy.update'

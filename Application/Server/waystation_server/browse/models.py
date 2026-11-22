@@ -244,6 +244,82 @@ class HelmVersionPage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- nuget
+class NugetPackage(BaseModel):
+    name: str = Field(description='Package id in lower case (as in package URLs)')
+    id: str = Field(description='Package id as its author spelled it')
+    latest_version: str | None = Field(default=None, description='Newest stable version, else the newest version')
+    version_count: int
+    description: str | None = None
+    authors: str | None = None
+    updated_at: datetime | None = None
+
+
+class NugetPackagePage(BaseModel):
+    items: list[NugetPackage]
+    next_cursor: str | None
+
+
+class NugetVersion(BaseModel):
+    version: str = Field(description='Normalised version')
+    prerelease: bool
+    listed: bool
+    cached: bool
+    size_bytes: int | None = None
+    published_at: datetime | None = None
+    uploaded_by: str | None = None
+    path: str
+    download_url: str
+
+
+class NugetVersionPage(BaseModel):
+    package: NugetPackage
+    items: list[NugetVersion]
+    next_cursor: str | None
+
+
+class NugetListing(BaseModel):
+    package: str = Field(max_length=100)
+    version: str = Field(max_length=200)
+    listed: bool = Field(description='False: unlist the version; true: relist it')
+
+
+# ---------------------------------------------------------------------------- composer
+class ComposerPackage(BaseModel):
+    name: str = Field(description='Package name vendor/name (lower case)')
+    latest_version: str | None = Field(default=None, description='Newest stable version, else the newest version')
+    version_count: int
+    description: str | None = None
+    type: str | None = Field(default=None, description='Package type, e.g. library')
+    updated_at: datetime | None = None
+
+
+class ComposerPackagePage(BaseModel):
+    items: list[ComposerPackage]
+    next_cursor: str | None
+
+
+class ComposerVersion(BaseModel):
+    version: str = Field(description='Version as published, e.g. v1.2.3 or dev-main')
+    version_normalized: str = Field(
+        description='Normalised version (four numbers and a stability suffix, as Composer writes it)'
+    )
+    stability: Literal['stable', 'RC', 'beta', 'alpha', 'dev']
+    cached: bool = Field(description='The archive is stored')
+    size_bytes: int | None = None
+    published_at: datetime | None = None
+    uploaded_by: str | None = None
+    reference: str | None = Field(default=None, description='Source reference (commit) of the archive')
+    path: str | None = Field(default=None, description="The archive's repository path")
+    download_url: str | None = None
+
+
+class ComposerVersionPage(BaseModel):
+    package: ComposerPackage
+    items: list[ComposerVersion]
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- yum
 class YumPackage(BaseModel):
     name: str
@@ -777,6 +853,31 @@ class YumBrowser(Protocol):
 
     async def versions(self, ctx: BrowseContext, *, package: str, cursor: str | None, limit: int) -> YumVersionPage:
         """One package's files, newest EVR first; raises ``NotFound`` for an unknown package."""
+
+
+@runtime_checkable
+class ComposerBrowser(Protocol):
+    async def packages(
+        self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int
+    ) -> ComposerPackagePage:
+        """Packages by name (hosted: uploaded; proxy: metadata cached; group: the members')."""
+
+    async def versions(
+        self, ctx: BrowseContext, *, package: str, cursor: str | None, limit: int
+    ) -> ComposerVersionPage:
+        """One package's versions, newest first; raises ``NotFound`` for an unknown package."""
+
+
+@runtime_checkable
+class NugetBrowser(Protocol):
+    async def packages(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> NugetPackagePage:
+        """Packages by id (hosted: pushed; proxy: version list cached; group: the members')."""
+
+    async def versions(self, ctx: BrowseContext, *, package: str, cursor: str | None, limit: int) -> NugetVersionPage:
+        """One package's versions, newest first; raises ``NotFound`` for an unknown package."""
+
+    async def listing(self, ctx: BrowseContext, body: NugetListing) -> NugetListing:
+        """Hosted: unlist or relist a version; raises ``NotFound`` when there is none."""
 
 
 @runtime_checkable

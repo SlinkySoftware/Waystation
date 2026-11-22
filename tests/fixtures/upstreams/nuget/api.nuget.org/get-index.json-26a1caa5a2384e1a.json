@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://api.nuget.org/v3/index.json"
+  },
+  "response": {
+    "body_sha256": "5e763505b0587d013ddda3ddb24e80d3c6590ac6ce60916d4278fb9df018e07f",
+    "body_size": 9431,
+    "headers": [
+      [
+        "content-length",
+        "9431"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "last-modified",
+        "Fri, 13 Nov 2026 23:47:00 GMT"
+      ],
+      [
+        "etag",
+        "0x8DF41E0697B64E8"
+      ],
+      [
+        "expires",
+        "Sun, 22 Nov 2026 11:19:06 GMT"
+      ],
+      [
+        "cache-control",
+        "max-age=0, no-cache, no-store"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -1868,6 +1868,112 @@ paths:
               schema: { $ref: '#/components/schemas/HelmVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/nuget/packages:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listNugetPackages
+      summary: Packages of a NuGet repository (hosted pushes, a proxy's cached version lists, a group's members)
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NugetPackagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/nuget/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listNugetVersions
+      summary: One package and its versions (newest first, NuGet version order)
+      parameters:
+        - name: package
+          in: query
+          required: true
+          description: Package id (case-insensitive)
+          schema: { type: string, maxLength: 100 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NugetVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/nuget/listing:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    post:
+      tags: [browse]
+      operationId: setNugetListing
+      summary: Unlist or relist a version of a hosted NuGet repository (needs `write`)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NugetListing' }
+      responses:
+        '200':
+          description: The version's listing state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NugetListing' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/composer/packages:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listComposerPackages
+      summary: Packages of a Composer repository (hosted uploads, a proxy's cached metadata, a group's members)
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComposerPackagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/composer/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listComposerVersions
+      summary: One package and its versions (newest first, Composer version order)
+      parameters:
+        - name: package
+          in: query
+          required: true
+          description: Package name vendor/name (case-insensitive)
+          schema: { type: string, maxLength: 200 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComposerVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/yum/packages:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4613,6 +4719,27 @@ components:
       type: object
       description: 'Cargo (sparse registries): no options yet'
       properties: {}
+    NugetOptions:
+      type: object
+      properties:
+        verify_catalog: { type: boolean, default: true, description: 'Verify each package downloaded from the upstream against the SHA-512 hash and size its catalog entry publishes, when the upstream has a catalog (nuget.org does). Every package is also checked to be a readable NuGet package whose .nuspec names the requested id and version (proxy repositories)' }
+        delete_mode: { type: string, enum: [unlist, delete], default: unlist, description: '`dotnet nuget delete` on a hosted repository: `unlist` hides the version from search and version resolution but keeps it restorable (as nuget.org does); `delete` removes it' }
+    ComposerOptions:
+      title: ComposerOptions
+      type: object
+      additionalProperties: false
+      properties:
+        dist_hosts:
+          type: array
+          maxItems: 50
+          items: { type: string, minLength: 1, maxLength: 253 }
+          default: [github.com, codeload.github.com, api.github.com, gitlab.com]
+          description: "Hosts the proxy fetches and caches package archives (dist URLs) from; the upstream URL's host is always allowed too; dist URLs on other hosts are left unchanged (the client fetches them itself). Proxy repositories only"
+        source_mode:
+          type: string
+          enum: [keep, strip]
+          default: keep
+          description: "`keep` leaves each version's `source` (VCS) entry in the metadata; `strip` removes it so clients can only install the cached archives (dev branches without an archive become uninstallable). Proxy repositories only"
     FormatOptions:
       description: Format-specific options; the shape follows the repository's `format`
       oneOf:
@@ -4629,6 +4756,8 @@ components:
         - $ref: '#/components/schemas/TerraformOptions'
         - $ref: '#/components/schemas/SwiftOptions'
         - $ref: '#/components/schemas/CargoOptions'
+        - $ref: '#/components/schemas/NugetOptions'
+        - $ref: '#/components/schemas/ComposerOptions'
     QuotaMode:
       type: string
       enum: [soft, hard]
@@ -5344,6 +5473,97 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/HelmVersion' }
+        next_cursor: { type: [string, 'null'] }
+    NugetPackage:
+      type: object
+      required: [name, id, version_count]
+      properties:
+        name: { type: string, description: 'Package id in lower case (as in package URLs)' }
+        id: { type: string, description: 'Package id as its author spelled it' }
+        latest_version: { type: [string, 'null'], description: 'Newest stable version, else the newest version' }
+        version_count: { type: integer }
+        description: { type: [string, 'null'] }
+        authors: { type: [string, 'null'] }
+        updated_at: { type: [string, 'null'], format: date-time }
+    NugetPackagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/NugetPackage' }
+        next_cursor: { type: [string, 'null'] }
+    NugetVersion:
+      type: object
+      required: [version, prerelease, listed, cached, path, download_url]
+      properties:
+        version: { type: string, description: Normalised version }
+        prerelease: { type: boolean }
+        listed: { type: boolean, description: 'False: unlisted (hidden from search and version resolution, still restorable)' }
+        cached: { type: boolean, description: 'The .nupkg is held by this repository (always true in hosted repositories)' }
+        size_bytes: { type: [integer, 'null'] }
+        published_at: { type: [string, 'null'], format: date-time }
+        uploaded_by: { type: [string, 'null'], description: 'Hosted: who pushed it' }
+        path: { type: string, description: Path of the .nupkg in the repository }
+        download_url: { type: string }
+    NugetVersionPage:
+      type: object
+      required: [package, items, next_cursor]
+      properties:
+        package: { $ref: '#/components/schemas/NugetPackage' }
+        items:
+          type: array
+          description: Newest first (NuGet version order)
+          items: { $ref: '#/components/schemas/NugetVersion' }
+        next_cursor: { type: [string, 'null'] }
+    NugetListing:
+      type: object
+      required: [package, version, listed]
+      properties:
+        package: { type: string, maxLength: 100 }
+        version: { type: string, maxLength: 200 }
+        listed: { type: boolean, description: 'False: unlist the version; true: relist it' }
+    ComposerPackage:
+      type: object
+      required: [name, version_count]
+      properties:
+        name: { type: string, description: 'Package name vendor/name in lower case' }
+        latest_version: { type: [string, 'null'], default: null, description: 'Newest stable version, else the newest version' }
+        version_count: { type: integer }
+        description: { type: [string, 'null'] }
+        type: { type: [string, 'null'], description: 'The package type, e.g. library' }
+        updated_at: { type: [string, 'null'], format: date-time }
+    ComposerPackagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ComposerPackage' }
+        next_cursor: { type: [string, 'null'] }
+    ComposerVersion:
+      type: object
+      required: [version, version_normalized, stability, cached]
+      properties:
+        version: { type: string, description: 'As published, e.g. v1.2.3 or dev-main' }
+        version_normalized: { type: string, description: 'Normalised version (four numbers and a stability suffix, as Composer writes it)' }
+        stability: { type: string, enum: [stable, RC, beta, alpha, dev] }
+        cached: { type: boolean, description: 'The archive is stored' }
+        size_bytes: { type: [integer, 'null'] }
+        published_at: { type: [string, 'null'], format: date-time }
+        uploaded_by: { type: [string, 'null'] }
+        reference: { type: [string, 'null'], description: 'The source commit or reference of the archive' }
+        path: { type: [string, 'null'], description: "The archive's repository path" }
+        download_url: { type: [string, 'null'] }
+    ComposerVersionPage:
+      type: object
+      required: [package, items, next_cursor]
+      properties:
+        package: { $ref: '#/components/schemas/ComposerPackage' }
+        items:
+          type: array
+          description: Newest first (Composer version order)
+          items: { $ref: '#/components/schemas/ComposerVersion' }
         next_cursor: { type: [string, 'null'] }
     YumPackage:
       type: object

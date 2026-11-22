@@ -49,6 +49,8 @@ GALAXY_IMPORTS = 'galaxy_imports'  # hosted collection uploads waiting for (or d
 SWIFT_RELEASES = 'swift_releases'  # Swift package releases: published (hosted) or pinned from a Git tag (proxy)
 SWIFT_PACKAGES = 'swift_packages'  # one summary per Swift package (browse, global search)
 CARGO_CRATES = 'cargo_crates'  # one summary per crate a Cargo repository has (browse, global search)
+NUGET_PACKAGES = 'nuget_packages'  # one summary per NuGet package id a repository has (browse, global search, hosted)
+COMPOSER_PACKAGES = 'composer_packages'  # one summary per Composer package a repository has (browse, search, pins)
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -521,6 +523,24 @@ SPECS: tuple[CollectionSpec, ...] = (
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             # Hosted publish: crate names that differ only in case or '-'/'_' are the same crate (as on crates.io).
             _ix('repo_canonical', [('repo_id', ASCENDING), ('canonical', ASCENDING)]),
+            *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        NUGET_PACKAGES,
+        (
+            # One summary per package id (lower case) a repository has: cached version list (proxy) or pushes
+            # (hosted); browse lists them by id, hosted search filters them.
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        COMPOSER_PACKAGES,
+        (
+            # One summary per package name (vendor/name, lower case) a repository has: cached metadata (proxy) or
+            # uploads (hosted); browse lists them by name; a proxy's archive digests are pinned here.
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=False),
         ),
     ),

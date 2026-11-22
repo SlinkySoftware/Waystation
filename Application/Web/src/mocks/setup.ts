@@ -422,6 +422,73 @@ function pypi(repo: Repository): SetupClient[] {
   return clients
 }
 
+/** NuGet: the v3 service index for dotnet and NuGet.exe; push, delete (unlist) for hosted repositories and writable groups. */
+function nuget(repo: Repository): SetupClient[] {
+  const index = `${BASE_URL}/repository/${repo.name}/index.json`
+  const writable = repo.type === 'hosted' || (repo.type === 'group' && Boolean(repo.group?.writable_member))
+  const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupClient['snippets'][number] => ({ id, title, description, language, filename, os: null, content })
+  const config = `<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="waystation" value="${index}" protocolVersion="3" />
+  </packageSources>
+  <packageSourceCredentials>
+    <waystation>
+      <add key="Username" value="{{USERNAME}}" />
+      <add key="ClearTextPassword" value="{{TOKEN}}" />
+    </waystation>
+  </packageSourceCredentials>
+</configuration>`
+  const dotnet: SetupClient['snippets'] = [
+    s('dotnet-source', 'Add the source', `dotnet nuget add source ${index} --name waystation`),
+    s('dotnet-source-auth', 'With credentials (when anonymous reads are not allowed)', `dotnet nuget add source ${index} --name waystation --username {{USERNAME}} --password {{TOKEN}} --store-password-in-clear-text`, 'shell', null, 'An API token is the password. --store-password-in-clear-text is needed on Linux and macOS, where dotnet cannot encrypt it.'),
+    s('nuget-config', 'Or per solution (nuget.config)', config, 'xml', 'nuget.config', '<clear /> makes this repository the only source: restores never reach nuget.org directly. Leave out packageSourceCredentials when anonymous reads are allowed.'),
+    s('dotnet-add', 'Add a package', 'dotnet add package Newtonsoft.Json\ndotnet restore'),
+  ]
+  if (writable) {
+    dotnet.push(
+      s('dotnet-push', 'Push a package', `dotnet pack -c Release\ndotnet nuget push bin/Release/MyLib.1.0.0.nupkg --source ${index} --api-key {{TOKEN}}`, 'shell', null, 'The API key is an API token with write permission on this repository.'),
+      s('dotnet-delete', 'Delete or unlist a version', `dotnet nuget delete MyLib 1.0.0 --source ${index} --api-key {{TOKEN}} --non-interactive`, 'shell', null, 'The repository\'s delete setting decides: unlist (hidden from search and version resolution, still restorable) or delete.'),
+    )
+  }
+  const nugetExe: SetupClient['snippets'] = [
+    s('nuget-exe-source', 'Add the source', `nuget sources add -Name waystation -Source ${index}`),
+    s('nuget-exe-source-auth', 'With credentials (when anonymous reads are not allowed)', `nuget sources add -Name waystation -Source ${index} -Username {{USERNAME}} -Password {{TOKEN}}`),
+    s('nuget-exe-install', 'Install a package', 'nuget install Newtonsoft.Json -Source waystation'),
+  ]
+  if (writable) nugetExe.push(s('nuget-exe-push', 'Push a package', `nuget push MyLib.1.0.0.nupkg -Source ${index} -ApiKey {{TOKEN}}`))
+  return [
+    { id: 'dotnet', label: 'dotnet CLI', snippets: dotnet },
+    { id: 'nuget-exe', label: 'NuGet.exe', snippets: nugetExe },
+  ]
+}
+
+/** Composer: the repository in a project (config or composer.json), auth.json credentials; upload and delete for hosted repositories. */
+function composer(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const host = new URL(BASE_URL).host
+  const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupClient['snippets'][number] => ({ id, title, description, language, filename, os: null, content })
+  const members = repo.type === 'group' ? `One repository for the members, in order: ${(repo.group?.members ?? []).join(', ')}. ` : ''
+  const json = `{\n  "repositories": [\n    {"type": "composer", "url": "${url}"},\n    {"packagist.org": false}\n  ]\n}`
+  const snippets: SetupClient['snippets'] = [
+    s('composer-repo', 'Use this repository in a project', `composer config repositories.waystation composer ${url}\ncomposer config repositories.packagist.org false`, 'shell', null, `${members}The second line stops Composer asking packagist.org directly.`),
+  ]
+  if (BASE_URL.startsWith('http:')) snippets.push(s('composer-secure-http', 'Allow plain HTTP', 'composer config secure-http false'))
+  snippets.push(
+    s('composer-auth', 'Credentials (auth.json)', `composer config http-basic.${host} {{USERNAME}} {{TOKEN}}`, 'shell', null, 'An API token is the password; leave it out when anonymous reads are allowed.'),
+    s('composer-json', 'Or in composer.json', json, 'json', 'composer.json'),
+    s('composer-require', 'Add a package', 'composer require monolog/monolog'),
+  )
+  if (repo.type === 'hosted') {
+    snippets.push(
+      s('composer-upload', 'Upload a package', `cd my-package && zip -r ../acme-demo-1.0.0.zip . -x '.git/*' 'vendor/*'\ncurl -u {{USERNAME}}:{{TOKEN}} --upload-file ../acme-demo-1.0.0.zip ${url}packages/upload/acme/demo/1.0.0`, 'shell', null, 'The zip holds composer.json at its root (or in one top-level folder); its name must be acme/demo. Needs the write permission.'),
+      s('composer-delete', 'Delete a version', `curl -u {{USERNAME}}:{{TOKEN}} -X DELETE ${url}packages/upload/acme/demo/1.0.0`, 'shell', null, 'Needs the delete permission.'),
+    )
+  }
+  return [{ id: 'composer', label: 'Composer', snippets }]
+}
+
 /** Go: GOPROXY (the checksum database through the repository), private modules, .netrc credentials. */
 function go(repo: Repository): SetupClient[] {
   const url = `${BASE_URL}/repository/${repo.name}`
@@ -529,7 +596,7 @@ function terraformHosted(repo: Repository, host: string, s: Snip): SetupClient[]
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {

@@ -148,13 +148,22 @@ Format-aware views are on the Packages tab:
   referrers (signatures, SBOM) list, pull commands by tag and by digest). As built: the referrers list sits under
   the platform switcher (kind badge Signature / SBOM / Attestation / Artifact from the artifact type, type, digest,
   size, created), for the index and the selected platform's manifest.
-- **npm / PyPI / Maven / NuGet / Helm / Galaxy / Swift**: package → versions table (version, published, size,
+- **npm / PyPI / Maven / NuGet / Composer / Helm / Galaxy / Swift**: package → versions table (version, published, size,
   downloads, deprecated/yanked flags), README rendered safely (sanitised markdown, no raw HTML), dependencies.
   As built for npm (T-U05): a Versions / README switch (`?view=readme`); `MarkdownView` renders markdown-it tokens as
   VNodes (raw HTML stays text, headings shifted below the page's, links only http(s)/mailto/#, new tab without a
   referrer, images shown as links named by their alt text: no external requests).
   npm (T-P5-NPMH): hosted repositories show "N versions" and a Versions column instead of the cache columns
   (everything they list is stored); dist-tags and deprecation badges as for proxies.
+  Built for NuGet (T-P6-NUGET, `NugetBrowser.vue`): packages table (id as spelled, authors and description, latest
+  version, version count, updated; search), then the package page with a `dotnet add package` copy field and the
+  versions newest first in NuGet order (prerelease and unlisted badges, pushed by, published, size, cached state,
+  copy URL, download); hosted repositories offer Unlist / Relist per version (the server decides: `write`).
+  Built for Composer (T-P6-COMPOSER, `ComposerBrowser.vue`): packages table (vendor/name, type and description,
+  latest version, version count, updated; search), then the package page with a `composer require` copy field and the
+  versions newest first in Composer order (stability badge for RC / beta / alpha / dev, uploaded by, source reference
+  as a short hash, published, size, cached state, copy URL and download when the archive is stored). The repository
+  form shows the proxy's archive hosts (a host list) and whether VCS sources stay in the metadata (keep / strip).
   Built for Maven (T-P5-MAVEN): artifacts table (artifactId over its groupId, latest, version count, filter by
   groupId or artifactId) → versions table (Maven order, SNAPSHOT badge, files, size, deployed by; a copyable
   `<dependency>` snippet) → the version's files (name, size, modified, copy download URL).

@@ -4,6 +4,8 @@ format's version order, so "latest N" and "versions newest first" are index sort
 - npm, go, galaxy, terraform, helm, swift, cargo: SemVer 2.0 precedence (``waystation_common.galaxy.version_sort``;
   go and other ``v``-prefixed versions drop the ``v``); anything that is not SemVer sorts before every SemVer version;
 - pypi: PEP 440 (``waystation_common.cleanup.versions.pep440_sort_string``);
+- nuget: NuGet version order (``waystation_common.nuget.sort_string``: four numbers, case-insensitive labels);
+- composer: Composer version order (``waystation_common.composer.sort_string``: stability suffixes, branches first);
 - maven: Maven ``ComparableVersion`` (``versionsort.maven.sort_key``);
 - yum: RPM ``rpmvercmp`` on ``version-release`` (``versionsort.rpm``; an ``epoch:`` prefix is honoured);
 - apt: dpkg order (``dpkg_sort_string``);
@@ -17,7 +19,9 @@ from __future__ import annotations
 import re
 
 from waystation_common.cleanup.versions import pep440_sort_string
+from waystation_common.composer import sort_string as composer_sort_string
 from waystation_common.galaxy import version_sort as semver_sort_string
+from waystation_common.nuget import sort_string as nuget_sort_string
 from waystation_common.versionsort import maven, rpm
 
 MAX_KEY = 400
@@ -93,6 +97,10 @@ def version_sort(fmt: str, version: str | None) -> str:
         return semver_sort_string(version[1:] if version.startswith('v') else version)[:MAX_KEY]
     if fmt == 'pypi':
         return pep440_sort_string(version)[:MAX_KEY]
+    if fmt == 'nuget':
+        return nuget_sort_string(version)[:MAX_KEY]
+    if fmt == 'composer':
+        return composer_sort_string(version)[:MAX_KEY]
     if fmt == 'maven':
         return maven.sort_key(version)
     if fmt == 'yum':

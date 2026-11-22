@@ -270,6 +270,15 @@ services:
         COPY --from=front /tlsfront /usr/local/bin/tlsfront
     image: waystation-harness-swift:6.4.3-1  # bump the suffix when the Dockerfile above changes
     user: "0:0"
+  client-dotnet:  # the .NET SDK (dotnet restore/build/pack, dotnet nuget push/delete, dotnet package search; nuget format)
+    <<: *client
+    image: mcr.microsoft.com/dotnet/sdk:10.0.404-noble
+    user: "0:0"
+  client-composer:  # the composer CLI with PHP, zip, unzip and curl (composer format)
+    <<: *client
+    image: composer:2.11.2
+    entrypoint: []  # the image's entrypoint would run `sh` as a composer command (`composer show`)
+    user: "0:0"
   client-skopeo:  # registry API pulls without a daemon (docker format)
     <<: *client
     image: quay.io/skopeo/stable:v1.20

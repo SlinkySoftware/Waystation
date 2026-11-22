@@ -108,7 +108,7 @@ def test_apt_yum_npm_raw() -> None:
     assert npm.notes == ['no detail']
 
 
-@pytest.mark.parametrize('fmt', ['pypi', 'go'])
+@pytest.mark.parametrize('fmt', ['pypi', 'go', 'nuget', 'composer'])
 def test_verified_content_is_kept_forever(fmt: str) -> None:
     raw = nexus_repos()['github-releases']  # a proxy whose content ages after 10080 minutes in Nexus
     entry = {**raw.entry, 'name': f'{fmt}-proxy', 'format': fmt}

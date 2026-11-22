@@ -48,9 +48,11 @@ from waystation_common.db.collections import (
     ASSETS,
     CARGO_CRATES,
     COMPONENTS,
+    COMPOSER_PACKAGES,
     DOCKER_TAGS,
     GO_MODULES,
     NPM_PACKAGES,
+    NUGET_PACKAGES,
     PYPI_PACKAGES,
     SWIFT_PACKAGES,
     TERRAFORM_MODULES,
@@ -144,6 +146,24 @@ SOURCES: tuple[Source, ...] = (
         'pypi',
         ('name_lc',),
         {'name': 1, 'display_name': 1, 'latest': 1, 'updated_at': 1},
+        version_field='latest',
+    ),
+    Source(
+        'nuget',
+        NUGET_PACKAGES,
+        'package',
+        'nuget',
+        ('name_lc',),
+        {'name': 1, 'display_name': 1, 'latest': 1, 'updated_at': 1},
+        version_field='latest',
+    ),
+    Source(
+        'composer',
+        COMPOSER_PACKAGES,
+        'package',
+        'composer',
+        ('name_lc',),
+        {'name': 1, 'latest': 1, 'updated_at': 1},
         version_field='latest',
     ),
     Source(
@@ -495,6 +515,10 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {}
     if repo.format == 'pypi' and path.startswith('packages/') and path.count('/') == 2:
         return {'project': path.split('/')[1]}
+    if repo.format == 'nuget' and path.startswith('v3-flatcontainer/') and path.count('/') >= 2:
+        return {'package': path.split('/')[1]}
+    if repo.format == 'composer' and path.startswith('dists/') and path.count('/') >= 3:
+        return {'package': '/'.join(path.split('/')[1:3])}
     if repo.format == 'go' and '/@v/' in path:
         return {'module': _GO_BANG.sub(lambda m: m.group(1).upper(), path.split('/@v/', 1)[0])}
     if repo.format == 'terraform' and path.startswith('v1/modules/') and path.count('/') >= 5:
@@ -569,6 +593,30 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 sha256=None,
                 cached=True,
                 browse=SearchBrowseLink(repository=repo.name, query={'project': str(doc['name'])}),
+            )
+        case 'nuget':
+            return SearchHit(
+                **common,
+                name=str(doc.get('display_name') or doc['name']),
+                version=doc.get('latest'),
+                qualifier=None,
+                path=None,
+                size=None,
+                sha256=None,
+                cached=True,
+                browse=SearchBrowseLink(repository=repo.name, query={'package': str(doc['name'])}),
+            )
+        case 'composer':
+            return SearchHit(
+                **common,
+                name=str(doc['name']),
+                version=doc.get('latest'),
+                qualifier=None,
+                path=None,
+                size=None,
+                sha256=None,
+                cached=True,
+                browse=SearchBrowseLink(repository=repo.name, query={'package': str(doc['name'])}),
             )
         case 'cargo':
             return SearchHit(
