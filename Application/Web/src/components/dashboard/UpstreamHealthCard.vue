@@ -16,19 +16,13 @@
             <span class="text-faint">p95</span> {{ formatLatency(u.p95_latency_ms) }}
           </span>
         </div>
-        <div v-if="u.rate_limit" class="ups__gauge">
-          <GaugeChart
-            :value="u.rate_limit.remaining"
-            :max="u.rate_limit.limit"
-            :size="84"
-            :tone="u.rate_limit.remaining / u.rate_limit.limit < 0.2 ? 'warning' : 'ok'"
-            :label="t('dashboard.upstreams.rateLimit')"
-            :caption="t('ui.gauge.ofLimit', { limit: u.rate_limit.limit })"
-            :value-text="t('dashboard.upstreams.pullsLeft', { remaining: u.rate_limit.remaining, limit: u.rate_limit.limit })"
-          />
-          <div class="ups__gauge-text">
+        <div v-if="u.rate_limit" class="ups__limit">
+          <div class="ups__limit-text">
             <span>{{ t('dashboard.upstreams.pullsLeft', { remaining: u.rate_limit.remaining, limit: u.rate_limit.limit }) }}</span>
             <span v-if="u.rate_limit.reset_at" class="text-muted">{{ t('dashboard.upstreams.resetsIn', { time: formatDuration(Math.max(0, (Date.parse(u.rate_limit.reset_at) - now) / 1000)) }) }}</span>
+          </div>
+          <div class="ups__bar" role="meter" :aria-valuenow="u.rate_limit.remaining" aria-valuemin="0" :aria-valuemax="u.rate_limit.limit" :aria-label="t('dashboard.upstreams.rateLimit')">
+            <div class="ups__bar-fill" :class="{ 'ups__bar-fill--low': share(u.rate_limit) < 0.2 }" :style="{ width: `${share(u.rate_limit) * 100}%` }" />
           </div>
         </div>
         <div v-if="u.status === 'blocked' && u.blocked_until" class="ups__note ups__note--blocked">
@@ -47,7 +41,6 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 
 import { api, call } from '@/api/client'
 import type { UpstreamHealth } from '@/api/types'
-import GaugeChart from '@/components/charts/GaugeChart.vue'
 import PageCard from '@/components/PageCard.vue'
 import RepoChip from '@/components/RepoChip.vue'
 import StatusPill from '@/components/StatusPill.vue'
@@ -74,6 +67,11 @@ const rows = computed<UpstreamHealth[]>(() =>
 const now = ref(Date.now())
 const timer = setInterval(() => (now.value = Date.now()), 1000)
 onBeforeUnmount(() => clearInterval(timer))
+
+// Share of the pull limit left, 0-1 (a limit of 0 reads as empty).
+function share(limit: { remaining: number; limit: number }): number {
+  return limit.limit > 0 ? Math.min(1, Math.max(0, limit.remaining / limit.limit)) : 0
+}
 
 function clock(seconds: number): string {
   const s = Math.round(seconds)
@@ -110,19 +108,35 @@ function clock(seconds: number): string {
   text-align: right;
 }
 
-.ups__gauge {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 6px;
+.ups__limit {
+  margin-top: 8px;
 }
 
-.ups__gauge-text {
+.ups__limit-text {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  justify-content: space-between;
+  gap: 8px;
   font-size: var(--fs-12);
   font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+
+.ups__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--chart-track);
+  overflow: hidden;
+}
+
+.ups__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--chart-1);
+  transition: width 600ms var(--ease-out);
+}
+
+.ups__bar-fill--low {
+  background: var(--status-degraded);
 }
 
 .ups__note {

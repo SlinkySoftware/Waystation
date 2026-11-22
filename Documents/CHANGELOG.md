@@ -3,6 +3,9 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-U03 (owner feedback): the dashboard's Upstream health card shows the Docker Hub pull limit as a thin meter line
+  again ("142 of 200 pulls left", reset time, amber below 20 %) instead of the gauge dial; the gauge stays in the
+  component showcase.
 - T-M04 dropped (owner): no Nexus hosted-content migration job; MIGRATING_FROM_NEXUS.md and SPECIFICATION say
   hosted content is copied with client tools.
 - T-F03: no scheduled CI any more (owner): the Gitea `clients-live` and `perf` workflows lost their nightly runs.

@@ -84,7 +84,7 @@ Grid, responsive (12 cols ≥ 1440, 8 cols ≥ 1024, 1 col mobile):
    (15 m, 1 h, 24 h, 7 d, 30 d, 90 d, 1 y), crosshair tooltip.
 4. **Format breakdown**: donut of storage by format + legend with sizes.
 5. **Upstream health**: card per proxy repo: status pill, error rate, p95 latency, last error, auto-block
-   countdown, Docker Hub rate-limit gauge ("142 / 200 pulls left, resets in 3 h").
+   countdown, Docker Hub rate-limit meter line ("142 / 200 pulls left, resets in 3 h").
 6. **Top artifacts** (downloads / bytes, toggle; window 24h/7d/30d/all) and **Recently added** (built 2026-11-21:
    one card each, rows link to the artifact in Browse).
 7. **Recent activity** feed (pushes, deletes, cleanup runs, failures), linking to details.
