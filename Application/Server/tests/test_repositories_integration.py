@@ -155,7 +155,7 @@ async def test_field_errors(admin: httpx.AsyncClient) -> None:
         },
     )
     assert fields(private) == {'proxy.upstream_url': 'ssrf'}
-    unknown = await admin.post(API, json=docker_hub(name='cargo-x', format='cargo'))
+    unknown = await admin.post(API, json=docker_hub(name='conda-x', format='conda'))
     assert fields(unknown)['format'] == 'unsupported'
 
 
@@ -275,6 +275,7 @@ async def test_openapi_documents_format_options(client: httpx.AsyncClient) -> No
     schemas = doc['components']['schemas']
     assert {r['$ref'].rsplit('/', 1)[-1] for r in schemas['FormatOptions']['oneOf']} == {
         'AptOptions',
+        'CargoOptions',
         'ComposerOptions',
         'RubygemsOptions',
         'DockerOptions',

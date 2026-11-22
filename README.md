@@ -54,11 +54,12 @@ docker pull ghcr.io/slinkysoftware/waystation-server:0.2.9     # multi-arch: lin
 | Ansible Galaxy collections | yes | yes | yes | ansible-galaxy |
 | NuGet (v3) | yes | yes | yes | dotnet, NuGet.exe |
 | Composer (PHP, v2) | yes | yes | yes | composer |
+| Cargo (sparse registries) | yes | yes | yes | cargo |
 | RubyGems | yes | yes | yes | gem, bundler |
 | Raw files (GitHub releases, any HTTP) | yes | yes | yes | curl, wget |
 
 Client setup for every format is in [`Documents/Operations/clients/`](Documents/Operations/clients/), and each
-repository's "Set me up" panel in the UI shows the exact configuration. Coming next: Cargo,
+repository's "Set me up" panel in the UI shows the exact configuration. Coming next:
 Conda, Alpine apk, Hugging Face, Swift packages, Terraform modules.
 
 ## Get started

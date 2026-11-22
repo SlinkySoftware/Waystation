@@ -15,10 +15,10 @@ Components and versions come from asset paths (``coordinates``) until components
   hosted provider packages ``v1/providers/<namespace>/<type>/<version>/*.zip`` (per module / provider, semver); nuget
   ``v3-flatcontainer/<id>/<version>/<id>.<version>.nupkg`` and its ``.nuspec`` (per package, NuGet version order,
   both files of a version share its rank); composer
-  ``dists/<vendor>/<name>/<version>/<file>`` (per package, Composer version order); rubygems
+  ``dists/<vendor>/<name>/<version>/<file>`` (per package, Composer version order); cargo
+  ``crates/<crate>/<crate>-<version>.crate`` (per crate, SemVer); rubygems
   ``gems/<name>-<version>[-<platform>].gem`` and its ``quick/Marshal.4.8/<same>.gemspec.rz`` (per gem and platform,
-  ``Gem::Version`` order, both files share a rank); every
-  other format
+  ``Gem::Version`` order, both files share a rank); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -169,6 +169,10 @@ def coordinates(fmt: str, path: str) -> Coord:
             provider = '/'.join(parts[2:4])
             return Coord(provider, parts[4], provider, True)
         return Coord(path, filename, _parent(path), False)
+    if fmt == 'cargo' and path.startswith('crates/') and path.count('/') == 2 and filename.endswith('.crate'):
+        crate = path.split('/')[1]
+        if filename.startswith(crate + '-') and len(filename) > len(crate) + 7:
+            return Coord(crate, filename[len(crate) + 1 : -6], crate, True)
     if fmt == 'terraform' and filename.endswith('.zip') and path.count('/') == 6:
         hostname, namespace, kind, version, _ = path.split('/', 4)
         provider = f'{hostname}/{namespace}/{kind}'

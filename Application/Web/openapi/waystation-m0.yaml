@@ -1784,6 +1784,48 @@ paths:
               schema: { $ref: '#/components/schemas/GoVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/cargo/crates:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listCargoCrates
+      summary: Crates cached (proxy) or published (hosted) in a Cargo repository; groups are browsed through their members
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Crates
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CargoCratePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/cargo/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listCargoVersions
+      summary: One crate and its versions from the index (newest first, SemVer)
+      parameters:
+        - name: crate
+          in: query
+          required: true
+          description: Crate name (any case)
+          schema: { type: string, maxLength: 64 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CargoVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/helm/charts:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4715,6 +4757,10 @@ components:
           additionalProperties: { type: string }
           description: 'Scope → owner path on the Git host (proxy repositories), e.g. `{"pointfree": "pointfreeco"}` or a GitLab group path `group/subgroup`. Scopes not listed are the owner name itself, unless `mapped_scopes_only` is set'
         mapped_scopes_only: { type: boolean, default: false, description: 'Serve only the scopes listed in `scopes` (an allowlist of owners on the Git host; proxy repositories)' }
+    CargoOptions:
+      type: object
+      description: 'Cargo (sparse registries): no options yet'
+      properties: {}
     NugetOptions:
       type: object
       properties:
@@ -4757,6 +4803,7 @@ components:
         - $ref: '#/components/schemas/GalaxyOptions'
         - $ref: '#/components/schemas/TerraformOptions'
         - $ref: '#/components/schemas/SwiftOptions'
+        - $ref: '#/components/schemas/CargoOptions'
         - $ref: '#/components/schemas/NugetOptions'
         - $ref: '#/components/schemas/ComposerOptions'
         - $ref: '#/components/schemas/RubygemsOptions'
@@ -5384,6 +5431,55 @@ components:
           type: array
           description: Newest first (semantic version order)
           items: { $ref: '#/components/schemas/GoVersion' }
+        next_cursor: { type: [string, 'null'] }
+    CargoCrate:
+      type: object
+      required: [name, latest, version_count, cached_versions, size_bytes]
+      properties:
+        name: { type: string, description: Crate name as published }
+        description: { type: [string, 'null'] }
+        latest: { type: [string, 'null'], description: 'Highest non-yanked release (SemVer), else the highest version' }
+        version_count: { type: integer, description: Versions in the index }
+        cached_versions: { type: integer, description: '.crate files held: cached (proxy) or published (hosted)' }
+        size_bytes: { type: integer }
+    CargoCratePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CargoCrate' }
+        next_cursor: { type: [string, 'null'] }
+    CargoVersion:
+      type: object
+      required: [version, prerelease, yanked, cksum, cached, dependencies, features, downloads]
+      properties:
+        version: { type: string }
+        prerelease: { type: boolean }
+        yanked: { type: boolean }
+        cksum: { type: string, description: SHA-256 of the .crate (hex) }
+        rust_version: { type: [string, 'null'] }
+        dependencies: { type: integer, description: Number of dependencies }
+        features:
+          type: array
+          description: Feature names
+          items: { type: string }
+        cached: { type: boolean, description: The .crate is held }
+        size: { type: [integer, 'null'] }
+        published_by: { type: [string, 'null'], description: 'Hosted: who published it' }
+        published_at: { type: [string, 'null'], format: date-time }
+        cached_at: { type: [string, 'null'], format: date-time }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer }
+    CargoVersionPage:
+      type: object
+      required: [crate, items, next_cursor]
+      properties:
+        crate: { $ref: '#/components/schemas/CargoCrate' }
+        items:
+          type: array
+          description: Newest first (SemVer)
+          items: { $ref: '#/components/schemas/CargoVersion' }
         next_cursor: { type: [string, 'null'] }
     HelmChart:
       type: object

@@ -13,6 +13,7 @@ import { adminHandlers, AdminWorld } from './admin'
 import { auditHandlers, recordAudit } from './audit'
 import { ADMIN_USER_ID, CUSTOM_ROLES } from './fixtures/admin'
 import { aptPackagesFor, aptSuitesFor } from './fixtures/apt'
+import { cargoCrateList, cargoVersionsFor } from './fixtures/cargo'
 import { ROLES, seedProviders, testConnection, testUser, toConfig, validateProvider } from './fixtures/authProviders'
 import { dockerImagesFor, dockerManifestFor, dockerReferrersFor, dockerTagsFor } from './fixtures/docker'
 import { galaxyCollectionList, galaxyNamespaceList, galaxyVersionsFor } from './fixtures/galaxy'
@@ -162,7 +163,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
     } else if ((body.format === 'yum' || body.format === 'apt' || body.format === 'swift') && body.type === 'group') {
       errors.push({ field: 'type', message: `${body.format} supports: proxy, hosted`, code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget', 'composer', 'rubygems'].includes(body.format)) {
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget', 'composer', 'cargo', 'rubygems'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -800,6 +801,28 @@ export const handlers = [
     const found = pypiVersionsFor(repo.name, repo.type === 'hosted', url.searchParams.get('project') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ project: found.project, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/cargo/crates`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'cargo')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    const q = url.searchParams.get('q')?.trim().toLowerCase()
+    const items = cargoCrateList(repo.type === 'hosted').filter((c) => !q || c.name.toLowerCase().includes(q))
+    return HttpResponse.json(paginate(items, url))
+  }),
+  http.get(`${API}/repositories/:name/cargo/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'cargo')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    const found = cargoVersionsFor(repo.name, repo.type === 'hosted', url.searchParams.get('crate') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ crate: found.crate, ...paginate(found.versions, url) })
   }),
   http.post(`${API}/repositories/:name/pypi/yank`, async ({ request, params }) => {
     const denied = guard(request)

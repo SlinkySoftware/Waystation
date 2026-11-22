@@ -37,8 +37,8 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | Maven | `groupId:artifactId:version[:extension[:classifier]]` (no snapshots) | the POM, then the artifact: the given extension/classifier, else what `<packaging>` implies (`pom`: nothing more; `war`, `ear`, `aar`, `rar`, `zip`: that; otherwise `jar`) | `maven-metadata.xml` (same path) |
 | Go | `module@<canonical version>`, `module@latest`, `module` (= latest) | `@latest` when asked, then the version's `.info`, `.mod`, `.zip` (checked against the checksum database) | `@v/list`, `@latest` (same path) |
 | NuGet | `Package@version` (`Newtonsoft.Json@13.0.3`), `Package` (= the newest stable version, else the newest) | the flat container version list, the version's `.nupkg` (checked and verified against the catalog hash as for a client) and `.nuspec` | version lists (`v3-flatcontainer/<id>/index.json`) and registration indexes (`v3/registration/<id>/index.json`) |
-
 | Composer | `vendor/name:version` (`monolog/monolog:3.8.1`, any spelling that normalises the same; `dev-main` reads the `~dev` document), `vendor/name` (= the newest stable version, else the newest) | the package's `p2` document, the version's archive when the repository serves it (checked, verified and pinned as for a client) | `p2` documents (tagged and `~dev`, same path) |
+| Cargo | `crate@<exact SemVer version>` (`serde@1.0.228`), `crate` (= highest non-yanked release) | the crate's index file, then the version's `.crate` (verified against the index `cksum`) | index files `index/<prefix>/<crate>` (same path) |
 | RubyGems | `gem:version` (`rake:13.2.1`), `gem:version-platform` (`nokogiri:1.18.8-x86_64-linux`), `gem` (= the newest release of the `ruby` platform, else the newest) | the gem's info file, the version's `.gem` (verified against the info checksum as for a client) and its `quick/Marshal.4.8` gemspec | `versions`, `names`, info files (same path) |
 
 Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
@@ -1000,9 +1000,63 @@ URLs (rewrite); `.nupkg` content validated against catalog/registration hash whe
     `SearchAutocompleteService`, vulnerability data, NuGet v2 upstreams, the live smoke.
 
 ## Cargo (sparse index) — Phase 6
-`config.json` (`dl`, `api`), sparse index files at `/<prefix>/<crate>` (metadata), downloads `.crate` validated
-against `cksum` in the index. Hosted publish API (`PUT /api/v1/crates/new`), yank/unyank, owners minimal.
-Client: cargo with `sparse+https://.../repository/<repo>/index/`.
+Specs: Cargo's registry index (sparse protocol, RFC 2789), registry web API (`cargo publish`/`yank`/`owner`/`search`),
+registry authentication (RFC 3139, `auth-required`). Client: `sparse+<base>/repository/<repo>/index/`.
+- Built (T-P6-CARGO, `formats/cargo/`; proxy, hosted and group):
+  - Routes under `/repository/<repo>/`: `index/config.json` (generated per request: `dl` =
+    `<repo>/crates/{crate}/{crate}-{version}.crate`, `api` = the repository URL, `auth-required: true` when the
+    request carried credentials); index files `index/1/<n>`, `index/2/<n>`, `index/3/<c>/<n>`, `index/<ab>/<cd>/<n>`
+    (lower case; the path must match the name's prefix, else 404); `crates/<crate>/<crate>-<version>.crate` (asset
+    key: lower-case name, version as published; cargo asks with the index's spelling); web API `api/v1/crates/new`
+    (`PUT`), `api/v1/crates/<crate>/<version>/yank` (`DELETE`) and `/unyank` (`PUT`), `api/v1/crates/<crate>/owners`,
+    `api/v1/crates?q=&per_page=` (`cargo search`: the crates this repository, or a group's members, has summaries
+    of; at most 100). API errors are `{"errors": [{"detail": ...}]}` (cargo prints them); index and download errors
+    are plain text. Crate names: ASCII letters, digits, `-`, `_`, a letter first, at most 64; versions SemVer 2.0.
+  - Auth: Cargo sends its token as the whole `Authorization` value; the server accepts a bare API token there (and
+    `Bearer`/`Token`/Basic as everywhere). A repository anonymous cannot read answers `config.json` with the `401`
+    challenge (ADR 0005); cargo retries with the registry's token and, since `config.json` then says
+    `auth-required`, sends it on every index, download and API request (cargo needs `[registry]
+    global-credential-providers` configured for that; the Set me up snippet). Yank, unyank and owner changes need `write`
+    (descriptor `request_action`), like publishing (`PUT`).
+  - Proxy: upstream URL = the sparse index root (`https://index.crates.io/`). Index files are metadata (revalidated
+    with the upstream's `ETag`/`Last-Modified` after the metadata max age), cached only when every line is a JSON
+    object for that crate (name equal ignoring case) with a SemVer `vers`, a 64-hex `cksum`, list `deps`, object
+    `features` and boolean `yanked` (≤ 32 MiB, ≤ 100,000 lines, ≤ 1 MiB per line; otherwise 502). Upstream 404/410
+    → 404 (negative-cached). The upstream's `config.json` is cached as metadata `_upstream/config.json` for its `dl`
+    template (markers `{crate}`, `{version}`, `{prefix}`, `{lowerprefix}`, `{sha256-checksum}`; none:
+    `/{crate}/{version}/download` is appended; crates.io: `https://static.crates.io/crates`). A `.crate` is looked up
+    in the cached index (refreshed once when the version is not listed, then 404), fetched from the expanded `dl` URL
+    and verified against `cksum` (sha256) before commit; a cached crate is served without an index lookup.
+  - Hosted: publish body = u32 LE JSON length, JSON (≤ 8 MiB), u32 LE crate length, `.crate` (streamed into the blob
+    store as a live upload transfer, bounded by `WAYSTATION_MAX_UPLOAD_GB`; the declared lengths must add up to
+    `Content-Length` and nothing may follow). Metadata is checked field by field (names, SemVer, deps with
+    `version_req`, kind `normal`/`dev`/`build`, flags, features). The `.crate` is inspected in a thread: gzip tar,
+    every entry a safe relative path under `<name>-<version>/` (no `..`, absolute paths, backslashes, NUL, devices,
+    links leaving the package), ≤ 50,000 entries and 2 GiB unpacked, a `Cargo.toml` (≤ 4 MiB, TOML) whose
+    `[package]` name and version are the published ones. The index entry is made from the metadata as crates.io does
+    (`version_req` → `req`, renamed deps → `name` + `package`, `registry` kept for other registries' deps, features
+    using `dep:` or `?/` → `features2` + `v: 2`, `links`, `rust_version`) with the file's sha256 as `cksum`, and kept
+    on the asset (`assets.cargo{name, vers, version_sort, entry, yanked, description, published_by, published_at}`);
+    index files are rendered per request (oldest version first; `ETag`, `304`). A name that differs from an existing
+    crate only by case or `-`/`_` is refused (400), so is a version differing only in build metadata. Write policy:
+    `read_only` → 403; `disable_redeploy` → 400 for an existing version with other bytes (the same bytes: 200);
+    `allow_redeploy` replaces it (lock files keep the old `cksum`). Hard quota via `HostedStore.admit`. Answer
+    `{"warnings": {...}}`. Yank/unyank flip `yanked` (the file stays downloadable); owners: `GET` lists the
+    publishers, `PUT`/`DELETE` → 400 (access is RBAC). Audit `content.upload` (`cargo_crate`), yanks
+    `content.update`; activity `asset.created`.
+  - Group: members are Cargo proxy and hosted repositories (in order, offline ones skipped); `config.json` is the
+    group's own; index files are merged per request (the first member listing a version wins it; a failing member is
+    skipped unless none answers); `.crate`: any member's stored or cached copy first, then proxy members in order
+    (`X-Ws-Group-Member`); the web API goes to the hosted `writable_member` (`write` on the group and the member).
+  - Browse/search: `cargo_crates` summaries (proxy: in the background after an index file is cached; hosted: on
+    publish and yank); `cargo/crates`, `cargo/versions` (groups: 404, browsed through their members); global search
+    kind `package`, browse link `{crate}`. Components: the `.crate` (SemVer `version_sort`). Cleanup: SemVer order
+    per crate, `.crate` files only (index files are metadata).
+  - Prefetch: warm items `crate@version` / `crate` and refresh of index files (table above).
+  - Clients verified (harness, recorded crates.io fixtures): cargo 1.99 (source replacement to a proxy; `cargo login`,
+    `publish`, `yank`, `yank --undo` on hosted; a group that needs credentials, crates.io and hosted crates together).
+  - Not yet: owner management, `cargo search` against the upstream (only crates this repository knows), the live
+    smoke for cargo, indexes served over the older Git protocol.
 
 ## RubyGems — Phase 6 (built, T-P6-GEMS)
 RubyGems repositories (`formats/rubygems/`), proxy, hosted and group. Clients: gem and Bundler

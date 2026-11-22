@@ -46,6 +46,7 @@ from waystation_common.db.client import Database
 from waystation_common.db.collections import (
     APT_PACKAGES,
     ASSETS,
+    CARGO_CRATES,
     COMPONENTS,
     COMPOSER_PACKAGES,
     DOCKER_TAGS,
@@ -250,6 +251,15 @@ SOURCES: tuple[Source, ...] = (
         'swift',
         ('name_lc',),
         {'scope': 1, 'name': 1, 'latest': 1, 'updated_at': 1},
+        version_field='latest',
+    ),
+    Source(
+        'cargo',
+        CARGO_CRATES,
+        'package',
+        'cargo',
+        ('name_lc',),
+        {'name': 1, 'display_name': 1, 'latest': 1, 'updated_at': 1},
         version_field='latest',
     ),
     Source('file', ASSETS, 'file', None, ('name_lc',), {'path': 1, 'size': 1, 'blob_sha256': 1, 'updated_at': 1}),
@@ -532,6 +542,8 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {'provider': '/'.join(path.split('/', 3)[:3])}
     if repo.format == 'maven' and (gav := key_for('maven', path)) is not None:
         return {'artifact': f'{gav.namespace}:{gav.name}', 'version': gav.version}
+    if repo.format == 'cargo' and path.startswith('crates/') and path.count('/') == 2:
+        return {'crate': path.split('/')[1]}
     if repo.format == 'swift' and path.count('/') >= 2 and not path.startswith('_scm/'):
         scope, package = path.split('/', 2)[:2]
         return {'scope': scope, 'package': package}
@@ -630,6 +642,18 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 sha256=None,
                 cached=True,
                 browse=SearchBrowseLink(repository=repo.name, query={'package': str(doc['name'])}),
+            )
+        case 'cargo':
+            return SearchHit(
+                **common,
+                name=str(doc.get('display_name') or doc['name']),
+                version=doc.get('latest'),
+                qualifier=None,
+                path=None,
+                size=None,
+                sha256=None,
+                cached=True,
+                browse=SearchBrowseLink(repository=repo.name, query={'crate': str(doc['name'])}),
             )
         case 'go':
             return SearchHit(

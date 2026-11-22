@@ -123,6 +123,8 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/repositories/{name}/rubygems/versions', 'get'),
     ('/repositories/{name}/go/modules', 'get'),
     ('/repositories/{name}/go/versions', 'get'),
+    ('/repositories/{name}/cargo/crates', 'get'),
+    ('/repositories/{name}/cargo/versions', 'get'),
     ('/repositories/{name}/galaxy/namespaces', 'get'),
     ('/repositories/{name}/galaxy/collections', 'get'),
     ('/repositories/{name}/galaxy/versions', 'get'),

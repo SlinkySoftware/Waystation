@@ -187,6 +187,28 @@ function swift(repo: Repository): SetupClient[] {
   return [{ id: 'swiftpm', label: 'Swift Package Manager', snippets }]
 }
 
+/** Cargo (sparse index): replace crates.io or use a named registry, credentials; hosted repositories and groups with a writable member also cargo publish and yank. */
+function cargo(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const registry = `[registries.waystation]\nindex = "sparse+${url}index/"`
+  const snippet = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupSnippet => ({ id, title, description, language, filename, os: null, content })
+  const clients: SetupClient[] = [
+    { id: 'cargo', label: 'Cargo', snippets: [
+      snippet('cargo-replace', 'Use this repository instead of crates.io', `${registry}\n\n[source.crates-io]\nreplace-with = "waystation"`, 'toml', '~/.cargo/config.toml', 'Every crates.io dependency then resolves through this repository; Cargo.toml stays unchanged.'),
+      snippet('cargo-registry', 'Use it as a named registry', `${registry}\n\n# in Cargo.toml: my-crate = { version = "1", registry = "waystation" }`, 'toml', '.cargo/config.toml'),
+      snippet('cargo-credentials', 'Let cargo send tokens (once per machine)', '[registry]\nglobal-credential-providers = ["cargo:token"]', 'toml', '~/.cargo/config.toml', 'Cargo talks to registries that ask for credentials only with a credential provider configured; cargo:token keeps tokens in ~/.cargo/credentials.toml (cargo:libsecret, cargo:macos-keychain and cargo:wincred use the system keyring).'),
+      snippet('cargo-login', 'Credentials (private repositories and publishing)', 'cargo login --registry waystation\n# paste {{TOKEN}} when asked, or set it for one shell only:\nexport CARGO_REGISTRIES_WAYSTATION_TOKEN={{TOKEN}}', 'shell', null, 'The token is a Waystation API token. Cargo stores it in ~/.cargo/credentials.toml.'),
+    ] },
+  ]
+  if (repo.type === 'hosted' || (repo.type === 'group' && repo.group?.writable_member)) {
+    clients.push({ id: 'cargo-publish', label: 'cargo publish', snippets: [
+      snippet('cargo-publish', 'Publish a crate', 'cargo publish --registry waystation', 'shell', null, 'Needs the write permission. A version cannot be published twice; yank it instead.'),
+      snippet('cargo-yank', 'Yank a version (or undo it with --undo)', 'cargo yank --registry waystation --version 1.0.0 my-crate', 'shell', null, 'A yanked version stays downloadable for lock files that already pin it.'),
+    ] })
+  }
+  return clients
+}
+
 /** Hosted apt: the repository's signing key, a deb822 source with Signed-By, credentials, and curl uploads. */
 function aptHosted(repo: Repository): SetupClient[] {
   const opts = (repo.format_options ?? {}) as AptOptions
@@ -597,7 +619,7 @@ function terraformHosted(repo: Repository, host: string, s: Snip): SetupClient[]
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : repo.format === 'rubygems' ? rubygems(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : repo.format === 'rubygems' ? rubygems(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {
