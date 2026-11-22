@@ -59,6 +59,21 @@ describe('repository form model', () => {
     expect(group.format_options).toEqual({})
   })
 
+  it('builds apk proxy and hosted repositories (branch, repositories, architectures; no groups)', () => {
+    expect(HOSTED_FORMATS).toContain('apk')
+    expect(GROUP_FORMATS).not.toContain('apk')
+    expect(PREFETCH_FORMATS).toContain('apk')
+    const proxy = toWrite({ ...emptyModel('apk'), ...PRESETS.apk[0]!.apply })
+    expect(proxy).toMatchObject({ name: 'alpine-proxy', format: 'apk', type: 'proxy', proxy: { upstream_url: 'https://dl-cdn.alpinelinux.org/alpine/' } })
+    expect(proxy.format_options).toEqual({ branch: 'latest-stable', repositories: ['main', 'community'], architectures: ['x86_64'] })
+    const hosted = toWrite({ ...emptyModel('apk', 'hosted'), name: 'apk-hosted', apkBranch: ' v3.22 ', apkRepositories: [' main ', ''], apkArchitectures: [] })
+    expect(hosted.format_options).toEqual({ branch: 'v3.22', repositories: ['main'], architectures: ['x86_64'] })
+    const back = modelFromRepository({ name: 'alpine-proxy', format: 'apk', type: 'proxy', online: true, format_options: { branch: 'edge', repositories: ['main'], architectures: ['aarch64', 'x86_64'] } } as unknown as Repository)
+    expect([back.apkBranch, back.apkRepositories, back.apkArchitectures]).toEqual(['edge', ['main'], ['aarch64', 'x86_64']])
+    // apt's architectures never leak into apk (and the other way round).
+    expect(modelFromRepository({ name: 'debian', format: 'apt', type: 'proxy', online: true, format_options: { architectures: ['amd64'] } } as unknown as Repository).apkArchitectures).toEqual(['x86_64'])
+  })
+
   it('builds nuget proxy (catalog verification), hosted (delete mode) and group repositories', () => {
     expect(HOSTED_FORMATS).toContain('nuget')
     expect(GROUP_FORMATS).toContain('nuget')
@@ -365,7 +380,7 @@ describe('repository form model', () => {
   })
 
   it('writes prefetch for the formats that support it and reads it back', () => {
-    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'rubygems'])
+    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'rubygems', 'apk'])
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', refreshPopular: true, warmText: 'lodash@4.17.21\n\n @types/node@latest ', prefetchSchedule: '  0  3 * * * ' }
     const w = toWrite(m)
     expect(w.proxy?.prefetch).toEqual({ refresh_popular: true, warm: ['lodash@4.17.21', '@types/node@latest'], schedule: '0 3 * * *' })

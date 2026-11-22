@@ -284,6 +284,14 @@ services:
     <<: *client
     image: ruby:3.4.13-slim
     user: "0:0"
+  client-alpine:  # apk on Alpine 3.22, plus curl, GNU tar and abuild-tar to assemble packages (apk format)
+    <<: *client
+    build:
+      dockerfile_inline: |
+        FROM alpine:3.22
+        RUN apk add --no-cache curl tar abuild
+    image: waystation-harness-alpine:3.22-2  # bump the suffix when the Dockerfile above changes
+    user: "0:0"
   client-skopeo:  # registry API pulls without a daemon (docker format)
     <<: *client
     image: quay.io/skopeo/stable:v1.20

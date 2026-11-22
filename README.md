@@ -56,11 +56,12 @@ docker pull ghcr.io/slinkysoftware/waystation-server:0.2.9     # multi-arch: lin
 | Composer (PHP, v2) | yes | yes | yes | composer |
 | Cargo (sparse registries) | yes | yes | yes | cargo |
 | RubyGems | yes | yes | yes | gem, bundler |
+| Alpine apk | yes | yes | | apk |
 | Raw files (GitHub releases, any HTTP) | yes | yes | yes | curl, wget |
 
 Client setup for every format is in [`Documents/Operations/clients/`](Documents/Operations/clients/), and each
 repository's "Set me up" panel in the UI shows the exact configuration. Coming next:
-Conda, Alpine apk, Hugging Face, Swift packages, Terraform modules.
+Conda, Hugging Face, Swift packages, Terraform modules.
 
 ## Get started
 

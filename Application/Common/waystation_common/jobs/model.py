@@ -226,6 +226,20 @@ class YumIndex(JobPayload):
         return f'index.yum:{self.repo_id}'
 
 
+class ApkIndex(JobPayload):
+    """Regenerate a hosted apk repository's signed ``APKINDEX.tar.gz`` files (one per ``<branch>/<repo>/<arch>``)
+    from its ``apk_packages`` records (FORMATS.md "Alpine apk"; ``waystation_worker.apk``). Enqueued through the
+    outbox in the transaction that changed the packages."""
+
+    kind: ClassVar[str] = 'index.apk'
+    queue: ClassVar[Queue] = 'index'
+
+    repo_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'index.apk:{self.repo_id}'
+
+
 class AptRefresh(JobPayload):
     """Refresh apt proxy repositories (FORMATS.md "apt"; ``waystation_worker.apt``): revalidate each cached suite's
     ``Release`` that is older than ``metadata_max_age_s``, fetch and verify the ``Packages`` indexes of the new

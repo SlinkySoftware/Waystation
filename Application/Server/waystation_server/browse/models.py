@@ -360,6 +360,51 @@ class RubygemsVersionPage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- apk
+class ApkPackage(BaseModel):
+    name: str
+    latest_version: str | None = Field(default=None, description='Newest version (apk version order)')
+    arches: list[str]
+    version_count: int = Field(description='Distinct versions')
+    description: str | None = None
+    origin: str | None = Field(default=None, description='Source package (APKBUILD) it was built from')
+
+
+class ApkPackagePage(BaseModel):
+    items: list[ApkPackage]
+    next_cursor: str | None
+
+
+class ApkVersion(BaseModel):
+    version: str = Field(description='`<version>-r<release>`')
+    arch: str
+    branch: str = Field(description='Alpine branch, e.g. v3.22')
+    repository: str = Field(description='Alpine repository below the branch, e.g. main')
+    directory: str = Field(description='The `<branch>/<repository>/<arch>` directory whose APKINDEX lists it')
+    path: str = Field(description='Path of the .apk file in the repository')
+    size_bytes: int | None = None
+    installed_size: int | None = None
+    checksum: str | None = Field(
+        default=None, description='APKINDEX `C:` value: `Q1` + base64 SHA-1 of the control segment'
+    )
+    verified: bool = Field(description='Listed by a cached (proxy) or generated (hosted) APKINDEX')
+    cached: bool = Field(description='The .apk file is stored')
+    license: str | None = None
+    origin: str | None = None
+    url: str | None = None
+    build_time: datetime | None = None
+    depends: list[str]
+    uploaded_at: datetime | None = None
+    uploaded_by: str | None = None
+    download_url: str
+
+
+class ApkVersionPage(BaseModel):
+    package: ApkPackage
+    items: list[ApkVersion] = Field(description='Newest first (apk version order)')
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- yum
 class YumPackage(BaseModel):
     name: str
@@ -884,6 +929,15 @@ class HelmBrowser(Protocol):
 
     async def versions(self, ctx: BrowseContext, *, chart: str, cursor: str | None, limit: int) -> HelmVersionPage:
         """One chart's versions, newest first; raises ``NotFound`` for an unknown chart."""
+
+
+@runtime_checkable
+class ApkBrowser(Protocol):
+    async def packages(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> ApkPackagePage:
+        """Package names (proxy: listed by cached APKINDEX files; hosted: uploaded), by name."""
+
+    async def versions(self, ctx: BrowseContext, *, package: str, cursor: str | None, limit: int) -> ApkVersionPage:
+        """One package's files, newest version first; raises ``NotFound`` for an unknown package."""
 
 
 @runtime_checkable

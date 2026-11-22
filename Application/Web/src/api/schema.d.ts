@@ -1609,6 +1609,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/apk/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Packages of an Alpine apk repository (a proxy's cached APKINDEX listings, hosted uploads) */
+        get: operations["listApkPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/apk/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One apk package and its files (newest first, apk version order) */
+        get: operations["listApkVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/yum/packages": {
         parameters: {
             query?: never;
@@ -3945,13 +3983,36 @@ export interface components {
              */
             source_mode: "keep" | "strip";
         };
+        /** ApkOptions */
+        ApkOptions: {
+            /**
+             * @description Alpine branch for "Set me up", prefetch items without a path and "test upstream" (e.g. `v3.22`, `edge`, `latest-stable`)
+             * @default latest-stable
+             */
+            branch: string;
+            /**
+             * @description Alpine repositories (below the branch) for "Set me up" and prefetch items without a path
+             * @default [
+             *       "main",
+             *       "community"
+             *     ]
+             */
+            repositories: string[];
+            /**
+             * @description Architectures that prefetch items without a path warm (e.g. `x86_64`, `aarch64`)
+             * @default [
+             *       "x86_64"
+             *     ]
+             */
+            architectures: string[];
+        };
         /**
          * RubygemsOptions
          * @description RubyGems: no options yet
          */
         RubygemsOptions: Record<string, never>;
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["CargoOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"] | components["schemas"]["RubygemsOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["CargoOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"] | components["schemas"]["RubygemsOptions"] | components["schemas"]["ApkOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -4728,6 +4789,80 @@ export interface components {
             gem: components["schemas"]["RubygemsGem"];
             /** @description Newest first (RubyGems version order) */
             items: components["schemas"]["RubygemsVersion"][];
+            next_cursor: string | null;
+        };
+        ApkPackage: {
+            name: string;
+            /**
+             * @description Newest version (apk version order)
+             * @default null
+             */
+            latest_version: string | null;
+            arches: string[];
+            /** @description Distinct versions */
+            version_count: number;
+            /** @default null */
+            description: string | null;
+            /**
+             * @description Source package (APKBUILD) it was built from
+             * @default null
+             */
+            origin: string | null;
+        };
+        ApkPackagePage: {
+            items: components["schemas"]["ApkPackage"][];
+            next_cursor: string | null;
+        };
+        ApkVersion: {
+            /** @description `<version>-r<release>` */
+            version: string;
+            arch: string;
+            /** @description Alpine branch, e.g. v3.22 */
+            branch: string;
+            /** @description Alpine repository below the branch, e.g. main */
+            repository: string;
+            /** @description The `<branch>/<repository>/<arch>` directory whose APKINDEX lists it */
+            directory: string;
+            /** @description Path of the .apk file in the repository */
+            path: string;
+            /** @default null */
+            size_bytes: number | null;
+            /** @default null */
+            installed_size: number | null;
+            /**
+             * @description APKINDEX `C:` value: `Q1` + base64 SHA-1 of the control segment
+             * @default null
+             */
+            checksum: string | null;
+            /** @description Listed by a cached (proxy) or generated (hosted) APKINDEX */
+            verified: boolean;
+            /** @description The .apk file is stored */
+            cached: boolean;
+            /** @default null */
+            license: string | null;
+            /** @default null */
+            origin: string | null;
+            /** @default null */
+            url: string | null;
+            /**
+             * Format: date-time
+             * @default null
+             */
+            build_time: string | null;
+            depends: string[];
+            /**
+             * Format: date-time
+             * @default null
+             */
+            uploaded_at: string | null;
+            /** @default null */
+            uploaded_by: string | null;
+            download_url: string;
+        };
+        ApkVersionPage: {
+            package: components["schemas"]["ApkPackage"];
+            /** @description Newest first (apk version order) */
+            items: components["schemas"]["ApkVersion"][];
             next_cursor: string | null;
         };
         YumPackage: {
@@ -8944,6 +9079,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RubygemsVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listApkPackages: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApkPackagePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listApkVersions: {
+        parameters: {
+            query: {
+                /** @description Package name */
+                package: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Package files */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApkVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];

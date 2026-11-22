@@ -52,6 +52,7 @@ CARGO_CRATES = 'cargo_crates'  # one summary per crate a Cargo repository has (b
 NUGET_PACKAGES = 'nuget_packages'  # one summary per NuGet package id a repository has (browse, global search, hosted)
 COMPOSER_PACKAGES = 'composer_packages'  # one summary per Composer package a repository has (browse, search, pins)
 RUBYGEMS_GEMS = 'rubygems_gems'  # one summary per gem a repository has (browse, search)
+APK_PACKAGES = 'apk_packages'  # apk package files: APKINDEX listings (proxy), uploads (hosted); browse, search
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -428,6 +429,19 @@ SPECS: tuple[CollectionSpec, ...] = (
             # A directory's listing generation: replaced on re-index; "is this primary indexed".
             _ix('repo_dir_gen', [('repo_id', ASCENDING), ('repo_dir', ASCENDING), ('gen', ASCENDING)]),
             _ix('repo_verified', [('repo_id', ASCENDING), ('verified', ASCENDING)]),
+            *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        APK_PACKAGES,
+        (
+            # Package path -> C: checksum and size (from cached APKINDEX files, or computed: unverified; hosted).
+            _ix('repo_path_unique', [('repo_id', ASCENDING), ('path', ASCENDING)], unique=True),
+            # A directory's listing generation: replaced on re-index; "is this APKINDEX indexed"; hosted per arch.
+            _ix('repo_dir_gen', [('repo_id', ASCENDING), ('dir', ASCENDING), ('gen', ASCENDING)]),
+            _ix('repo_verified', [('repo_id', ASCENDING), ('verified', ASCENDING)]),
+            # Browse: names, then versions newest first.
+            _ix('repo_name_sort', [('repo_id', ASCENDING), ('name', ASCENDING), ('version_sort', DESCENDING)]),
             *_search_indexes(base=False),
         ),
     ),

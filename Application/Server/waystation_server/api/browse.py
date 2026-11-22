@@ -18,6 +18,9 @@ from waystation_server.api.auth import registry_host
 from waystation_server.api.deps import ServicesDep
 from waystation_server.browse import tree
 from waystation_server.browse.models import (
+    ApkBrowser,
+    ApkPackagePage,
+    ApkVersionPage,
     AptBrowser,
     AptPackagePage,
     AptSuite,
@@ -684,6 +687,52 @@ async def list_rubygems_versions(
     repo: RepoConfig = request.state.repo
     browser = _rubygems(svc, repo)
     return await browser.versions(_context(svc, repo), gem=gem, cursor=cursor, limit=limit)
+
+
+# ---------------------------------------------------------------------------- apk
+def _apk(svc: Services, repo: RepoConfig) -> ApkBrowser:
+    browser = _browser(svc, repo, 'apk')
+    if not isinstance(browser, ApkBrowser):
+        raise NotFound('not an apk repository')
+    return browser
+
+
+@router.get(
+    '/repositories/{name}/apk/packages',
+    response_model=ApkPackagePage,
+    operation_id='listApkPackages',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_apk_packages(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> ApkPackagePage:
+    repo: RepoConfig = request.state.repo
+    return await _apk(svc, repo).packages(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/apk/versions',
+    response_model=ApkVersionPage,
+    operation_id='listApkVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_apk_versions(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    package: Annotated[str, Query(max_length=200, description='Package name')],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> ApkVersionPage:
+    repo: RepoConfig = request.state.repo
+    return await _apk(svc, repo).versions(_context(svc, repo), package=package, cursor=cursor, limit=limit)
 
 
 # ---------------------------------------------------------------------------- yum

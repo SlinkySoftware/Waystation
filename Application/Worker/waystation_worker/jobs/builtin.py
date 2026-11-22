@@ -13,6 +13,7 @@ from waystation_common.db.blobs import MongoBlobGuard
 from waystation_common.db.jobs import Definition
 from waystation_common.events import keys
 from waystation_common.events.schema import ActivityEvent, EventType
+from waystation_common.jobs import ApkIndex
 from waystation_common.jobs.model import (
     AptIndex,
     AptRefresh,
@@ -37,6 +38,7 @@ from waystation_common.keyfiles import KEYS_DIR
 from waystation_common.signing import KeyStore
 from waystation_common.storage import BlobStore
 from waystation_common.system_grants import SystemGrants
+from waystation_worker import apk as apk_index
 from waystation_worker import (
     apt,
     apt_index,
@@ -107,6 +109,9 @@ async def cleanup_run(job: CleanupRun, ctx: JobContext) -> dict[str, Any]:
             await jobs_db.outbox_add(ctx.db, envelope, now=now)
         if outcome.format == 'apt' and outcome.removed.items and outcome.repo_id:  # hosted .debs removed
             envelope = JobEnvelope.for_payload(AptIndex(repo_id=outcome.repo_id), now=now)
+            await jobs_db.outbox_add(ctx.db, envelope, now=now)
+        if outcome.format == 'apk' and outcome.removed.items and outcome.repo_id:  # hosted .apk files removed
+            envelope = JobEnvelope.for_payload(ApkIndex(repo_id=outcome.repo_id), now=now)
             await jobs_db.outbox_add(ctx.db, envelope, now=now)
         # hosted Galaxy collection versions whose artifact a policy removed are no longer listed
         if outcome.format == 'galaxy' and outcome.removed.items and outcome.repo_id:
@@ -272,6 +277,21 @@ async def yum_index(job: YumIndex, ctx: JobContext) -> dict[str, Any]:
     await ctx.log(
         f'published repodata: {result.packages} packages, revision {result.revision}, key {result.fingerprint}'
     )
+    return {'repo_id': job.repo_id, **result.as_dict()}
+
+
+@handles(ApkIndex)
+async def apk_index_job(job: ApkIndex, ctx: JobContext) -> dict[str, Any]:
+    """Regenerate, sign and publish a hosted apk repository's APKINDEX files (``waystation_worker.apk``)."""
+    if ctx.settings is None:
+        raise RuntimeError('the apk index needs the worker settings (data directory, secret keys)')
+    store = BlobStore.from_settings(ctx.settings)
+    store.guard = MongoBlobGuard(ctx.db)  # the commit claims the blob against GC (ARCHITECTURE §5)
+    keys = KeyStore.in_data_dir(ctx.settings.data_dir, Keyring.from_settings(ctx.settings.secret_keys))
+    result = await apk_index.rebuild(ctx.db, store, keys, job.repo_id, now=ctx.now())
+    if result is None:
+        return {'repo_id': job.repo_id, 'skipped': 'not a hosted apk repository (deleted?)'}
+    await ctx.log(f'published {result.directories} APKINDEX files, {result.packages} packages, key {result.key}')
     return {'repo_id': job.repo_id, **result.as_dict()}
 
 

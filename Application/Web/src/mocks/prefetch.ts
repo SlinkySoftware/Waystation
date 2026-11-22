@@ -18,7 +18,7 @@ const iso = (ms: number) => new Date(ms).toISOString()
 const RUN_MS = 9_000
 
 /** Formats whose proxies can warm items and refresh popular metadata (the server's format plugins). */
-export const PREFETCH_FORMATS: readonly string[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'rubygems']
+export const PREFETCH_FORMATS: readonly string[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'rubygems', 'apk']
 
 /** A stable, ULID-looking repository id (the API exposes names; scheduled tasks are keyed by id). */
 export function repositoryId(name: string): string {
@@ -147,6 +147,13 @@ function itemError(format: string, item: string): string | null {
       return /^[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*(:[^\s:]{1,100})?$/i.test(item) ? null : 'vendor/name or vendor/name:version'
     case 'rubygems':
       return /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(:\d[0-9A-Za-z.]{0,63}(-[A-Za-z0-9_.-]{1,64})?)?$/.test(item) ? null : 'gem, gem:version or gem:version-platform'
+    case 'apk': {
+      // As the server: [<branch>/<repository>/<arch>/]<name>[=<apk version>]
+      const m = /^(?:([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\/([a-z0-9_]+)\/)?([A-Za-z0-9][A-Za-z0-9._+-]*)(?:=(.*))?$/.exec(item)
+      const dots = (s: string | undefined) => s === '.' || s === '..'
+      const ok = m && !dots(m[1]) && !dots(m[2]) && (m[5] === undefined || /^[0-9]+(\.[0-9]+)*[a-z]?(_(alpha|beta|pre|rc|cvs|svn|git|hg|p)[0-9]*)*(-r[0-9]+)?$/.test(m[5]))
+      return ok ? null : 'name, name=version or branch/repository/arch/name=version'
+    }
     case 'raw':
       return item.split('/').includes('..') || item.startsWith('/') ? 'a relative path in the repository, without ..' : null
     case 'docker':

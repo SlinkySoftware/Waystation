@@ -278,6 +278,7 @@ async def test_openapi_documents_format_options(client: httpx.AsyncClient) -> No
         'CargoOptions',
         'ComposerOptions',
         'RubygemsOptions',
+        'ApkOptions',
         'DockerOptions',
         'GalaxyOptions',
         'HelmOptions',

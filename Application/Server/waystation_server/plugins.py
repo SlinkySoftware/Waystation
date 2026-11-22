@@ -7,11 +7,14 @@ format package exposes ``DESCRIPTOR`` (``<format>.descriptor``) and, once implem
 repositories; go (T-P5-GO) proxy and group repositories; galaxy (T-P5-GALAXY) proxy, hosted and group
 repositories; terraform (T-P5-TFP) provider network mirrors (proxy); swift (T-P5-SWIFT) SCM-backed proxy and hosted
 repositories; nuget (T-P6-NUGET), composer (T-P6-COMPOSER) and rubygems (T-P6-GEMS) proxy, hosted and group
-repositories; cargo (T-P6-CARGO) sparse proxy, hosted and group repositories.
+repositories; cargo (T-P6-CARGO) sparse proxy, hosted and group repositories; apk (T-P6-APK) proxy and hosted
+repositories.
 """
 
 from __future__ import annotations
 
+from waystation_server.formats.apk.descriptor import DESCRIPTOR as APK
+from waystation_server.formats.apk.plugin import ApkPlugin
 from waystation_server.formats.apt.descriptor import DESCRIPTOR as APT
 from waystation_server.formats.apt.plugin import AptPlugin
 from waystation_server.formats.cargo.descriptor import DESCRIPTOR as CARGO
@@ -66,6 +69,7 @@ def default_registry() -> FormatRegistry:
         COMPOSER,
         CARGO,
         RUBYGEMS,
+        APK,
     ):
         registry.register(descriptor)
     registry.set_plugin(HelmPlugin())  # T-P5-HELM
@@ -84,4 +88,5 @@ def default_registry() -> FormatRegistry:
     registry.set_plugin(NugetPlugin())  # T-P6-NUGET: proxy, hosted, group
     registry.set_plugin(ComposerPlugin())  # T-P6-COMPOSER: proxy, hosted, group
     registry.set_plugin(RubygemsPlugin())  # T-P6-GEMS: proxy, hosted, group
+    registry.set_plugin(ApkPlugin())  # T-P6-APK: proxy, hosted
     return registry

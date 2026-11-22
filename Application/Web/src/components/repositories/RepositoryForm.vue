@@ -237,6 +237,51 @@
           :error-message="errors['format_options.source_mode']"
         />
       </template>
+      <template v-else-if="model.format === 'apk'">
+        <q-input
+          v-model="model.apkBranch"
+          outlined
+          dense
+          :label="t('repoForm.apkBranch')"
+          :hint="t('repoForm.apkBranchHint')"
+          class="mono-input"
+          spellcheck="false"
+          :error="!!errors['format_options.branch']"
+          :error-message="errors['format_options.branch']"
+        />
+        <div class="repo-form__row">
+          <q-select
+            v-model="model.apkRepositories"
+            outlined
+            dense
+            multiple
+            use-chips
+            use-input
+            new-value-mode="add-unique"
+            hide-dropdown-icon
+            class="col"
+            :label="t('repoForm.apkRepositories')"
+            :hint="t('repoForm.apkRepositoriesHint')"
+            :error="!!errors['format_options.repositories']"
+            :error-message="errors['format_options.repositories']"
+          />
+          <q-select
+            v-model="model.apkArchitectures"
+            outlined
+            dense
+            multiple
+            use-chips
+            use-input
+            new-value-mode="add-unique"
+            hide-dropdown-icon
+            class="col"
+            :label="t('repoForm.apkArchitectures')"
+            :hint="t('repoForm.apkArchitecturesHint')"
+            :error="!!errors['format_options.architectures']"
+            :error-message="errors['format_options.architectures']"
+          />
+        </div>
+      </template>
       <template v-else-if="model.format === 'nuget' && model.type === 'proxy'">
         <q-toggle v-model="model.nugetVerifyCatalog" :label="t('repoForm.nugetVerifyCatalog')" />
       </template>

@@ -1,4 +1,5 @@
 """Per-repository OpenPGP signing keys for hosted apt/yum repositories (ARCHITECTURE §2, §5; adr/0007, accepted).
+Hosted apk repositories use the same RSA key for raw PKCS#1 v1.5 index signatures (adr/0007 amendment).
 
 The one place that signs repository metadata. Implementation (adr/0007, in-house option): keys are generated with
 ``cryptography`` and version 4 packets are written here (key, user ID, self-certification, detached signatures);
@@ -217,6 +218,18 @@ class RepoKey:
     def clearsign(self, text: str, *, created: int | None = None) -> str:
         """``text`` cleartext-signed (``clearsign``)."""
         return clearsign(self.signer, self.public, text, created=created)
+
+    def sign_pkcs1_sha256(self, data: bytes) -> bytes:
+        """A raw RSA PKCS#1 v1.5 signature over the SHA-256 of ``data`` (apk ``.SIGN.RSA256.<key>`` index signatures;
+        adr/0007 amendment): the same repository key, outside OpenPGP."""
+        return self.signer.sign(data, padding.PKCS1v15(), hashes.SHA256())
+
+    @property
+    def public_pem(self) -> bytes:
+        """The public key as a PEM ``SubjectPublicKeyInfo`` (apk ``/etc/apk/keys/<name>.rsa.pub``)."""
+        return self.signer.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+        )
 
 
 def key_aad(repo_id: str) -> bytes:

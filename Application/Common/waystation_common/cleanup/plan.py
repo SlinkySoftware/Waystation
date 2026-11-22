@@ -18,7 +18,8 @@ Components and versions come from asset paths (``coordinates``) until components
   ``dists/<vendor>/<name>/<version>/<file>`` (per package, Composer version order); cargo
   ``crates/<crate>/<crate>-<version>.crate`` (per crate, SemVer); rubygems
   ``gems/<name>-<version>[-<platform>].gem`` and its ``quick/Marshal.4.8/<same>.gemspec.rz`` (per gem and platform,
-  ``Gem::Version`` order, both files share a rank); every other format
+  ``Gem::Version`` order, both files share a rank); apk ``<branch>/<repo>/<arch>/<name>-<version>.apk`` (per
+  directory and package, apk version order); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -41,6 +42,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
 
+from waystation_common.apk import split_file_name as split_apk_file
 from waystation_common.cleanup.model import Candidate, Criteria
 from waystation_common.cleanup.versions import is_prerelease, sort_key
 from waystation_common.galaxy import parse_artifact_path
@@ -136,6 +138,11 @@ def coordinates(fmt: str, path: str) -> Coord:
         parts = path.split('/')
         if len(parts) == 4 and parts[1] and parts[2]:  # v3-flatcontainer/<id>/<version>/<file>
             return Coord(parts[1], parts[2], parts[1], True)
+    if fmt == 'apk' and path.endswith('.apk'):  # <branch>/<repository>/<arch>/<name>-<version>.apk
+        directory, _, file = path.rpartition('/')
+        found = split_apk_file(file)
+        if found:
+            return Coord(found[0], found[1], f'{directory}/{found[0]}', True)
     if fmt == 'rubygems':
         for prefix, suffix in GEM_FILES:
             if path.startswith(prefix) and path.endswith(suffix) and path.count('/') == prefix.count('/'):

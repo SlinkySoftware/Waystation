@@ -68,6 +68,8 @@ dl.fedoraproject.org
 dl.rockylinux.org
 repo.almalinux.org
 yum.oracle.com
+# Alpine (T-P6-APK): the Alpine CDN (dl-cdn) and package metadata URLs (alpinelinux.org)
+alpinelinux.org
 
 # Public upstreams: Helm chart repositories (form presets, client guide, the helm client harness)
 prometheus-community.github.io

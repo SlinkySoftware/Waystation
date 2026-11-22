@@ -17,6 +17,7 @@ from waystation_common.jobs.client import JobClient
 from waystation_common.jobs.model import (
     JOB_TYPES,
     QUEUES,
+    ApkIndex,
     AptIndex,
     BlobGc,
     CleanupRun,
@@ -40,6 +41,7 @@ from waystation_common.jobs.schedule import parse_schedule
 __all__ = [
     'JOB_TYPES',
     'QUEUES',
+    'ApkIndex',
     'AptIndex',
     'BlobGc',
     'CleanupRun',

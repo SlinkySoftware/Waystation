@@ -41,9 +41,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from waystation_common.apk import split_file_name as split_apk_file
 from waystation_common.components import key_for
 from waystation_common.db.client import Database
 from waystation_common.db.collections import (
+    APK_PACKAGES,
     APT_PACKAGES,
     ASSETS,
     CARGO_CRATES,
@@ -231,6 +233,16 @@ SOURCES: tuple[Source, ...] = (
         'yum',
         ('name_lc',),
         {'name': 1, 'epoch': 1, 'version': 1, 'release': 1, 'arch': 1, 'path': 1, 'size': 1, 'updated_at': 1},
+        version_field='version',
+        listing=True,
+    ),
+    Source(
+        'apk',
+        APK_PACKAGES,
+        'package',
+        'apk',
+        ('name_lc',),
+        {'name': 1, 'version': 1, 'arch': 1, 'path': 1, 'size': 1, 'updated_at': 1},
         version_field='version',
         listing=True,
     ),
@@ -542,6 +554,8 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {'provider': '/'.join(path.split('/', 3)[:3])}
     if repo.format == 'maven' and (gav := key_for('maven', path)) is not None:
         return {'artifact': f'{gav.namespace}:{gav.name}', 'version': gav.version}
+    if repo.format == 'apk' and path.endswith('.apk') and (found := split_apk_file(path.rpartition('/')[2])):
+        return {'package': found[0]}
     if repo.format == 'cargo' and path.startswith('crates/') and path.count('/') == 2:
         return {'crate': path.split('/')[1]}
     if repo.format == 'swift' and path.count('/') >= 2 and not path.startswith('_scm/'):
@@ -734,6 +748,19 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 browse=SearchBrowseLink(
                     repository=repo.name, query={'suite': suite, 'arch': arch, 'q': str(doc['name'])}
                 ),
+            )
+        case 'apk':
+            path = str(doc.get('path', ''))
+            return SearchHit(
+                **common,
+                name=str(doc['name']),
+                version=doc.get('version') or None,
+                qualifier=doc.get('arch') or None,
+                path=path,
+                size=_int(doc.get('size')),
+                sha256=None,
+                cached=None,
+                browse=SearchBrowseLink(repository=repo.name, query={'package': str(doc['name'])}),
             )
         case 'yum':
             path = str(doc.get('path', ''))

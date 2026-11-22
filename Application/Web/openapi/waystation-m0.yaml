@@ -2016,6 +2016,48 @@ paths:
               schema: { $ref: '#/components/schemas/RubygemsVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/apk/packages:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listApkPackages
+      summary: Packages of an Alpine apk repository (a proxy's cached APKINDEX listings, hosted uploads)
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApkPackagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/apk/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listApkVersions
+      summary: One apk package and its files (newest first, apk version order)
+      parameters:
+        - name: package
+          in: query
+          required: true
+          description: Package name
+          schema: { type: string, maxLength: 200 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Package files
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApkVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/yum/packages:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4782,6 +4824,26 @@ components:
           enum: [keep, strip]
           default: keep
           description: "`keep` leaves each version's `source` (VCS) entry in the metadata; `strip` removes it so clients can only install the cached archives (dev branches without an archive become uninstallable). Proxy repositories only"
+    ApkOptions:
+      title: ApkOptions
+      type: object
+      additionalProperties: false
+      properties:
+        branch: { type: string, minLength: 1, maxLength: 64, pattern: '^[A-Za-z0-9._-]+$', default: latest-stable, description: 'Alpine branch for "Set me up", prefetch items without a path and "test upstream" (e.g. `v3.22`, `edge`, `latest-stable`)' }
+        repositories:
+          type: array
+          minItems: 1
+          maxItems: 16
+          default: [main, community]
+          description: 'Alpine repositories (below the branch) for "Set me up" and prefetch items without a path'
+          items: { type: string, minLength: 1, maxLength: 64, pattern: '^[A-Za-z0-9._-]+$' }
+        architectures:
+          type: array
+          minItems: 1
+          maxItems: 16
+          default: [x86_64]
+          description: 'Architectures that prefetch items without a path warm (e.g. `x86_64`, `aarch64`)'
+          items: { type: string, minLength: 1, maxLength: 32, pattern: '^[a-z0-9_]+$' }
     RubygemsOptions:
       title: RubygemsOptions
       type: object
@@ -4807,6 +4869,7 @@ components:
         - $ref: '#/components/schemas/NugetOptions'
         - $ref: '#/components/schemas/ComposerOptions'
         - $ref: '#/components/schemas/RubygemsOptions'
+        - $ref: '#/components/schemas/ApkOptions'
     QuotaMode:
       type: string
       enum: [soft, hard]
@@ -5665,6 +5728,57 @@ components:
           type: array
           description: Newest first (RubyGems version order)
           items: { $ref: '#/components/schemas/RubygemsVersion' }
+        next_cursor: { type: [string, 'null'] }
+    ApkPackage:
+      type: object
+      required: [name, arches, version_count]
+      properties:
+        name: { type: string }
+        latest_version: { type: [string, 'null'], default: null, description: 'Newest version (apk version order)' }
+        arches: { type: array, items: { type: string } }
+        version_count: { type: integer, description: Distinct versions }
+        description: { type: [string, 'null'], default: null }
+        origin: { type: [string, 'null'], default: null, description: 'Source package (APKBUILD) it was built from' }
+    ApkPackagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ApkPackage' }
+        next_cursor: { type: [string, 'null'] }
+    ApkVersion:
+      type: object
+      required: [version, arch, branch, repository, directory, path, verified, cached, depends, download_url]
+      properties:
+        version: { type: string, description: '`<version>-r<release>`' }
+        arch: { type: string }
+        branch: { type: string, description: 'Alpine branch, e.g. v3.22' }
+        repository: { type: string, description: 'Alpine repository below the branch, e.g. main' }
+        directory: { type: string, description: 'The `<branch>/<repository>/<arch>` directory whose APKINDEX lists it' }
+        path: { type: string, description: 'Path of the .apk file in the repository' }
+        size_bytes: { type: [integer, 'null'], default: null }
+        installed_size: { type: [integer, 'null'], default: null }
+        checksum: { type: [string, 'null'], default: null, description: 'APKINDEX `C:` value: `Q1` + base64 SHA-1 of the control segment' }
+        verified: { type: boolean, description: 'Listed by a cached (proxy) or generated (hosted) APKINDEX' }
+        cached: { type: boolean, description: 'The .apk file is stored' }
+        license: { type: [string, 'null'], default: null }
+        origin: { type: [string, 'null'], default: null }
+        url: { type: [string, 'null'], default: null }
+        build_time: { type: [string, 'null'], format: date-time, default: null }
+        depends: { type: array, items: { type: string } }
+        uploaded_at: { type: [string, 'null'], format: date-time, default: null }
+        uploaded_by: { type: [string, 'null'], default: null }
+        download_url: { type: string }
+    ApkVersionPage:
+      type: object
+      required: [package, items, next_cursor]
+      properties:
+        package: { $ref: '#/components/schemas/ApkPackage' }
+        items:
+          type: array
+          description: Newest first (apk version order)
+          items: { $ref: '#/components/schemas/ApkVersion' }
         next_cursor: { type: [string, 'null'] }
     YumPackage:
       type: object

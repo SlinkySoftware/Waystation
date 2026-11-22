@@ -9,6 +9,7 @@ from pymongo.errors import DuplicateKeyError
 from waystation_common.db import usage as usage_db
 from waystation_common.db.client import Database
 from waystation_common.db.collections import (
+    APK_PACKAGES,
     APT_HOSTED,
     APT_PACKAGES,
     APT_POOL_INDEX,
@@ -59,6 +60,7 @@ CONTENT_COLLECTIONS = (
     NUGET_PACKAGES,
     COMPOSER_PACKAGES,
     RUBYGEMS_GEMS,
+    APK_PACKAGES,
     GO_MODULES,
     GALAXY_COLLECTIONS,
     GALAXY_IMPORTS,
