@@ -261,7 +261,12 @@ async def test_preview_plans_every_repository(unit_services: Services, nexus: Fa
     assert items['rocky'].repository is not None
     assert items['rocky'].repository.format_options == {'repo_path': '', 'gpg_key': None, 'repomd_keys': None}
     assert items['raspberrypi'].repository is not None
-    assert items['raspberrypi'].repository.format_options == {'distribution': 'trixie', 'flat': False}
+    assert items['raspberrypi'].repository.format_options == {
+        'distribution': 'trixie',
+        'flat': False,
+        'components': ['main'],
+        'architectures': ['amd64', 'arm64'],
+    }
 
 
 @pytest.mark.parametrize(

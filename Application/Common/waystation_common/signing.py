@@ -1,4 +1,4 @@
-"""Per-repository OpenPGP signing keys for hosted apt/yum repositories (ARCHITECTURE §2, §5; adr/0007, *Proposed*).
+"""Per-repository OpenPGP signing keys for hosted apt/yum repositories (ARCHITECTURE §2, §5; adr/0007, accepted).
 
 The one place that signs repository metadata. Implementation (adr/0007, in-house option): keys are generated with
 ``cryptography`` and version 4 packets are written here (key, user ID, self-certification, detached signatures);
@@ -15,7 +15,9 @@ keyring directory. If adr/0007 is declined for ``gpg`` in the worker image, only
   ``signing-key:<repo id>``, so a key file copied to another repository's name does not decrypt). Created atomically
   (written to a temporary file, then hard-linked into place, so two workers racing on a new repository agree on one
   key), never rewritten.
-- **Signing**: detached binary-document signatures, SHA-512, armored (``repomd.xml.asc``; apt ``Release.gpg``).
+- **Signing**: detached binary-document signatures, SHA-512, armored (``repomd.xml.asc``; apt ``Release.gpg``), and
+  cleartext-signed documents (apt ``InRelease``, RFC 9580 §7: ``Hash:`` header, dash-escaping, a canonical-text
+  signature over the text with CRLF line ends and trailing blanks removed, the last line end excluded).
 
 Blocking CPU and file work: call it in a thread (ARCHITECTURE §9).
 """
@@ -46,7 +48,7 @@ _REPO_ID = re.compile(r'^[A-Za-z0-9_-]{1,64}$')
 
 ALG_RSA = 1
 HASH_SHA256, HASH_SHA512 = 8, 10
-SIG_BINARY, SIG_POSITIVE_CERT = 0x00, 0x13
+SIG_BINARY, SIG_TEXT, SIG_POSITIVE_CERT = 0x00, 0x01, 0x13
 TAG_SIGNATURE, TAG_PUBLIC_KEY, TAG_USER_ID = 2, 6, 13
 SUB_CREATED, SUB_ISSUER, SUB_PREF_HASH, SUB_PRIMARY_UID, SUB_KEY_FLAGS, SUB_ISSUER_FPR = 2, 16, 21, 25, 27, 33
 
@@ -153,6 +155,26 @@ def sign_detached(private: rsa.RSAPrivateKey, key: PublicPart, data: bytes, *, c
     return armor('SIGNATURE', make_signature(private, key, SIG_BINARY, data, created=when))
 
 
+def _cleartext_lines(text: str) -> list[str]:
+    """The lines of a cleartext-signed document (no line ends; a final line end is not a line of its own)."""
+    if '\r' in text or '\x00' in text:
+        raise CryptoError('cleartext documents must use LF line ends and contain no NUL')
+    return text.removesuffix('\n').split('\n')
+
+
+def clearsign(private: rsa.RSAPrivateKey, key: PublicPart, text: str, *, created: int | None = None) -> str:
+    """``text`` as a cleartext-signed message (RFC 9580 §7; apt ``InRelease``): the signed text is dash-escaped
+    and followed by an armored canonical-text signature (type 0x01, SHA-512). The signature covers the lines with
+    trailing spaces/tabs removed, joined by CRLF, without the final line end (what ``gpgv`` and apt verify). The
+    message ends with a line end, as ``text`` should (a missing final line end is added: it is not signed)."""
+    when = int(time.time()) if created is None else created
+    lines = _cleartext_lines(text)
+    signed = '\r\n'.join(line.rstrip(' \t') for line in lines).encode('utf-8')
+    body = ''.join(f'- {line}\n' if line.startswith('-') else f'{line}\n' for line in lines)
+    signature = armor('SIGNATURE', make_signature(private, key, SIG_TEXT, signed, created=when))
+    return f'-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n{body}{signature}'
+
+
 def certificate(private: rsa.RSAPrivateKey, key: PublicPart, user_id: str, *, created: int | None = None) -> str:
     """The armored transferable public key: the key, one user ID and its positive self-certification (key flags
     certify and sign; preferred hashes SHA-512, SHA-256), as ``rpm --import`` / ``gpg --import`` expect."""
@@ -182,9 +204,18 @@ class RepoKey:
     def fingerprint(self) -> str:
         return self.public.fingerprint_hex
 
+    @property
+    def certificate_binary(self) -> bytes:
+        """The certificate without armor (apt keyring files ``*.gpg``, ``Signed-By`` with a binary key)."""
+        return openpgp.dearmor(self.certificate.encode('ascii'))
+
     def sign(self, data: bytes, *, created: int | None = None) -> str:
         """An armored detached signature of ``data``."""
         return sign_detached(self.signer, self.public, data, created=created)
+
+    def clearsign(self, text: str, *, created: int | None = None) -> str:
+        """``text`` cleartext-signed (``clearsign``)."""
+        return clearsign(self.signer, self.public, text, created=created)
 
 
 def _aad(repo_id: str) -> bytes:

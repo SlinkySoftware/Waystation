@@ -68,6 +68,19 @@ describe('repository form model', () => {
     expect(group).toMatchObject({ type: 'group', group: { members: ['npm-internal', 'npm'], writable_member: 'npm-internal' } })
   })
 
+  it('builds apt hosted repositories with a distribution, components and architectures', () => {
+    expect(HOSTED_FORMATS).toContain('apt')
+    const m = { ...emptyModel('apt', 'hosted'), name: 'debs', distribution: ' stable ', flat: true, aptComponents: ['main', ' contrib ', ''], aptArchitectures: [] }
+    expect(toWrite(m)).toMatchObject({
+      type: 'hosted',
+      hosted: { write_policy: 'allow_redeploy' },
+      format_options: { distribution: 'stable', flat: false, components: ['main', 'contrib'], architectures: ['amd64', 'arm64'] },
+    })
+    const back = modelFromRepository({ name: 'debs', format: 'apt', type: 'hosted', online: true, format_options: { distribution: 'stable', components: ['main', 'non-free'], architectures: ['armhf'] } } as unknown as Repository)
+    expect(back).toMatchObject({ distribution: 'stable', aptComponents: ['main', 'non-free'], aptArchitectures: ['armhf'] })
+    expect(toWrite({ ...emptyModel('apt', 'proxy'), name: 'debian', distribution: 'trixie' }).format_options).toEqual({ distribution: 'trixie', flat: false, components: ['main'], architectures: ['amd64', 'arm64'] })
+  })
+
   it('never sends an empty secret (write-only: omitted keeps the stored one)', () => {
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', authKind: 'bearer' as const }
     expect(toWrite(m).proxy?.auth).toEqual({ kind: 'bearer', username: null })
@@ -86,7 +99,7 @@ describe('repository form model', () => {
     } as unknown as Repository
     const m = modelFromRepository(repo)
     expect(m.metadataMaxAgeMin).toBe(10)
-    expect(toWrite(m).format_options).toEqual({ distribution: 'trixie', flat: false })
+    expect(toWrite(m).format_options).toEqual({ distribution: 'trixie', flat: false, components: ['main'], architectures: ['amd64', 'arm64'] })
   })
 
   it('edits a yum repository keeping its format options and content max age', () => {

@@ -140,3 +140,36 @@ def test_refuses_unsafe_repository_ids(store: KeyStore) -> None:
     for bad in ('../x', 'a/b', '', 'x' * 65):
         with pytest.raises(CryptoError):
             store.path(bad)
+
+
+def _cleartext(message: str) -> tuple[str, bytes]:
+    """(signed text as a verifier sees it, armored signature) of a cleartext-signed message, read like gpgv."""
+    head, sep, rest = message.partition('\n\n')
+    assert sep and head == '-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512'
+    body, sep, signature = rest.partition('-----BEGIN PGP SIGNATURE-----')
+    assert sep
+    lines = [line[2:] if line.startswith('- ') else line for line in body.removesuffix('\n').split('\n')]
+    assert not any(line.startswith('-') and not line.startswith('- ') for line in body.split('\n'))
+    return '\n'.join(line.rstrip(' \t') for line in lines), (sep + signature).encode()
+
+
+def test_clearsigned_documents_verify_as_canonical_text(store: KeyStore) -> None:
+    key = store.load_or_create('repo-7', 'seven')
+    release = 'Origin: Waystation\nSuite: trixie\n-dash: line\nSHA256:\n 00 1 main/binary-amd64/Packages\ntrailing  \n'
+    message = key.clearsign(release, created=NOW)
+    assert message.startswith('-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\nOrigin: Waystation\n')
+    assert '\n- -dash: line\n' in message  # dash-escaped
+    assert message.endswith('-----END PGP SIGNATURE-----\n')
+    text, signature = _cleartext(message)
+    certs = openpgp.read_certs(key.certificate.encode())
+    checked = openpgp.verify_detached(text.encode(), signature, certs, now=NOW + 1)
+    assert (checked.cert_fingerprint, checked.created) == (key.fingerprint, NOW)
+    (packet,) = [body for tag, body in openpgp.packets(openpgp.dearmor(signature)) if tag == openpgp.SIGNATURE]
+    sig = openpgp.parse_signature(packet)
+    assert sig is not None and sig.type == signing.SIG_TEXT
+    with pytest.raises(openpgp.OpenPgpError):  # a changed document does not verify
+        openpgp.verify_detached(text.replace('trixie', 'forky').encode(), signature, certs, now=NOW + 1)
+    with pytest.raises(CryptoError):
+        key.clearsign('Origin: x\r\n')
+    assert openpgp.read_certs(key.certificate_binary)[0].fingerprint == key.fingerprint
+    assert not key.certificate_binary.startswith(b'-----')

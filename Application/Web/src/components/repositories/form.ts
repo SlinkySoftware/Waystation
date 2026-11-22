@@ -10,7 +10,7 @@ export type FormFormat = M0Format
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'swift']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'swift']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
 export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
@@ -81,6 +81,10 @@ export interface RepoFormModel {
   // apt
   distribution: string
   flat: boolean
+  /** Hosted: components uploads may go to (the first is the default). */
+  aptComponents: string[]
+  /** Hosted: architectures always published (packages' own architectures are added). */
+  aptArchitectures: string[]
   // raw
   metadataRegex: string
   contentDisposition: 'inline' | 'attachment'
@@ -93,6 +97,10 @@ export interface RepoFormModel {
   /** Armored public keys repomd.xml must be signed with; empty = not verified. */
   repomdKeys: string
 }
+
+/** Hosted apt defaults (the server's defaults too). */
+export const DEFAULT_APT_COMPONENTS: readonly string[] = ['main']
+export const DEFAULT_APT_ARCHITECTURES: readonly string[] = ['amd64', 'arm64']
 
 /** Provider registries a Terraform mirror serves by default (the server's default too). */
 export const DEFAULT_TF_ORIGINS: readonly string[] = ['registry.terraform.io', 'registry.opentofu.org']
@@ -200,6 +208,8 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     swiftMappedOnly: false,
     distribution: '',
     flat: false,
+    aptComponents: [...DEFAULT_APT_COMPONENTS],
+    aptArchitectures: [...DEFAULT_APT_ARCHITECTURES],
     metadataRegex: '',
     contentDisposition: 'attachment',
     versionPolicy: 'release',
@@ -265,6 +275,8 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     swiftMappedOnly: o.mapped_scopes_only ?? false,
     distribution: o.distribution ?? '',
     flat: o.flat ?? false,
+    aptComponents: o.components ?? [...DEFAULT_APT_COMPONENTS],
+    aptArchitectures: o.architectures ?? [...DEFAULT_APT_ARCHITECTURES],
     metadataRegex: o.metadata_path_regex ?? '',
     contentDisposition: o.content_disposition ?? 'attachment',
     versionPolicy: o.version_policy ?? 'release',
@@ -281,8 +293,17 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       return m.type !== 'proxy' ? { aliases: [], docker_hub: false, default_repo: m.defaultRepo } : { aliases: m.aliases, docker_hub: m.dockerHub, default_repo: m.defaultRepo }
     case 'npm':
       return { audit_passthrough: m.auditPassthrough }
-    case 'apt':
-      return { distribution: m.distribution.trim(), flat: m.flat }
+    case 'apt': {
+      // Components and architectures are hosted settings; a proxy carries what it has (the defaults).
+      const components = m.aptComponents.map((c) => c.trim()).filter(Boolean)
+      const architectures = m.aptArchitectures.map((a) => a.trim()).filter(Boolean)
+      return {
+        distribution: m.distribution.trim(),
+        flat: m.type === 'hosted' ? false : m.flat,
+        components: components.length ? components : [...DEFAULT_APT_COMPONENTS],
+        architectures: architectures.length ? architectures : [...DEFAULT_APT_ARCHITECTURES],
+      }
+    }
     case 'pypi':
       return { json_api: m.jsonApi }
     case 'go':

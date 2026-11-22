@@ -328,7 +328,7 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   anywhere in the repository, `dists/` included, is a pool file (content, verified against the listing that names
   it, else served and recorded `unverified`); index and release names (`Packages*`, `Sources*`, `Translation-*`,
   `Contents-*`, `Release*`, `InRelease`) are never taken for packages.
-- Hosted: upload `.deb` (`PUT /repository/<repo>/pool/...` or `POST` multipart); worker regenerates
+- Hosted: upload `.deb` (`PUT`, or `POST` raw or multipart; built 2026-11-22, below); worker regenerates
   `Packages`/`Release`/`InRelease` per suite/component/arch, signs with the repo key (`InRelease` clearsigned +
   `Release.gpg`), publishes atomically (write new index blobs, then swap metadata assets).
 - Clients: apt (deb822 `.sources` and one-line), with `Signed-By`; Debian 12/13, Ubuntu 24.04/26.04, Raspberry Pi OS (arm64/armhf).
@@ -343,7 +343,7 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   unverified pool file whose recorded hash disagrees with a new listing is dropped from the cache (only the copy with
   that hash: a verified copy stored meanwhile stays). Parsed `Release`
   files are kept in a small in-process LRU keyed by blob digest. Real clients: apt on Debian 13 and Ubuntu 26.04
-  (`tests/clients/apt/`); Raspberry Pi OS arm64 opt-in (`ARM64=1`, needs arm64 emulation). Not yet: hosted,
+  (`tests/clients/apt/`); Raspberry Pi OS arm64 opt-in (`ARM64=1`, needs arm64 emulation). Not yet (proxy):
   `Release` signature checks by Waystation (clients verify), components (`components` collection).
 - Worker refresh (2026-11-21, job `apt.refresh`, queue `prefetch`, `waystation_worker.apt`; built-in schedule
   `41 * * * *` over every apt proxy, or one repository by `repo_id`; dedupe `apt.refresh:<repo id|*>`). Per suite
@@ -371,6 +371,37 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
 - Browse (T-S09 min): the background indexing pass (and the worker refresh) writes each `Packages` stanza (name, version, architecture, section) to
   `apt_packages`, replacing the previous generation of that index; suites come from the cached `InRelease`/`Release`
   (origin, codename, date, components, architectures).
+- Built (T-P5-APTH, hosted, 2026-11-22): `formats/apt/hosted.py`, package reader `deb.py`, worker
+  `waystation_worker.apt_index`, records in `apt_hosted_packages` (`waystation_common.db.apt_hosted`). One distribution per
+  repository (option `distribution`, one name without `/`), `components` (default `main`) and `architectures`
+  (default `amd64 arm64`); `flat` is refused. Upload `PUT <repo>/[<anything>.deb]` or `POST <repo>/` (raw body, or
+  the first file part of a `multipart/form-data` form, streamed), `?component=` picks a configured component (else
+  the first; another is 400). The body streams into the blob store after the hard-quota check; then, in a thread,
+  the `ar` archive is checked (magic, at most 16 members, every header and extent, `debian-binary` `2.x` first, then
+  `control.tar[.gz|.xz|.zst]` and `data.tar[.gz|.xz|.zst|.bz2|.lzma]`, `_*` members allowed between), the control
+  archive is decompressed to at most 16 MiB (truncated or trailing data refused), its tar members (at most 10 000,
+  relative names without `..`; nothing extracted) searched for `control` (a regular file, at most 1 MiB), parsed as
+  one UTF-8 paragraph without control characters or repeated fields, and `Package`/`Version`/`Architecture` (and
+  `Source`) checked; MD5/SHA-1/SHA-512 of the whole file are computed for the index. Stored at
+  `pool/<component>/<prefix>/<source>/<name>_<version without epoch>_<arch>.deb` whatever the URL; the package's
+  `Packages` paragraph (control fields in order, `Filename`/`Size`/`MD5sum`/`SHA1`/`SHA256`/`SHA512` before
+  `Description`; uploaded values of those fields are dropped) is rendered at upload. Write policy per SPEC §4.2; the
+  same name/version/architecture at another path (another component) is 409 (`repo_package_unique`, so a racing
+  upload is refused too). The asset, then the record and an `index.apt` outbox entry in one transaction; `DELETE
+  pool/...deb` likewise. The worker builds `Packages`, `.gz`, `.xz` per component × architecture (configured ∪
+  uploaded; `all` packages in every architecture; records whose file is gone are dropped), publishes them at
+  `<component>/binary-<arch>/by-hash/SHA256/<h>` first, writes `Release` (`Origin: Waystation`, `Label`, `Suite` =
+  `Codename` = distribution, `Date`, `Architectures`, `Components`, `Acquire-By-Hash: yes`, `MD5Sum`, `SHA256`),
+  signs it into `InRelease` (cleartext, SHA-512 canonical-text signature) and `Release.gpg` (detached) with the
+  repository key (`waystation_common.signing`, adr/0007), and switches `Release`, `InRelease`, `Release.gpg`, the
+  plain index paths and the public key (`public.asc` armored, `public.gpg` binary) in one transaction; other `dists/`
+  files are removed except the previous generation's `by-hash` files. The browse listing (`apt_packages`) is replaced
+  per published index (suite = distribution), so the apt browser and search work unchanged; the generic component
+  index links the pool files (dpkg `version_sort`). Real client: dpkg-deb + upload, `apt-get update` verifying
+  `InRelease` with the served key (deb822 `Signed-By`, API token in `auth.conf`), install, upgrade, a wrong key
+  refused, delete (`tests/clients/apt/hosted.sh`, Debian 13). Nexus import maps apt hosted (distribution, component
+  `main`; the Nexus signing key is reported, not imported). Not yet: key import/rotation, source packages, several
+  distributions per repository, `Contents`/`Translation` indexes, groups (SPEC §4.3).
 
 ## yum / dnf (RHEL family, EPEL, Oracle, Fedora) — Phase 2 (proxy), Phase 5 (hosted)
 - `repodata/repomd.xml` (+ `.asc`), `repodata/<hash>-primary.xml.{gz,zst}`, `filelists`, `other`, `updateinfo`,

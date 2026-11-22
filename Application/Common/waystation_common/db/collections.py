@@ -35,6 +35,7 @@ DOCKER_TAGS = 'docker_tags'
 DOCKER_MANIFESTS = 'docker_manifests'
 APT_POOL_INDEX = 'apt_pool_index'
 APT_PACKAGES = 'apt_packages'
+APT_HOSTED = 'apt_hosted_packages'  # packages uploaded to hosted apt repositories (T-P5-APTH)
 NPM_PACKAGES = 'npm_packages'
 NPM_VERSIONS = 'npm_versions'
 PYPI_PACKAGES = 'pypi_packages'
@@ -317,6 +318,30 @@ SPECS: tuple[CollectionSpec, ...] = (
             # Cached pool files -> the listings that name them ($lookup from assets).
             _ix('filename_repo', [('filename', ASCENDING), ('repo_id', ASCENDING)]),
             *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        APT_HOSTED,
+        (
+            # One record per uploaded .deb: its pool path, and (name, version, architecture) once per repository.
+            _ix('repo_path_unique', [('repo_id', ASCENDING), ('path', ASCENDING)], unique=True),
+            _ix(
+                'repo_package_unique',
+                [('repo_id', ASCENDING), ('name', ASCENDING), ('version', ASCENDING), ('architecture', ASCENDING)],
+                unique=True,
+            ),
+            # Index generation (worker): a component's packages by name, dpkg version order, architecture.
+            _ix(
+                'repo_component_order',
+                [
+                    ('repo_id', ASCENDING),
+                    ('component', ASCENDING),
+                    ('name', ASCENDING),
+                    ('version_sort', ASCENDING),
+                    ('architecture', ASCENDING),
+                    ('path', ASCENDING),
+                ],
+            ),
         ),
     ),
     CollectionSpec(

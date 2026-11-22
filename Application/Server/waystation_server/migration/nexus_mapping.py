@@ -14,8 +14,8 @@ What maps (SPECIFICATION §4.12):
 - docker: ``dockerProxy.indexType`` ``HUB`` (or a Docker Hub remote) → ``docker_hub``; the upstream host becomes an
   upstream alias (``docker.io`` for Docker Hub) unless disabled; connector ports/subdomains are reported (clients use
   ``/v2/<name>/`` or an alias instead; dedicated connectors are T-P6-DOCKERC);
-- apt: ``apt.distribution``/``apt.flat``; raw: ``raw.contentDisposition``; maven: ``maven.versionPolicy``/
-  ``maven.layoutPolicy``; yum and npm need no options;
+- apt: ``apt.distribution``/``apt.flat`` (hosted: the distribution, component ``main``); raw:
+  ``raw.contentDisposition``; maven: ``maven.versionPolicy``/``maven.layoutPolicy``; yum and npm need no options;
 - hosted: ``storage.writePolicy`` (``ALLOW``/``ALLOW_ONCE``/``DENY``) → ``hosted.write_policy``; group:
   ``group.memberNames``/``group.writableMember`` → ``group`` (only when the server's repository model has them).
 
@@ -287,12 +287,14 @@ def _format_options(m: Mapped, cfg: dict[str, Any], body: dict[str, Any], *, ali
     fmt = m.format
     if fmt == 'docker':
         return _docker(m, cfg, body, aliases=aliases)
-    if fmt == 'apt' and m.type == 'proxy':
+    if fmt == 'apt' and m.type in ('proxy', 'hosted'):
         apt = _dict(cfg.get('apt'))
         distribution = apt.get('distribution')
         if not isinstance(distribution, str) or not distribution:
             m.refuse('invalid', 'the Nexus apt repository has no distribution')
             return None
+        if m.type == 'hosted':  # Nexus publishes one distribution, component main (T-P5-APTH)
+            return {'distribution': distribution, 'components': ['main']}
         return {'distribution': distribution, 'flat': apt.get('flat') is True}
     if fmt == 'raw':
         raw = _dict(cfg.get('raw'))

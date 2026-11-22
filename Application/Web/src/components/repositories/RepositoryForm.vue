@@ -260,14 +260,44 @@
             v-model="model.distribution"
             outlined
             dense
-            :label="t('repoForm.distribution')"
-            :hint="t('repoForm.distributionHint')"
+            :label="t(model.type === 'hosted' ? 'repoForm.aptDistribution' : 'repoForm.distribution')"
+            :hint="t(model.type === 'hosted' ? 'repoForm.aptDistributionHint' : 'repoForm.distributionHint')"
             class="col"
             :error="!!errors['format_options.distribution']"
             :error-message="errors['format_options.distribution']"
           />
-          <q-toggle v-model="model.flat" :label="t('repoForm.flat')" class="col-auto" />
+          <q-toggle v-if="model.type !== 'hosted'" v-model="model.flat" :label="t('repoForm.flat')" class="col-auto" />
         </div>
+        <template v-if="model.type === 'hosted'">
+          <q-select
+            v-model="model.aptComponents"
+            outlined
+            dense
+            multiple
+            use-chips
+            use-input
+            new-value-mode="add-unique"
+            hide-dropdown-icon
+            :label="t('repoForm.aptComponents')"
+            :hint="t('repoForm.aptComponentsHint')"
+            :error="!!errors['format_options.components']"
+            :error-message="errors['format_options.components']"
+          />
+          <q-select
+            v-model="model.aptArchitectures"
+            outlined
+            dense
+            multiple
+            use-chips
+            use-input
+            new-value-mode="add-unique"
+            hide-dropdown-icon
+            :label="t('repoForm.aptArchitectures')"
+            :hint="t('repoForm.aptArchitecturesHint')"
+            :error="!!errors['format_options.architectures']"
+            :error-message="errors['format_options.architectures']"
+          />
+        </template>
       </template>
       <template v-else-if="model.format === 'yum'">
         <div class="repo-form__row">

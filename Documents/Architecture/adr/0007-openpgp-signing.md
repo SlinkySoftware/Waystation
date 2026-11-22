@@ -56,3 +56,11 @@ Option 3, in `waystation_common.signing` (the only signing entry point, ARCH §2
 - **If declined** (option 1): `waystation_common.signing` is reimplemented with `gpg --batch --detach-sign --armor`
   in the worker image (the key imported into a temporary `GNUPGHOME` per job from the same encrypted key file); the
   worker job, the published files and the tests stay the same.
+
+## As implemented for apt (T-P5-APTH, 2026-11-22)
+Within this decision, as its Consequences anticipated (no new dependency, no change of approach): `clearsign` writes
+the cleartext signature framework of RFC 9580 §7 (`Hash: SHA512` header, dash-escaped lines, a version 4
+canonical-text signature, type 0x01, over the lines with trailing blanks removed and joined by CRLF, the last line end
+excluded) for apt `InRelease`; `Release.gpg` is the existing detached signature; `RepoKey.certificate_binary` serves
+the same certificate without armor (`public.gpg`). Read back by `waystation_common.openpgp` in the unit tests and
+verified by apt on Debian 13 in the client harness (`tests/clients/apt/hosted.sh`).
