@@ -2,9 +2,9 @@
 
 Every route needs ``browse`` on the repository (yanking: ``write``; hidden repositories answer 404, ARCHITECTURE §7).
 The generic folder listing works for every format; the format views (``/npm/*``, ``/apt/*``, ``/docker/*``,
-``/maven/*``, ``/pypi/*``, ``/go/*``) answer 404 for a repository of another format, or whose plugin has no browser
-yet. The REST layer reaches a format's views only through its registered plugin's ``browser`` attribute and the
-protocols in ``waystation_server.browse.models`` (ARCHITECTURE §3).
+``/maven/*``, ``/pypi/*``, ``/go/*``, ``/cargo/*``) answer 404 for a repository of another format, or whose plugin
+has no browser yet. The REST layer reaches a format's views only through its registered plugin's ``browser``
+attribute and the protocols in ``waystation_server.browse.models`` (ARCHITECTURE §3).
 """
 
 from __future__ import annotations
@@ -22,6 +22,9 @@ from waystation_server.browse.models import (
     AptPackagePage,
     AptSuite,
     BrowseContext,
+    CargoBrowser,
+    CargoCratePage,
+    CargoVersionPage,
     DockerBrowser,
     DockerImagePage,
     DockerManifest,
@@ -108,6 +111,13 @@ def _pypi(svc: Services, repo: RepoConfig) -> PypiBrowser:
     browser = _browser(svc, repo, 'pypi')
     if not isinstance(browser, PypiBrowser):
         raise NotFound('not a PyPI repository')
+    return browser
+
+
+def _cargo(svc: Services, repo: RepoConfig) -> CargoBrowser:
+    browser = _browser(svc, repo, 'cargo')
+    if not isinstance(browser, CargoBrowser):
+        raise NotFound('not a Cargo repository')
     return browser
 
 
@@ -651,6 +661,43 @@ async def yank_pypi_version(name: str, request: Request, svc: ServicesDep, body:
     repo: RepoConfig = request.state.repo
     browser = _pypi(svc, repo)
     return await browser.yank(_context(svc, repo), body)
+
+
+# ---------------------------------------------------------------------------- cargo
+Crate = Annotated[str, Query(max_length=64, description='Crate name (any case)')]
+
+
+@router.get(
+    '/repositories/{name}/cargo/crates',
+    response_model=CargoCratePage,
+    operation_id='listCargoCrates',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_cargo_crates(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> CargoCratePage:
+    repo: RepoConfig = request.state.repo
+    return await _cargo(svc, repo).crates(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/cargo/versions',
+    response_model=CargoVersionPage,
+    operation_id='listCargoVersions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_cargo_versions(
+    name: str, request: Request, svc: ServicesDep, crate: Crate, cursor: Cursor = None, limit: Limit = 50
+) -> CargoVersionPage:
+    repo: RepoConfig = request.state.repo
+    return await _cargo(svc, repo).versions(_context(svc, repo), crate=crate, cursor=cursor, limit=limit)
 
 
 # ---------------------------------------------------------------------------- go

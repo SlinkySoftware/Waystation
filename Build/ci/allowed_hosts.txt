@@ -46,6 +46,8 @@ registry.terraform.io
 registry.opentofu.org
 releases.hashicorp.com
 galaxy.ansible.com
+# Rust crates (T-P6-CARGO): crates.io, its sparse index (index.crates.io) and download host (static.crates.io)
+crates.io
 
 # Public upstreams: Linux distribution mirrors
 deb.debian.org

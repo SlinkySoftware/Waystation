@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://static.crates.io/crates/itoa/1.0.11/download"
+  },
+  "response": {
+    "body_sha256": "49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b",
+    "body_size": 10563,
+    "headers": [
+      [
+        "content-length",
+        "10563"
+      ],
+      [
+        "content-type",
+        "application/gzip"
+      ],
+      [
+        "etag",
+        "\"5d87e8530342ef2a980b1c96dafd27f0\""
+      ],
+      [
+        "last-modified",
+        "Sun, 28 Jun 2026 17:55:48 GMT"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public,max-age=31536000,immutable"
+      ]
+    ],
+    "status": 200
+  }
+}

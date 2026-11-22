@@ -6,6 +6,7 @@ Order:
 2. ``Authorization``:
    - ``Bearer <api-token>`` / ``Token <api-token>`` (scripts, npm ``_authToken``, Terraform, Galaxy);
    - ``Basic`` with an API token as the password, any username (curl ``-u``, apt ``auth.conf``, Maven, pip...);
+   - a bare API token without a scheme (Cargo sends its registry token as the whole header value);
    - ``Bearer <jwt>`` on ``/v2/``: a Docker registry token (``registry_auth``; ``/v2/`` accepts nothing else, so API
      tokens there are ignored and the client gets the Bearer challenge);
 3. else ``anonymous``.
@@ -122,6 +123,8 @@ async def _from_header(services: Services, request: Request) -> Principal | None
     registry = request.url.path == '/v2' or request.url.path.startswith('/v2/')
     scheme, _, credentials = header.partition(' ')
     credentials = credentials.strip()
+    if not credentials and looks_like_token(scheme) and not registry:
+        return await services.tokens.authenticate(scheme, client_ip=client_address(request))  # Cargo
     if scheme.lower() in ('bearer', 'token') and credentials:
         if looks_like_token(credentials) and not registry:
             return await services.tokens.authenticate(credentials, client_ip=client_address(request))

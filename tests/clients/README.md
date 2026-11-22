@@ -146,6 +146,11 @@ codeload redirect), about 200 KB (budget 1 MiB, `swift/format.env`); the package
 generated at run time. `client-swift` is `swift:6.4.3-noble` with curl, zip and `go/tlsfront.go` (SwiftPM accepts only
 https registries); the anonymous resolve uses an empty netrc and its own cache path, since SwiftPM finds root's
 credentials and caches through the passwd home, not `$HOME`.
+cargo: fixtures are crates.io's `config.json`, the index files of `cfg-if` and `itoa` from index.crates.io and their
+1.0.0 / 1.0.11 `.crate` files from static.crates.io (budget 512 KiB, `cargo/format.env`); the crate published to the
+hosted registry is generated at run time. `client-cargo` is `rust:1.99.1-slim-trixie` with curl; every scenario uses
+its own `CARGO_HOME`, so registry caches and credentials never leak between them. The group also asks index.crates.io for the hosted crate
+(a recorded 404), as every group with a proxy member does for names only a hosted member has.
 npm: after npm 11, `client-nodepm` runs pnpm, Yarn 1, Yarn 4 and Bun (`npm/pm.sh`): frozen installs of `pinned/` from
 each client's committed lockfile (`pnpm-lock.yaml`, `yarn-classic.lock`, `yarn-berry.lock`, `bun.lock`; Yarn 1's
 `resolved` URLs are pointed at Waystation first, as it fetches them verbatim) and each client's audit command. The

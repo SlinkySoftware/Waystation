@@ -11,11 +11,11 @@ export type FormFormat = M0Format
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift', 'cargo']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'cargo']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
-export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'pypi', 'helm', 'galaxy']
+export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'pypi', 'helm', 'galaxy', 'cargo']
 
 export interface RepoFormModel {
   name: string
@@ -149,6 +149,7 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   ],
   pypi: [{ id: 'pypi', label: 'pypi.org', apply: { name: 'pypi-proxy', upstreamUrl: 'https://pypi.org' } }],
   go: [{ id: 'goproxy', label: 'proxy.golang.org', apply: { name: 'go-proxy', upstreamUrl: 'https://proxy.golang.org' } }],
+  cargo: [{ id: 'crates', label: 'crates.io', apply: { name: 'cargo-proxy', upstreamUrl: 'https://index.crates.io/' } }],
   galaxy: [{ id: 'galaxy', label: 'galaxy.ansible.com', apply: { name: 'galaxy-proxy', upstreamUrl: 'https://galaxy.ansible.com/' } }],
   terraform: [
     { id: 'registries', label: 'Terraform and OpenTofu registries', apply: { name: 'terraform-mirror', upstreamUrl: 'https://registry.terraform.io', tfOrigins: [...DEFAULT_TF_ORIGINS] } },
@@ -346,6 +347,7 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
     case 'yum':
       return m.type === 'proxy' ? { repo_path: m.repoPath.trim(), gpg_key: m.gpgKey?.trim() || null, repomd_keys: m.repomdKeys.trim() || null } : {}
     case 'helm':
+    case 'cargo':
       return {}
     case 'swift':
       // The Git host settings are proxy settings (the server refuses them on hosted repositories).
@@ -430,7 +432,7 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
 // ---------------------------------------------------------------- prefetch (T-O12)
 
 /** Formats whose proxies can warm a list of items and keep popular metadata fresh. */
-export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go']
+export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go', 'cargo']
 /** Server limits of the warm list (PrefetchConfig). */
 export const WARM_MAX_ITEMS = 200
 export const WARM_MAX_LENGTH = 512

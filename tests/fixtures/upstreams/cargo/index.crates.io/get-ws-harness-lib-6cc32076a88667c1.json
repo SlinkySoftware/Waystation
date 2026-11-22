@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://index.crates.io/ws/-h/ws-harness-lib"
+  },
+  "response": {
+    "body_sha256": "9a88122974f250767bb21e63deaba7c5c0280e2b91b00667f8fcec1635494f1c",
+    "body_size": 311,
+    "headers": [
+      [
+        "content-length",
+        "311"
+      ],
+      [
+        "content-type",
+        "application/xml"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 404
+  }
+}

@@ -98,8 +98,8 @@ Windows containers support for the server.
   Helm `index.yaml` URLs, Terraform download URLs).
 - SSRF guard: upstream URLs and redirects may not resolve to loopback/link-local/private ranges unless the repo
   sets `allow_private_upstream: true`.
-- **Prefetch** (T-O12, per proxy repository `proxy.prefetch`; adr/0012 accepted): formats docker, npm, raw, Maven and
-  Go (others refuse the settings).
+- **Prefetch** (T-O12, per proxy repository `proxy.prefetch`; adr/0012 accepted): formats docker, npm, raw, Maven,
+  Go and Cargo (others refuse the settings).
   - *Keep popular metadata fresh* (`refresh_popular`, off by default): the built-in task `prefetch.refresh` (every
     15 minutes, queue `prefetch`) takes the repository's metadata files downloaded in the last 7 days, most downloaded
     first (at most 200), and revalidates those that are stale or go stale before the next run (conditional request;
@@ -327,7 +327,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 | Ansible Galaxy (collections; roles read-only) | yes | yes (collections) | yes | 5 |
 | Swift Package Registry (SE-0292) | yes (source-archive proxy from git hosts) | yes | no | 5 |
 | NuGet v3 | yes | yes | yes | 6 |
-| Cargo (sparse index) | yes | yes | no | 6 |
+| Cargo (sparse index) | yes | yes | yes | 6 (built) |
 | RubyGems | yes | yes | yes | 6 |
 | Composer (PHP) | yes | no | no | 6 |
 | Conda | yes | no | no | 6 |
@@ -554,7 +554,8 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   tokens. Only administrators may give a service account `admin`. `/api/v1/tokens` lists and revokes every token
   (incident response).
 - **API token transport** for format clients on `/repository/*` and the API: `Authorization: Bearer <token>`,
-  `Authorization: Token <token>`, or HTTP basic with the token as the password (any username). Basic credentials
+  `Authorization: Token <token>`, a bare `Authorization: <token>` (Cargo sends its registry token that way;
+  T-P6-CARGO), or HTTP basic with the token as the password (any username). Basic credentials
   whose password is not an API token are refused: account passwords (local or LDAP) are accepted only by the UI sign-in,
   `docker login` and `npm login` (which exchanges them for an API token).
 - **Format client auth**: docker (Bearer token service at `/auth/token` per Docker token spec; `docker login` with
@@ -577,7 +578,8 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   after the 401 challenge, ADR 0005; preemptive authentication is optional),
   Helm classic repos (basic: `helm repo add --username --password`), Terraform/OpenTofu (`credentials` block → `Authorization: Bearer`), Ansible Galaxy
   (`Authorization: Token <api-token>`), Swift (`swift package-registry login`: basic or token), NuGet
-  (`X-NuGet-ApiKey` for push, basic for read), apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic;
+  (`X-NuGet-ApiKey` for push, basic for read), Cargo (`cargo login` / `CARGO_REGISTRIES_<NAME>_TOKEN` = API token,
+  sent bare; `config.json` answers the 401 challenge first and then says `auth-required`), apt/yum (basic auth in URL or `auth.conf`/`.repo`), Go (`.netrc` basic;
   the go command sends credentials over HTTPS only).
   Each format's auth is part of its Definition of Done (FORMATS.md).
 - **Challenge on format routes** (ADR 0005): on `/repository/<repo>/...`, a request that carries **no credentials**
@@ -1266,6 +1268,7 @@ Waystation/
 | Swift Package Registry format (T-P5-SWIFT) | 2026-11-22: SE-0292 registry API (FORMATS.md "Swift Package Registry"): release lists, release information (`resources` checksum and signature, `Link` neighbours), manifests with `Link` alternates and `?swift-version=` (303 fallback), source archives (`Digest`, signature headers) by X-Accel, `/identifiers`, `POST login`, `Content-Version: 1`, problem details, `Accept` version negotiation (400/415). SCM-backed proxy (GitHub, GitLab, Gitea/Forgejo; scope → owner mapping, optional allowlist): tags from the smart-HTTP ref advertisement, the tag's tarball repackaged byte-deterministically in a thread, the checksum pinned in `swift_releases` (a rebuild that differs is refused; release files are never cleaned up), `/identifiers` from repository URLs. Hosted: SE-0391 publish (archive checks, metadata, signer recorded), immutable versions, removal as `410`, write policy, quotas, audit; `swift_packages` summaries, components with SemVer `version_sort`, global search source; browse API + UI renderer, create flow with the host options, "Set me up" (registry set, login, resolve, publish); OpenAPI, generated client and MSW mocks; unit + integration tests; real-client harness `tests/clients/swift/` (swift 6.4); `Documents/Operations/clients/swift.md` |
 | Terraform modules and hosted repository (T-P5-TFM) | Done 2026-11-22 (adr/0010 accepted 2026-11-22): module registry proxy (`v1/modules/...` on proxy repositories: version list, download answer kept, GitHub tag archives and HTTP(S)/S3 archives from `module_archive_hosts` cached with their sha256 pinned at the first fetch, other sources passed through; relative `X-Terraform-Get` naming the module's directory), the instance's one hosted Terraform repository (module uploads with bounded archive checks, provider releases with SHA256SUMS + signature verified against the uploaded key, immutable versions, deletes, both registry protocols), `/.well-known/terraform.json` (visibility-filtered), signed download grants for files (`security.download_urls`), browse (`terraform/modules`, `terraform/module-versions`, hosted providers), search, components, UI (create flow with the hosted type, options, Providers / Modules / Files views), "Set me up" (`host` block for the proxy, credentials, sources and publishing for the hosted repository), Nexus import note; harness: terraform 1.17 and tofu 1.13 with `hashicorp/subnets/cidr` through both registries' module proxies and a private module and provider from the hosted repository with a bearer token, negative auth (recorded, replay passing). Left: k6 perf budgets (T-P2-PERF) |
 | Prefetch (T-O12) | Done 2026-11-22 (adr/0012 accepted): per proxy repository `proxy.prefetch` (refresh popular metadata, warm list, schedule) for docker, npm, raw, Maven and Go; jobs `prefetch.refresh` (built-in, every 15 min) and `prefetch.warm` (`prefetch:<repo id>`, "Warm now") on queue `prefetch`, executed by a server through `POST /_internal/prefetch/<repo id>` with a signed system grant; never counted as downloads; `WAYSTATION_INTERNAL_URL`; repository form section, overview card, Tasks page owner. Left: PyPI, Helm, Galaxy, Terraform, Swift warm items |
+| Cargo format (T-P6-CARGO) | Done 2026-11-22: sparse registries (FORMATS.md "Cargo"): proxy of crates.io (`config.json` generated with `dl`/`api` on the repository and `auth-required` for authenticated requests; index files checked line by line and revalidated as metadata; `.crate` files fetched from the upstream `dl` template and verified against the index `cksum`), hosted (`cargo publish` length-prefixed payload bounded and streamed, `.crate` inspected in a thread, index entries made from the metadata as crates.io does, crates.io name rules, write policy, yank/unyank, owners listed; bare API tokens in `Authorization`), group (merged index files, first member wins, publishes to the writable member); prefetch (`crate@version`, index refresh); `cargo search`; browse (`cargo/crates`, `cargo/versions`), global search, components, SemVer cleanup; Set me up (source replacement, named registry, login, publish); Nexus `cargo` repositories import; UI browser and create flow; real-client harness with cargo 1.99 (`tests/clients/cargo/`, recorded crates.io fixtures); `Operations/clients/cargo.md` |
 | Everything else | Not started |
 | M0 feedback build (T-V02) | Done 2026-11-09, tagged `v0.1.0-m0`: `make e2e-m0` runs real docker, npm, apt (Debian 13) and raw clients through a running stack and checks the live stream, stats, activity and browse; `Documents/Operations/TRY_IT.md` (fresh host from images and an env file); real-server screenshot tour `Documents/Notes/UI_TOUR_M0.md`; feedback log `Documents/Notes/UI_FEEDBACK.md` |
 

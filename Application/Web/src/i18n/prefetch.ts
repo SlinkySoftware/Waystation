@@ -14,6 +14,7 @@ export const prefetch = {
     raw: 'One file path in this repository per line.',
     maven: 'One artifact per line: groupId:artifactId:version[:extension[:classifier]] (releases only, no snapshots).',
     go: 'One module per line: module@version or module@latest.',
+    cargo: 'One crate per line: crate@version, or crate alone for the latest release.',
   },
   warmPlaceholder: {
     docker: 'library/nginx:1.27\nnginx:1.27 linux/amd64,linux/arm64',
@@ -21,6 +22,7 @@ export const prefetch = {
     raw: 'tools/example-1.0.0.tar.gz',
     maven: 'org.apache.commons:commons-lang3:3.17.0',
     go: 'golang.org/x/text@v0.21.0',
+    cargo: 'serde@1.0.228\nitoa',
   },
   schedule: 'Warm schedule (optional)',
   scheduleHint: 'UTC cron, a macro such as @daily, or @every 6h (at least 15 minutes). Empty: only when run by hand.',

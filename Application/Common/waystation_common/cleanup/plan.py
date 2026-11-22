@@ -12,8 +12,8 @@ Components and versions come from asset paths (``coordinates``) until components
   ``collections/<ns>/<name>/<ns>-<name>-<version>.tar.gz`` (per collection, SemVer); terraform
   ``<hostname>/<namespace>/<type>/<version>/<os>/<arch>/<archive>.zip`` (per provider, semver; every platform of a
   version shares its rank), module archives ``v1/modules/<namespace>/<name>/<system>/<version>/archive.*`` and
-  hosted provider packages ``v1/providers/<namespace>/<type>/<version>/*.zip`` (per module / provider, semver); every
-  other format
+  hosted provider packages ``v1/providers/<namespace>/<type>/<version>/*.zip`` (per module / provider, semver); cargo
+  ``crates/<crate>/<crate>-<version>.crate`` (per crate, SemVer); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -144,6 +144,10 @@ def coordinates(fmt: str, path: str) -> Coord:
             provider = '/'.join(parts[2:4])
             return Coord(provider, parts[4], provider, True)
         return Coord(path, filename, _parent(path), False)
+    if fmt == 'cargo' and path.startswith('crates/') and path.count('/') == 2 and filename.endswith('.crate'):
+        crate = path.split('/')[1]
+        if filename.startswith(crate + '-') and len(filename) > len(crate) + 7:
+            return Coord(crate, filename[len(crate) + 1 : -6], crate, True)
     if fmt == 'terraform' and filename.endswith('.zip') and path.count('/') == 6:
         hostname, namespace, kind, version, _ = path.split('/', 4)
         provider = f'{hostname}/{namespace}/{kind}'

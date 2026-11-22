@@ -6,13 +6,15 @@ format package exposes ``DESCRIPTOR`` (``<format>.descriptor``) and, once implem
 (T-P2-YUM) proxy repositories; helm (T-P5-HELM), maven (T-P5-MAVEN) and pypi (T-P5-PYPI) proxy, hosted and group
 repositories; go (T-P5-GO) proxy and group repositories; galaxy (T-P5-GALAXY) proxy, hosted and group
 repositories; terraform (T-P5-TFP) provider network mirrors (proxy); swift (T-P5-SWIFT) SCM-backed proxy and hosted
-repositories.
+repositories; cargo (T-P6-CARGO) sparse proxy, hosted and group repositories.
 """
 
 from __future__ import annotations
 
 from waystation_server.formats.apt.descriptor import DESCRIPTOR as APT
 from waystation_server.formats.apt.plugin import AptPlugin
+from waystation_server.formats.cargo.descriptor import DESCRIPTOR as CARGO
+from waystation_server.formats.cargo.plugin import CargoPlugin
 from waystation_server.formats.docker.descriptor import DESCRIPTOR as DOCKER
 from waystation_server.formats.docker.plugin import DockerPlugin
 from waystation_server.formats.galaxy.descriptor import DESCRIPTOR as GALAXY
@@ -40,7 +42,7 @@ from waystation_server.formats.yum.plugin import YumPlugin
 
 def default_registry() -> FormatRegistry:
     registry = FormatRegistry()
-    for descriptor in (DOCKER, NPM, APT, RAW, YUM, MAVEN, PYPI, GO, HELM, GALAXY, TERRAFORM, SWIFT):
+    for descriptor in (DOCKER, NPM, APT, RAW, YUM, MAVEN, PYPI, GO, HELM, GALAXY, TERRAFORM, SWIFT, CARGO):
         registry.register(descriptor)
     registry.set_plugin(HelmPlugin())  # T-P5-HELM
     registry.set_plugin(RawPlugin())  # T-P2-RAW
@@ -54,4 +56,5 @@ def default_registry() -> FormatRegistry:
     registry.set_plugin(GalaxyPlugin())  # T-P5-GALAXY: collections proxy, hosted, group; roles proxy
     registry.set_plugin(TerraformPlugin())  # T-P5-TFP: provider network mirror (proxy)
     registry.set_plugin(SwiftPlugin())  # T-P5-SWIFT: SCM-backed proxy, hosted
+    registry.set_plugin(CargoPlugin())  # T-P6-CARGO: sparse registries: proxy, hosted, group
     return registry
