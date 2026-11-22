@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://codeload.github.com/JohnSundell/Files/tar.gz/refs/tags/4.2.0"
+  },
+  "response": {
+    "body_sha256": "45d4d0a0b2474269aac21cd2eee50b7b41e35b998a49b827b0b3848b51cbf12e",
+    "body_size": 166299,
+    "headers": [
+      [
+        "content-disposition",
+        "attachment; filename=Files-4.2.0.tar.gz"
+      ],
+      [
+        "content-length",
+        "166299"
+      ],
+      [
+        "content-type",
+        "application/x-gzip"
+      ],
+      [
+        "etag",
+        "\"1abf6051658a7a7ad0a6aec55aa3650c896e18b9fe870d82c5b702d618f632be\""
+      ],
+      [
+        "vary",
+        "Authorization,Accept-Encoding"
+      ]
+    ],
+    "status": 200
+  }
+}

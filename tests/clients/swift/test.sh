@@ -58,7 +58,7 @@ EOF
 resolved_from_registry() {  # resolved_from_registry <dir> <identity> <version>
   r="$1/Package.resolved"
   [ -s "$r" ] || fail "no Package.resolved in $1"
-  tr -d ' \n' < "$r" | grep -q "\"identity\":\"$2\",\"kind\":\"registry\"" || fail "$2 not resolved from the registry: $(cat "$r")"
+  tr -d ' \n' < "$r" | grep -qi "\"identity\":\"$2\",\"kind\":\"registry\"" || fail "$2 not resolved from the registry: $(cat "$r")"
   tr -d ' \n' < "$r" | grep -q "\"version\":\"$3\"" || fail "$2 is not at $3: $(cat "$r")"
 }
 
@@ -159,10 +159,14 @@ resolved_from_registry "$consumer" mona.linkedlist 1.0.0
 [ "$("$consumer/.build/debug/Consumer")" = 0 ] || fail 'the consumer did not run'
 
 step 'hosted: without credentials the registry refuses the resolve'
-(cd "$consumer" && swift package-registry logout "${hosted}login" >/dev/null 2>&1 || true)
-rm -rf "$consumer/.build" "$consumer/Package.resolved" "$HOME/.cache" "$HOME/.swiftpm/cache" "$HOME/.netrc"
-if (cd "$consumer" && swift package resolve >"$work/resolve-anon.log" 2>&1); then
-  fail 'resolve without credentials succeeded'
+anon="$work/anonymous"  # a fresh user (no login, no caches) and a fresh copy of the consumer
+mkdir -p "$anon/home"
+cp -r "$consumer/Package.swift" "$consumer/Sources" "$anon/"
+if (cd "$anon" && export HOME="$anon/home" && swift package-registry set "$hosted" >/dev/null \
+  && : > "$anon/empty.netrc" \
+  && swift package resolve --disable-dependency-cache --netrc-file "$anon/empty.netrc" \
+    --cache-path "$anon/cache" >"$work/resolve-anon.log" 2>&1); then
+  fail "resolve without credentials succeeded: $(tail -n 5 "$work/resolve-anon.log")"
 fi
 grep -qi -e '401' -e 'unauthorized' -e 'authentication' "$work/resolve-anon.log" \
   || fail "resolve without credentials failed for another reason: $(tail -n 10 "$work/resolve-anon.log")"
