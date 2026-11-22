@@ -40,6 +40,8 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | Composer | `vendor/name:version` (`monolog/monolog:3.8.1`, any spelling that normalises the same; `dev-main` reads the `~dev` document), `vendor/name` (= the newest stable version, else the newest) | the package's `p2` document, the version's archive when the repository serves it (checked, verified and pinned as for a client) | `p2` documents (tagged and `~dev`, same path) |
 | Cargo | `crate@<exact SemVer version>` (`serde@1.0.228`), `crate` (= highest non-yanked release) | the crate's index file, then the version's `.crate` (verified against the index `cksum`) | index files `index/<prefix>/<crate>` (same path) |
 | apk | `name=version` (`busybox=1.37.0-r19`), `name` (= the version the index lists, the newest when several), each in the default branch for every configured architecture (the first configured repository that lists it), or `<branch>/<repo>/<arch>/name[=version]` | the directory's `APKINDEX.tar.gz`, then the package (verified against the index `C:` checksum as for a client) | `APKINDEX.tar.gz` files (same path) |
+| Conda | `<subdir>/<name>` (newest version listed), `<subdir>/<name>==<version>` (every build), `<subdir>/<name>==<version>=<build>` (`noarch/tzdata==2025b`, `linux-64/numpy==2.1.3`) | the subdir's `repodata.json.zst` (else `repodata.json`), its indexing awaited, then the matching package files (verified against the listing) | `channeldata.json` (repodata files are revalidated on client requests) |
+| Hugging Face | `<repo_id>[@<revision>]` (every file of the revision, default `main`; ≤ 2,000 files and 200 GiB), `<repo_id>[@<revision>]:<path>` (one file); datasets as `datasets/<repo_id>...` (`julien-c/dummy-unknown`, `openai-community/gpt2@main:config.json`) | the revision's info document, then each file at its commit (verified as for a client) | info documents of branches and tags (`api/<kind>s/<id>[/revision/<rev>]`, same path) |
 | RubyGems | `gem:version` (`rake:13.2.1`), `gem:version-platform` (`nokogiri:1.18.8-x86_64-linux`), `gem` (= the newest release of the `ruby` platform, else the newest) | the gem's info file, the version's `.gem` (verified against the info checksum as for a client) and its `quick/Marshal.4.8` gemspec | `versions`, `names`, info files (same path) |
 
 Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
@@ -1180,9 +1182,64 @@ Composer version order (`dev-*` branches first, then numbers, `-dev` < alpha < b
 finds packages by name. Prefetch: see "Prefetch". Nexus: `composer-*` repositories (the Composer plugin's) are
 imported with default options; content is kept forever (pinned).
 
-## Conda — Phase 6
-Channel `channeldata.json`, `<subdir>/repodata.json(.zst)` (metadata), `.conda`/`.tar.bz2` (content, sha256 from
-repodata). Proxy only. Clients: conda, mamba, pixi.
+## Conda — Phase 6 (built, T-P6-CONDA)
+Conda channels (`formats/conda/`), proxy and hosted. No groups: conda merges the channels a client lists itself, and
+merging repodata of several channels per request is not worth its cost; creating one is refused, as for apt.
+Clients: conda, mamba / micromamba, pixi (`Operations/clients/conda.md`).
+
+**Layout** (`/repository/<repo>/` is the channel URL): `channeldata.json`; per subdir (`noarch`, `linux-64`,
+`osx-arm64`... any `<platform>-<arch>` name) `repodata.json` and its `.zst` / `.bz2` encodings,
+`current_repodata.json`, `repodata_from_packages.json` (and encodings), and the package files
+`<name>-<version>-<build>.conda` (v2: a zip of zstd tarballs) and `.tar.bz2` (v1). Names are lower case (letters,
+digits, `-_.+`), versions and builds have no `-`, so a file name splits at its last two `-`. `repodata.jlap`
+(incremental) and sharded repodata (`repodata_shards.msgpack.zst`, `shards/`) answer 404 without an upstream request,
+so clients fall back to the full file. Versions follow conda's `VersionOrder` (`waystation_common.conda`: epoch,
+components split at `.`/`_`, `dev` < other strings < numbers < `post`, missing parts 0, `+local` last), used for
+`version_sort`, cleanup, browse and "latest".
+
+**Proxy** (upstream URL: a channel, e.g. `https://conda.anaconda.org/conda-forge`):
+- `channeldata.json`: metadata (≤ 128 MiB, revalidated after the metadata max age; prefetch refreshes it).
+- Repodata files are large (conda-forge `linux-64`: hundreds of MB as JSON), so they are **streamed** to the client
+  while they are stored (a content fill, ≤ 1 GiB, never buffered) and revalidated with `ETag`/`Last-Modified` once
+  older than the repository's metadata max age, as Maven snapshots are (prefetch refresh does not cover them).
+- After a repodata file (any encoding) is stored, a background task scans it with bounded memory
+  (`waystation_common.conda.repodata`: decompressed as a stream, ≤ 2 GiB, decoded one entry at a time, ≤ 64 MiB per
+  value, ≤ 3 M entries, in a thread) and writes its entries to `conda_packages` (`sha256`, `md5`, `size`, name,
+  version, build; unordered bulk upserts, a no-op for unchanged entries) and per-name summaries to `conda_names`.
+  Entries whose file name, name, version, build, digests or size are invalid are skipped. Indexed blobs are
+  remembered per process; a package request for a subdir whose cached repodata was not indexed (a restart) starts it.
+- Packages are content: verified against the listing's sha256 (else md5) and size before they are committed; a
+  mismatch aborts the transfer and caches nothing. A package requested before any indexed listing names it is served
+  and recorded `unverified` (its computed sha256); when a listing arrives it is confirmed, or its cached copy is
+  dropped (compare-and-set on the blob) and the next request fetches and verifies it again, as apt pool files are.
+- Prefetch: see "Prefetch" (an internal `_ws/files/...` lookup, answered only to prefetch requests, waits for the
+  subdir's indexing and lists the matching files).
+
+**Hosted**: `PUT <subdir>/<file>` (`curl --upload-file`) with the package as the body, streamed into the blob store
+after the hard-quota check; then, in a thread, the archive is read without extracting anything (`.conda`: ≤ 16 zip
+members, `metadata.json` with `conda_pkg_format_version` 2, the `info-*.tar.zst` member decompressed as a stream
+≤ 512 MiB; `.tar.bz2`: streamed ≤ 8 GiB; ≤ 200,000 tar members) up to `info/index.json` (a regular file ≤ 1 MiB),
+whose name, version, build and subdir must match the path; the repodata entry keeps the fields conda-index publishes
+(`depends`, `constrains`, `license`, `noarch`, `timestamp`...) plus `md5`, `sha256`, `size`. Write policy:
+`read_only` 403, `disable_redeploy` 409 for other bytes (the same bytes: 200), `allow_redeploy` replaces.
+`DELETE <subdir>/<file>` removes a file. Records and an `index.conda` job are written in one transaction; the worker
+(`waystation_worker.conda`) publishes, per subdir with packages and always `noarch`, `repodata.json` and
+`repodata.json.zst`, then `channeldata.json` and the `conda_names` summaries; subdirs left empty lose their files.
+Before a subdir has published repodata, `<subdir>/repodata.json` answers an empty listing and `channeldata.json` an
+empty channel. Uploads need `write`, deletes `delete`; both audited (`conda_package`).
+
+**Auth**: conda reads `~/.netrc` and credentials in channel URLs (basic, an API token as the password); micromamba
+and mamba take `https://user:token@host/...` channel URLs; pixi `pixi auth login <host> --token` (bearer).
+
+**Browse, search, components, cleanup**: `GET conda/packages` (names, prefix filter) and `GET conda/files?package=
+[&subdir=]` (newest first; checksums, verified, held, downloads; hosted: dependencies, uploader); global search on
+`conda_names`. Components: package files (name, version). Cleanup groups files per name and subdir in conda version
+order, every build of a version sharing its rank; repodata files are each their own group (refetched on demand).
+Nexus: `conda` proxies import (content kept forever: packages are verified by checksum).
+
+Clients verified (harness, recorded conda-forge fixtures trimmed to the entries used): micromamba 2.3 (an
+environment through the proxy; `.conda` and `.tar.bz2` uploads to a hosted channel installed with a token; anonymous
+refused). Not yet: JLAP and sharded repodata, groups, conda and pixi in the harness, the live smoke.
 
 ## Alpine apk — Phase 6 (built, T-P6-APK)
 Alpine apk v2 repositories (`formats/apk/`, shared parsing in `waystation_common.apk`), proxy and hosted. Client: apk
@@ -1245,6 +1302,74 @@ upstream" and path-less warm items only. Real client: apk-tools on Alpine 3.22 (
 package assembled with busybox tools, the signed index refused until the served key is trusted, then `apk add`,
 upgrade and delete. Not yet: groups, apk v3 indexes and packages, verifying upstream index signatures in Waystation.
 
-## Hugging Face — Phase 6
-Hub HTTP API subset used by `huggingface_hub` (`/api/models/<id>/revision/<rev>`, `/<id>/resolve/<rev>/<file>`
-with `X-Repo-Commit`, `ETag`, LFS redirects). Proxy only; large files. Client: `HF_ENDPOINT=<repo url>`.
+## Hugging Face — Phase 6 (built, T-P6-HF)
+A proxy of the Hugging Face Hub (`formats/huggingface/`) for `huggingface_hub` and everything built on it
+(transformers, diffusers, datasets, sentence-transformers, the `hf` CLI): `HF_ENDPOINT=<base>/repository/<repo>` (no
+trailing slash). Models and datasets; proxy repositories only (hosted and group repositories are refused: the Hub's
+upload API is not implemented, and a group would have to merge commit histories). Client guide
+`Operations/clients/huggingface.md`.
+
+**Routes** (`paths`, below `/repository/<repo>/`; `GET`/`HEAD` only, `405` otherwise, anything else `404`):
+`api/models/<id>` and `api/models/<id>/revision/<rev>` (repository info), `api/models/<id>/tree/<rev>[/<path>]` (file
+listing; `recursive`, `expand`, `cursor`, `limit`), `<id>/resolve/<rev>/<path>` (a file); datasets as `api/datasets/...`
+and `datasets/<id>/resolve/...`. A repo id is `<name>` or `<namespace>/<name>` (`waystation_common.huggingface`:
+letters, digits, `-_.`, ≤ 96 per part; the two-segment reading wins where both fit, as on the Hub). Revisions: a
+commit (40 hex), a branch or tag without `/`, `refs/pr/<n>`, `refs/convert/<name>` (huggingface_hub percent-encodes
+them; the router has decoded them, so other names with `/` are not routable: documented limitation). Spaces, Xet
+token routes, `paths-info` and the rest of the Hub API answer 404.
+
+**Info documents** are fetched as `api/<kind>s/<id>[/revision/<rev>]?blobs=true` (every sibling with `size`, `blobId`
+and, for LFS files, `lfs.sha256`/`lfs.size`) and cached as metadata under the client's path (≤ 64 MiB; ≤ 1 M entries;
+JSON object with a 40-hex `sha` required, else `502` and nothing cached). A branch's or tag's document is revalidated
+after the repository's metadata max age; a commit's never changes (kept 10 years). Clients get the cached document
+for any query (`expand`, `securityStatus` are ignored; siblings always carry the blob fields). The plugin parses it in a
+thread (in-process cache by blob) and resolves a revision to its commit and file table from it (sibling paths are
+normalised; invalid entries are skipped). A commit that a cached revision document named (`huggingface_repos.refs`,
+or in memory) is answered from that document without an upstream request, so `snapshot_download` (info of `main`,
+then files at the commit) costs one document and an offline repository still answers for those commits.
+
+**Files**: `GET <id>/resolve/<rev>/<path>` resolves the revision, looks the file up (`404` with `X-Error-Code:
+EntryNotFound` when the revision has no such file) and serves it as content keyed by commit and path,
+`[datasets/]<id>/resolve/<commit>/<path>` (a moved branch never serves another commit's bytes; identical bytes share
+one blob), fetched from `<upstream>/<id>/resolve/<commit>/<path>`. The Hub answers with a relative redirect for
+regular files (`/api/resolve-cache/...`) and a signed redirect to its CDN for LFS and Xet-backed files; redirects are
+followed through the SSRF guard only to the upstream URL's host and the repository's `cdn_hosts` (default
+`huggingface.co`, `*.huggingface.co`, `*.hf.co`; the engine's `AssetSpec.redirect_allowed`), anything else fails the
+fetch (`502`). LFS files are verified against the listed sha256 and size, other files against their git blob id (sha1
+of `blob <size>\0` + content, in a thread) and size, before anything is committed: a mismatch cuts the transfer
+(nothing cached). Files stream through the engine (tee to the client and the blob store, coalescing, fills that
+outlive their client; the default 64 GiB size limit applies). Responses carry `X-Repo-Commit`, `X-Linked-Etag` and
+`X-Linked-Size` (also on X-Accel hits: the blob location re-adds them).
+
+**HEAD** on a file is answered from the info document without contacting the upstream and without downloading
+anything, as `huggingface_hub.file_download.get_hf_file_metadata` expects: `200` (no redirect, so the client downloads
+the same URL from Waystation), `X-Repo-Commit`, `ETag` = `X-Linked-Etag` = the LFS sha256 (else the git blob id),
+`X-Linked-Size` = `Content-Length` = the size. huggingface_hub names cached blobs after that etag, so its local cache is
+interchangeable with one filled from the Hub.
+
+**Xet**: huggingface_hub with hf_xet (installed by default) downloads a file with the Xet protocol straight from the
+Hub's storage when a HEAD carries `X-Xet-Hash` or a tree entry carries `xetHash`. Waystation never sends the header and
+stores info and tree documents without `xetHash` fields, so every file comes over HTTP through the proxy.
+
+**Tree listings** (`snapshot_download` lists the commit's files): cached as metadata per folder and canonical query
+(`api/<kind>s/<id>/tree/<rev>[/<path>]?recursive=..&expand=..[&limit=..][&cursor=..]`, ≤ 64 MiB, a JSON array; a
+commit's listing never changes), `xetHash` removed, the `Link` header (next page) rewritten to the repository.
+
+**Upstream credentials**: the repository's bearer credential (a Hub token, for gated and private repositories) is sent
+to the upstream URL's host only, never to the CDN; a client's credentials are never forwarded (`HF_TOKEN` is a
+Waystation API token). Gated and private models are then readable by everyone the repository's RBAC allows.
+
+**Prefetch**: see "Prefetch". **Browse, search, components, cleanup**: `huggingface_repos` (one summary per model or
+dataset: `latest` commit of the default branch, `refs` = revisions asked for and the commit each resolved to) written
+when an info document or a file is cached; `GET huggingface/models` (cached files, bytes, downloads per model),
+`huggingface/revisions?model=` (refs and the commits with cached files), `huggingface/files?model=&commit=`; global
+search by model id (kind `package`, browse link `model`). Components: name = repo id (`datasets` namespace for
+datasets), version = commit (`org/model@<12 hex>`). Cleanup groups files per model, the commit as the version,
+commits ordered by when their newest file was cached (every file of a commit shares its rank). Nexus
+`huggingface-proxy` repositories are imported (content kept forever: verified and keyed by commit).
+
+Clients verified (harness, recorded fixtures of `julien-c/dummy-unknown`): huggingface_hub 2.4 with hf_xet:
+`get_hf_file_metadata`, `hf_hub_download` (a regular and an LFS file behind the Xet bridge CDN redirect),
+`hf download`, `snapshot_download`; again from a fresh client cache with the repository offline; a Waystation API
+token as `HF_TOKEN`, a bad token refused. Not yet: the Hub's upload API (hosted), groups, Spaces, Xet passthrough,
+`paths-info`, revisions with `/` other than `refs/pr|convert/...`, the live smoke.

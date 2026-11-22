@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://conda.anaconda.org/conda-forge/linux-64/repodata.json.zst"
+  },
+  "response": {
+    "body_sha256": "e9f559a5c0af55cb20f6ca82b9647a6e7639c4aaa45e92b4840bdb445e5a5520",
+    "body_size": 92,
+    "headers": [
+      [
+        "content-type",
+        "binary/octet-stream"
+      ],
+      [
+        "content-length",
+        "92"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, max-age=1200"
+      ],
+      [
+        "etag",
+        "\"d9fdae521d2744218a931535652303a6\""
+      ],
+      [
+        "expires",
+        "Sun, 22 Nov 2026 16:38:58 GMT"
+      ],
+      [
+        "last-modified",
+        "Sun, 22 Nov 2026 15:58:38 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

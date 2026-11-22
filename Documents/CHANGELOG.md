@@ -24,6 +24,43 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   Fix found on the way: hosted files answer `If-Modified-Since` against the time their content last changed
   (`updated_at`; republished yum/apt/apk indexes kept their first `created_at`, so a revalidating client was told 304
   for a newer index).
+- T-P6-HF: Hugging Face Hub proxy (FORMATS.md "Hugging Face"; `formats/huggingface/`,
+  `Operations/clients/huggingface.md`). huggingface_hub, transformers and the `hf` CLI use a proxy repository as
+  `HF_ENDPOINT`: info documents (`api/<kind>s/<id>[/revision/<rev>]`, fetched with `blobs=true`) are cached as
+  metadata (branches revalidated after the metadata max age, commits kept) and resolve revisions to commits and list
+  every file's size, git blob id and LFS sha256; files (`[datasets/]<id>/resolve/<rev>/<path>`) are cached as content
+  keyed by commit and path, fetched through the Hub's redirects only to its own host and the repository's new option
+  `cdn_hosts` (default `huggingface.co`, `*.huggingface.co`, `*.hf.co`; the proxy engine's new
+  `AssetSpec.redirect_allowed`), verified against the LFS sha256 or git blob id and size before commit, and streamed
+  (coalescing, fills outlive the client). `HEAD` is answered from the info document the way huggingface_hub expects
+  (`X-Repo-Commit`, `ETag`/`X-Linked-Etag`, `X-Linked-Size`, `Content-Length`, no redirect); the nginx blob location
+  re-adds the three `X-` headers on cache hits. Tree listings are cached per query with `Link` pages rewritten;
+  `xetHash` is removed from cached documents, so clients with hf_xet download over HTTP through Waystation. The
+  repository's bearer credential (a Hub token for gated and private models) goes to the upstream host only. Proxy
+  repositories only (hosted and group refused). New collection `huggingface_repos` (browse, global search); browse API
+  `huggingface/models`, `huggingface/revisions`, `huggingface/files` (contract, regenerated client, MSW mocks, UI
+  browser, create flow with download hosts); components (repo id at a commit), cleanup (commits ordered by when
+  cached), prefetch warm items `repo_id[@revision][:path]` and info refresh, Set me up (`HF_ENDPOINT`, `HF_TOKEN`,
+  `hf download`, `huggingface-cli`, Python, transformers), Nexus `huggingface-proxy` import (content kept forever).
+  Real-client harness `tests/clients/huggingface/` (huggingface_hub 2.4 with hf_xet, recorded
+  `julien-c/dummy-unknown` fixtures). `test_repositories_integration.py::test_field_errors` now uses an unsupported
+  repository type (a hosted Hugging Face repository) instead of an unsupported format.
+- T-P6-CONDA: conda channels (FORMATS.md "Conda"; `formats/conda/`, `Operations/clients/conda.md`). **Proxy** of a
+  channel (preset conda-forge): `channeldata.json` as metadata; `<subdir>/repodata.json`, its `.zst`/`.bz2`
+  encodings, `current_repodata.json` and `repodata_from_packages.json` streamed to the client while cached (content
+  fill, bounded at 1 GiB) and revalidated after the metadata max age; `repodata.jlap` and sharded repodata answer 404
+  so clients fall back. Cached repodata is scanned in the background with bounded memory
+  (`waystation_common.conda.repodata`) into the new collections `conda_packages` and `conda_names`; `.conda` and
+  `.tar.bz2` packages are verified against the listed sha256 (or md5) and size, and packages fetched before any
+  listing are recorded unverified and checked (or dropped) when one arrives. **Hosted**: `PUT`/`DELETE
+  <subdir>/<file>`, `info/index.json` read safely from the archive (bounded, nothing extracted) and checked against
+  the path, write policy, quota; the new worker job `index.conda` (outbox) publishes `repodata.json`, `.zst` and
+  `channeldata.json` (an empty listing is served before the first run). Groups are refused. Conda `VersionOrder`
+  (`waystation_common.conda`) for `version_sort`, cleanup and components; prefetch warm items
+  `subdir/name[==version[=build]]` and `channeldata.json` refresh; browse API `conda/packages`, `conda/files`
+  (OpenAPI, MSW mocks, conda browser and create flow in the UI); global search; Set me up (`.condarc` channels or
+  `custom_channels`, `.netrc`, micromamba, pixi, curl upload); Nexus `conda` proxies import with content kept forever.
+  Real-client harness `tests/clients/conda/` (micromamba 2.3, conda-forge fixtures trimmed to the entries used).
 - T-P6-GEMS: RubyGems repositories (FORMATS.md "RubyGems", `Operations/clients/rubygems.md`). **Proxy** of a
   compact index server (preset rubygems.org): `versions` (up to 512 MiB), `names` and `info/<gem>` cached as metadata
   and served by X-Accel with `Repr-Digest`/`Digest` of the whole file, so Bundler's `Range` appends are checked (the

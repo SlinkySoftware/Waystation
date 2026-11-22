@@ -25,6 +25,8 @@ import { terraformProviderList, terraformVersionsFor } from './fixtures/terrafor
 import { hostedProviderList, hostedProviderVersionsFor, terraformModuleList, terraformModuleVersionsFor } from './fixtures/terraformModules'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { composerPackageList, composerVersionsFor } from './fixtures/composer'
+import { condaFilesFor, condaPackageList } from './fixtures/conda'
+import { huggingfaceFilesFor, huggingfaceModelList, huggingfaceRevisionsFor } from './fixtures/huggingface'
 import { rubygemsGemList, rubygemsVersionsFor } from './fixtures/rubygems'
 import { apkPackageList, apkVersionsFor } from './fixtures/apk'
 import { nugetPackageList, nugetSetListing, nugetVersionsFor } from './fixtures/nuget'
@@ -162,9 +164,9 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
     if (!(M0_FORMATS as readonly string[]).includes(body.format)) errors.push({ field: 'format', message: 'This format is not available yet.', code: 'unsupported' })
     if (body.format === 'go' && body.type === 'hosted') {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
-    } else if ((body.format === 'yum' || body.format === 'apt' || body.format === 'swift' || body.format === 'apk') && body.type === 'group') {
+    } else if ((body.format === 'yum' || body.format === 'apt' || body.format === 'swift' || body.format === 'conda' || body.format === 'apk') && body.type === 'group') {
       errors.push({ field: 'type', message: `${body.format} supports: proxy, hosted`, code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget', 'composer', 'cargo', 'rubygems', 'apk'].includes(body.format)) {
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'apk'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -824,6 +826,55 @@ export const handlers = [
     const found = cargoVersionsFor(repo.name, repo.type === 'hosted', url.searchParams.get('crate') ?? '')
     if (!found) return notFound()
     return HttpResponse.json({ crate: found.crate, ...paginate(found.versions, url) })
+  }),
+  http.get(`${API}/repositories/:name/conda/packages`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'conda')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    return HttpResponse.json(paginate(condaPackageList(repo.type === 'hosted', url.searchParams.get('q') ?? undefined), url))
+  }),
+  http.get(`${API}/repositories/:name/conda/files`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'conda')
+    if (!repo || repo.type === 'group') return error ?? notFound()
+    const url = new URL(request.url)
+    const found = condaFilesFor(repo.name, repo.type === 'hosted', url.searchParams.get('package') ?? '', url.searchParams.get('subdir'))
+    if (!found) return notFound()
+    return HttpResponse.json({ package: found.package, ...paginate(found.files, url) })
+  }),
+  http.get(`${API}/repositories/:name/huggingface/models`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'huggingface')
+    if (!repo || repo.type !== 'proxy') return error ?? notFound()
+    const url = new URL(request.url)
+    return HttpResponse.json(paginate(huggingfaceModelList(repo.name, url.searchParams.get('q') ?? undefined), url))
+  }),
+  http.get(`${API}/repositories/:name/huggingface/revisions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'huggingface')
+    if (!repo || repo.type !== 'proxy') return error ?? notFound()
+    const found = huggingfaceRevisionsFor(repo.name, new URL(request.url).searchParams.get('model') ?? '')
+    return found ? HttpResponse.json(found) : notFound()
+  }),
+  http.get(`${API}/repositories/:name/huggingface/files`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'huggingface')
+    if (!repo || repo.type !== 'proxy') return error ?? notFound()
+    const url = new URL(request.url)
+    const found = huggingfaceFilesFor(repo.name, url.searchParams.get('model') ?? '', url.searchParams.get('commit') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ model: found.model, commit: found.commit, ...paginate(found.files, url) })
   }),
   http.post(`${API}/repositories/:name/pypi/yank`, async ({ request, params }) => {
     const denied = guard(request)

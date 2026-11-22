@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { ApkOptions, AptOptions, ComposerOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, NugetOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, SwiftOptions, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
+import type { ApkOptions, AptOptions, ComposerOptions, DockerOptions, Format, GalaxyOptions, GoOptions, HuggingfaceOptions, M0Format, MavenOptions, NpmOptions, NugetOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, SwiftOptions, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
 import { t } from '@/i18n'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
@@ -11,7 +11,7 @@ export type FormFormat = M0Format
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift', 'nuget', 'composer', 'cargo', 'rubygems', 'apk']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'apk']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
 export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'nuget', 'composer', 'cargo', 'rubygems']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
@@ -88,6 +88,8 @@ export interface RepoFormModel {
   composerSourceMode: NonNullable<ComposerOptions['source_mode']>
   verifySignatures: boolean
   tfArchiveHosts: string[]
+  // huggingface (proxy): hosts file downloads may be redirected to (the Hub's CDN)
+  hfCdnHosts: string[]
   // apt
   distribution: string
   flat: boolean
@@ -127,6 +129,8 @@ export const DEFAULT_TF_ORIGINS: readonly string[] = ['registry.terraform.io', '
 export const DEFAULT_TF_ARCHIVE_HOSTS: readonly string[] = ['github.com']
 /** The server's ComposerOptions.dist_hosts default. */
 export const DEFAULT_COMPOSER_DIST_HOSTS: readonly string[] = ['github.com', 'codeload.github.com', 'api.github.com', 'gitlab.com']
+/** The server's HuggingfaceOptions.cdn_hosts default: hosts the Hub redirects file downloads to. */
+export const DEFAULT_HF_CDN_HOSTS: readonly string[] = ['huggingface.co', '*.huggingface.co', '*.hf.co']
 /** The server's ApkOptions defaults. */
 export const DEFAULT_APK_BRANCH = 'latest-stable'
 export const DEFAULT_APK_REPOSITORIES: readonly string[] = ['main', 'community']
@@ -170,6 +174,8 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   nuget: [{ id: 'nugetorg', label: 'nuget.org', apply: { name: 'nuget-proxy', upstreamUrl: 'https://api.nuget.org/v3/index.json' } }],
   go: [{ id: 'goproxy', label: 'proxy.golang.org', apply: { name: 'go-proxy', upstreamUrl: 'https://proxy.golang.org' } }],
   cargo: [{ id: 'crates', label: 'crates.io', apply: { name: 'cargo-proxy', upstreamUrl: 'https://index.crates.io/' } }],
+  conda: [{ id: 'conda-forge', label: 'conda-forge', apply: { name: 'conda-forge', upstreamUrl: 'https://conda.anaconda.org/conda-forge' } }],
+  huggingface: [{ id: 'hub', label: 'huggingface.co', apply: { name: 'huggingface', upstreamUrl: 'https://huggingface.co' } }],
   galaxy: [{ id: 'galaxy', label: 'galaxy.ansible.com', apply: { name: 'galaxy-proxy', upstreamUrl: 'https://galaxy.ansible.com/' } }],
   terraform: [
     { id: 'registries', label: 'Terraform and OpenTofu registries', apply: { name: 'terraform-mirror', upstreamUrl: 'https://registry.terraform.io', tfOrigins: [...DEFAULT_TF_ORIGINS] } },
@@ -244,6 +250,7 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     composerDistHosts: [...DEFAULT_COMPOSER_DIST_HOSTS],
     composerSourceMode: 'keep',
     tfArchiveHosts: [...DEFAULT_TF_ARCHIVE_HOSTS],
+    hfCdnHosts: [...DEFAULT_HF_CDN_HOSTS],
     distribution: '',
     flat: false,
     aptComponents: [...DEFAULT_APT_COMPONENTS],
@@ -270,7 +277,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
   const h = repo.hosted
   const quotaBytes = repo.storage?.quota_bytes ?? null
   const quotaSize = quotaBytes ? fromBytes(quotaBytes) : { size: m.quotaSize, unit: m.quotaUnit }
-  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions & TerraformOptions & SwiftOptions & NugetOptions & ComposerOptions
+  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions & TerraformOptions & SwiftOptions & NugetOptions & ComposerOptions & Partial<HuggingfaceOptions>
   // apk and apt both have `architectures`: read apk's own options only for an apk repository.
   const apk = (repo.format === 'apk' ? (repo.format_options ?? {}) : {}) as ApkOptions
   return {
@@ -325,6 +332,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     composerDistHosts: o.dist_hosts ?? [...DEFAULT_COMPOSER_DIST_HOSTS],
     composerSourceMode: o.source_mode ?? 'keep',
     tfArchiveHosts: o.module_archive_hosts ?? [...DEFAULT_TF_ARCHIVE_HOSTS],
+    hfCdnHosts: o.cdn_hosts ?? [...DEFAULT_HF_CDN_HOSTS],
     distribution: o.distribution ?? '',
     flat: o.flat ?? false,
     aptComponents: o.components ?? [...DEFAULT_APT_COMPONENTS],
@@ -397,11 +405,15 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
     case 'rubygems':
     case 'helm':
     case 'cargo':
+    case 'conda':
       return {}
     case 'nuget':
       // Catalog verification is a proxy setting, the delete mode a hosted one (the form shows only the one that
       // applies; the other keeps its stored value). Groups carry neither.
       return m.type === 'group' ? {} : { verify_catalog: m.nugetVerifyCatalog, delete_mode: m.nugetDeleteMode }
+    case 'huggingface':
+      // Proxy only: the hosts file downloads may be redirected to (exact names or *.<domain>).
+      return { cdn_hosts: m.hfCdnHosts.map((h) => h.trim().toLowerCase()).filter(Boolean) }
     case 'composer':
       // Dist hosts and source mode are proxy settings; hosted and group repositories carry none.
       return m.type === 'proxy' ? { dist_hosts: m.composerDistHosts.map((h) => h.trim().toLowerCase()).filter(Boolean), source_mode: m.composerSourceMode } : {}
@@ -488,7 +500,7 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
 // ---------------------------------------------------------------- prefetch (T-O12)
 
 /** Formats whose proxies can warm a list of items and keep popular metadata fresh. */
-export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'rubygems', 'apk']
+export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'huggingface', 'apk']
 /** Server limits of the warm list (PrefetchConfig). */
 export const WARM_MAX_ITEMS = 200
 export const WARM_MAX_LENGTH = 512

@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://huggingface.co/api/resolve-cache/models/julien-c/dummy-unknown/60b8d3fe22aebb024b573f1cca224db3126d10f3/vocab.json?%2Fjulien-c%2Fdummy-unknown%2Fresolve%2F60b8d3fe22aebb024b573f1cca224db3126d10f3%2Fvocab.json=&etag=%229226d916ab5ccd75b5f9d921e317a70988c17a37%22"
+  },
+  "response": {
+    "body_sha256": "599b2200906521148126e5384197b4be41e33b733519be16b6fe1b56db6a1c9e",
+    "body_size": 239,
+    "headers": [
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "content-length",
+        "239"
+      ],
+      [
+        "etag",
+        "\"9226d916ab5ccd75b5f9d921e317a70988c17a37\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''vocab.json; filename=\"vocab.json\";"
+      ],
+      [
+        "vary",
+        "Origin"
+      ]
+    ],
+    "status": 200
+  }
+}

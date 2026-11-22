@@ -7,8 +7,8 @@ format package exposes ``DESCRIPTOR`` (``<format>.descriptor``) and, once implem
 repositories; go (T-P5-GO) proxy and group repositories; galaxy (T-P5-GALAXY) proxy, hosted and group
 repositories; terraform (T-P5-TFP) provider network mirrors (proxy); swift (T-P5-SWIFT) SCM-backed proxy and hosted
 repositories; nuget (T-P6-NUGET), composer (T-P6-COMPOSER) and rubygems (T-P6-GEMS) proxy, hosted and group
-repositories; cargo (T-P6-CARGO) sparse proxy, hosted and group repositories; apk (T-P6-APK) proxy and hosted
-repositories.
+repositories; cargo (T-P6-CARGO) sparse proxy, hosted and group repositories; conda (T-P6-CONDA) proxy and hosted
+channels; huggingface (T-P6-HF) Hub proxies; apk (T-P6-APK) proxy and hosted repositories.
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ from waystation_server.formats.cargo.descriptor import DESCRIPTOR as CARGO
 from waystation_server.formats.cargo.plugin import CargoPlugin
 from waystation_server.formats.composer.descriptor import DESCRIPTOR as COMPOSER
 from waystation_server.formats.composer.plugin import ComposerPlugin
+from waystation_server.formats.conda.descriptor import DESCRIPTOR as CONDA
+from waystation_server.formats.conda.plugin import CondaPlugin
 from waystation_server.formats.docker.descriptor import DESCRIPTOR as DOCKER
 from waystation_server.formats.docker.plugin import DockerPlugin
 from waystation_server.formats.galaxy.descriptor import DESCRIPTOR as GALAXY
@@ -29,6 +31,8 @@ from waystation_server.formats.go.descriptor import DESCRIPTOR as GO
 from waystation_server.formats.go.plugin import GoPlugin
 from waystation_server.formats.helm.descriptor import DESCRIPTOR as HELM
 from waystation_server.formats.helm.plugin import HelmPlugin
+from waystation_server.formats.huggingface.descriptor import DESCRIPTOR as HUGGINGFACE
+from waystation_server.formats.huggingface.plugin import HuggingfacePlugin
 from waystation_server.formats.maven.descriptor import DESCRIPTOR as MAVEN
 from waystation_server.formats.maven.plugin import MavenPlugin
 from waystation_server.formats.npm.descriptor import DESCRIPTOR as NPM
@@ -68,7 +72,9 @@ def default_registry() -> FormatRegistry:
         NUGET,
         COMPOSER,
         CARGO,
+        CONDA,
         RUBYGEMS,
+        HUGGINGFACE,
         APK,
     ):
         registry.register(descriptor)
@@ -85,8 +91,10 @@ def default_registry() -> FormatRegistry:
     registry.set_plugin(TerraformPlugin())  # T-P5-TFP: provider network mirror (proxy)
     registry.set_plugin(SwiftPlugin())  # T-P5-SWIFT: SCM-backed proxy, hosted
     registry.set_plugin(CargoPlugin())  # T-P6-CARGO: sparse registries: proxy, hosted, group
+    registry.set_plugin(CondaPlugin())  # T-P6-CONDA: channels: proxy, hosted
     registry.set_plugin(NugetPlugin())  # T-P6-NUGET: proxy, hosted, group
     registry.set_plugin(ComposerPlugin())  # T-P6-COMPOSER: proxy, hosted, group
     registry.set_plugin(RubygemsPlugin())  # T-P6-GEMS: proxy, hosted, group
+    registry.set_plugin(HuggingfacePlugin())  # T-P6-HF: Hub proxy (models, datasets)
     registry.set_plugin(ApkPlugin())  # T-P6-APK: proxy, hosted
     return registry

@@ -1826,6 +1826,120 @@ paths:
               schema: { $ref: '#/components/schemas/CargoVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/huggingface/models:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listHuggingfaceModels
+      summary: Hub models and datasets a Hugging Face proxy has served, by name
+      parameters:
+        - { name: q, in: query, description: Name substring, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Models and datasets
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HuggingfaceModelPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/huggingface/revisions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listHuggingfaceRevisions
+      summary: One model's resolved revisions and the commits with cached files
+      parameters:
+        - name: model
+          in: query
+          required: true
+          description: Model id, `datasets/<id>` for a dataset
+          schema: { type: string, maxLength: 256 }
+      responses:
+        '200':
+          description: Revisions and commits
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HuggingfaceRevisionList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/huggingface/files:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listHuggingfaceFiles
+      summary: The cached files of one commit of a model, by path
+      parameters:
+        - name: model
+          in: query
+          required: true
+          description: Model id, `datasets/<id>` for a dataset
+          schema: { type: string, maxLength: 256 }
+        - name: commit
+          in: query
+          required: true
+          description: Commit (40 hex digits)
+          schema: { type: string, minLength: 40, maxLength: 40 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Files
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HuggingfaceFilePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/conda/packages:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listCondaPackages
+      summary: Package names listed by a conda repository (indexed repodata of a proxy, uploads of a hosted channel)
+      parameters:
+        - { name: q, in: query, description: Name prefix, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CondaPackagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/conda/files:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listCondaFiles
+      summary: One conda package and its files (newest version first, conda version order)
+      parameters:
+        - name: package
+          in: query
+          required: true
+          description: Package name
+          schema: { type: string, maxLength: 128 }
+        - name: subdir
+          in: query
+          description: Only this subdir (noarch, linux-64...)
+          schema: { type: string, maxLength: 41 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Files
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CondaFilePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/helm/charts:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4803,6 +4917,10 @@ components:
       type: object
       description: 'Cargo (sparse registries): no options yet'
       properties: {}
+    CondaOptions:
+      type: object
+      description: 'Conda (channels): no options yet'
+      properties: {}
     NugetOptions:
       type: object
       properties:
@@ -4850,6 +4968,17 @@ components:
       additionalProperties: false
       description: 'RubyGems: no options yet'
       properties: {}
+    HuggingfaceOptions:
+      title: HuggingfaceOptions
+      type: object
+      additionalProperties: false
+      properties:
+        cdn_hosts:
+          type: array
+          maxItems: 50
+          items: { type: string, minLength: 1, maxLength: 253 }
+          default: [huggingface.co, '*.huggingface.co', '*.hf.co']
+          description: "Hosts the proxy may follow file download redirects to (the Hub sends LFS and Xet files to its CDN with signed URLs): exact host names or `*.<domain>` for any host below that domain. The upstream URL's host is always allowed too; a redirect anywhere else fails the download (502)"
     FormatOptions:
       description: Format-specific options; the shape follows the repository's `format`
       oneOf:
@@ -4868,7 +4997,9 @@ components:
         - $ref: '#/components/schemas/CargoOptions'
         - $ref: '#/components/schemas/NugetOptions'
         - $ref: '#/components/schemas/ComposerOptions'
+        - $ref: '#/components/schemas/CondaOptions'
         - $ref: '#/components/schemas/RubygemsOptions'
+        - $ref: '#/components/schemas/HuggingfaceOptions'
         - $ref: '#/components/schemas/ApkOptions'
     QuotaMode:
       type: string
@@ -5543,6 +5674,139 @@ components:
           type: array
           description: Newest first (SemVer)
           items: { $ref: '#/components/schemas/CargoVersion' }
+        next_cursor: { type: [string, 'null'] }
+    HuggingfaceModel:
+      type: object
+      required: [name, repo_id, kind, latest_commit, revisions, files, size_bytes]
+      properties:
+        name: { type: string, description: 'The model id, `datasets/<id>` for a dataset' }
+        repo_id: { type: string, description: The Hub repo id }
+        kind: { type: string, enum: [model, dataset] }
+        latest_commit: { type: [string, 'null'], description: The commit the default branch resolved to last }
+        revisions: { type: integer, description: 'Revisions clients asked for (branches, tags)' }
+        files: { type: integer, description: Files cached (every commit) }
+        size_bytes: { type: integer }
+        downloads: { type: integer, default: 0 }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        updated_at: { type: [string, 'null'], format: date-time }
+    HuggingfaceModelPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/HuggingfaceModel' }
+        next_cursor: { type: [string, 'null'] }
+    HuggingfaceRef:
+      type: object
+      required: [revision, commit]
+      properties:
+        revision: { type: string, description: 'Branch, tag or refs/pr/<n> a client asked for' }
+        commit: { type: string }
+        resolved_at: { type: [string, 'null'], format: date-time }
+    HuggingfaceCommit:
+      type: object
+      required: [commit, revisions, files, size_bytes]
+      properties:
+        commit: { type: string }
+        revisions:
+          type: array
+          description: Revisions that resolved to this commit when last checked
+          items: { type: string }
+        files: { type: integer, description: Files of this commit cached }
+        size_bytes: { type: integer }
+        cached_at: { type: [string, 'null'], format: date-time, description: First file cached }
+        downloads: { type: integer, default: 0 }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+    HuggingfaceRevisionList:
+      type: object
+      required: [model, refs, commits]
+      properties:
+        model: { $ref: '#/components/schemas/HuggingfaceModel' }
+        refs:
+          type: array
+          description: Most recently resolved first
+          items: { $ref: '#/components/schemas/HuggingfaceRef' }
+        commits:
+          type: array
+          description: Commits with cached files, most recently cached first
+          items: { $ref: '#/components/schemas/HuggingfaceCommit' }
+    HuggingfaceFile:
+      type: object
+      required: [path, size, sha256]
+      properties:
+        path: { type: string, description: Path in the Hub repository }
+        size: { type: integer }
+        sha256: { type: string, description: SHA-256 of the cached file (hex) }
+        cached_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer, default: 0 }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+    HuggingfaceFilePage:
+      type: object
+      required: [model, commit, items, next_cursor]
+      properties:
+        model: { type: string }
+        commit: { type: string }
+        items:
+          type: array
+          description: By path
+          items: { $ref: '#/components/schemas/HuggingfaceFile' }
+        next_cursor: { type: [string, 'null'] }
+    CondaPackage:
+      type: object
+      required: [name, latest, subdirs, file_count]
+      properties:
+        name: { type: string }
+        latest: { type: [string, 'null'], description: Highest version listed (conda version order) }
+        subdirs:
+          type: array
+          description: Subdirs listing the package (noarch, linux-64...)
+          items: { type: string }
+        file_count: { type: integer, description: Package files listed (every build of every version) }
+        summary: { type: [string, 'null'] }
+        license: { type: [string, 'null'] }
+    CondaPackagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CondaPackage' }
+        next_cursor: { type: [string, 'null'] }
+    CondaFile:
+      type: object
+      required: [filename, subdir, version, build, build_number, prerelease, sha256, verified, depends, cached, downloads]
+      properties:
+        filename: { type: string }
+        subdir: { type: string }
+        version: { type: string }
+        build: { type: string }
+        build_number: { type: integer }
+        prerelease: { type: boolean }
+        sha256: { type: [string, 'null'], description: SHA-256 from the listing (hex) }
+        md5: { type: [string, 'null'] }
+        size: { type: [integer, 'null'] }
+        timestamp: { type: [string, 'null'], format: date-time, description: Build time from the listing }
+        verified: { type: boolean, description: 'The checksum comes from a repodata listing (or an upload), not a fetch' }
+        depends:
+          type: array
+          description: 'Hosted: the dependencies of the build'
+          items: { type: string }
+        license: { type: [string, 'null'] }
+        cached: { type: boolean, description: The file is held (cached or uploaded) }
+        cached_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        uploaded_by: { type: [string, 'null'], description: 'Hosted: who uploaded it' }
+    CondaFilePage:
+      type: object
+      required: [package, items, next_cursor]
+      properties:
+        package: { $ref: '#/components/schemas/CondaPackage' }
+        items:
+          type: array
+          description: Newest version first (conda version order), then build number
+          items: { $ref: '#/components/schemas/CondaFile' }
         next_cursor: { type: [string, 'null'] }
     HelmChart:
       type: object

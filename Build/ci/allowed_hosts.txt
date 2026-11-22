@@ -48,6 +48,9 @@ releases.hashicorp.com
 galaxy.ansible.com
 # Rust crates (T-P6-CARGO): crates.io, its sparse index (index.crates.io) and download host (static.crates.io)
 crates.io
+# Conda (T-P6-CONDA): the anaconda.org channel host (conda.anaconda.org/conda-forge), the conda-forge project
+anaconda.org
+conda-forge.org
 # NuGet (T-P6-NUGET): the gallery and its v3 API (api.nuget.org), the package-content and search hosts it names
 nuget.org
 # The .nuspec XML namespace (http://schemas.microsoft.com/packaging/.../nuspec.xsd) in NuGet package tests
@@ -56,6 +59,10 @@ schemas.microsoft.com
 packagist.org
 # RubyGems (T-P6-GEMS): rubygems.org and index.rubygems.org (compact index, gems)
 rubygems.org
+# Hugging Face (T-P6-HF): the Hub (huggingface.co) and the CDN hosts it redirects file downloads to (*.hf.co:
+# cdn-lfs.hf.co, cas-bridge.xethub.hf.co, us.aws.cdn.hf.co...)
+huggingface.co
+hf.co
 
 # Public upstreams: Linux distribution mirrors
 deb.debian.org

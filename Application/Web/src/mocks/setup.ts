@@ -209,6 +209,77 @@ function cargo(repo: Repository): SetupClient[] {
   return clients
 }
 
+/** Conda channels: .condarc (channel URL or custom_channels), micromamba, pixi; hosted repositories also take curl uploads. */
+function conda(repo: Repository): SetupClient[] {
+  const channel = `${BASE_URL}/repository/${repo.name}`
+  const host = new URL(BASE_URL).host
+  const snippet = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupSnippet => ({ id, title, description, language, filename, os: null, content })
+  const clients: SetupClient[] = [
+    { id: 'conda', label: 'conda', snippets: [
+      snippet('conda-channels', 'Use this channel', `channels:\n  - ${channel}\nchannel_priority: strict\nshow_channel_urls: true`, 'yaml', '~/.condarc', 'conda, mamba and micromamba read ~/.condarc. Remove other channels (defaults) to get everything through Waystation.'),
+      snippet('conda-custom-channels', 'Keep the channel name', `custom_channels:\n  ${repo.name}: ${BASE_URL}/repository\nchannels:\n  - ${repo.name}`, 'yaml', '~/.condarc'),
+      snippet('conda-install', 'Install from it once', `conda install --override-channels -c ${channel} numpy`),
+      snippet('conda-netrc', 'Credentials (repositories that need them)', `machine ${host}\n  login {{USERNAME}}\n  password {{TOKEN}}`, 'text', '~/.netrc', 'conda sends ~/.netrc credentials for the host (chmod 600). The password is a Waystation API token.'),
+    ] },
+    { id: 'micromamba', label: 'mamba / micromamba', snippets: [
+      snippet('micromamba-install', 'Install', `micromamba create -n demo --override-channels -c ${channel} numpy`),
+    ] },
+    { id: 'pixi', label: 'pixi', snippets: [
+      snippet('pixi-channel', 'Use this channel in a workspace', `[workspace]\nchannels = ["${channel}"]\nplatforms = ["linux-64", "osx-arm64", "win-64"]`, 'toml', 'pixi.toml'),
+      snippet('pixi-auth', 'Credentials', `pixi auth login ${host} --token {{TOKEN}}`),
+    ] },
+  ]
+  if (repo.type === 'hosted') {
+    clients.push({ id: 'conda-upload', label: 'Upload', snippets: [
+      snippet('conda-upload', 'Upload a package', `curl -fu {{USERNAME}}:{{TOKEN}} --upload-file my-pkg-1.0-0.conda ${channel}/noarch/`, 'shell', null, 'PUT <subdir>/<file>; the repodata is regenerated within seconds.'),
+    ] })
+  }
+  return clients
+}
+
+/** Hugging Face proxies: HF_ENDPOINT for huggingface_hub (and the libraries built on it), the hf CLI and Python. */
+function huggingface(repo: Repository): SetupClient[] {
+  const endpoint = `${BASE_URL}/repository/${repo.name}`
+  const model = 'julien-c/dummy-unknown'
+  const snippet = (id: string, title: string, content: string, language = 'shell', description?: string): SetupSnippet => ({ id, title, description, language, filename: null, os: null, content })
+  const env: [string, string][] = [['HF_ENDPOINT', endpoint]]
+  const auth: [string, string][] = [['HF_ENDPOINT', endpoint], ['HF_TOKEN', '{{TOKEN}}']]
+  const shellEnv = snippet(
+    'hf-endpoint',
+    'Point the Hugging Face libraries at this repository',
+    env.map(([k, v]) => `export ${k}=${v}`).join('\n'),
+    'shell',
+    'huggingface_hub (and transformers, diffusers, datasets, sentence-transformers... which use it) then downloads models through Waystation. No trailing slash.',
+  )
+  const token = snippet(
+    'hf-token',
+    'Credentials (repositories that need them)',
+    auth.map(([k, v]) => `export ${k}=${v}`).join('\n'),
+    'shell',
+    "HF_TOKEN is a Waystation API token here, sent as a bearer token to Waystation only. Gated and private models are fetched with the repository's own Hugging Face token, configured on the repository.",
+  )
+  return [
+    { id: 'hf-cli', label: 'hf CLI', snippets: [
+      shellEnv,
+      on('windows', shellEnv, { content: psEnv(env), language: 'powershell' }),
+      token,
+      on('windows', token, { content: psEnv(auth), language: 'powershell' }),
+      snippet('hf-download', 'Download a model', `hf download ${model}\nhf download ${model} config.json --revision main`, 'shell', 'huggingface_hub 1.0 and later (pip install -U huggingface_hub).'),
+      snippet('hf-cli-legacy', 'Older huggingface_hub (before 1.0)', `huggingface-cli download ${model}`),
+    ] },
+    { id: 'hf-python', label: 'Python', snippets: [
+      snippet(
+        'hf-python',
+        'Download from Python',
+        `import os\nos.environ['HF_ENDPOINT'] = '${endpoint}'  # before huggingface_hub is imported\n\nfrom huggingface_hub import hf_hub_download, snapshot_download\n\nconfig = hf_hub_download('${model}', 'config.json')\nfolder = snapshot_download('${model}', revision='main')\n`,
+        'python',
+        'huggingface_hub reads HF_ENDPOINT when it is imported; setting it in the environment is simpler. Add HF_TOKEN (a Waystation API token) when the repository needs credentials.',
+      ),
+      snippet('hf-transformers', 'transformers', `HF_ENDPOINT=${endpoint} python -c "from transformers import AutoConfig; print(AutoConfig.from_pretrained('${model}'))"`),
+    ] },
+  ]
+}
+
 /** Hosted apt: the repository's signing key, a deb822 source with Signed-By, credentials, and curl uploads. */
 function aptHosted(repo: Repository): SetupClient[] {
   const opts = (repo.format_options ?? {}) as AptOptions
@@ -642,7 +713,7 @@ function terraformHosted(repo: Repository, host: string, s: Snip): SetupClient[]
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : repo.format === 'rubygems' ? rubygems(repo) : repo.format === 'apk' ? apk(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'conda' ? conda(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : repo.format === 'rubygems' ? rubygems(repo) : repo.format === 'huggingface' ? huggingface(repo) : repo.format === 'apk' ? apk(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {

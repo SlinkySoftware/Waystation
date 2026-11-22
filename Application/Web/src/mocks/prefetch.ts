@@ -18,7 +18,7 @@ const iso = (ms: number) => new Date(ms).toISOString()
 const RUN_MS = 9_000
 
 /** Formats whose proxies can warm items and refresh popular metadata (the server's format plugins). */
-export const PREFETCH_FORMATS: readonly string[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'rubygems', 'apk']
+export const PREFETCH_FORMATS: readonly string[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'huggingface', 'apk']
 
 /** A stable, ULID-looking repository id (the API exposes names; scheduled tasks are keyed by id). */
 export function repositoryId(name: string): string {
@@ -127,6 +127,27 @@ export function warmProgress(run: PrefetchRun, now: number = Date.now()): { done
 const EVERY = /^@every\s+(\d+)\s*([smh])$/i
 const MACROS = ['@hourly', '@daily', '@midnight', '@weekly', '@monthly', '@yearly', '@annually']
 
+const HF_PART = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$/
+const HF_REV = /^[A-Za-z0-9_][A-Za-z0-9._+-]{0,254}$/
+
+/** `[datasets/]<repo_id>[@<revision>][:<path>]`: a repo id of one or two parts, a branch, tag, commit or refs/pr/<n>. */
+function huggingfaceItemError(item: string): string | null {
+  const [head = '', ...rest] = item.trim().split(':')
+  const path = rest.length ? rest.join(':') : null
+  const [repoId = '', ...revParts] = head.replace(/^datasets\//, '').split('@')
+  const parts = repoId.split('/')
+  if (parts.length > 2 || !parts.every((p) => HF_PART.test(p) && !p.includes('--') && !p.includes('..'))) {
+    return 'not a Hub repo id: <name> or <namespace>/<name> (letters, digits, -, _ and .)'
+  }
+  if (revParts.length) {
+    const revision = revParts.join('@')
+    const ref = /^refs\/(pr|convert)\/(.+)$/.exec(revision)
+    if (!HF_REV.test(ref ? ref[2]! : revision) || (!ref && revision.endsWith('.lock'))) return 'after @: a branch, tag, commit or refs/pr/<n>'
+  }
+  if (path !== null && (!path || path.startsWith('/') || path.split('/').includes('..') || path.includes('\0'))) return 'after ":": a file path'
+  return null
+}
+
 function itemError(format: string, item: string): string | null {
   if (item.length > 512) return 'at most 512 characters'
   switch (format) {
@@ -141,12 +162,16 @@ function itemError(format: string, item: string): string | null {
       return /^[^@\s]+@[^@\s]+$/.test(item) ? null : 'module@version or module@latest'
     case 'cargo':
       return /^[A-Za-z][A-Za-z0-9_-]{0,63}(@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)?$/.test(item) ? null : 'crate@version (an exact SemVer version) or crate'
+    case 'conda':
+      return /^[a-z0-9]+(-[a-z0-9]+)?\/[a-z0-9_][a-z0-9_.+-]*(==[A-Za-z0-9_.+!*]+(=[A-Za-z0-9_.+]+)?)?$/.test(item) ? null : 'subdir/name, subdir/name==version or subdir/name==version=build'
     case 'nuget':
       return /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}(@\d+(\.\d+){0,3}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?)?$/.test(item) ? null : 'Package or Package@version'
     case 'composer':
       return /^[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*(:[^\s:]{1,100})?$/i.test(item) ? null : 'vendor/name or vendor/name:version'
     case 'rubygems':
       return /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(:\d[0-9A-Za-z.]{0,63}(-[A-Za-z0-9_.-]{1,64})?)?$/.test(item) ? null : 'gem, gem:version or gem:version-platform'
+    case 'huggingface':
+      return huggingfaceItemError(item)
     case 'apk': {
       // As the server: [<branch>/<repository>/<arch>/]<name>[=<apk version>]
       const m = /^(?:([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\/([a-z0-9_]+)\/)?([A-Za-z0-9][A-Za-z0-9._+-]*)(?:=(.*))?$/.exec(item)

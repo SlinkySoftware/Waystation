@@ -124,7 +124,7 @@
     </section>
 
     <section
-      v-if="!(model.format === 'yum' && model.type !== 'proxy') && model.format !== 'helm' && model.format !== 'cargo' && model.format !== 'rubygems' && !(model.format === 'maven' && model.type === 'group') && !(model.format === 'nuget' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy' || model.format === 'swift' || model.format === 'composer') && model.type !== 'proxy')"
+      v-if="!(model.format === 'yum' && model.type !== 'proxy') && model.format !== 'helm' && model.format !== 'cargo' && model.format !== 'rubygems' && model.format !== 'conda' && !(model.format === 'maven' && model.type === 'group') && !(model.format === 'nuget' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy' || model.format === 'swift' || model.format === 'composer') && model.type !== 'proxy')"
       class="repo-form__section"
     >
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
@@ -208,6 +208,22 @@
           :error-message="errors['format_options.collections_path']"
         />
         <q-toggle v-model="model.galaxyRoles" :label="t('repoForm.galaxyRoles')" />
+      </template>
+      <template v-else-if="model.format === 'huggingface'">
+        <q-select
+          v-model="model.hfCdnHosts"
+          outlined
+          dense
+          multiple
+          use-chips
+          use-input
+          new-value-mode="add-unique"
+          hide-dropdown-icon
+          :label="t('repoForm.hfCdnHosts')"
+          :hint="t('repoForm.hfCdnHostsHint')"
+          :error="!!errors['format_options.cdn_hosts']"
+          :error-message="errors['format_options.cdn_hosts']"
+        />
       </template>
       <template v-else-if="model.format === 'composer'">
         <q-select

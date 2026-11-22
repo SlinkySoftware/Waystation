@@ -18,8 +18,11 @@ Components and versions come from asset paths (``coordinates``) until components
   ``dists/<vendor>/<name>/<version>/<file>`` (per package, Composer version order); cargo
   ``crates/<crate>/<crate>-<version>.crate`` (per crate, SemVer); rubygems
   ``gems/<name>-<version>[-<platform>].gem`` and its ``quick/Marshal.4.8/<same>.gemspec.rz`` (per gem and platform,
-  ``Gem::Version`` order, both files share a rank); apk ``<branch>/<repo>/<arch>/<name>-<version>.apk`` (per
-  directory and package, apk version order); every other format
+  ``Gem::Version`` order, both files share a rank); conda ``<subdir>/<name>-<version>-<build>.conda|.tar.bz2`` (per name
+  and subdir, conda VersionOrder; every build of a version shares its rank); huggingface
+  ``[datasets/]<repo_id>/resolve/<commit>/<path>`` (per model or dataset, the commit is the version: commits ordered
+  by when their newest file was cached, every file of a commit shares its rank); apk
+  ``<branch>/<repo>/<arch>/<name>-<version>.apk`` (per directory and package, apk version order); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -45,7 +48,9 @@ from urllib.parse import unquote
 from waystation_common.apk import split_file_name as split_apk_file
 from waystation_common.cleanup.model import Candidate, Criteria
 from waystation_common.cleanup.versions import is_prerelease, sort_key
+from waystation_common.conda import parse_path as conda_path
 from waystation_common.galaxy import parse_artifact_path
+from waystation_common.huggingface import parse_file_key
 from waystation_common.rubygems import RUBY, split_full_name
 
 DAY = timedelta(days=1)
@@ -140,9 +145,9 @@ def coordinates(fmt: str, path: str) -> Coord:
             return Coord(parts[1], parts[2], parts[1], True)
     if fmt == 'apk' and path.endswith('.apk'):  # <branch>/<repository>/<arch>/<name>-<version>.apk
         directory, _, file = path.rpartition('/')
-        found = split_apk_file(file)
-        if found:
-            return Coord(found[0], found[1], f'{directory}/{found[0]}', True)
+        apk_file = split_apk_file(file)
+        if apk_file:
+            return Coord(apk_file[0], apk_file[1], f'{directory}/{apk_file[0]}', True)
     if fmt == 'rubygems':
         for prefix, suffix in GEM_FILES:
             if path.startswith(prefix) and path.endswith(suffix) and path.count('/') == prefix.count('/'):
@@ -176,6 +181,14 @@ def coordinates(fmt: str, path: str) -> Coord:
             provider = '/'.join(parts[2:4])
             return Coord(provider, parts[4], provider, True)
         return Coord(path, filename, _parent(path), False)
+    if fmt == 'conda':
+        found = conda_path(path)
+        if found is not None:  # <subdir>/<name>-<version>-<build>.conda|.tar.bz2: per name and subdir
+            subdir, pkg = found
+            return Coord(pkg.name, pkg.version, f'{pkg.name}/{subdir}', True)
+        return Coord(path, filename, path, False)  # repodata files: each on its own
+    if fmt == 'huggingface' and (hf := parse_file_key(path)) is not None:
+        return Coord(hf.name, hf.commit, hf.name, False)  # per model, commits ordered by when they were cached
     if fmt == 'cargo' and path.startswith('crates/') and path.count('/') == 2 and filename.endswith('.crate'):
         crate = path.split('/')[1]
         if filename.startswith(crate + '-') and len(filename) > len(crate) + 7:

@@ -51,7 +51,10 @@ SWIFT_PACKAGES = 'swift_packages'  # one summary per Swift package (browse, glob
 CARGO_CRATES = 'cargo_crates'  # one summary per crate a Cargo repository has (browse, global search)
 NUGET_PACKAGES = 'nuget_packages'  # one summary per NuGet package id a repository has (browse, global search, hosted)
 COMPOSER_PACKAGES = 'composer_packages'  # one summary per Composer package a repository has (browse, search, pins)
+CONDA_PACKAGES = 'conda_packages'  # conda package files: repodata listings (proxy), uploads (hosted)
+CONDA_NAMES = 'conda_names'  # one summary per conda package name a repository has (browse, global search)
 RUBYGEMS_GEMS = 'rubygems_gems'  # one summary per gem a repository has (browse, search)
+HUGGINGFACE_REPOS = 'huggingface_repos'  # one summary per Hub model/dataset a proxy has served (browse, search)
 APK_PACKAGES = 'apk_packages'  # apk package files: APKINDEX listings (proxy), uploads (hosted); browse, search
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
@@ -557,6 +560,37 @@ SPECS: tuple[CollectionSpec, ...] = (
             # uploads (hosted); browse lists them by name; a proxy's archive digests are pinned here.
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        CONDA_PACKAGES,
+        (
+            # One document per package file of a subdir: a cached repodata listing (proxy, sha256/size the files are
+            # verified against), an unverified fetch, or an upload (hosted, with its repodata entry).
+            _ix(
+                'repo_subdir_file_unique',
+                [('repo_id', ASCENDING), ('subdir', ASCENDING), ('filename', ASCENDING)],
+                unique=True,
+            ),
+            # Browse: a package's files newest version first (``version_sort``, conda VersionOrder).
+            _ix('repo_name_sort', [('repo_id', ASCENDING), ('name', ASCENDING), ('version_sort', DESCENDING)]),
+            _ix('repo_verified', [('repo_id', ASCENDING), ('verified', ASCENDING)]),
+        ),
+    ),
+    CollectionSpec(
+        CONDA_NAMES,
+        (
+            # One summary per package name a repository lists (proxy: indexed repodata; hosted: uploads).
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        HUGGINGFACE_REPOS,
+        (
+            # One summary per Hub repository (``<id>`` / ``datasets/<id>``) a Hugging Face proxy has served.
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=True),
         ),
     ),
     CollectionSpec(

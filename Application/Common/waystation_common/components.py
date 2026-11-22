@@ -1,8 +1,9 @@
 """Which component an asset belongs to (DATA_MODEL ``components``; T-S09).
 
 A component is what a user thinks of as one artifact of a repository: a package version (npm, apt, yum, PyPI, Go,
-Galaxy, Terraform, Helm, Swift, NuGet, Composer, Cargo, RubyGems, apk), a Maven ``groupId:artifactId:version``, a docker
-image tag, or a raw file. Its assets are the files that make it up; only the files a client downloads to *get*
+Galaxy, Terraform, Helm, Swift, NuGet, Composer, Cargo, RubyGems, Conda, apk), a Hugging Face model or dataset at
+a commit, a Maven ``groupId:artifactId:version``, a
+docker image tag, or a raw file. Its assets are the files that make it up; only the files a client downloads to *get*
 the artifact link to it (a ``.tgz``, a ``.deb``, a wheel, a docker tag's manifest, a Swift source archive...), never
 checksums, signatures or index metadata, so download counts are honest.
 
@@ -22,6 +23,7 @@ import re
 from dataclasses import dataclass
 
 from waystation_common.cleanup.plan import coordinates
+from waystation_common.huggingface import parse_file_key
 from waystation_common.swift import parse_archive_path
 from waystation_common.versionsort import version_sort
 
@@ -40,6 +42,7 @@ PACKAGE_FILES: dict[str, tuple[str, ...]] = {
     'cargo': ('.crate',),
     'nuget': ('.nupkg',),
     'composer': ('.zip', '.tar'),
+    'conda': ('.conda', '.tar.bz2'),
     'rubygems': ('.gem',),
     'apk': ('.apk',),
 }
@@ -71,6 +74,9 @@ class ComponentKey:
                 return f'{self.name}-{self.version}'
             case 'raw':
                 return f'{self.namespace}/{self.name}' if self.namespace else self.name
+            case 'huggingface':
+                name = f'{self.namespace}/{self.name}' if self.namespace else self.name
+                return f'{name}@{self.version[:12]}'
             case _:
                 return f'{self.name} {self.version}' if self.version else self.name
 
@@ -107,6 +113,11 @@ def key_for(fmt: str, path: str, *, content: bool = True) -> ComponentKey | None
     if fmt == 'swift':
         found = parse_archive_path(path) if content else None
         return ComponentKey('swift', found[0], f'{found[0]}.{found[1]}', found[2]) if found else None
+    if fmt == 'huggingface':  # [datasets/]<repo_id>/resolve/<commit>/<path>: name = repo id, version = commit
+        hf = parse_file_key(path) if content else None
+        if hf is None:
+            return None
+        return ComponentKey('huggingface', 'datasets' if hf.kind == 'dataset' else '', hf.repo_id, hf.commit)
     if fmt == 'raw':
         if not content:
             return None
