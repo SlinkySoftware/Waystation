@@ -101,6 +101,7 @@ PUBLISH = {
     'terraform': [('POST', 'v1/providers/ns/p/versions'), ('PUT', 'v1/modules/ns/m/aws/1.0.0')],
     'swift': [('PUT', 'mona/pkg/1.0.0'), ('DELETE', 'mona/pkg/1.0.0')],
     'docker': [('PUT', 'v2/x/manifests/1')],
+    'apk': [('PUT', 'v3.20/main/x86_64/demo-1.0-r0.apk'), ('DELETE', 'v3.20/main/x86_64/demo-1.0-r0.apk')],
 }
 GENERIC = [('PUT', 'x'), ('POST', 'x'), ('PATCH', 'x'), ('DELETE', 'x'), ('POST', 'api/v1/x'), ('PUT', '')]
 UNSAFE = ('PUT', 'POST', 'PATCH', 'DELETE')
@@ -108,7 +109,7 @@ UNSAFE = ('PUT', 'POST', 'PATCH', 'DELETE')
 
 def _descriptors() -> list[FormatDescriptor]:
     descriptors = default_registry().descriptors()
-    assert len(descriptors) >= 18, [d.name for d in descriptors]
+    assert len(descriptors) >= 19, [d.name for d in descriptors]
     return descriptors
 
 

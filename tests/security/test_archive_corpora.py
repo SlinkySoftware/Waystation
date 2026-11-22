@@ -30,16 +30,19 @@ from typing import Any
 
 import hostile
 import pytest
+import ws_apk
 import ws_conda
 import ws_deb
 import ws_gems
 import ws_rpm
 
+from waystation_common import apk
 from waystation_common import galaxy as galaxy_names
 from waystation_common.apt import deb822
 from waystation_common.archives import MAX_EXTENSION_CHAIN, MAX_EXTENSION_HEADER, BoundedTarInfo
 from waystation_common.conda import repodata as conda_repodata
 from waystation_common.errors import UpstreamError, ValidationFailed
+from waystation_server.formats.apk import common as apk_common
 from waystation_server.formats.apt import deb
 from waystation_server.formats.cargo import publish as cargo
 from waystation_server.formats.composer import archive as composer
@@ -850,3 +853,98 @@ def test_nested_compression_is_not_unpacked(tmp_path: Path) -> None:
     crate = hostile.tar([('foo-1.0.0/Cargo.toml', CARGO_TOML), ('foo-1.0.0/inner.tar.gz', inner)])
     error, peak = measured(lambda: cargo.inspect_crate(_file(tmp_path, crate), 'foo', '1.0.0'))
     assert error is None and peak < PEAK
+
+
+# ---------------------------------------------------------------------------- Alpine apk (waystation_common.apk)
+def _apk_segment(tar_bytes: bytes) -> bytes:
+    return hostile.compress(tar_bytes, 'gz')
+
+
+def _apk_with_control(control_tar: bytes) -> bytes:
+    """A package whose control segment is ``control_tar`` (gzip), followed by a small data segment."""
+    return _apk_segment(control_tar) + _apk_segment(hostile.tar([('usr/x', b'x')], ''))
+
+
+def _read_apk(data: bytes) -> apk.PackageInfo:
+    return apk.read_package(io.BytesIO(data), len(data))
+
+
+def test_apk_valid_package_and_index_are_read() -> None:
+    package = ws_apk.build_apk('demo', '1.0-r0')
+    assert _read_apk(package).name == 'demo'
+    index = apk.parse_index(ws_apk.build_index({'demo-1.0-r0.apk': package}))
+    assert [e.name for e in index.entries] == ['demo']
+
+
+@pytest.mark.parametrize(
+    'control',
+    [
+        hostile.pax_bomb(apk.CONTROL_MAX // 2, ''),
+        hostile.pax_bomb(apk.CONTROL_MAX // 2, '', gnu_longname=True),
+        hostile.longname_chain(2000, ''),  # RecursionError in tarfile without BoundedTarInfo
+        hostile.longname_chain(2000, '', pax=True),
+        hostile.sparse_bomb(2048, ''),
+    ],
+    ids=['pax-bomb', 'gnu-bomb', 'gnu-chain', 'pax-chain', 'sparse'],
+)
+def test_apk_hostile_control_tar_is_refused(control: bytes) -> None:
+    with pytest.raises(apk.ApkError):
+        _read_apk(_apk_with_control(control))
+
+
+@pytest.mark.parametrize('segment', ['first', 'control'])
+def test_apk_gzip_segment_bomb_stops_at_the_limit(segment: str) -> None:
+    bomb = hostile.bomb(apk.CONTROL_MAX * 8, 'gz')
+    data = bomb if segment == 'first' else ws_apk.sign_segment(b'x', ws_apk.make_key(), 'k.rsa.pub') + bomb
+    tracemalloc.start()
+    try:
+        with pytest.raises(apk.ApkError, match=r'too large|not a tar|not valid'):
+            _read_apk(data)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < apk.CONTROL_MAX * 3
+
+
+def test_apk_index_bombs_and_member_counts_are_bounded() -> None:
+    with pytest.raises(apk.ApkError, match='too large'):
+        apk.decompress_index(hostile.bomb(64 * 1024 * 1024, 'gz'), max_out=1024 * 1024)
+    with pytest.raises(apk.ApkError, match='too many gzip members'):
+        apk.decompress_index(b''.join(hostile.compress(b'x', 'gz') for _ in range(9)))
+    with pytest.raises(apk.ApkError):
+        apk.parse_index(hostile.compress(hostile.longname_chain(2000, ''), 'gz'))
+    with pytest.raises(apk.ApkError):
+        apk.parse_index(hostile.compress(hostile.pax_bomb(4 * 1024 * 1024, ''), 'gz'))
+
+
+def test_apk_damaged_copies_are_refused_cleanly() -> None:
+    package = ws_apk.build_apk('demo', '1.0-r0', key=ws_apk.make_key())
+    index = ws_apk.build_index({'demo-1.0-r0.apk': package})
+    for damaged in hostile.mutations(package):
+        with contextlib.suppress(apk.ApkError):
+            _read_apk(damaged)
+    for damaged in hostile.mutations(index):
+        with contextlib.suppress(apk.ApkError):
+            apk.parse_index(damaged)
+
+
+def test_apk_index_numbers_are_ascii_and_bounded() -> None:
+    """``str.isdigit`` accepts ``²`` (``int`` refuses it) and 5000-digit sizes (``int`` refuses past 4300 digits,
+    MongoDB past 64 bits): such values are dropped, never a 500."""
+    stanza = 'C:Q1' + 'A' * 27 + '=\nP:demo\nV:1.0-r0\nA:x86_64\nS:{size}\nI:{size}\nt:{size}\n\n'
+    for size in ('²', '9' * 5000, '1' * 21):
+        (entry,) = apk.parse_entries(stanza.format(size=size))
+        assert entry.size is None
+        details = apk_common.details(entry.fields)
+        assert details['installed_size'] is None
+        assert details['build_time'] is None
+
+
+@pytest.mark.parametrize(
+    'pkginfo',
+    [b'pkgname = demo\n\xff\xfe', b'pkgname = de\x01mo\n', b'no separator\n', b'pkgname = ' + b'x' * 70_000 + b'\n'],
+    ids=['not-utf8', 'control-char', 'no-separator', 'long-field'],
+)
+def test_apk_bad_pkginfo_is_refused(pkginfo: bytes) -> None:
+    with pytest.raises(apk.ApkError):
+        _read_apk(_apk_with_control(hostile.tar([('.PKGINFO', pkginfo)], '')))

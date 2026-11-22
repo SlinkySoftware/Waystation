@@ -12,7 +12,8 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `RecursionError`, stream-mode inflation); bounded `.conda` `metadata.json` read; RPM file-list amplification capped;
   YAML merge keys refused (gem metadata, `Chart.yaml`, Helm `index.yaml`); corrupt zips, tars and compressed indexes and
   deeply nested JSON in package metadata answer the format's clean refusal instead of 500; duplicate zip entries
-  refused (Composer, PyPI); PyPI sdist unpacked-size bound; Swift symlinks that walk through another symlink dropped
+  refused (Composer, PyPI); PyPI sdist unpacked-size bound; apk control, signature and index tars bounded and
+  non-ASCII or oversized numbers in `APKINDEX` and `Content-Length` ignored instead of answering 500; Swift symlinks that walk through another symlink dropped
   or refused. Web tier: `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, HSTS with TLS, a strict
   CSP for the UI and `Content-Security-Policy: sandbox` for everything else (rendered by `15-waystation.sh`, checked
   live by `make web-config-test`); server: `Cache-Control: no-store` on `/api/` and `/auth/` answers without their own.
