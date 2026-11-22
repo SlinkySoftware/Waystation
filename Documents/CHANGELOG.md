@@ -3,6 +3,38 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- **Release 0.2.8** (milestone M2 complete: Nexus parity and cutover): TLS in the web container, split-host compose
+  files, the browse performance fix and budgets enforced (below). Docs and examples point at the 0.2.8 images.
+  Verified on arm64 before release: the linux/arm64 images on a Raspberry Pi 5 (Debian 13) passed `make e2e-m0`
+  (docker, apt, npm and raw clients, live events, stats, browse) and the TLS checks (308 redirect, HTTP/2, TLS 1.2
+  and 1.3 only, 64 MiB upload and download, `docker pull` over HTTPS, certificate reload). Raspberry Pi kernels
+  ship without the memory cgroup, so container memory limits are ignored there unless `cgroup_enable=memory` is set.
+- T-V02: `make e2e-m0` waits for the background indexing of the apt listing and names its host tools (`jq`).
+- Milestone M2 done: T-F05, T-S05, T-P2-APT and T-M03 closed (the owner runs Waystation in place of Nexus). Every
+  performance budget is now `"enforce": "fail"` (`Build/ci/budgets.json`): a budget over its limit fails `make perf`
+  and `make budgets`, also in the GitHub and Gitea check workflows.
+- T-F05: TLS in the web container: the override `compose.tls.yaml` mounts `WAYSTATION_TLS_DIR` (certificate chain and
+  key, PEM) and the web image's start script (`/docker-entrypoint.d/15-waystation.sh`) serves HTTPS with HTTP/2 on
+  port 8443 (TLS 1.2 and 1.3) and turns the plain port into a `308` redirect to `WAYSTATION_BASE_URL`; it refuses to
+  start with only one of the two files set or unreadable. Split hosts: `compose.standalone.web.yaml`,
+  `compose.standalone.server.yaml` (runs `init`, publishes the server port on `WAYSTATION_SERVER_BIND` for the web
+  hosts only) and `compose.standalone.worker.yaml`, for several server and worker hosts sharing an external MongoDB,
+  Valkey and one blob store; `WAYSTATION_SERVER_ADDR` takes several servers (nginx balances and retries). The web
+  healthcheck is `/_web/healthz` (answered by nginx itself) and the access log names the upstream server.
+  `make deploy-test` runs two server hosts (concurrent `init`), a worker host and a TLS web host in containers and
+  checks the redirect, HTTP/2, a 64 MiB upload and download, a proxied file, a worker job and that the web tier keeps
+  serving with one server host stopped. DEPLOYMENT.md "TLS in the web container" and "Split hosts";
+  `test_compose_files.py` keeps the `x-app-env` lists of the compose files identical.
+- T-P2-PERF / T-S09: the folder listing's `child_count` walks of a page share 64 index reads; a folder that would
+  need more shows no count (null, as beyond the cap). A root of big folders with many sub-folders each cost about a
+  thousand reads per page: API list/search p95 in the perf suite drops from 3.1 s to 33 ms (browse root 5.9 s to
+  37 ms), and the other API calls with it.
+- T-P2-APT: the nightly live run also uses the full base suites (`trixie`, `resolute`) with translations and every
+  compression type, and installs a package only they have; passed live on Debian 13 and Ubuntu 26.04. The browse
+  check waits for the background indexing of a full suite. The Raspberry Pi OS arm64 client is recorded and passes
+  in replay; it takes the archive key from the `raspberrypi-archive-keyring` package (pinned by SHA256), because
+  Debian 13's `sqv` rejects the binding signature of the archive's `raspberrypi.gpg.key`.
+- T-S05: done; every format's repository types, options in OpenAPI and field errors were already in place.
 - T-F07: identical blob commits from several processes or replicas sharing the data directory now place the file
   once: `BlobStore.commit` puts the upload in place with a hard link (fails if the blob is there; an NFS-retransmitted
   link that already succeeded counts as placed) and falls back to the previous rename on filesystems without hard

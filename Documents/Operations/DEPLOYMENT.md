@@ -53,6 +53,10 @@ checks latency budgets on a CI-sized stack, not host sizing).
 On a shared host, cap MongoDB's cache with a compose override (`command: ["mongod", "--replSet", "rs0",
 "--bind_ip_all", "--quiet", "--wiredTigerCacheSizeGB", "1"]`).
 
+Raspberry Pi 5 (8 GB, arm64, Debian 13) runs the whole stack (tested with the 0.2.8 images). Raspberry Pi kernels
+ship without the memory cgroup, so `mem_limit` in an override is ignored ("Your kernel does not support memory limit
+capabilities") unless `cgroup_enable=memory` is added to the kernel command line; cap MongoDB's cache as above.
+
 ### MongoDB connections
 
 Every server process (`WAYSTATION_SERVER_WORKERS`) and the worker keep a connection pool of up to 100 MongoDB
