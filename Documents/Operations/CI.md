@@ -26,7 +26,8 @@ release tag to its commit and replace the SHA and the comment everywhere it is u
 ### `make check`
 
 In order: `forbidden-strings`, `workflow-lint`, `fmt-check`, `lint` (ruff + import-linter), `typecheck` (mypy
-strict), `test` (unit + coverage), `test-nfs` (the blob store on NFS, below), `test-integration` (throwaway
+strict), `test` (unit + coverage; includes `test_api_docs.py`, which fails when the static API reference in
+`Documents/API/` no longer matches the server, fix with `make api-docs`), `test-nfs` (the blob store on NFS, below), `test-integration` (throwaway
 MongoDB/Valkey), `clients-check` (fixture scan +
 size budgets), `frontend-check` (generated-client check, ESLint, vue-tsc, Vitest, production build + bundle budget),
 `budgets` (report).
