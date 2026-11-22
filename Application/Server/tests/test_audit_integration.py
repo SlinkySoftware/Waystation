@@ -2,7 +2,8 @@
 
 Acceptance: ``test_every_spec_action_is_recorded`` enumerates the catalog (``waystation_common.audit``): every
 SPEC §4.11 phrase maps to actions, every action is either emitted here (performed through the API or the code path
-that owns it) or listed in ``PENDING`` with the task that adds its feature, and no record holds a secret.
+that owns it), listed in ``PENDING`` with the task that adds its feature, or recorded only by the workers
+(``WORKER_ACTIONS``, tested there), and no record holds a secret.
 The other tests cover ``/api/v1/audit`` (filters, cursor paging, CSV/NDJSON export, RBAC), retention (TTL) and that
 a failing audit store never fails a request.
 """
@@ -29,7 +30,16 @@ import pytest
 from pydantic import SecretStr
 from ws_testing import asgi_client
 
-from waystation_common.audit import PENDING, SPEC_ACTIONS, AuditAction, AuditActor, AuditEvent, AuditTarget, Outcome
+from waystation_common.audit import (
+    PENDING,
+    SPEC_ACTIONS,
+    WORKER_ACTIONS,
+    AuditAction,
+    AuditActor,
+    AuditEvent,
+    AuditTarget,
+    Outcome,
+)
 from waystation_common.db.collections import AUDIT, JOB_DEFINITIONS, USERS
 from waystation_common.jobs import BlobGc, JobEnvelope
 from waystation_common.jobs import keys as job_keys
@@ -575,7 +585,7 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     assert logout['target']['id'] == login['target']['id']
 
     # --- every emitted action was exercised; pending ones are owned by a later task
-    assert rec.seen == set(AuditAction) - set(PENDING)
+    assert rec.seen == set(AuditAction) - set(PENDING) - WORKER_ACTIONS  # worker actions: Worker/tests
 
     # --- no record holds a secret value
     stored = json.dumps(await rec.all(), default=str)

@@ -5,7 +5,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import SecretStr
 
-from waystation_common.crypto import KEY_BYTES, Keyring, generate_key, key_id, parse_key
+from waystation_common.crypto import KEY_BYTES, Keyring, generate_key, key_id, kid_prefix, parse_key, token_kid
 from waystation_common.errors import CryptoError
 
 K1 = generate_key()
@@ -51,6 +51,10 @@ def test_first_key_encrypts_all_decrypt_and_rotation() -> None:
     assert only_new.decrypt_str(rotated, aad=b'ctx') == 's'
     with pytest.raises(CryptoError, match='unknown key'):
         only_new.decrypt(token)
+    assert new.kids == (new.active_kid, old.active_kid)
+    assert token_kid(token) == old.active_kid
+    assert rotated.startswith(kid_prefix(new.active_kid))
+    assert not token.startswith(kid_prefix(new.active_kid))
 
 
 def test_same_kid_collision_tries_each_candidate() -> None:

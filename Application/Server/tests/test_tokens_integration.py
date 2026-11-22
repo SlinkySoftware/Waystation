@@ -383,3 +383,47 @@ async def test_metrics_with_a_metrics_token(admin: httpx.AsyncClient, anon: http
     assert (await anon.get('/metrics', headers=bearer('wst_' + 'B' * 43))).status_code == 404
     response = await anon.get('/metrics', headers=bearer(metrics))
     assert response.status_code == 200 and 'waystation' in response.text
+
+
+async def test_a_token_used_after_a_key_rotation_is_rehashed_by_the_rollup(
+    admin: httpx.AsyncClient, services: Services, settings: Settings
+) -> None:
+    """T-O11: a token found under an older secret key (or with no recorded key) gets its hash under the active key
+    queued in Valkey, never written on the request path; the rollup's flush stores it with a compare-and-set."""
+    from waystation_common.crypto import generate_key
+    from waystation_server.security.tokens import TokenService
+
+    created = await create(admin)
+    secret, token_id = created['secret'], created['token']['id']
+    doc = await services.db[API_TOKENS].find_one({'_id': token_id})
+    assert doc is not None and services.tokens.hasher.kid is not None
+    assert doc['hash_kid'] == services.tokens.hasher.kid
+    old_hash = doc['hash']
+    # Used under the key that made it: nothing to do.
+    assert await TokenService(services.db, services.valkey, settings).resolve(secret) is not None
+    assert await services.valkey.hlen(seen.REHASH_TOKENS) == 0
+
+    rotated = settings.model_copy(update={'secret_keys': [SecretStr(generate_key()), *settings.secret_keys]})
+    replica = TokenService(services.db, services.valkey, rotated)
+    assert await replica.resolve(secret) is not None  # older keys still authenticate
+    entries = await services.valkey.hgetall(seen.REHASH_TOKENS)
+    new_hash = replica.hasher.hash(secret)
+    assert entries == {token_id: f'{old_hash} {new_hash} {replica.hasher.kid}'}
+    doc = await services.db[API_TOKENS].find_one({'_id': token_id})
+    assert doc is not None and doc['hash'] == old_hash  # nothing written on the request path
+    assert await seen.flush_token_rehash(services.db, entries) == 1
+    assert await seen.flush_token_rehash(services.db, entries) == 0  # compare-and-set: a repeat is a no-op
+    doc = await services.db[API_TOKENS].find_one({'_id': token_id})
+    assert doc is not None and (doc['hash'], doc['hash_kid']) == (new_hash, replica.hasher.kid)
+    await services.valkey.delete(seen.REHASH_TOKENS)
+    assert await TokenService(services.db, services.valkey, rotated).resolve(secret) is not None
+    assert await services.valkey.hlen(seen.REHASH_TOKENS) == 0
+
+    # A token made before T-O11 (no hash_kid) under the active key only gets its key recorded.
+    await services.db[API_TOKENS].update_one({'_id': token_id}, {'$unset': {'hash_kid': ''}})
+    assert await TokenService(services.db, services.valkey, rotated).resolve(secret) is not None
+    entries = await services.valkey.hgetall(seen.REHASH_TOKENS)
+    assert entries == {token_id: f'{new_hash} {new_hash} {replica.hasher.kid}'}
+    assert await seen.flush_token_rehash(services.db, {**entries, 'junk': 'not three parts'}) == 1
+    doc = await services.db[API_TOKENS].find_one({'_id': token_id})
+    assert doc is not None and doc['hash_kid'] == replica.hasher.kid

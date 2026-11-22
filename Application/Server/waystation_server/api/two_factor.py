@@ -196,8 +196,10 @@ async def confirm_setup(body: TotpCode, request: Request, svc: ServicesDep) -> T
     step = second_factor.check_code(second_factor.decrypt_secret(svc, user.id, pending_enc), body.code)
     if step is None:
         raise _bad_code()
-    codes, hashes = second_factor.new_recovery(svc, user.id)
-    updated = await users_db.enable_totp(svc.db, user.id, pending_enc=pending_enc, recovery=hashes, step=step, now=now)
+    codes, hashes, kid = second_factor.new_recovery(svc, user.id)
+    updated = await users_db.enable_totp(
+        svc.db, user.id, pending_enc=pending_enc, recovery=hashes, recovery_kid=kid, step=step, now=now
+    )
     if updated is None:
         raise Conflict('the account changed meanwhile; start again')
     audit.record(AuditAction.AUTH_TOTP_ENABLE, target=_target(user), details={'recovery_codes': len(codes)})
@@ -226,8 +228,8 @@ async def regenerate_recovery_codes(body: TotpCode, request: Request, svc: Servi
             target=_target(user),
         )
         raise _bad_code()
-    codes, hashes = second_factor.new_recovery(svc, user.id)
-    if not await users_db.set_recovery_codes(svc.db, user.id, hashes):
+    codes, hashes, kid = second_factor.new_recovery(svc, user.id)
+    if not await users_db.set_recovery_codes(svc.db, user.id, hashes, recovery_kid=kid):
         raise Conflict('two-factor sign-in is off')
     audit.record(AuditAction.AUTH_TOTP_RECOVERY_CODES, target=_target(user), details={'recovery_codes': len(codes)})
     return TotpRecoveryCodes(recovery_codes=codes)

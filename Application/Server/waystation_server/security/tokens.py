@@ -6,8 +6,13 @@ A token is ``wst_`` + 32 random bytes (base64url, 43 characters). It is shown on
 ``hash`` = HMAC-SHA256 of the token under a key derived from each ``WAYSTATION_SECRET_KEYS`` entry (a fast keyed hash:
 the token is high-entropy, so a slow password hash buys nothing, and the key means a database dump alone cannot
 confirm a guessed token). The first key hashes new tokens; lookups try every configured key (``hash $in [...]``, index
-``hash_unique``), so rotating the secret keys does not invalidate tokens. ``prefix`` (``wst_`` + 8 characters) is
-kept for display. Without secret keys the hash is unkeyed SHA-256 and the server warns.
+``hash_unique``), so rotating the secret keys does not invalidate tokens. ``hash_kid`` records which key made the
+hash (``waystation_common.crypto.key_id``). A token found under another key (or with no ``hash_kid``, made before
+T-O11) is re-hashed under the active key without a MongoDB write on the request path: the new hash is queued in
+Valkey (``rehash:tokens``, at most once per ``CACHE_S`` per token and process) and the worker's rollup stores it with
+a compare-and-set on the old hash (``waystation_common.db.seen``). Tokens that are not used keep their old hash; the
+secret-key rotation job reports how many there are. ``prefix`` (``wst_`` + 8 characters) is kept for display.
+Without secret keys the hash is unkeyed SHA-256 and the server warns.
 
 Authentication and revocation
 -----------------------------
@@ -43,7 +48,7 @@ from typing import TYPE_CHECKING
 
 from redis.asyncio import Redis
 
-from waystation_common.crypto import parse_key
+from waystation_common.crypto import key_id, parse_key
 from waystation_common.db import seen
 from waystation_common.db.client import Database
 from waystation_common.errors import Unauthorized
@@ -94,6 +99,7 @@ class TokenHasher:
     def __init__(self, keys: list[bytes]) -> None:
         self._keys = [hmac.new(key, HASH_INFO, hashlib.sha256).digest() for key in keys] or [b'']
         self.keyed = bool(keys)
+        self.kid = key_id(keys[0]) if keys else None  # the key that hashes new tokens (``api_tokens.hash_kid``)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> TokenHasher:
@@ -285,6 +291,8 @@ class TokenService:
         self._by_hash[hashes[0]] = (now, record.id if record else None)
         if record is None:
             return None
+        if self.hasher.kid is not None and (record.hash != hashes[0] or record.hash_kid != self.hasher.kid):
+            await self._queue_rehash(record, hashes[0], self.hasher.kid)
         entry = await self._load(record, now)
         self._remember(record.id, entry)
         return self._live(entry)
@@ -332,6 +340,7 @@ class TokenService:
             name=name,
             prefix=display_prefix(secret),
             hash=self.hasher.hash(secret),
+            hash_kid=self.hasher.kid,
             scopes=scopes,
             repo_globs=repo_globs,
             expires_at=expires_at,
@@ -367,6 +376,13 @@ class TokenService:
             await self._valkey.hset(seen.SEEN_TOKENS, token_id, f'{int(now)} {client_ip[:64]}')
         except Exception as exc:
             log.warning('token last-used update failed', extra={'error': type(exc).__name__})
+
+    async def _queue_rehash(self, record: ApiTokenRecord, new_hash: str, kid: str) -> None:
+        """The hash under the active key, for the rollup to store (secret-key rotation; never on the request path)."""
+        try:
+            await self._valkey.hset(seen.REHASH_TOKENS, record.id, f'{record.hash} {new_hash} {kid}')
+        except Exception as exc:  # the next lookup after the cache lifetime tries again
+            log.warning('token re-hash not queued', extra={'error': type(exc).__name__})
 
     async def pending_use(self, token_ids: list[str]) -> dict[str, tuple[datetime, str | None]]:
         """Last use recorded in Valkey and not yet flushed to MongoDB (for listings)."""

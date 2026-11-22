@@ -24,6 +24,16 @@ Clock = Callable[[], float]
 PROGRESS_INTERVAL_S = 1.0  # progress is written at most once a second (the last value always lands at the end)
 
 
+class JobFailedError(Exception):
+    """Raised by a handler that did its work but whose run must show as failed, with its ``result`` recorded on the
+    run. With ``retry`` False (the default) the job is dead-lettered at once: running it again cannot help."""
+
+    def __init__(self, message: str, *, result: dict[str, Any] | None = None, retry: bool = False) -> None:
+        super().__init__(message)
+        self.result = result
+        self.retry = retry
+
+
 @dataclass
 class JobContext:
     job: JobEnvelope

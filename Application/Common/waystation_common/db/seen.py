@@ -2,12 +2,15 @@
 the request path; the worker's rollup flushes them here in bulk (≤ 60 s staleness).
 
 - ``seen:tokens``: API token id → ``"<epoch seconds> <client address>"`` → ``api_tokens.last_used_at/_ip``;
+- ``rehash:tokens``: API token id → ``"<stored hash> <hash under the active key> <active key id>"`` →
+  ``api_tokens.hash`` / ``hash_kid``, a compare-and-set on the stored hash (secret-key rotation, T-O11: a token
+  that authenticates under an older key is re-hashed under the active one without a MongoDB write per request);
 - ``seen:sessions``: session id → ``"<epoch seconds>"`` → ``sessions.last_seen_at``;
 - ``seen:assets`` (asset id → ``"<epoch seconds>"``) and ``dl:assets`` (asset id → count) →
   ``assets.last_downloaded_at`` (``$max``) and ``download_count`` (``$inc``), which cleanup's "last downloaded"
   criterion reads.
 
-Updates only move timestamps forward, so a late or repeated flush is harmless.
+Updates only move timestamps forward and the re-hash is a compare-and-set, so a late or repeated flush is harmless.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from pymongo import UpdateOne
+from pymongo.errors import BulkWriteError
 
 from waystation_common.db.client import Database
 from waystation_common.db.collections import API_TOKENS, ASSETS, SESSIONS
@@ -22,6 +26,7 @@ from waystation_common.events.keys import DL_ASSETS, SEEN_ASSETS
 
 SEEN_TOKENS = 'seen:tokens'
 SEEN_SESSIONS = 'seen:sessions'
+REHASH_TOKENS = 'rehash:tokens'
 
 
 def parse(raw: str) -> tuple[datetime, str | None] | None:
@@ -48,6 +53,25 @@ async def flush_tokens(db: Database, entries: dict[str, str]) -> int:
     if not ops:
         return 0
     result = await db[API_TOKENS].bulk_write(ops, ordered=False)
+    return result.modified_count
+
+
+async def flush_token_rehash(db: Database, entries: dict[str, str]) -> int:
+    """Store the hashes the server computed under the active key. Only where the stored hash is still the one the
+    server saw: a token revoked, replaced or already re-hashed meanwhile is left alone."""
+    ops = []
+    for token_id, raw in entries.items():
+        parts = raw.split(' ')
+        if len(parts) != 3 or not all(parts):
+            continue
+        old, new, kid = parts
+        ops.append(UpdateOne({'_id': token_id, 'hash': old}, {'$set': {'hash': new, 'hash_kid': kid}}))
+    if not ops:
+        return 0
+    try:
+        result = await db[API_TOKENS].bulk_write(ops, ordered=False)
+    except BulkWriteError as exc:  # a duplicate hash cannot happen for distinct tokens; skip what failed
+        return int(exc.details.get('nModified', 0))
     return result.modified_count
 
 
@@ -96,11 +120,13 @@ def downloads(seen_entries: dict[str, str], counts: dict[str, str]) -> dict[str,
 
 __all__ = [
     'DL_ASSETS',
+    'REHASH_TOKENS',
     'SEEN_ASSETS',
     'SEEN_SESSIONS',
     'SEEN_TOKENS',
     'downloads',
     'flush_assets',
     'flush_sessions',
+    'flush_token_rehash',
     'flush_tokens',
 ]

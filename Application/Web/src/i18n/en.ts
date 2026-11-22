@@ -1418,6 +1418,7 @@ export const en = {
       quota_reconcile: 'Quota recount',
       storage_check: 'Low-disk check',
       apt_refresh: 'apt refresh',
+      secrets_rotate: 'Secret-key rotation',
     },
     kindHelp: {
       stats_rollup: 'Rolls live counters into the statistics every few seconds',
@@ -1427,6 +1428,7 @@ export const en = {
       quota_reconcile: 'Recounts the bytes each repository stores and raises quota alerts',
       storage_check: 'Compares free disk space with the low-disk guard and raises alerts',
       apt_refresh: 'Revalidates stale apt Release files, refreshes the Packages indexes clients use and re-verifies unverified package files',
+      secrets_rotate: 'Re-encrypts stored credentials and key files with the first key in WAYSTATION_SECRET_KEYS, and reports what still depends on older keys',
     },
     queue: {
       index: 'Index',
@@ -1512,6 +1514,8 @@ export const en = {
         gc: 'Freed {n} blob · {size}|Freed {n} blobs · {size}',
         verify: '{assets} assets checked · {n} to re-fetch|{assets} assets checked · {n} to re-fetch',
         verifyLost: '{n} hosted asset lost|{n} hosted assets lost',
+        rotate: 'Re-encrypted {n} secret|Re-encrypted {n} secrets',
+        rotateUndecryptable: '{n} secret no key decrypts|{n} secrets no key decrypts',
         cleanup: 'Removed {n} item · {size}|Removed {n} items · {size}',
         done: 'Done',
       },
@@ -1670,6 +1674,7 @@ export const en = {
       task: 'Tasks',
       settings: 'Settings',
       webhook: 'Webhooks',
+      secrets: 'Secret keys',
     },
     allInCategory: 'All {category}',
     action: {
@@ -1695,6 +1700,7 @@ export const en = {
       task: { update: 'Changed a task schedule', run: 'Ran a task', retry: 'Retried a dead letter', discard: 'Discarded a dead letter' },
       settings: { update: 'Changed settings' },
       webhook: { create: 'Created a webhook', update: 'Changed a webhook', delete: 'Deleted a webhook', test: 'Sent a test event', redeliver: 'Redelivered a webhook event' },
+      secrets: { rotate: 'Re-encrypted stored secrets with the active key' },
     },
     failed: {
       auth: {
@@ -1707,6 +1713,7 @@ export const en = {
       },
       auth_provider: { test: 'Auth provider test failed' },
       repository: { test_upstream: 'Upstream test failed' },
+      secrets: { rotate: 'Some stored secrets cannot be decrypted' },
     },
     reason: {
       bad_credentials: 'Wrong username or password',
@@ -1723,6 +1730,7 @@ export const en = {
       totp_required: 'Password refused: the account uses two-factor sign-in (use an API token)',
       totp_setup_required: 'Two-factor sign-in not set up yet (required)',
       not_found: 'Not found',
+      undecryptable: 'No configured secret key decrypts some stored values',
     },
     targetKind: {
       user: 'User',
@@ -1738,6 +1746,7 @@ export const en = {
       task: 'Task',
       job: 'Job',
       anonymous_access: 'Anonymous access',
+      secret_keys: 'Secret keys',
     },
     auth: {
       session: 'Web session',

@@ -244,6 +244,19 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   formats obtain grants only through `FormatRequest.download_query`.
 - Credentials for upstreams and LDAP/OIDC secrets are AES-GCM encrypted with `SECRET_KEYS` (first key encrypts,
   all keys decrypt; rotation job re-encrypts).
+  As implemented (T-O11): every stored ciphertext is listed in `waystation_common.db.secrets.ENCRYPTED_FIELDS`
+  (collection, field, associated data; a test compares it with the owning code and fails when a module starts
+  encrypting something new) plus the `keys/` files (`waystation_common.keyfiles`). The worker job `secrets.rotate`
+  (`waystation_worker.rotate`; daily, and "Run now" / `run_task` after a key change) selects only values whose
+  ciphertext does not carry the active key id, re-encrypts them and writes with a compare-and-set on the old
+  ciphertext (a concurrent edit wins), and rewrites key files atomically (temporary file, fsync, rename, mode kept)
+  after checking the new content decrypts. Values no configured key decrypts are counted per store with their ids,
+  logged at ERROR, and fail the run (`JobFailedError`, dead-lettered without retries) after everything else was
+  rotated; runs that changed something are audited (`secrets.rotate`, actor `system`). Keyed hashes cannot be
+  re-hashed without their secret: API tokens and recovery codes record the key that hashed them (`hash_kid`,
+  `totp_recovery_kid`) so the job reports how many still depend on older keys, and an API token that authenticates
+  under an older key has its new hash queued in Valkey (`rehash:tokens`) and stored by the rollup (no MongoDB write
+  on the request path). Operator procedure: `Documents/Operations/SECRET_KEY_ROTATION.md`.
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and
   every parsed metadata document, XML parsing with `defusedxml`, archive extraction with zip/tar-slip checks,
   no `eval`/`pickle`/YAML unsafe load.
@@ -318,7 +331,9 @@ rollup (§8) runs as the scheduled job `stats.rollup` (`@every 10s`, queue `stat
 finish for 8 s; abandoned jobs are reclaimed. Liveness: the heartbeat file is withheld when the consumer loop stalls.
 Operators see and steer this through `/api/v1/tasks/*` (T-O04, `admin`): definitions (schedule/enabled edits reset
 `next_run_at`), runs, workers, and dead letters (retry = one Lua step that queues a fresh envelope and deletes the
-entry). `JobContext` progress and log lines are also published on `live:jobs`; the SSE hub relays them, plus job and
+entry). A handler that did its work but must fail its run raises `JobFailedError(message, result=..., retry=False)`:
+the run records the result and is dead-lettered at once. `JobContext` progress and log lines are also published on
+`live:jobs`; the SSE hub relays them, plus job and
 worker activity, on the admin-only topic `tasks`.
 Webhooks (T-O05) use the same pieces: the server writes a `webhook.event` job to the outbox for each content or
 repository change an enabled webhook wants (taken from `audit.record`), and the worker's handler records and sends

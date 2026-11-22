@@ -33,6 +33,7 @@ describe('mock tasks API', () => {
     const byId = new Map(json.items.map((task) => [task.id, task]))
     expect(byId.get('stats.rollup')).toMatchObject({ routine: true, owner: null, schedule: '@every 10s' })
     expect(byId.get('blob.gc')?.last_run?.kind).toBe('blob.gc')
+    expect(byId.get('secrets.rotate')).toMatchObject({ kind: 'secrets.rotate', queue: 'maintenance', schedule: '23 4 * * *' })
     const policy = json.items.find((task) => task.owner)!
     expect(policy.kind).toBe('cleanup.run')
     const refused = await api<Problem>('PATCH', `/tasks/scheduled/${policy.id}`, { schedule: '@daily' })

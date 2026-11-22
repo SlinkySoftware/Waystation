@@ -84,11 +84,12 @@ def encrypt_secret(svc: Services, user_id: str, secret: str) -> str:
     return svc.keyring.encrypt_str(secret, aad=secret_aad(user_id))
 
 
-def new_recovery(svc: Services, user_id: str) -> tuple[list[str], list[str]]:
-    """Fresh recovery codes and their stored hashes."""
+def new_recovery(svc: Services, user_id: str) -> tuple[list[str], list[str], str]:
+    """Fresh recovery codes, their stored hashes and the id of the key that made them (``totp_recovery_kid``)."""
     hasher = recovery_hasher(svc)
+    assert svc.keyring is not None  # recovery_hasher checked it
     codes = totp.new_recovery_codes()
-    return codes, [hasher.hash(user_id, code) for code in codes]
+    return codes, [hasher.hash(user_id, code) for code in codes], svc.keyring.active_kid
 
 
 async def _claim_step(svc: Services, user_id: str, step: int) -> bool:

@@ -80,6 +80,11 @@ class Keyring:
     def active_kid(self) -> str:
         return self._keys[0][0]
 
+    @property
+    def kids(self) -> tuple[str, ...]:
+        """The ids of the configured keys, the active one first."""
+        return tuple(kid for kid, _ in self._keys)
+
     def encrypt(self, plaintext: bytes, *, aad: bytes = b'') -> str:
         kid, aead = self._keys[0]
         nonce = os.urandom(NONCE_BYTES)
@@ -115,6 +120,16 @@ class Keyring:
         if not self.needs_rotation(token):
             return token
         return self.encrypt(self.decrypt(token, aad=aad), aad=aad)
+
+
+def token_kid(token: str) -> str:
+    """The id of the key that made ``token`` (``CryptoError`` when it is not a Waystation ciphertext)."""
+    return _split(token)[0]
+
+
+def kid_prefix(kid: str) -> str:
+    """How every ciphertext made with key ``kid`` starts (stored values can be selected by it)."""
+    return f'{PREFIX}.{kid}.'
 
 
 def _split(token: str) -> tuple[str, bytes]:

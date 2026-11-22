@@ -12,7 +12,8 @@ A registry token issued for an API token carries its id (``tid``): the API token
 (revoked, expired or narrowed tokens stop working at once, not when the registry token expires).
 
 The signing key lives in ``WAYSTATION_DATA_DIR/keys/registry-token.key``, encrypted with ``WAYSTATION_SECRET_KEYS``
-(created by the first server that needs it; every replica uses the same key). Without secret keys the server uses
+(created by the first server that needs it; every replica uses the same key; re-encrypted, never changed, by the
+secret-key rotation job). Without secret keys the server uses
 a per-process key and warns (tokens then only work against the process that issued them).
 """
 
@@ -37,14 +38,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,
 
 from waystation_common.crypto import Keyring
 from waystation_common.errors import CryptoError
+from waystation_common.keyfiles import REGISTRY_TOKEN_KEY_AAD, REGISTRY_TOKEN_KEY_FILE
 
 log = logging.getLogger('waystation.registry_token')
 
 TOKEN_TTL_S = 300
 REFRESH_TTL_S = 90 * 86400  # refresh tokens (``docker login`` identity tokens, OAuth2 ``access_type=offline``)
 REFRESH_USE = 'refresh'
-KEY_FILE = 'registry-token.key'
-KEY_AAD = b'registry-token-signing-key'
+KEY_FILE = REGISTRY_TOKEN_KEY_FILE
+KEY_AAD = REGISTRY_TOKEN_KEY_AAD
 ISSUER = 'waystation'
 DOCKER_ACTIONS = ('pull', 'push', 'delete')
 _SCOPE_ACTIONS = re.compile(r'^[a-z*]+(,[a-z*]+)*$')

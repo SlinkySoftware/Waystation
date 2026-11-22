@@ -14,7 +14,8 @@ keyring directory. If adr/0007 is declined for ``gpg`` in the worker image, only
   PKCS#8 DER encrypted with ``WAYSTATION_SECRET_KEYS`` (AES-256-GCM, ``waystation_common.crypto``; associated data
   ``signing-key:<repo id>``, so a key file copied to another repository's name does not decrypt). Created atomically
   (written to a temporary file, then hard-linked into place, so two workers racing on a new repository agree on one
-  key), never rewritten.
+  key), never changed: only re-encrypted (same key, new ciphertext) by the secret-key rotation job
+  (``waystation_common.keyfiles``).
 - **Signing**: detached binary-document signatures, SHA-512, armored (``repomd.xml.asc``; apt ``Release.gpg``), and
   cleartext-signed documents (apt ``InRelease``, RFC 9580 §7: ``Hash:`` header, dash-escaping, a canonical-text
   signature over the text with CRLF line ends and trailing blanks removed, the last line end excluded).
@@ -218,8 +219,12 @@ class RepoKey:
         return clearsign(self.signer, self.public, text, created=created)
 
 
-def _aad(repo_id: str) -> bytes:
+def key_aad(repo_id: str) -> bytes:
+    """Associated data of a repository's encrypted private key."""
     return f'signing-key:{repo_id}'.encode()
+
+
+_aad = key_aad
 
 
 class KeyStore:

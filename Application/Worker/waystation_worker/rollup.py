@@ -125,9 +125,14 @@ async def _drain(redis: Redis, key: str) -> dict[str, str]:
 
 
 async def flush_last_seen(redis: Redis, db: Database) -> int:
-    """``seen:tokens`` / ``seen:sessions`` → MongoDB in bulk (ARCHITECTURE §8). Returns the records updated."""
+    """``seen:tokens`` / ``seen:sessions`` (and API token re-hashes, ``rehash:tokens``) → MongoDB in bulk
+    (ARCHITECTURE §8). Returns the records updated."""
     updated = 0
-    for key, flush in ((seen.SEEN_TOKENS, seen.flush_tokens), (seen.SEEN_SESSIONS, seen.flush_sessions)):
+    for key, flush in (
+        (seen.SEEN_TOKENS, seen.flush_tokens),
+        (seen.SEEN_SESSIONS, seen.flush_sessions),
+        (seen.REHASH_TOKENS, seen.flush_token_rehash),
+    ):
         entries = await _drain(redis, key)
         if entries:
             updated += await flush(db, entries)
