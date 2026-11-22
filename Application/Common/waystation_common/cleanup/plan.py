@@ -15,7 +15,9 @@ Components and versions come from asset paths (``coordinates``) until components
   hosted provider packages ``v1/providers/<namespace>/<type>/<version>/*.zip`` (per module / provider, semver); nuget
   ``v3-flatcontainer/<id>/<version>/<id>.<version>.nupkg`` and its ``.nuspec`` (per package, NuGet version order,
   both files of a version share its rank); composer
-  ``dists/<vendor>/<name>/<version>/<file>`` (per package, Composer version order); every
+  ``dists/<vendor>/<name>/<version>/<file>`` (per package, Composer version order); rubygems
+  ``gems/<name>-<version>[-<platform>].gem`` and its ``quick/Marshal.4.8/<same>.gemspec.rz`` (per gem and platform,
+  ``Gem::Version`` order, both files share a rank); every
   other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
@@ -42,6 +44,7 @@ from urllib.parse import unquote
 from waystation_common.cleanup.model import Candidate, Criteria
 from waystation_common.cleanup.versions import is_prerelease, sort_key
 from waystation_common.galaxy import parse_artifact_path
+from waystation_common.rubygems import RUBY, split_full_name
 
 DAY = timedelta(days=1)
 # Swift releases are immutable and a proxy's archives are pinned by checksum (rebuilt bytes could differ): only the
@@ -49,6 +52,7 @@ DAY = timedelta(days=1)
 SWIFT_SCM_PREFIX = '_scm/'
 NUGET_FLAT = 'v3-flatcontainer/'
 COMPOSER_DISTS = 'dists/'
+GEM_FILES = (('gems/', '.gem'), ('quick/Marshal.4.8/', '.gemspec.rz'))
 
 
 @dataclass(frozen=True)
@@ -132,6 +136,13 @@ def coordinates(fmt: str, path: str) -> Coord:
         parts = path.split('/')
         if len(parts) == 4 and parts[1] and parts[2]:  # v3-flatcontainer/<id>/<version>/<file>
             return Coord(parts[1], parts[2], parts[1], True)
+    if fmt == 'rubygems':
+        for prefix, suffix in GEM_FILES:
+            if path.startswith(prefix) and path.endswith(suffix) and path.count('/') == prefix.count('/'):
+                readings = split_full_name(path[len(prefix) : -len(suffix)])
+                if readings:
+                    name, version, platform = readings[0]
+                    return Coord(name, version, name if platform == RUBY else f'{name}/{platform}', True)
     if fmt == 'composer' and path.startswith(COMPOSER_DISTS):
         parts = path.split('/')
         if len(parts) == 5 and all(parts[1:]):  # dists/<vendor>/<name>/<version>/<file>

@@ -6,7 +6,7 @@ format package exposes ``DESCRIPTOR`` (``<format>.descriptor``) and, once implem
 (T-P2-YUM) proxy repositories; helm (T-P5-HELM), maven (T-P5-MAVEN) and pypi (T-P5-PYPI) proxy, hosted and group
 repositories; go (T-P5-GO) proxy and group repositories; galaxy (T-P5-GALAXY) proxy, hosted and group
 repositories; terraform (T-P5-TFP) provider network mirrors (proxy); swift (T-P5-SWIFT) SCM-backed proxy and hosted
-repositories; nuget (T-P6-NUGET) and composer (T-P6-COMPOSER) proxy, hosted and group
+repositories; nuget (T-P6-NUGET), composer (T-P6-COMPOSER) and rubygems (T-P6-GEMS) proxy, hosted and group
 repositories.
 """
 
@@ -35,6 +35,8 @@ from waystation_server.formats.pypi.plugin import PypiPlugin
 from waystation_server.formats.raw.descriptor import DESCRIPTOR as RAW
 from waystation_server.formats.raw.plugin import RawPlugin
 from waystation_server.formats.registry import FormatRegistry
+from waystation_server.formats.rubygems.descriptor import DESCRIPTOR as RUBYGEMS
+from waystation_server.formats.rubygems.plugin import RubygemsPlugin
 from waystation_server.formats.swift.descriptor import DESCRIPTOR as SWIFT
 from waystation_server.formats.swift.plugin import SwiftPlugin
 from waystation_server.formats.terraform.descriptor import DESCRIPTOR as TERRAFORM
@@ -61,4 +63,6 @@ def default_registry() -> FormatRegistry:
     registry.set_plugin(SwiftPlugin())  # T-P5-SWIFT: SCM-backed proxy, hosted
     registry.set_plugin(NugetPlugin())  # T-P6-NUGET: proxy, hosted, group
     registry.set_plugin(ComposerPlugin())  # T-P6-COMPOSER: proxy, hosted, group
+    registry.register(RUBYGEMS)
+    registry.set_plugin(RubygemsPlugin())  # T-P6-GEMS: proxy, hosted, group
     return registry

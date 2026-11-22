@@ -6,6 +6,7 @@ Order:
 2. ``Authorization``:
    - ``Bearer <api-token>`` / ``Token <api-token>`` (scripts, npm ``_authToken``, Terraform, Galaxy);
    - ``Basic`` with an API token as the password, any username (curl ``-u``, apt ``auth.conf``, Maven, pip...);
+   - a bare API token as the whole value on ``/repository/...`` (RubyGems ``gem push`` and ``yank``);
    - ``Bearer <jwt>`` on ``/v2/``: a Docker registry token (``registry_auth``; ``/v2/`` accepts nothing else, so API
      tokens there are ignored and the client gets the Bearer challenge);
 3. without an ``Authorization`` header, ``X-NuGet-ApiKey: <api-token>`` on ``/repository/...`` (``dotnet nuget push``
@@ -148,6 +149,9 @@ async def _from_header(services: Services, request: Request) -> Principal | None
         raise Unauthorized(INVALID)
     if registry:
         return None
+    if not credentials and looks_like_token(scheme) and request.url.path.startswith('/repository/'):
+        # RubyGems (`gem push`, `gem yank`): the API key is the whole header value, no scheme
+        return await services.tokens.authenticate(scheme, client_ip=client_address(request))
     basic = basic_credentials(header)
     if basic is None:
         raise Unauthorized(INVALID)  # an empty or unknown scheme is not "no credentials" either

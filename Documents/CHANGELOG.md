@@ -2,6 +2,31 @@
 
 All notable changes, newest first. Each entry: date, task ID, summary.
 
+## 2026-11-23
+- T-P6-GEMS: RubyGems repositories (FORMATS.md "RubyGems", `Operations/clients/rubygems.md`). **Proxy** of a
+  compact index server (preset rubygems.org): `versions` (up to 512 MiB), `names` and `info/<gem>` cached as metadata
+  and served by X-Accel with `Repr-Digest`/`Digest` of the whole file, so Bundler's `Range` appends are checked (the
+  nginx blob location now re-adds `Repr-Digest`); `.gem` files cached forever once their SHA-256 matches the info
+  checksum (an unlisted version re-reads the info file once; no checksum or a different file is refused); gemspecs
+  (`quick/Marshal.4.8`) and the legacy `specs.4.8.gz` indexes passed through as opaque bytes (zlib/gzip checked, Ruby
+  Marshal never read); the retired dependency API answers 404. **Hosted**: `gem push` (`POST api/v1/gems`; the API
+  token as the whole `Authorization` value, now accepted by the authenticator on `/repository/...`) with a bounded,
+  safe tar walk, the YAML specification read by a string-only SafeLoader and `checksums.yaml.gz` checked; the
+  `quick/Marshal.4.8` gemspec written by a Marshal 4.8 writer (`Gem::SafeMarshal`-compatible); `gem yank`
+  (`DELETE api/v1/gems/yank`); write policy, quota, audit (`rubygems_gem`); compact index and legacy indexes rendered
+  per request. **Group**: `versions` and `names` merged and stored per member state (merged gems get the MD5 of the
+  merged info file), `info/<gem>` merged (first member wins per version and platform), gems from the members.
+  `Gem::Version` order (`waystation_common.rubygems`) for `version_sort`, cleanup (gem and gemspec share a rank) and
+  the component index; new collection `rubygems_gems` (browse, global search). Prefetch warm items
+  `gem[:version[-platform]]` and refresh of `versions`, `names` and info files. Nexus `rubygems-*` repositories are
+  imported. REST: `GET rubygems/gems`, `GET rubygems/versions` (contract, regenerated client); UI: RubyGems in the
+  create flow (proxy, hosted, group), browse renderer, prefetch hints, MSW mocks; "Set me up" (gem sources, Bundler
+  source, mirror and credentials, `~/.gem/credentials`, push, yank). Client harness `tests/clients/rubygems/`
+  (official ruby 3.4.13 image: gem and Bundler; recorded rubygems.org fixtures of `hola` 0.1.3): gem and Bundler
+  through the proxy, push + install from hosted, Bundler through the group as the rubygems.org mirror, yank, refused
+  credentials. Harness: `KEEP_LINES` in `format.env` reduces huge line indexes to the lines a test uses when recorded.
+  Allowlisted host: `rubygems.org`.
+
 ## 2026-11-22
 - T-P6-COMPOSER: Composer 2 repositories (FORMATS.md "Composer", `Operations/clients/composer.md`). Every Composer
   repository serves its own `packages.json` (`metadata-url` = `<repo>/p2/%package%.json`; no Composer 1 `providers`).

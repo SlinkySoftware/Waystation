@@ -148,7 +148,7 @@ Format-aware views are on the Packages tab:
   referrers (signatures, SBOM) list, pull commands by tag and by digest). As built: the referrers list sits under
   the platform switcher (kind badge Signature / SBOM / Attestation / Artifact from the artifact type, type, digest,
   size, created), for the index and the selected platform's manifest.
-- **npm / PyPI / Maven / NuGet / Composer / Helm / Galaxy / Swift**: package → versions table (version, published, size,
+- **npm / PyPI / Maven / NuGet / Composer / RubyGems / Helm / Galaxy / Swift**: package → versions table (version, published, size,
   downloads, deprecated/yanked flags), README rendered safely (sanitised markdown, no raw HTML), dependencies.
   As built for npm (T-U05): a Versions / README switch (`?view=readme`); `MarkdownView` renders markdown-it tokens as
   VNodes (raw HTML stays text, headings shifted below the page's, links only http(s)/mailto/#, new tab without a
@@ -164,6 +164,12 @@ Format-aware views are on the Packages tab:
   versions newest first in Composer order (stability badge for RC / beta / alpha / dev, uploaded by, source reference
   as a short hash, published, size, cached state, copy URL and download when the archive is stored). The repository
   form shows the proxy's archive hosts (a host list) and whether VCS sources stay in the metadata (keep / strip).
+  Built for RubyGems (T-P6-GEMS, `RubygemsBrowser.vue`): gems table (name, summary, latest version, version count,
+  updated; search), then the gem page (`?gem=<name>`, case-sensitive) with `gem install` and Gemfile
+  (`gem '<name>', '~> <latest>'`) copy fields and the versions newest first in RubyGems order, one row per platform
+  build (platform badge when not `ruby`, prerelease badge, pushed by, required Ruby, dependency count with the list in
+  a tooltip, published, size, short SHA-256 with copy, cached state, copy URL and download when the .gem is stored).
+  The repository form has no RubyGems options.
   Built for Maven (T-P5-MAVEN): artifacts table (artifactId over its groupId, latest, version count, filter by
   groupId or artifactId) → versions table (Maven order, SNAPSHOT badge, files, size, deployed by; a copyable
   `<dependency>` snippet) → the version's files (name, size, modified, copy download URL).

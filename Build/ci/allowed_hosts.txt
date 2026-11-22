@@ -52,6 +52,8 @@ nuget.org
 schemas.microsoft.com
 # Composer (T-P6-COMPOSER): Packagist (repo.packagist.org) and its package pages
 packagist.org
+# RubyGems (T-P6-GEMS): rubygems.org and index.rubygems.org (compact index, gems)
+rubygems.org
 
 # Public upstreams: Linux distribution mirrors
 deb.debian.org

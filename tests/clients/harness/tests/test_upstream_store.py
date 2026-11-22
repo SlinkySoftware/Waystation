@@ -12,6 +12,8 @@ from upstream_store import (
     RequestKey,
     auth_kind,
     identity_body,
+    keep_lines,
+    parse_keep_lines,
     scrub_response,
     scrub_url,
 )
@@ -186,3 +188,16 @@ def test_identity_body_decodes_a_coding_the_upstream_sent_anyway() -> None:
     assert identity_body(plain, b'abc', 1024) == (plain, b'abc')
     with pytest.raises(ValueError, match='exceeds'):
         identity_body(headers, gzip.compress(b'x' * 4096), 1024)
+
+
+def test_keep_lines_reduces_line_indexes() -> None:
+    rules = parse_keep_lines(r'/versions=(created_at:.*|---|hola\s.*) /names=(---|hola)')
+    body = b'created_at: 2026-11-01T00:00:00Z\n---\nabc 1.0 x\nhola 0.1.3 y\nholamundo 1 z\n'
+    headers = [('content-type', 'text/plain'), ('content-length', str(len(body))), ('etag', '"e"')]
+    kept = keep_lines(Exchange(200, headers, body), rules['/versions'])
+    assert kept.body == b'created_at: 2026-11-01T00:00:00Z\n---\nhola 0.1.3 y\n'
+    assert kept.headers == [('content-type', 'text/plain'), ('content-length', str(len(kept.body)))]
+    missing = Exchange(404, [], b'not found')
+    assert keep_lines(missing, rules['/names']) is missing
+    with pytest.raises(ValueError, match='KEEP_LINES'):
+        parse_keep_lines('versions')
