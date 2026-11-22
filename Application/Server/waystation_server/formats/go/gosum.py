@@ -28,6 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import BinaryIO
 
+from waystation_common.archives import READ_ERRORS
 from waystation_common.errors import DigestMismatch, UpstreamError
 
 MAX_LOOKUP = 64 * 1024
@@ -103,7 +104,7 @@ def zip_h1(file: BinaryIO) -> str:
     """``h1`` of a module zip (``dirhash.HashZip``): every member, hashed as it is decompressed. Blocking."""
     try:
         archive = zipfile.ZipFile(file)
-    except zipfile.BadZipFile, OSError, ValueError:
+    except READ_ERRORS:
         raise DigestMismatch('not a valid module zip') from None
     with archive:
         infos = archive.infolist()
@@ -124,7 +125,7 @@ def zip_h1(file: BinaryIO) -> str:
                         if total > MAX_UNCOMPRESSED:
                             raise DigestMismatch('module zip is too large uncompressed')
                         digest.update(chunk)
-            except zipfile.BadZipFile, OSError, ValueError, NotImplementedError, EOFError:
+            except READ_ERRORS:
                 raise DigestMismatch('module zip is corrupt') from None
             lines.append((name, digest.hexdigest()))
     return _hash1(lines)

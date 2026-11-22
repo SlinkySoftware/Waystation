@@ -101,7 +101,9 @@ class ApkHosted:
         directory = upload_dir(req.path)
         arch = apk.Directory(directory).arch
         length = req.request.headers.get('content-length')
-        total = int(length) if length is not None and length.isdigit() else None
+        total = (
+            int(length) if length is not None and length.isascii() and length.isdigit() and len(length) <= 20 else None
+        )
         await req.hosted.admit(req.repo, total)  # a hard quota refuses before any byte is accepted (507)
         artifact = req.path.rsplit('/', 1)[-1]
         async with await req.hosted.blobs.open_writer(expected_size=total) as writer:

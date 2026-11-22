@@ -145,4 +145,36 @@ echo 'ok: a connector answers /v2/ only'
 expect 'TLS connector (HTTP/2)' 'connector=5001 200 ' --http2 'https://registry.example.com:5001/v2/'
 expect 'TLS main port' 'connector=none 200 ' -H 'X-Waystation-Connector: 5001' 'https://registry.example.com:8443/v2/'
 
+# Security headers (15-waystation.sh): artifacts and API answers are sandboxed, the UI gets its own CSP, HSTS only
+# over TLS, and every location that adds its own headers still carries them.
+headers() {  # headers <url>: the response headers, lower-cased
+  docker run --rm --network "$NET" -v "$RUN/tls:/tls:ro" "$CURL_IMAGE" -sS --retry 10 --retry-connrefused \
+    --retry-delay 1 --cacert /tls/tls.crt -o /dev/null -D - "$1" | tr -d '\r' | tr '[:upper:]' '[:lower:]'
+}
+has() {  # has <label> <headers> <line>...
+  local label=$1 got=$2
+  shift 2
+  for line in "$@"; do
+    printf '%s\n' "$got" | grep -qxF "$line" || fail "$label: no '$line' in: $got"
+  done
+  echo "ok: $label"
+}
+common=('x-content-type-options: nosniff' 'x-frame-options: deny' 'referrer-policy: same-origin')
+sandbox="content-security-policy: sandbox; frame-ancestors 'none'"
+h=$(headers "http://$web:8080/repository/x/y")
+has 'artifact answers are sandboxed' "$h" "${common[@]}" "$sandbox"
+printf '%s\n' "$h" | grep -q '^strict-transport-security' && fail 'HSTS over plain HTTP'
+has 'API answers' "$(headers "http://$web:8080/api/v1/config")" "${common[@]}" "$sandbox"
+has 'event stream' "$(headers "http://$web:8080/api/v1/events/stream")" "${common[@]}" "$sandbox" \
+  'x-accel-buffering: no'
+has 'connector answers' "$(headers "http://$web:5001/v2/")" "${common[@]}" "$sandbox"
+h=$(headers "http://$web:8080/ui/")
+has 'UI CSP' "$h" "${common[@]}" 'cache-control: no-cache'
+printf '%s\n' "$h" | grep -q "^content-security-policy: default-src 'self'; script-src 'self';.*frame-ancestors 'none'$" \
+  || fail "UI CSP: $h"
+has 'UI assets' "$(headers "http://$web:8080/ui/assets/x.js")" "${common[@]}" \
+  'cache-control: public, max-age=31536000, immutable'
+has 'HSTS over TLS' "$(headers 'https://registry.example.com:8443/api/v1/config')" "${common[@]}" "$sandbox" \
+  'strict-transport-security: max-age=31536000'
+
 printf '\nPASS [web-config-test]\n'

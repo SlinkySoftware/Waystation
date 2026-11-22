@@ -20,7 +20,12 @@ RUN uv sync --frozen --no-dev --package waystation-worker --no-editable
 FROM ${PYTHON_IMAGE}
 ARG WAYSTATION_UID=10001
 ARG WAYSTATION_GID=10001
-RUN groupadd --system --gid ${WAYSTATION_GID} waystation \
+# Security updates published after the base image was built (T-R01 container scan), and no pip: nothing installs
+# packages at run time, and the base image's pip vendors its own (scanned) copies of urllib3 and msgpack.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/bin/pip* /usr/local/lib/python3*/site-packages/pip /usr/local/lib/python3*/site-packages/pip-* \
+      /usr/local/lib/python3*/ensurepip \
+ && groupadd --system --gid ${WAYSTATION_GID} waystation \
  && useradd --system --uid ${WAYSTATION_UID} --gid ${WAYSTATION_GID} --no-create-home --home-dir /nonexistent \
       --shell /usr/sbin/nologin waystation \
  && install -d -o ${WAYSTATION_UID} -g ${WAYSTATION_GID} -m 2750 /var/lib/waystation

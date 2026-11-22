@@ -30,5 +30,5 @@ location /_blobs/ {
     add_header X-Linked-Etag $upstream_http_x_linked_etag always;
     add_header X-Linked-Size $upstream_http_x_linked_size always;
     add_header X-Request-Id $upstream_http_x_request_id always;
-    add_header X-Content-Type-Options nosniff always;
+    include /tmp/nginx-conf/waystation-headers.inc;  # nosniff, the CSP sandbox, ... (15-waystation.sh)
 }

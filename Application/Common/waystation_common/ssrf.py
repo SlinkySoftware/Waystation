@@ -29,18 +29,37 @@ class UpstreamBlocked(UpstreamError):  # noqa: N818 - reads as a state, like the
     code = 'upstream_blocked'
 
 
+_NAT64 = ipaddress.IPv6Network('64:ff9b::/96')  # RFC 6052 well-known prefix (Python counts it as global)
+_IPV4_COMPATIBLE = ipaddress.IPv6Network('::/96')  # deprecated IPv4-compatible form (RFC 4291); also holds :: and ::1
+# Deprecated site-local addresses (RFC 3879): never global, but Python calls them global.
+_SITE_LOCAL = ipaddress.IPv6Network('fec0::/10')  # forbidden-strings: allow
+
+
+def embedded_ipv4(ip: IPAddress) -> IPAddress:
+    """The IPv4 address an IPv6 address stands for when the kernel or a NAT64 gateway turns the connection into an
+    IPv4 one (IPv4-mapped, IPv4-compatible, NAT64 well-known prefix); else ``ip``. 6to4 and Teredo addresses are not
+    global, so the guard refuses them as they are."""
+    if not isinstance(ip, ipaddress.IPv6Address):
+        return ip
+    if ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    if (ip in _IPV4_COMPATIBLE and int(ip) > 1) or ip in _NAT64:
+        return ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+    return ip
+
+
 class SsrfGuard:
     def __init__(self, allow_cidrs: Iterable[str] = ()) -> None:
         self.allow: tuple[IPNetwork, ...] = tuple(ipaddress.ip_network(c, strict=False) for c in allow_cidrs)
 
     def allowed(self, ip: IPAddress, *, allow_private: bool) -> bool:
-        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-            ip = ip.ipv4_mapped
+        ip = embedded_ipv4(ip)
         if allow_private:
             return not ip.is_unspecified and not ip.is_multicast
         if any(ip.version == net.version and ip in net for net in self.allow):
             return True
-        return ip.is_global and not ip.is_multicast
+        site_local = isinstance(ip, ipaddress.IPv6Address) and ip in _SITE_LOCAL
+        return ip.is_global and not ip.is_multicast and not site_local
 
     async def resolve(self, host: str, port: int, *, allow_private: bool) -> list[IPAddress]:
         """Resolve ``host`` and return its addresses if **all** of them are allowed, else raise ``UpstreamBlocked``."""

@@ -19,6 +19,8 @@ server {
     # chooses the connector header: only connector listeners (15-waystation.sh) set it (ADR 0013).
     include /tmp/nginx-conf/waystation-proxy.inc;
     proxy_set_header X-Waystation-Connector "";
+    # Security headers (rendered by 15-waystation.sh): locations with their own add_header include them again.
+    include /tmp/nginx-conf/waystation-headers.inc;
 
     # ---- container healthcheck (answered by nginx itself)
     location = /_web/healthz {
@@ -36,11 +38,13 @@ server {
     }
     location /ui/assets/ {
         alias /usr/share/nginx/html/ui/assets/;
+        include /tmp/nginx-conf/waystation-ui-headers.inc;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
         try_files $uri =404;
     }
     location /ui/ {
         alias /usr/share/nginx/html/ui/;
+        include /tmp/nginx-conf/waystation-ui-headers.inc;
         add_header Cache-Control "no-cache" always;
         try_files $uri $uri/ /ui/index.html;
     }
@@ -80,6 +84,7 @@ server {
         proxy_buffering off;
         proxy_cache off;
         proxy_read_timeout 1h;
+        include /tmp/nginx-conf/waystation-headers.inc;
         add_header X-Accel-Buffering no always;
     }
 

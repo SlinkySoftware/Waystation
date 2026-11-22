@@ -909,7 +909,7 @@ Spec: Swift Package Registry Service (SE-0292, `swift package-registry`). `Accep
     `gitlab` `<repo>/-/archive/<tag>/<name>-<tag>.tar.gz`, `gitea` `<repo>/archive/<tag>.tar.gz`), cached content
     `_scm/<scope>/<name>/<tag>.tar.gz` (≤ 256 MiB), repackaged in a thread (`archive.build_from_tarball`): single top
     folder replaced by `<name>/`, sorted entries, 1980-01-01 timestamps, `0644`/`0755`/symlink modes, DEFLATE level 6,
-    unsafe entries refused, links leaving the package dropped, ≤ 50,000 entries / 512 MiB unpacked. The first
+    unsafe entries refused, links leaving the package or walking through another link dropped, ≤ 50,000 entries / 512 MiB unpacked. The first
     request for a release's information, manifest or archive builds it (one build per process: a keyed lock; across
     processes the unique release record decides) and records the checksum in `swift_releases`; later requests use the
     record. If the files are gone and the rebuild differs from the pinned checksum: `502`, never other bytes. A tag
@@ -921,7 +921,7 @@ Spec: Swift Package Registry Service (SE-0292, `swift package-registry`). `Accep
     `source-archive` (streamed, ≤ 512 MiB, live upload transfer), `source-archive-signature` / `metadata-signature`
     (≤ 64 KiB), `metadata` (JSON object, ≤ 256 KiB, appendix B types checked: else `422`); the archive is inspected in
     a thread before commit (`archive.inspect_zip`: readable zip, no encryption, one top folder, safe and unique names,
-    symlinks inside, bounds, root `Package.swift` with a `swift-tools-version`); a signature needs
+    symlinks inside and not walking through another symlink, bounds, root `Package.swift` with a `swift-tools-version`); a signature needs
     `X-Swift-Package-Signature-Format: cms-1.0.0` and a parseable CMS structure (the first certificate's subject is
     recorded as the signer; not verified). The version must be new (`409`, re-checked by the unique index).
     `DELETE` unpublishes: record kept as `removed`, files removed, `410` afterwards. Write policy `read_only` → `403`;

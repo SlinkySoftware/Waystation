@@ -26,6 +26,7 @@ from typing import IO, Any
 import yaml
 
 from waystation_common import rubygems
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_common.errors import ValidationFailed
 from waystation_server.formats.rubygems import marshal
 from waystation_server.formats.rubygems.protocol import REQUIREMENT_OPS
@@ -38,6 +39,7 @@ MAX_ALIASES = 1000
 MAX_DEPTH = 32
 MAX_DEPENDENCIES = 500
 MAX_TEXT = 64 * 1024
+MERGE_TAG = 'tag:yaml.org,2002:merge'
 CHUNK = 1024 * 1024
 _MEMBER = re.compile(r'^(metadata\.gz|data\.tar\.gz|checksums\.yaml\.gz|[A-Za-z0-9._-]{1,64}\.sig)$')
 _DATE = re.compile(r'^(\d{4})-(\d{2})-(\d{2})')
@@ -61,6 +63,12 @@ class _Loader(yaml.SafeLoader):
             return super().compose_node(parent, index)
         finally:
             self._depth = depth
+
+    def flatten_mapping(self, node: yaml.MappingNode) -> None:
+        # Explicit ``!!merge`` keys: each one copies the merged mappings, exponential work for nested merges.
+        if any(key.tag == MERGE_TAG for key, _ in node.value):
+            raise yaml.YAMLError('YAML merge keys are not allowed')
+        super().flatten_mapping(node)
 
 
 def _plain(loader: _Loader, suffix: str, node: yaml.Node) -> Any:
@@ -292,7 +300,7 @@ def read_gem(file: IO[bytes]) -> ReadGem:
     digests: dict[str, dict[str, str]] = {}
     seen: set[str] = set()
     try:
-        with tarfile.open(fileobj=file, mode='r:') as tar:
+        with tarfile.open(fileobj=file, mode='r:', tarinfo=BoundedTarInfo) as tar:
             for count, member in enumerate(tar):
                 if count >= MAX_MEMBERS:
                     raise ValidationFailed('the gem has too many files')
@@ -322,7 +330,7 @@ def read_gem(file: IO[bytes]) -> ReadGem:
                     checksums = bytes(kept)
                 elif member.name == 'data.tar.gz' and head != b'\x1f\x8b':
                     raise ValidationFailed('data.tar.gz is not gzip')
-    except tarfile.TarError, EOFError, OSError:
+    except READ_ERRORS:
         raise ValidationFailed('the upload is not a .gem (a tar archive)') from None
     if metadata is None or 'data.tar.gz' not in seen:
         raise ValidationFailed('the gem has no metadata.gz or data.tar.gz')

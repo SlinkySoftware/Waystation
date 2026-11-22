@@ -66,6 +66,24 @@ if [ -n "$cert" ] || [ -n "$key" ]; then
   tls=1
 fi
 
+# ---- response security headers (SPECIFICATION §8.4, Documents/Security/ASVS_L2.md V14.4). nginx inherits add_header
+# only into locations without their own, so every location that adds a header includes one of these files.
+# waystation-headers.inc: everything except the UI. Artifacts are untrusted content served from the UI's origin, so
+# the CSP sandbox keeps any HTML among them from running script or submitting forms there.
+# waystation-ui-headers.inc: the SPA (self-hosted scripts, styles and fonts; Quasar sets inline style attributes).
+hsts=''
+[ "$tls" = 0 ] || hsts='add_header Strict-Transport-Security "max-age=31536000" always;'
+common="add_header X-Content-Type-Options nosniff always;
+add_header X-Frame-Options DENY always;
+add_header Referrer-Policy same-origin always;
+$hsts"
+printf '%s\n%s\n' "$common" \
+  "add_header Content-Security-Policy \"sandbox; frame-ancestors 'none'\" always;" \
+  > "$out/waystation-headers.inc"
+printf '%s\n%s\n' "$common" \
+  "add_header Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'\" always;" \
+  > "$out/waystation-ui-headers.inc"
+
 # One server per connector: only the registry API (and the blobs the server redirects to). nginx sets the header
 # itself, so a client's copy never reaches the server; the main server clears it (nginx.conf.template).
 : > "$out/waystation-connectors.conf"
@@ -82,6 +100,7 @@ server {
     $listen
     server_name _;
     include /tmp/nginx-conf/waystation-proxy.inc;
+    include /tmp/nginx-conf/waystation-headers.inc;
     proxy_set_header X-Waystation-Connector $c;
     location /v2/ {
         proxy_pass http://waystation_server;

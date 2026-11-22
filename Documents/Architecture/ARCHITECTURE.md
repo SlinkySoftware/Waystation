@@ -136,6 +136,8 @@ connects, so the guard resolves and checks every hop's target just before the re
 (a DNS-rebinding window remains between the two lookups; the proxy itself is administrator-configured). Every
 upstream request first passes the repository's auto-block breaker (`proxy.breaker`, state in the Valkey health hash,
 one probe per ended period across replicas) and reports its outcome to it; Valkey down = no auto-block.
+The guard judges an IPv6 address that stands for an IPv4 one (IPv4-mapped, IPv4-compatible, NAT64 well-known prefix)
+by that IPv4 address, and refuses site-local, 6to4 and Teredo addresses (T-R01).
 The guard itself (`SsrfGuard`, `GuardedBackend`) lives in `waystation_common.ssrf` (re-exported by
 `waystation_server.proxy.ssrf`) so the worker's outbound calls (webhook deliveries, T-O05) apply the same rules.
 The breaker's core (Lua scripts, `AutoBlockBreaker`) lives in `waystation_common.breaker` (the server's
@@ -278,7 +280,16 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   on the request path). Operator procedure: `Documents/Operations/SECRET_KEY_ROTATION.md`.
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and
   every parsed metadata document, XML parsing with `defusedxml`, archive extraction with zip/tar-slip checks,
-  no `eval`/`pickle`/YAML unsafe load.
+  no `eval`/`pickle`/YAML unsafe load. Since T-R01: every untrusted tar is opened with
+  `tarinfo=waystation_common.archives.BoundedTarInfo` (extension headers <= 1 MiB, chains <= 16, no sparse files) in a
+  file mode (`r:gz`, `r:*`), never a compressed stream mode (`r|gz`); zip members are read through a bounded
+  `open().read(limit + 1)`, never `ZipFile.read`; the exceptions in `archives.READ_ERRORS` (and `RecursionError` from
+  deeply nested JSON) map to the format's clean refusal, never a 500; duplicate metadata entries in a zip are refused;
+  YAML loaders refuse explicit merge keys (`<<`). The hostile-input corpora in `tests/security/` exercise every
+  reader, `waystation_common.paths` and `waystation_common.ssrf`.
+- Response headers (T-R01): the web tier adds `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, HSTS with TLS,
+  a strict CSP on `/ui/` and `Content-Security-Policy: sandbox` on everything else (artifacts are untrusted content
+  on the UI's origin); the server adds `Cache-Control: no-store` to `/api/` and `/auth/` answers without their own.
 - Audit records written for SPEC §4.11 actions via `audit.record(...)` only (`waystation_server.audit`; one call per
   action, request context bound by the middleware). Records are queued to a bounded in-process `AuditWriter`
   (`waystation_common.audit`) and inserted in batches off the request path: auditing never blocks or fails a

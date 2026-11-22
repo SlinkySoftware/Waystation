@@ -30,6 +30,10 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import BinaryIO
 
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
+
+_TAR_ERRORS: tuple[type[BaseException], ...] = (*READ_ERRORS, RecursionError)
+
 INDEX_NAME = 'APKINDEX.tar.gz'
 INDEX_MAX = 64 * 1024 * 1024  # compressed APKINDEX.tar.gz
 INDEX_TEXT_MAX = 512 * 1024 * 1024  # decompressed
@@ -307,7 +311,7 @@ def _tar_members(data: bytes, what: str) -> list[TarMember]:
     """Regular files of an uncompressed tar stream (no end-of-archive needed); nothing is extracted."""
     members: list[TarMember] = []
     try:
-        with tarfile.open(fileobj=io.BytesIO(data), mode='r:') as tar:
+        with tarfile.open(fileobj=io.BytesIO(data), mode='r:', tarinfo=BoundedTarInfo) as tar:
             for info in tar:
                 if len(members) >= MEMBERS_MAX:
                     raise ApkError(f'the {what} has too many members')
@@ -315,7 +319,9 @@ def _tar_members(data: bytes, what: str) -> list[TarMember]:
                     continue
                 extracted = tar.extractfile(info)
                 members.append(TarMember(info.name, extracted.read() if extracted is not None else b''))
-    except (tarfile.TarError, EOFError) as exc:
+    except ApkError:
+        raise
+    except _TAR_ERRORS as exc:  # chained or oversized extension headers, damaged headers
         if not members:
             raise ApkError(f'the {what} is not a tar archive') from exc
     return members
@@ -504,7 +510,7 @@ def parse_entries(text: str) -> list[IndexEntry]:
                     version,
                     arch if ARCH.match(arch) else '',
                     checksum,
-                    int(size) if size.isdigit() else None,
+                    int(size) if size.isascii() and size.isdigit() and len(size) <= 20 else None,
                     dict(current),
                 )
             )

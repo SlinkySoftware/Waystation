@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
 
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_common.swift import MANIFEST, VERSIONED_MANIFEST
 
 MAX_ENTRIES = 50_000
@@ -106,6 +107,22 @@ def _link_inside(rel: str, target: str) -> bool:
     return not (joined == '..' or joined.startswith(('../', '/')))
 
 
+def _through_link(rel: str, target: str, links: set[str] | dict[str, str]) -> bool:
+    """The target of the symlink at ``rel`` walks through another symlink of the package (``d -> .``,
+    ``l -> d/../x``): the lexical check of ``_link_inside`` no longer holds once a client extracts it."""
+    prefix: list[str] = []
+    for part in posixpath.join(posixpath.dirname(rel), target).split('/')[:-1]:
+        if part in ('', '.'):
+            continue
+        if part == '..':
+            prefix = prefix[:-1]
+            continue
+        prefix.append(part)
+        if '/'.join(prefix) in links:
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------- SCM tarball -> deterministic zip
 @dataclass
 class _Entry:
@@ -130,7 +147,7 @@ def _extract(src: BinaryIO, work: Path) -> dict[str, _Entry]:
     unpacked = 0
     count = 0
     try:
-        with tarfile.open(fileobj=src, mode='r|*') as tar:
+        with tarfile.open(fileobj=src, mode='r:*', tarinfo=BoundedTarInfo) as tar:
             for member in tar:
                 count += 1
                 if count > MAX_ENTRIES:
@@ -166,10 +183,14 @@ def _extract(src: BinaryIO, work: Path) -> dict[str, _Entry]:
                     continue
                 else:
                     entries.pop(rel, None)  # devices, FIFOs...: never part of a package
-    except (tarfile.TarError, EOFError, OSError, ValueError) as exc:
+    except READ_ERRORS as exc:
         raise ArchiveRefused(f'the source tarball is not a readable .tar.gz ({type(exc).__name__})') from None
     if top is None:
         raise ArchiveRefused('the source tarball is empty')
+    links = {rel for rel, entry in entries.items() if entry.kind == 'link'}
+    for rel in sorted(links):
+        if _through_link(rel, entries[rel].target, links):
+            entries.pop(rel)
     return entries
 
 
@@ -232,6 +253,7 @@ def inspect_zip(path: Path) -> ArchiveSummary:
             seen: set[str] = set()
             unpacked = 0
             roots: dict[str, zipfile.ZipInfo] = {}
+            links: dict[str, str] = {}
             for info in infos:
                 if info.flag_bits & 0x1:
                     raise ArchiveRefused('the source archive has encrypted entries')
@@ -255,11 +277,15 @@ def inspect_zip(path: Path) -> ArchiveSummary:
                     target = _read(zf, info, MAX_LINK).decode('utf-8', errors='replace')
                     if not _link_inside(rel, target):
                         raise ArchiveRefused(f'a symlink in the source archive leaves the package: {rel[:200]!r}')
+                    links[rel] = target
                     continue
                 if '/' not in rel and is_manifest_name(rel) and not info.is_dir():
                     roots[rel] = info
             if top is None:
                 raise ArchiveRefused('the source archive is empty')
+            for rel, target in links.items():
+                if _through_link(rel, target, links):
+                    raise ArchiveRefused(f'a symlink in the source archive goes through another: {rel[:200]!r}')
             manifests = []
             for name in sorted(roots):
                 info = roots[name]
@@ -268,7 +294,7 @@ def inspect_zip(path: Path) -> ArchiveSummary:
                 manifests.append(_manifest(name, _read(zf, info, MAX_MANIFEST)))
     except ArchiveRefused:
         raise
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, OSError, ValueError, NotImplementedError) as exc:
+    except READ_ERRORS as exc:
         raise ArchiveRefused(f'the source archive is not a readable zip file ({type(exc).__name__})') from None
     summary = ArchiveSummary(top=top, entries=len(seen), unpacked=unpacked, manifests=manifests)
     main = summary.manifest()

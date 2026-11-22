@@ -33,6 +33,7 @@ HEADER_MAGIC = b'\x8e\xad\xe8\x01'
 HEADER_MAX = 64 * 1024 * 1024
 INDEX_MAX = 200_000
 FILES_MAX = 1_000_000
+PATHS_MAX = HEADER_MAX  # characters of all joined file paths
 CHANGELOG_MAX = 10
 TEXT_MAX = 64 * 1024  # one text value (descriptions, changelog entries)
 
@@ -274,6 +275,10 @@ def read_header(path: Path) -> Header:
         dirs, bases, index = main.strings(DIRNAMES), main.strings(BASENAMES), main.ints(DIRINDEXES)
         if len(bases) != len(index) or any(i >= len(dirs) for i in index):
             raise ValidationFailed('the RPM file list is inconsistent')
+        # Every base name repeats its directory: bound the joined size before building it (a long directory
+        # shared by many base names would otherwise expand a small header into gigabytes).
+        if len(bases) > FILES_MAX or sum(len(dirs[i]) for i in index) + sum(map(len, bases)) > PATHS_MAX:
+            raise ValidationFailed('the RPM file list is too large')
         paths = [dirs[i] + base for i, base in zip(index, bases, strict=True)]
     if len(paths) > FILES_MAX:
         raise ValidationFailed('the RPM lists too many files')

@@ -328,12 +328,13 @@ async def test_upstream_state_event_on_the_stream(
             await client.get('/repository/files/a')
         await services.emitter.flush()
         async with asyncio.timeout(10):
-            while not frames:  # noqa: ASYNC110 - polling the collector
+            # A sample taken between the failures shows 'degraded' first; wait for the block.
+            while not any(d['health']['status'] == 'blocked' for _, d in frames):  # noqa: ASYNC110 - polling
                 await asyncio.sleep(0.05)
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
-    _, data = frames[0]
+    data = next(d for _, d in frames if d['health']['status'] == 'blocked')
     assert data['health']['repository'] == 'files'
     assert data['health']['status'] == 'blocked'
     assert data['health']['blocked_until']

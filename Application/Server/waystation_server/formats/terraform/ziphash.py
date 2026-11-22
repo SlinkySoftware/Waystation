@@ -13,6 +13,8 @@ import hashlib
 import zipfile
 from typing import BinaryIO
 
+from waystation_common.archives import READ_ERRORS
+
 MAX_FILES = 10_000
 MAX_UNCOMPRESSED = 2 * 1024 * 1024 * 1024
 _CHUNK = 1024 * 1024
@@ -32,7 +34,7 @@ def _raw_name(info: zipfile.ZipInfo) -> bytes:
 def zip_h1(file: BinaryIO) -> str:
     try:
         archive = zipfile.ZipFile(file)
-    except zipfile.BadZipFile, OSError, ValueError:
+    except READ_ERRORS:
         raise NotHashable('not a zip archive') from None
     with archive:
         infos = archive.infolist()
@@ -57,7 +59,7 @@ def zip_h1(file: BinaryIO) -> str:
                         digest.update(chunk)
             except NotHashable:
                 raise
-            except zipfile.BadZipFile, OSError, ValueError, NotImplementedError, EOFError:
+            except READ_ERRORS:
                 raise NotHashable('corrupt zip archive') from None
             lines.append((name, digest.hexdigest()))
     summary = hashlib.sha256()

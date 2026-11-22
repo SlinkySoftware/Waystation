@@ -24,13 +24,13 @@ import json
 import re
 import tarfile
 import zipfile
-import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import SplitResult, parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_common.errors import UpstreamError, ValidationFailed
 from waystation_server.formats.terraform.paths import is_version
 from waystation_server.formats.terraform.registry import newest_first
@@ -218,12 +218,12 @@ def archive_top(file: BinaryIO, filename: str) -> str | None:
             with zipfile.ZipFile(file) as archive:
                 names = archive.namelist()[:1]
         else:
-            with tarfile.open(fileobj=file, mode='r|gz') as archive:
+            with tarfile.open(fileobj=file, mode='r:gz', tarinfo=BoundedTarInfo) as archive:
                 names = []
                 for member in archive:
                     names = [member.name]
                     break
-    except (tarfile.TarError, zipfile.BadZipFile, OSError, EOFError, zlib.error) as exc:
+    except READ_ERRORS as exc:
         raise UpstreamError(f'the module archive is not readable ({type(exc).__name__})') from None
     if not names:
         raise UpstreamError('the module archive is empty')
@@ -269,7 +269,7 @@ def check_module_archive(path: Path) -> ModuleArchive:
     files = unpacked = members = 0
     root: list[str] = []
     try:
-        with path.open('rb') as fh, tarfile.open(fileobj=fh, mode='r|gz') as archive:
+        with path.open('rb') as fh, tarfile.open(fileobj=fh, mode='r:gz', tarinfo=BoundedTarInfo) as archive:
             for member in archive:
                 members += 1
                 if members > MAX_MEMBERS:
@@ -289,7 +289,7 @@ def check_module_archive(path: Path) -> ModuleArchive:
                     root.append(name)
     except ValidationFailed:
         raise
-    except (tarfile.TarError, OSError, EOFError, zlib.error) as exc:
+    except READ_ERRORS as exc:
         raise ValidationFailed(f'not a gzip-compressed tar archive ({type(exc).__name__})') from None
     configs = tuple(sorted(n for n in root if n.endswith(MODULE_FILES)))
     if not configs:

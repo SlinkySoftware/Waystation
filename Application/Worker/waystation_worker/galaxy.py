@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from waystation_common import galaxy
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_common.db import galaxy as galaxy_db
 from waystation_common.db.client import Database, Document
 from waystation_common.storage import BlobStore
@@ -112,7 +113,7 @@ def _hash(handle: IO[bytes]) -> str:
 def _json(data: bytes, what: str) -> dict[str, Any]:
     try:
         value = json.loads(data)
-    except ValueError, UnicodeDecodeError:
+    except ValueError, UnicodeDecodeError, RecursionError:
         raise ImportFailed('invalid_manifest', f'{what} is not valid JSON') from None
     if not isinstance(value, dict):
         raise ImportFailed('invalid_manifest', f'{what} is not a JSON object')
@@ -148,8 +149,8 @@ def _metadata(info: dict[str, Any]) -> dict[str, Any]:
 def read_collection(path: Path, expected: galaxy.Artifact) -> Collection:
     """Validate a collection artifact (blocking: run in a thread). Raises ``ImportFailed``."""
     try:
-        tar = tarfile.open(path, mode='r:gz')  # noqa: SIM115 - closed below
-    except tarfile.TarError, OSError, EOFError:
+        tar = tarfile.open(path, mode='r:gz', tarinfo=BoundedTarInfo)  # noqa: SIM115 - closed below
+    except READ_ERRORS:
         raise ImportFailed('invalid_archive', 'the artifact is not a gzip-compressed tar archive') from None
     regular: dict[str, str] = {}  # name -> sha256
     links: dict[str, str] = {}  # name -> resolved target
@@ -195,7 +196,7 @@ def read_collection(path: Path, expected: galaxy.Artifact) -> Collection:
                         regular[entry] = hashlib.sha256(runtime_raw).hexdigest()
                     else:
                         regular[entry] = _hash(handle)
-    except (tarfile.TarError, OSError, EOFError, ValueError) as exc:
+    except READ_ERRORS as exc:
         raise ImportFailed('invalid_archive', f'the archive is damaged ({type(exc).__name__})') from None
     if manifest_raw is None:
         raise ImportFailed('invalid_manifest', 'the archive has no MANIFEST.json at its root')
