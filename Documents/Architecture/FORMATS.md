@@ -18,7 +18,7 @@ cited specs while implementing; when this file is wrong, fix it in the same chan
 Common rules: all format routes live under `/repository/<repo>/` (Nexus-compatible). Paths are normalised by
 `waystation_common.paths.normalise` before any lookup. Group repos merge metadata only where noted.
 
-## Prefetch (T-O12, adr/0012 proposed; SPEC §4.1 "Prefetch")
+## Prefetch (T-O12, adr/0012 accepted; SPEC §4.1 "Prefetch")
 Proxy repositories only. A format opts in on its descriptor and plugin; the worker never learns a format (it calls
 the server's internal prefetch route, `waystation_server.prefetch`):
 - `FormatDescriptor.warm_item(item) -> str | None`: checks a warm item of the format's syntax (the message is the

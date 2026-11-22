@@ -1,6 +1,6 @@
 # ADR 0012: Worker prefetch through the server, authorised by a signed system grant
 
-Status: **Proposed** (2026-11-22, T-O12). Needs the owner's approval before merging.
+Status: accepted (2026-11-22, owner). Proposed 2026-11-22 with T-O12.
 
 ## Context
 T-O12 adds prefetch jobs (SPECIFICATION §4.1 "Prefetch"): keep the popular metadata of proxy repositories fresh, and

@@ -30,7 +30,7 @@
 - **server**: stateless. Speaks every format protocol, the REST API, SSE, the Docker token service. Makes every
   authorization decision. Reads/writes MongoDB and Valkey; writes blobs. Never runs long batch work: it enqueues jobs.
 - **worker**: stateless job runner. Owns all batch and scheduled work. No HTTP listener except health.
-  As implemented (T-O12, adr/0012 proposed): prefetch jobs are the one place a worker calls a server, over HTTP
+  As implemented (T-O12, adr/0012 accepted): prefetch jobs are the one place a worker calls a server, over HTTP
   (`WAYSTATION_INTERNAL_URL`, the internal route `POST /_internal/prefetch/<repo id>` with a signed system grant), so
   that format plugins and the proxy engine do the fetching; the worker decides what and when (§7, §10).
 - **MongoDB**: system of record for configuration, metadata, users, stats (time-series), audit, job history.
@@ -245,7 +245,7 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   `?ws_grant=<expiry>.<HMAC>` (`security.download_urls`: repository id, exact path, 5 minutes; key derived from
   `SECRET_KEYS`). `access.download_grant` accepts a valid grant as a `GET`/`HEAD` of that one file and nothing else;
   formats obtain grants only through `FormatRequest.download_query`.
-- System grants (adr/0012 proposed, T-O12): the worker's prefetch jobs call the server's internal route
+- System grants (adr/0012 accepted, T-O12): the worker's prefetch jobs call the server's internal route
   `POST /_internal/prefetch/<repo id>` with `X-Ws-System-Grant: <expiry>.<HMAC>` (`waystation_common.system_grants`:
   purpose `prefetch`, repository id, 5 minutes; key derived from `SECRET_KEYS`). `access.system_grant` accepts a valid
   grant for an online proxy repository as the principal `system`/`prefetch` holding `browse` + `read` on that
@@ -350,7 +350,7 @@ repository change an enabled webhook wants (taken from `audit.record`), and the 
 the deliveries; retries are scheduled on the delivery documents (`next_attempt_at`) and picked up by the scheduled
 `webhook.sweep`, not by job retries, so a receiver that is down never fills the dead-letter stream.
 
-As implemented (T-O12, adr/0012 proposed): queue `prefetch` runs `prefetch.refresh` (built-in, every 15 minutes:
+As implemented (T-O12, adr/0012 accepted): queue `prefetch` runs `prefetch.refresh` (built-in, every 15 minutes:
 each proxy repository with `proxy.prefetch.refresh_popular` that is online, not offline and not auto-blocked; its
 most downloaded metadata of the last 7 days, at most 200, that is stale or goes stale before the next run, selected
 with the `prefetch_popular` index) and `prefetch.warm` (per repository: the warm list; scheduled by the

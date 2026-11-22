@@ -34,7 +34,7 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   guard, workers and queues, upstream health and auto-block), recent failed/dead/interrupted job runs and dead
   letters, and recent errors. Every server and worker now keeps its WARNING/ERROR log records in the Valkey stream
   `errors:recent` (bounded, non-blocking, floods summarised, 7 days). Contract, MSW mock and tests.
-- T-O12: prefetch jobs (adr/0012 proposed, awaiting the owner's approval). Proxy repositories (docker, npm, raw,
+- T-O12: prefetch jobs (adr/0012, accepted by the owner). Proxy repositories (docker, npm, raw,
   Maven, Go) get `proxy.prefetch`: *keep popular metadata fresh* (the built-in task `prefetch.refresh`, every 15
   minutes, revalidates the most downloaded metadata of the last 7 days before it goes stale) and a *warm list*
   (`nginx:1.27 linux/amd64,linux/arm64`, `lodash@4.17.21`, `org.example:lib:1.0`, `golang.org/x/text@v0.21.0`, a raw
