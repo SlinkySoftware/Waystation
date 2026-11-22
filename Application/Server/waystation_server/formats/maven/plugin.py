@@ -10,9 +10,9 @@ from __future__ import annotations
 from starlette.responses import Response
 
 from waystation_server.db import maven as maven_db
-from waystation_server.formats.base import FormatDescriptor, FormatRequest
+from waystation_server.formats.base import FormatDescriptor, FormatRequest, WarmContext
 from waystation_server.formats.common.background import Background
-from waystation_server.formats.maven import coords
+from waystation_server.formats.maven import coords, prefetch
 from waystation_server.formats.maven.browse import MavenBrowse
 from waystation_server.formats.maven.common import Digests
 from waystation_server.formats.maven.descriptor import DESCRIPTOR
@@ -37,6 +37,10 @@ class MavenPlugin:
     async def drain(self) -> None:
         """Wait for background indexing (tests, shutdown)."""
         await self._indexing.drain()
+
+    async def warm(self, ctx: WarmContext, item: str) -> None:
+        """Prefetch (T-O12): ``formats.maven.prefetch``."""
+        await prefetch.warm(ctx, item)
 
     async def handle(self, req: FormatRequest) -> Response:
         if req.repo.type is RepoType.GROUP:

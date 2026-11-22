@@ -237,7 +237,7 @@ class HostedStore:
         )
         response = serve_blob(req.request, blob, cache=CacheState.HIT.value)
         sent = asset.size if response.status_code == 200 and req.method == 'GET' else 0
-        if sent:
+        if sent and req.prefetch is None:  # prefetch requests are not downloads (T-O12)
             self.emitter.asset_downloaded(asset.id)
         self.account(req, CacheState.HIT, response.status_code, sent, started)
         return response
@@ -256,6 +256,8 @@ class HostedStore:
 
     def account(self, req: FormatRequest, cache: CacheState, status: int, sent: int, started: float) -> None:
         """Count a hosted request that is not an upload transfer (served files, metadata, errors)."""
+        if req.prefetch is not None:  # the worker's prefetch (T-O12): not client traffic
+            return
         duration_ms = (time.perf_counter() - started) * 1000
         self.emitter.request(
             repo_id=req.repo.id,

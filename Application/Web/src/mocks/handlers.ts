@@ -29,6 +29,7 @@ import { genericListing, rawListing } from './fixtures/raw'
 import { BASE_URL, quotaView, REGISTRY_HOST } from './fixtures/repositories'
 import { cleanupHandlers } from './cleanup'
 import { nexusImportHandlers } from './nexusImport'
+import { normalisePrefetch, prefetchHandlers, validatePrefetch } from './prefetch'
 import { provisioningHandlers } from './provisioning'
 import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
@@ -202,6 +203,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
   if (httpProxy && !/^https?:\/\/[^/@?#\s]+\/?$/.test(httpProxy)) errors.push({ field: 'proxy.http_proxy', message: 'must be an http:// or https:// URL with a host and no credentials, e.g. http://proxy.example.com:3128', code: 'format' })
   const caPem = body.proxy?.ca_pem?.trim()
   if (caPem && !caPem.includes('-----BEGIN CERTIFICATE-----')) errors.push({ field: 'proxy.ca_pem', message: 'must contain at least one PEM certificate (-----BEGIN CERTIFICATE-----)', code: 'format' })
+  errors.push(...validatePrefetch(body, existing?.format ?? body.format))
   const block = body.proxy?.auto_block
   if (block && block.max_s < block.initial_s) errors.push({ field: 'proxy.auto_block.max_s', message: 'must not be shorter than initial_s', code: 'range' })
   if (body.format === 'apt') {
@@ -223,7 +225,7 @@ function toRepository(body: RepositoryWrite, existing?: Repository): Repository 
   const now = new Date().toISOString()
   const secretSet = Boolean(body.proxy?.auth?.secret) || Boolean(existing?.proxy?.auth?.secret_set && body.proxy?.auth?.kind !== 'none')
   const proxy = body.proxy
-    ? { ...body.proxy, auth: { kind: body.proxy.auth?.kind ?? 'none', username: body.proxy.auth?.username ?? null, secret_set: secretSet } }
+    ? { ...body.proxy, auth: { kind: body.proxy.auth?.kind ?? 'none', username: body.proxy.auth?.username ?? null, secret_set: secretSet }, prefetch: normalisePrefetch(body.proxy.prefetch) }
     : undefined
   return {
     name: existing?.name ?? body.name,
@@ -402,6 +404,9 @@ export const handlers = [
 
   // ---------------------------------------------------------------- audit log (T-S10)
   ...auditHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
+
+  // ---------------------------------------------------------------- prefetch (T-O12)
+  ...prefetchHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
   // ---------------------------------------------------------------- repositories
   http.get(`${API}/repositories`, async ({ request }) => {

@@ -78,6 +78,10 @@ repositories:
     proxy:
       upstream_url: https://registry.npmjs.org
       metadata_max_age_s: 600
+      prefetch:                       # SPECIFICATION §4.1 "Prefetch"
+        refresh_popular: true         # revalidate the most downloaded packuments before they go stale
+        warm: [typescript@latest, '@types/node@22.10.1']
+        schedule: '0 4 * * *'         # warm daily at 04:00 UTC (null: only "Warm now")
   - name: releases-raw
     format: raw
     type: hosted

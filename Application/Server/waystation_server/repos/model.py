@@ -65,6 +65,14 @@ class StoredAutoBlock(_Stored):
     max_s: int = DEFAULT_AUTO_BLOCK_MAX_S
 
 
+class StoredPrefetch(_Stored):
+    """Prefetch (SPECIFICATION §4.1, T-O12): keep popular metadata fresh and warm a configured list."""
+
+    refresh_popular: bool = False  # the ``prefetch.refresh`` job revalidates this repository's popular metadata
+    warm: tuple[str, ...] = ()  # format-specific items (``nginx:1.27``, ``lodash@4.17.21``, a raw path...)
+    schedule: str | None = None  # when the warm list runs (cron, macro, ``@every``); None = only "run now"
+
+
 class StoredProxy(_Stored):
     upstream_url: str
     auth: StoredUpstreamAuth = Field(default_factory=StoredUpstreamAuth)
@@ -77,6 +85,7 @@ class StoredProxy(_Stored):
     ca_pem: str | None = None  # extra trusted CA certificates (PEM) for this repository's upstream TLS
     http_proxy: str | None = None  # outbound proxy for this repository (null: WAYSTATION_HTTP_PROXY / NO_PROXY)
     auto_block: StoredAutoBlock = Field(default_factory=StoredAutoBlock)
+    prefetch: StoredPrefetch = Field(default_factory=StoredPrefetch)
 
 
 class StoredHosted(_Stored):

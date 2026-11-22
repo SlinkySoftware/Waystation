@@ -191,6 +191,19 @@ async def test_request_counting(cache: CacheState, expected: dict[str, int]) -> 
     assert {c[2]: c[3] for c in by_name(redis.cmds, 'hincrby') if c[1].startswith('cnt:')} == expected
 
 
+async def test_prefetch_transfers_count_only_upstream_bytes() -> None:
+    """The worker's prefetch (T-O12) is not client traffic: a prefetch fill adds only ``bytes_in_upstream``."""
+    redis, clock = FakeRedis(), Clock()
+    em = EventEmitter(redis, clock=clock)  # type: ignore[arg-type]
+    em.transfer_started(make_transfer(clock, 'pf', prefetch=True))
+    em.transfer_finished('pf', status=200, bytes_done=70)
+    em.request(repo_id='r', format='raw', cache=CacheState.HIT, duration_ms=1, client=False)  # nothing at all
+    await em.flush()
+    cnt = [c for c in by_name(redis.cmds, 'hincrby') if c[1].startswith('cnt:')]
+    assert [(c[2], c[3]) for c in cnt] == [('bytes_in_upstream', 70)]
+    assert not [c for c in by_name(redis.cmds, 'hincrby') if c[1].startswith('lat:')]
+
+
 async def test_upload_and_failed_transfer() -> None:
     redis, clock = FakeRedis(), Clock()
     em = EventEmitter(redis, clock=clock)  # type: ignore[arg-type]

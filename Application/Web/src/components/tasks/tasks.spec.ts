@@ -35,6 +35,8 @@ describe('task labels', () => {
     expect(kindLabel('blob.verify')).toBe('Blob verify')
     expect(kindLabel('apt.refresh')).toBe('apt refresh')
     expect(taskLabel({ kind: 'cleanup.run', owner: { kind: 'cleanup_policy', id: 'p1', name: 'npm-unused-90d' } })).toBe('Policy npm-unused-90d')
+    expect(taskLabel({ kind: 'prefetch.warm', owner: { kind: 'repository', id: '01JCREPO0000ABCD', name: 'dockerhub-proxy' } })).toBe('Warm dockerhub-proxy')
+    expect(kindLabel('prefetch.warm')).toBe('Warm list')
     expect(queueLabel('maintenance')).toBe('Maintenance')
     expect(queueLabel('custom')).toBe('custom')
   })
@@ -51,6 +53,11 @@ describe('run summaries', () => {
     expect(runSummary({ kind: 'blob.verify', result: { assets: 1200, proxy_marked: 3, hosted_lost: 0 } })).toBe('1,200 assets checked · 3 to re-fetch')
     expect(runSummary({ kind: 'blob.verify', result: { assets: 1200, proxy_marked: 3, hosted_lost: 2 } })).toBe('2 hosted assets lost')
     expect(runSummary({ kind: 'blob.verify', result: { hosted_lost: 1 } })).toBe('1 hosted asset lost')
+  })
+
+  it('summarises a warm run', () => {
+    expect(runSummary({ kind: 'prefetch.warm', result: { items: 4, failed: 0, files: 38, fetched: 7 } })).toBe('Warmed 4 items · 7 files fetched')
+    expect(runSummary({ kind: 'prefetch.warm', result: { items: 1, fetched: 0 } })).toBe('Warmed 1 item · 0 files fetched')
   })
 })
 

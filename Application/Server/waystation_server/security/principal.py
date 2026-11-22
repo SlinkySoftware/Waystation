@@ -12,6 +12,7 @@ class PrincipalKind(StrEnum):
     USER = 'user'
     ANONYMOUS = 'anonymous'
     SERVICE_ACCOUNT = 'service_account'
+    SYSTEM = 'system'  # a Waystation process (the worker's prefetch, adr/0012): never a person, never signs in
 
 
 class AuthMethod(StrEnum):
@@ -21,6 +22,7 @@ class AuthMethod(StrEnum):
     BASIC = 'basic'
     API_TOKEN = 'api_token'  # noqa: S105 - an enum label, not a secret
     SIGNED_URL = 'signed_url'  # a download grant in the URL (``security.download_urls``): one file, nothing else
+    SYSTEM_GRANT = 'system_grant'  # the worker's signed system grant (``waystation_common.system_grants``, adr/0012)
 
 
 @dataclass(frozen=True)
@@ -69,7 +71,7 @@ class Principal:
 
     @property
     def display(self) -> str:
-        if self.method is AuthMethod.SIGNED_URL:
+        if self.method in (AuthMethod.SIGNED_URL, AuthMethod.SYSTEM_GRANT):
             return self.name
         return 'anonymous' if self.is_anonymous else self.name
 

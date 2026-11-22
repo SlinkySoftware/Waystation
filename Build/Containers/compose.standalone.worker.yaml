@@ -4,6 +4,8 @@
 # (WAYSTATION_WORKER_QUEUES picks the job classes per host). Needs the same env file as the server hosts:
 #   WAYSTATION_MONGO_URI, WAYSTATION_VALKEY_URL  the external MongoDB and Valkey the servers use
 #   WAYSTATION_DATA_SOURCE  the shared blob store (e.g. NFSv4) as a host path (WAYSTATION_DATA_MOUNT_TYPE=bind)
+#   WAYSTATION_INTERNAL_URL a server host's published server port (http://<server host>:8000), for prefetch jobs
+#                           (the worker asks a server to fetch through its format plugins; not the web tier)
 # The x-app-env list is the same in compose.yaml and the standalone files (test_compose_files.py checks it).
 name: waystation
 
@@ -56,6 +58,7 @@ x-app-env: &app-env
   WAYSTATION_SERVER_WORKERS:
   WAYSTATION_WORKER_QUEUES:
   WAYSTATION_WORKER_CONCURRENCY:
+  WAYSTATION_INTERNAL_URL:
 
 x-data-rw: &data-rw
   type: ${WAYSTATION_DATA_MOUNT_TYPE:-bind}

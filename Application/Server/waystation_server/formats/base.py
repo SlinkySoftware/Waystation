@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 from starlette.requests import Request
@@ -105,6 +105,60 @@ def _by_method(method: str, path: str) -> Action | None:
     return None
 
 
+# ---------------------------------------------------------------------------- prefetch (T-O12, adr/0012)
+PrefetchMode = Literal['warm', 'refresh']
+
+
+@dataclass(frozen=True)
+class RefreshRequest:
+    """How to ask the format for a cached metadata asset again: the repository path (and request headers) a client
+    would use. ``RefreshMap`` maps an asset key to one (None: the asset cannot be refreshed that way)."""
+
+    path: str
+    headers: Mapping[str, str] = field(default_factory=dict)
+
+
+RefreshMap = Callable[[str], RefreshRequest | None]
+# A warm item in the format's syntax -> None when valid, else what is wrong with it (shown on the repository form).
+WarmCheck = Callable[[str], str | None]
+
+
+@dataclass(frozen=True)
+class Fetched:
+    """What a prefetch request got from the format: status, cache state, headers, and where the body is (the blob of
+    an X-Accel answer, or a body generated in memory). Bodies of streamed fills are consumed and not kept."""
+
+    path: str
+    status: int
+    cache: str | None
+    headers: Mapping[str, str]
+    sha256: str | None = None
+    body: bytes | None = None
+
+
+class WarmContext(Protocol):
+    """What a format's ``warm`` gets (``waystation_server.prefetch``): ``GET`` requests to its own repository paths,
+    answered by the format exactly as for a client (proxy engine, validation, coalescing, indexing), by the prefetch
+    system principal; nothing is counted as a download."""
+
+    repo: RepoConfig
+
+    async def get(self, path: str, headers: Mapping[str, str] | None = None) -> Fetched:
+        """``GET /repository/<repo>/<path>``; raises ``WaystationError`` for an answer of 400 or more."""
+        ...
+
+    async def read(self, fetched: Fetched, *, max_bytes: int) -> bytes:
+        """The body of a (metadata) answer, bounded."""
+        ...
+
+
+@runtime_checkable
+class WarmingPlugin(Protocol):
+    """A plugin that can warm items of its descriptor's ``warm_item`` syntax (proxy repositories)."""
+
+    async def warm(self, ctx: WarmContext, item: str) -> None: ...
+
+
 @dataclass(frozen=True)
 class FormatDescriptor:
     name: str
@@ -129,6 +183,10 @@ class FormatDescriptor:
     # ``(method, path)`` -> the repository action the router authorises when it is not the method's (npm
     # ``dist-tag rm`` is a DELETE that changes a tag: ``write``); None = by method.
     request_action: Callable[[str, str], Action | None] = _by_method
+    # Prefetch (T-O12): the warm item syntax checker (None: the format cannot warm items) and the map from cached
+    # metadata asset keys to client requests (None: popular metadata is not refreshed for this format).
+    warm_item: WarmCheck | None = None
+    refresh_request: RefreshMap | None = None
 
     def parse_options(self, raw: Mapping[str, Any] | None) -> BaseModel:
         """Validate format options (raises pydantic ``ValidationError``)."""
@@ -187,6 +245,9 @@ class FormatRequest:
     # A signed download grant for a path of this repository ('' when the principal is anonymous: anonymous URLs work
     # without one). adr/0010, ``waystation_server.security.download_urls``.
     _download_grant: Callable[[str], str] = field(repr=False, default=_no_grant)
+    # Set only by the server's internal prefetch route (T-O12, adr/0012): the request is the worker's prefetch, not a
+    # client's (no download counted; ``refresh`` revalidates the metadata it asks for even before it is stale).
+    prefetch: PrefetchMode | None = None
 
     @property
     def method(self) -> str:

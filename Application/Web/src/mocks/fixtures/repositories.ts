@@ -2,7 +2,7 @@
 // Seeded repositories: a home lab's proxies (two docker registries, Debian / Ubuntu / Raspberry Pi apt archives and
 // their security pockets, the RHEL family via yum, npm, one raw example). Upstreams are the public canonical hosts;
 // the instance itself is registry.example.com (no environment details, CLAUDE.md).
-import type { QuotaMode, Repository, RepositoryQuota, StorageConfig } from '@/api/types'
+import type { PrefetchConfig, QuotaMode, Repository, RepositoryQuota, StorageConfig } from '@/api/types'
 
 import { GiB, hash, rng } from '../rng'
 
@@ -33,7 +33,12 @@ interface Seed {
   idleHours?: number
   /** Stored-bytes quota (GiB) and its mode; absent = no quota. */
   quota?: { gib: number; mode: QuotaMode }
+  /** Prefetch settings (T-O12); absent = the defaults (off, no warm list, run by hand). */
+  prefetch?: PrefetchConfig
 }
+
+/** What the server reports for a proxy without prefetch settings. */
+export const DEFAULT_PREFETCH: PrefetchConfig = { refresh_popular: false, warm: [], schedule: null }
 
 /** Usage against a quota, as the server reports it (`warning` from 80 %, `exceeded` at the quota). */
 export function quotaView(storage: StorageConfig | undefined, usedBytes: number): RepositoryQuota | null {
@@ -66,6 +71,7 @@ const SEEDS: Seed[] = [
     requests24h: 48_210,
     createdDaysAgo: 41,
     options: { aliases: ['docker.io'], docker_hub: true, default_repo: true },
+    prefetch: { refresh_popular: true, warm: ['library/nginx:1.27', 'library/alpine:3.20', 'library/postgres:17 linux/amd64,linux/arm64', 'library/redis:7.4'], schedule: '0 3 * * *' },
     ...DOCKER,
   },
   {
@@ -209,6 +215,7 @@ const SEEDS: Seed[] = [
     createdDaysAgo: 41,
     options: { audit_passthrough: true },
     quota: { gib: 50, mode: 'soft' },
+    prefetch: { refresh_popular: true, warm: ['lodash@4.17.21', 'react@18.3.1', 'typescript@latest', '@types/node@latest'], schedule: null },
     ...OTHER,
   },
   {
@@ -272,6 +279,7 @@ export function seedRepositories(): Repository[] {
         ca_pem: null,
         http_proxy: null,
         auto_block: { enabled: true, failures: 5, initial_s: 30, max_s: 1800 },
+        prefetch: structuredClone(s.prefetch ?? DEFAULT_PREFETCH),
       },
       ...(s.options ? { format_options: s.options } : {}),
       managed_by: PROVISIONED.has(s.name) ? 'provisioning' : null,

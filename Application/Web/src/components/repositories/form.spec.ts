@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Repository } from '@/api/types'
 
-import { emptyModel, GROUP_FORMATS, HOSTED_FORMATS, modelFromRepository, NAME_PATTERN, PRESETS, toWrite, WRITABLE_GROUP_FORMATS } from './form'
+import { emptyModel, GROUP_FORMATS, HOSTED_FORMATS, modelFromRepository, NAME_PATTERN, parseWarm, PREFETCH_FORMATS, prefetchErrors, PRESETS, toWrite, WARM_MAX_ITEMS, WRITABLE_GROUP_FORMATS } from './form'
 
 describe('repository form model', () => {
   it('builds a docker proxy from a preset', () => {
@@ -256,5 +256,49 @@ describe('repository form model', () => {
     // the hosted repository (one per instance): a private module and provider registry, default options
     expect(HOSTED_FORMATS).toContain('terraform')
     expect(toWrite({ ...emptyModel('terraform', 'hosted'), name: 'terraform' })).toMatchObject({ type: 'hosted', format_options: {} })
+  })
+
+  it('parses the warm list: one item per line, trimmed, blank lines and repeats dropped', () => {
+    expect(parseWarm('  library/nginx:1.27 \n\n\nlibrary/alpine:3.20\nlibrary/nginx:1.27\nnginx:1.27 linux/amd64,linux/arm64\n')).toEqual([
+      'library/nginx:1.27',
+      'library/alpine:3.20',
+      'nginx:1.27 linux/amd64,linux/arm64',
+    ])
+    expect(parseWarm('')).toEqual([])
+    expect(parseWarm(' \n \n')).toEqual([])
+  })
+
+  it('writes prefetch for the formats that support it and reads it back', () => {
+    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go'])
+    const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', refreshPopular: true, warmText: 'lodash@4.17.21\n\n @types/node@latest ', prefetchSchedule: '  0  3 * * * ' }
+    const w = toWrite(m)
+    expect(w.proxy?.prefetch).toEqual({ refresh_popular: true, warm: ['lodash@4.17.21', '@types/node@latest'], schedule: '0 3 * * *' })
+    // Empty schedule: only by hand (null).
+    expect(toWrite({ ...m, prefetchSchedule: ' ' }).proxy?.prefetch?.schedule).toBeNull()
+    // Formats without prefetch never send it; hosted and group repositories have no proxy block at all.
+    expect(toWrite({ ...emptyModel('apt'), refreshPopular: true }).proxy).not.toHaveProperty('prefetch')
+    expect(toWrite({ ...emptyModel('npm', 'hosted'), name: 'npm-hosted' }).proxy).toBeUndefined()
+    const back = modelFromRepository({
+      name: 'hub', format: 'docker', type: 'proxy', online: true,
+      proxy: { upstream_url: 'https://registry-1.docker.io', prefetch: { refresh_popular: true, warm: ['library/nginx:1.27', 'library/alpine:3.20'], schedule: '@daily' } },
+    } as unknown as Repository)
+    expect([back.refreshPopular, back.warmText, back.prefetchSchedule]).toEqual([true, 'library/nginx:1.27\nlibrary/alpine:3.20', '@daily'])
+    const none = modelFromRepository({ name: 'hub', format: 'docker', type: 'proxy', online: true, proxy: { upstream_url: 'https://registry-1.docker.io' } } as unknown as Repository)
+    expect([none.refreshPopular, none.warmText, none.prefetchSchedule]).toEqual([false, '', ''])
+  })
+
+  it('checks the warm list and its schedule on the client (keys like the server field errors)', () => {
+    const m = emptyModel('docker')
+    expect(prefetchErrors(m)).toEqual({})
+    expect(prefetchErrors({ ...m, prefetchSchedule: '@daily' })).toEqual({})
+    expect(prefetchErrors({ ...m, prefetchSchedule: '@every 15m' })).toEqual({})
+    expect(prefetchErrors({ ...m, prefetchSchedule: '30 2 * * MON-FRI' })).toEqual({})
+    expect(prefetchErrors({ ...m, prefetchSchedule: '@every 10m' })['proxy.prefetch.schedule']).toBe('Use at least @every 15m')
+    expect(prefetchErrors({ ...m, prefetchSchedule: '@every 30s' })['proxy.prefetch.schedule']).toBe('Use at least @every 15m')
+    expect(prefetchErrors({ ...m, prefetchSchedule: '@sometimes' })['proxy.prefetch.schedule']).toContain('@hourly')
+    expect(prefetchErrors({ ...m, prefetchSchedule: '0 3 * *' })['proxy.prefetch.schedule']).toContain('5 fields')
+    const many = Array.from({ length: WARM_MAX_ITEMS + 1 }, (_, i) => `library/image-${i}:1.0`).join('\n')
+    expect(prefetchErrors({ ...m, warmText: many })['proxy.prefetch.warm']).toBe('At most 200 items (201 entered)')
+    expect(prefetchErrors({ ...m, warmText: `library/nginx:1.27\n${'a'.repeat(513)}` })).toEqual({ 'proxy.prefetch.warm.1': 'An item is at most 512 characters' })
   })
 })

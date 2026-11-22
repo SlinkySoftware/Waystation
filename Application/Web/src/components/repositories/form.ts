@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
 import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, SwiftOptions, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
+import { t } from '@/i18n'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
 /** Formats the form can hold: the creatable formats. */
@@ -97,6 +98,11 @@ export interface RepoFormModel {
   gpgKey: string | null
   /** Armored public keys repomd.xml must be signed with; empty = not verified. */
   repomdKeys: string
+  // prefetch (proxy, PREFETCH_FORMATS): popular-metadata refresh, the warm list (one item per line), its schedule
+  refreshPopular: boolean
+  warmText: string
+  /** Empty = the warm list runs only by hand. */
+  prefetchSchedule: string
 }
 
 /** Hosted apt defaults (the server's defaults too). */
@@ -221,6 +227,9 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     repoPath: '',
     gpgKey: null,
     repomdKeys: '',
+    refreshPopular: false,
+    warmText: '',
+    prefetchSchedule: '',
   }
 }
 
@@ -289,6 +298,9 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     repoPath: o.repo_path ?? '',
     gpgKey: o.gpg_key ?? null,
     repomdKeys: o.repomd_keys ?? '',
+    refreshPopular: p?.prefetch?.refresh_popular ?? false,
+    warmText: (p?.prefetch?.warm ?? []).join('\n'),
+    prefetchSchedule: p?.prefetch?.schedule ?? '',
   }
 }
 
@@ -403,8 +415,60 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
         initial_s: Math.max(1, Math.round(m.autoBlockInitialS)),
         max_s: Math.max(1, Math.round(m.autoBlockMaxMin * 60)),
       },
+      // Prefetch is only sent for the formats that support it (the server refuses it elsewhere).
+      ...(PREFETCH_FORMATS.includes(m.format) ? { prefetch: prefetchOf(m) } : {}),
     },
   }
+}
+
+// ---------------------------------------------------------------- prefetch (T-O12)
+
+/** Formats whose proxies can warm a list of items and keep popular metadata fresh. */
+export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go']
+/** Server limits of the warm list (PrefetchConfig). */
+export const WARM_MAX_ITEMS = 200
+export const WARM_MAX_LENGTH = 512
+/** The shortest schedule the server accepts for a warm list. */
+export const PREFETCH_MIN_INTERVAL_MIN = 15
+
+/** Textarea → warm items: one per line, trimmed; blank lines dropped, repeats kept once (first wins). */
+export function parseWarm(text: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const line of text.split('\n')) {
+    const item = line.trim()
+    if (item && !seen.has(item)) {
+      seen.add(item)
+      out.push(item)
+    }
+  }
+  return out
+}
+
+export function prefetchOf(m: RepoFormModel): NonNullable<NonNullable<RepositoryWrite['proxy']>['prefetch']> {
+  return { refresh_popular: m.refreshPopular, warm: parseWarm(m.warmText), schedule: m.prefetchSchedule.trim().replace(/\s+/g, ' ') || null }
+}
+
+const EVERY = /^@every\s+(\d+)\s*([smh])$/i
+
+/** Quick client-side check of the warm list and its schedule (the server validates for real), keyed like the server's field errors. */
+export function prefetchErrors(m: RepoFormModel): Record<string, string> {
+  const errors: Record<string, string> = {}
+  const items = parseWarm(m.warmText)
+  if (items.length > WARM_MAX_ITEMS) errors['proxy.prefetch.warm'] = t('prefetch.error.tooMany', { max: WARM_MAX_ITEMS, n: items.length })
+  const long = items.findIndex((item) => item.length > WARM_MAX_LENGTH)
+  if (long >= 0) errors[`proxy.prefetch.warm.${long}`] = t('prefetch.error.tooLong', { max: WARM_MAX_LENGTH })
+  const schedule = m.prefetchSchedule.trim().replace(/\s+/g, ' ')
+  if (schedule) {
+    const every = EVERY.exec(schedule)
+    if (every) {
+      const minutes = (Number(every[1]) * { s: 1, m: 60, h: 3600 }[every[2]!.toLowerCase() as 's' | 'm' | 'h']) / 60
+      if (minutes < PREFETCH_MIN_INTERVAL_MIN) errors['proxy.prefetch.schedule'] = t('prefetch.error.tooOften', { n: PREFETCH_MIN_INTERVAL_MIN })
+    } else if (schedule.startsWith('@')) {
+      if (!['@hourly', '@daily', '@midnight', '@weekly', '@monthly', '@yearly', '@annually'].includes(schedule.toLowerCase())) errors['proxy.prefetch.schedule'] = t('prefetch.error.badMacro')
+    } else if (schedule.split(' ').length !== 5) errors['proxy.prefetch.schedule'] = t('prefetch.error.fiveFields')
+  }
+  return errors
 }
 
 /** Client-side checks mirroring the server's (the server stays authoritative). */

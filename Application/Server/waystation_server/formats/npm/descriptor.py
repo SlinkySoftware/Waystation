@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, SetupSnippet, UiHints
+from waystation_server.formats.base import (
+    FormatDescriptor,
+    RefreshRequest,
+    SetupClient,
+    SetupContext,
+    SetupSnippet,
+    UiHints,
+)
 from waystation_server.formats.common.setup import TOKEN, path_of, snippet
 from waystation_server.repos.model import RepoType
 from waystation_server.security.actions import Action
@@ -132,6 +139,18 @@ def _snippets(ctx: SetupContext) -> list[SetupClient]:
     return clients + _publish(ctx) if writable else clients
 
 
+def _warm_item(item: str) -> str | None:
+    from waystation_server.formats.npm import prefetch  # imports metadata, which imports this module
+
+    return prefetch.check_item(item)
+
+
+def _refresh_request(key: str) -> RefreshRequest | None:
+    from waystation_server.formats.npm import prefetch
+
+    return prefetch.refresh_request(key)
+
+
 DESCRIPTOR = FormatDescriptor(
     name='npm',
     label='npm',
@@ -144,4 +163,6 @@ DESCRIPTOR = FormatDescriptor(
     writable_group_member=True,
     client_login=client_login,
     request_action=request_action,
+    warm_item=_warm_item,
+    refresh_request=_refresh_request,
 )

@@ -855,6 +855,45 @@
       "title": "OidcConfigSpec",
       "type": "object"
     },
+    "PrefetchConfig": {
+      "additionalProperties": false,
+      "description": "Prefetch (SPECIFICATION \u00a74.1): keep popular metadata fresh, warm a list of packages or images.",
+      "properties": {
+        "refresh_popular": {
+          "default": false,
+          "description": "Revalidate the most downloaded metadata (tags, package indexes) before it goes stale, so clients get fresh cache hits",
+          "title": "Refresh Popular",
+          "type": "boolean"
+        },
+        "warm": {
+          "description": "Items to keep cached, one per entry, in the format's syntax: docker `nginx:1.27` (optionally followed by platforms, `nginx:1.27 linux/amd64,linux/arm64`), npm `lodash@4.17.21`, a raw file path...",
+          "items": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 200,
+          "title": "Warm",
+          "type": "array"
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "maxLength": 100,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When the warm list runs: 5-field UTC cron, a macro such as `@daily`, or `@every <n>m|h`; null = only when run by hand",
+          "title": "Schedule"
+        }
+      },
+      "title": "PrefetchConfig",
+      "type": "object"
+    },
     "ProviderKind": {
       "enum": [
         "ldap",
@@ -946,6 +985,9 @@
         },
         "auto_block": {
           "$ref": "#/$defs/AutoBlockConfig"
+        },
+        "prefetch": {
+          "$ref": "#/$defs/PrefetchConfig"
         }
       },
       "required": [

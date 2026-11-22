@@ -135,6 +135,7 @@ MAX_ROUNDS = 4  # claims per request when owners keep going away (ARCHITECTURE Â
 WAIT_S = 1.0  # a follower re-checks at least this often (stall detection); state changes wake it at once
 TAIL_READ = 1024 * 1024
 STALE_CODES = frozenset({'upstream', 'timeout', 'mismatch'})  # followers may serve a stale copy on these
+FORCED_RECENT_S = 60  # a prefetch refresh accepts a copy the upstream confirmed this recently (T-O12)
 _UPLOAD_ID = re.compile(r'^[0-9a-f]{32}$')
 # Lease outcome of a fill served without being stored (hard quota, low disk): followers fetch on their own.
 UNSTORED = 'UNSTORED'
@@ -395,6 +396,20 @@ def _as_error(exc: BaseException) -> BaseException:
     return exc
 
 
+def _forced(req: FormatRequest, spec: AssetSpec) -> bool:
+    """A prefetch refresh (T-O12, adr/0012) revalidates the metadata it asks for even before it is stale, so the
+    next client gets a fresh hit. Only the server's internal prefetch route sets ``req.prefetch``."""
+    return req.prefetch == 'refresh' and spec.kind is AssetKind.METADATA
+
+
+def _settled(req: FormatRequest, spec: AssetSpec, asset: StoredAsset) -> bool:
+    """After a fill that just ended: is the cached copy good enough? Fresh is enough for clients; a prefetch refresh
+    wants a copy confirmed by the upstream within the last minute (else it revalidates as asked)."""
+    if not _forced(req, spec):
+        return True
+    return (datetime.now(UTC) - asset.upstream.fetched_at).total_seconds() < FORCED_RECENT_S
+
+
 class ProxyEngine:
     def __init__(
         self,
@@ -447,7 +462,7 @@ class ProxyEngine:
         started = time.perf_counter()
         proxy = self._proxy(req.repo)
         asset = await self._cached(req.repo, spec)
-        if asset is not None and (proxy.offline or self._fresh(asset, spec, proxy)):
+        if asset is not None and (proxy.offline or (self._fresh(asset, spec, proxy) and _settled(req, spec, asset))):
             return self._hit(req, asset, CacheState.HIT, started, spec.artifact)
         if asset is None:
             if proxy.offline or await self._negative(req.repo, spec):
@@ -473,7 +488,7 @@ class ProxyEngine:
         without producing a response (e.g. npm needs the packument to validate a tarball). Stale-on-error applies."""
         proxy = self._proxy(req.repo)
         asset = await self._cached(req.repo, spec)
-        if asset is not None and (proxy.offline or self._fresh(asset, spec, proxy)):
+        if asset is not None and (proxy.offline or (self._fresh(asset, spec, proxy) and _settled(req, spec, asset))):
             return asset
         if asset is None and (proxy.offline or await self._negative(req.repo, spec)):
             raise NotFound('Not Found')
@@ -483,7 +498,7 @@ class ProxyEngine:
                 try:
                     if flight.replaced:
                         asset = await self._cached(req.repo, spec)
-                        if asset is not None and self._fresh(asset, spec, proxy):
+                        if asset is not None and self._fresh(asset, spec, proxy) and _settled(req, spec, asset):
                             await flight.finish(outcome=CacheState.HIT.value)
                             return asset
                     asset = await self._ensure_owned(req, spec, proxy, asset, flight)
@@ -884,7 +899,7 @@ class ProxyEngine:
         try:
             if lease.replaced:  # a fill just finished: it may have cached what we need
                 asset = await self._cached(req.repo, spec)
-                if asset is not None and self._fresh(asset, spec, proxy):
+                if asset is not None and self._fresh(asset, spec, proxy) and _settled(req, spec, asset):
                     await lease.finish(outcome=CacheState.HIT.value)
                     return self._hit(req, asset, CacheState.HIT, started, spec.artifact)
             response = await self._fetch(req, spec, proxy, asset, lease, started)
@@ -1289,6 +1304,7 @@ class ProxyEngine:
                 component=spec.component,
                 bytes_total=total,
                 upstream_latency_ms=latency,
+                prefetch=req.prefetch is not None,
                 started_at=now,
                 updated_at=now,
             )
@@ -1642,7 +1658,8 @@ class ProxyEngine:
             feed.committed(ref.sha256)
             checksums = {'sha256': ref.sha256, **{alg: h.hexdigest() for alg, h in fill.extra.items()}}
             asset = await self._record(req, spec, ref, fill.content_type, fill.stored, info, checksums)
-            self.emitter.asset_downloaded(asset.id)
+            if req.prefetch is None:  # prefetch fills are not downloads (no self-reinforcing popularity)
+                self.emitter.asset_downloaded(asset.id)
             await lease.finish(sha256=ref.sha256, size=ref.size)
             if spec.on_stored is not None:
                 await spec.on_stored(asset, None)
@@ -1746,6 +1763,8 @@ class ProxyEngine:
         response = self._serve(req, asset, cache)
         sent = asset.size if response.status_code == 200 and req.method == 'GET' else 0
         self._account(req, cache, response.status_code, sent, started)
+        if req.prefetch is not None:  # the worker's prefetch: neither a download nor client traffic
+            return response
         if sent:
             self.emitter.asset_downloaded(asset.id)  # batched; flushed by the stats rollup (cleanup criteria)
         if sent and asset.kind is AssetKind.CONTENT:
@@ -1780,6 +1799,9 @@ class ProxyEngine:
         return Response(status_code=200, headers=headers)
 
     def _account(self, req: FormatRequest, cache: CacheState, status: int, sent: int, started: float) -> None:
+        if req.prefetch is not None:  # not client traffic: no request counters (upstream traffic is still counted)
+            req.log(cache=cache.value, bytes=0)
+            return
         duration_ms = (time.perf_counter() - started) * 1000
         self.emitter.request(
             repo_id=req.repo.id, format=req.repo.format, cache=cache, duration_ms=duration_ms, bytes_out=sent

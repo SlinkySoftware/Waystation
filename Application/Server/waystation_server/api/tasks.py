@@ -30,11 +30,13 @@ from waystation_common.db.client import Document
 from waystation_common.errors import Conflict, NotFound
 from waystation_common.ids import new_id
 from waystation_common.jobs import JOB_TYPES, QUEUES, JobEnvelope, Queue
+from waystation_common.jobs.model import PrefetchWarm
 from waystation_common.jobs.queue import DeadLetter as StoredDeadLetter
 from waystation_common.jobs.schedule import parse_schedule, validate_schedule
 from waystation_server import audit
-from waystation_server.api.cleanup import JobAccepted, JobProgress, RunStatus, run_trigger
+from waystation_server.api.cleanup import JobProgress
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.job_views import JobAccepted, RunStatus, run_trigger
 from waystation_server.audit import AuditAction
 from waystation_server.problems import FieldError, FieldErrors
 from waystation_server.security import access
@@ -80,7 +82,7 @@ class JobRunPage(BaseModel):
 
 
 class TaskOwner(BaseModel):
-    kind: Literal['cleanup_policy']
+    kind: Literal['cleanup_policy', 'repository']
     id: str
     name: str | None
 
@@ -234,6 +236,7 @@ async def _task_views(svc: Any, docs: list[Document]) -> list[ScheduledTask]:
         if d.get('kind') == 'cleanup.run' and (d.get('params') or {}).get('policy_id')
     ]
     names = {str(p['_id']): str(p.get('name') or '') for p in await cleanup_db.get_policies(svc.db, policy_ids)}
+    repos = {r.id: r.name for r in await svc.catalog.all()}
     out: list[ScheduledTask] = []
     for doc in docs:
         task_id = str(doc['_id'])
@@ -244,6 +247,9 @@ async def _task_views(svc: Any, docs: list[Document]) -> list[ScheduledTask]:
         if kind == 'cleanup.run' and params.get('policy_id'):
             policy_id = str(params['policy_id'])
             owner = TaskOwner(kind='cleanup_policy', id=policy_id, name=names.get(policy_id))
+        elif kind == PrefetchWarm.kind and params.get('repo_id'):  # a repository's warm schedule (T-O12)
+            repo_id = str(params['repo_id'])
+            owner = TaskOwner(kind='repository', id=repo_id, name=repos.get(repo_id))
         queue = doc.get('queue') or (payload_type.queue if payload_type else 'maintenance')
         out.append(
             ScheduledTask(
@@ -316,6 +322,8 @@ async def update_task(request: Request, svc: ServicesDep, task_id: TaskId, body:
     before = await _task(svc, task_id)
     if (before.get('params') or {}).get('policy_id') and before.get('kind') == 'cleanup.run':
         raise Conflict('this schedule belongs to a cleanup policy: change it on the Cleanup page', field='schedule')
+    if before.get('kind') == PrefetchWarm.kind and (before.get('params') or {}).get('repo_id'):
+        raise Conflict('this schedule belongs to a repository: change it in its prefetch settings', field='schedule')
     fields: dict[str, Any] = {}
     if body.schedule is not None and body.schedule != before.get('schedule'):
         fields['schedule'] = body.schedule

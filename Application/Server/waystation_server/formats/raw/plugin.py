@@ -25,7 +25,8 @@ from urllib.parse import quote
 
 from starlette.responses import Response
 
-from waystation_server.formats.base import FormatRequest
+from waystation_common.paths import normalise
+from waystation_server.formats.base import FormatRequest, WarmContext
 from waystation_server.formats.raw import listing
 from waystation_server.formats.raw.descriptor import DESCRIPTOR
 from waystation_server.formats.raw.files import (
@@ -80,6 +81,10 @@ class RawPlugin:
         if req.method not in ('GET', 'HEAD'):
             return native_error(405, 'Method Not Allowed', headers={'Allow': 'GET, HEAD'})
         return await self.proxy(req)
+
+    async def warm(self, ctx: WarmContext, item: str) -> None:
+        """Prefetch (T-O12): a raw item is a file path of the repository."""
+        await ctx.get(normalise(item.strip()))
 
     async def proxy(self, req: FormatRequest) -> Response:
         options = options_of(req.repo)

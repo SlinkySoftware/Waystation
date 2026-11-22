@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, SetupSnippet, UiHints
+from waystation_server.formats.common.prefetch import check_path, same_path
 from waystation_server.formats.common.setup import TOKEN, USERNAME, on, snippet
 from waystation_server.repos.model import RepoType
 
@@ -117,4 +118,6 @@ DESCRIPTOR = FormatDescriptor(
     ui=UiHints(icon='raw', browse='tree'),
     setup_snippets=_snippets,
     check_options=_check_options,
+    warm_item=check_path,
+    refresh_request=same_path,
 )

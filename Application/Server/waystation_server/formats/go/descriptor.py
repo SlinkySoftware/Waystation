@@ -8,7 +8,9 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, UiHints
+from waystation_server.formats.common.prefetch import same_path
 from waystation_server.formats.common.setup import TOKEN, USERNAME, host_of, on, snippet
+from waystation_server.formats.go import prefetch
 from waystation_server.repos.model import RepoType
 
 DEFAULT_SUMDB = 'sum.golang.org'
@@ -122,5 +124,7 @@ DESCRIPTOR = FormatDescriptor(
     ui=UiHints(icon='go', browse='go'),
     setup_snippets=_snippets,
     check_options=_check_options,
+    warm_item=prefetch.check_item,
+    refresh_request=same_path,
     notes=('Go has no hosted repositories: publish modules by tagging them in version control.',),
 )

@@ -176,17 +176,22 @@ class EventEmitter:
         bytes_in_upstream: int = 0,
         bytes_in_upload: int = 0,
         upload: bool = False,
+        client: bool = True,
         ts: float | None = None,
     ) -> None:
         """Count one finished request in the per-minute counters and latency histogram.
 
         Transfers are counted by ``transfer_finished``; call this for everything else (metadata, HEAD, 404...).
         ``upload``: a hosted write, neither a cache hit nor a miss (only errors are counted besides the request).
+        ``client=False``: not a client's request (the worker's prefetch, T-O12): only the bytes it brought in from the
+        upstream are counted, no request, hit/miss, bytes out or latency.
         """
         when = self._clock() if ts is None else ts
         minute = keys.minute_of(when)
         incr: dict[str, int] = {'requests': 1}
-        if upload:
+        if not client:
+            incr = {}
+        elif upload:
             if cache is CacheState.ERROR:
                 incr['errors'] = 1
         elif cache in FROM_CACHE:
@@ -204,12 +209,16 @@ class EventEmitter:
         cnt, lat = keys.cnt_key(minute, repo_id), keys.lat_key(minute, repo_id)
         bucket = keys.latency_bucket(duration_ms)
 
+        if not any(incr.values()):
+            return
+
         def op(pipe: Pipeline) -> None:
             for field, value in incr.items():
                 if value:
                     pipe.hincrby(cnt, field, value)
             pipe.hsetnx(cnt, 'format', format)
-            pipe.hincrby(lat, bucket, 1)
+            if client:
+                pipe.hincrby(lat, bucket, 1)
             pipe.expire(cnt, keys.COUNTER_TTL_S)
             pipe.expire(lat, keys.COUNTER_TTL_S)
             pipe.sadd(keys.STATS_PENDING, keys.pending_member(minute, repo_id))
@@ -409,6 +418,7 @@ class EventEmitter:
             bytes_in_upstream=done if final_cache is CacheState.FETCHING and not upload else 0,
             bytes_in_upload=done if upload else 0,
             upload=upload,
+            client=not t.prefetch,
             ts=now,
         )
 

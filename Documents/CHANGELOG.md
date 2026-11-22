@@ -3,6 +3,18 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-O12: prefetch jobs (adr/0012 proposed, awaiting the owner's approval). Proxy repositories (docker, npm, raw,
+  Maven, Go) get `proxy.prefetch`: *keep popular metadata fresh* (the built-in task `prefetch.refresh`, every 15
+  minutes, revalidates the most downloaded metadata of the last 7 days before it goes stale) and a *warm list*
+  (`nginx:1.27 linux/amd64,linux/arm64`, `lodash@4.17.21`, `org.example:lib:1.0`, `golang.org/x/text@v0.21.0`, a raw
+  path) run on the repository's schedule (task `prefetch:<repository id>`) or by "Warm now". The worker asks a server
+  to do the fetching through the internal route `POST /_internal/prefetch/<repo id>` with a signed system grant
+  (`WAYSTATION_SECRET_KEYS`), so the format plugins, validation and coalescing are exactly the client path; prefetch
+  is never counted as a download or as client traffic. New setting `WAYSTATION_INTERNAL_URL` (default
+  `http://waystation-server:8000`; split hosts: a server host's port). REST `GET /repositories/{name}/prefetch`,
+  `POST .../prefetch/run`; Tasks: `TaskOwner.kind` `repository`. UI: Prefetch section in the repository form, a
+  Prefetch card on the repository overview, repository-owned schedules on the Tasks page. Provisioning schema
+  regenerated; index `assets.prefetch_popular`.
 - T-M04 dropped (owner): no Nexus hosted-content migration job; MIGRATING_FROM_NEXUS.md and SPECIFICATION say
   hosted content is copied with client tools.
 - T-F03: no scheduled CI any more (owner): the Gitea `clients-live` and `perf` workflows lost their nightly runs.

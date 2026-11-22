@@ -7,9 +7,9 @@ import { type MessageKey, t } from '@/i18n'
 import { formatBytes, formatCount, formatDuration } from '@/utils/format'
 import { iconError, iconOk, iconWarning } from '@/utils/icons'
 
-const KNOWN_KINDS = ['stats.rollup', 'blob.gc', 'blob.verify', 'cleanup.run', 'quota.reconcile', 'storage.check', 'apt.refresh'] as const
+const KNOWN_KINDS = ['stats.rollup', 'blob.gc', 'blob.verify', 'cleanup.run', 'quota.reconcile', 'storage.check', 'apt.refresh', 'prefetch.warm'] as const
 type KnownKind = (typeof KNOWN_KINDS)[number]
-type KindKey = 'stats_rollup' | 'blob_gc' | 'blob_verify' | 'cleanup_run' | 'quota_reconcile' | 'storage_check' | 'apt_refresh'
+type KindKey = 'stats_rollup' | 'blob_gc' | 'blob_verify' | 'cleanup_run' | 'quota_reconcile' | 'storage_check' | 'apt_refresh' | 'prefetch_warm'
 
 const isKnown = (kind: string): kind is KnownKind => (KNOWN_KINDS as readonly string[]).includes(kind)
 const kindKey = (kind: KnownKind): KindKey => kind.replace('.', '_') as KindKey
@@ -23,9 +23,10 @@ export function kindHelp(kind: string): string | null {
   return isKnown(kind) ? t(`tasks.kindHelp.${kindKey(kind)}`) : null
 }
 
-/** A scheduled task in words: a cleanup policy's task is named after the policy. */
+/** A scheduled task in words: a cleanup policy's task is named after the policy, a warm schedule after its repository. */
 export function taskLabel(task: Pick<ScheduledTask, 'kind' | 'owner'>): string {
   if (task.owner?.kind === 'cleanup_policy') return t('tasks.scheduled.ownedBy', { name: task.owner.name ?? task.owner.id })
+  if (task.owner?.kind === 'repository') return t('tasks.scheduled.warmOf', { name: task.owner.name ?? task.owner.id })
   return kindLabel(task.kind)
 }
 
@@ -151,5 +152,6 @@ export function runSummary(run: Pick<JobRunSummary, 'kind' | 'result'>): string 
     return t('tasks.runs.summary.verify', { count: num('proxy_marked'), n: formatCount(num('proxy_marked')), assets: formatCount(num('assets')) })
   }
   if (run.kind === 'cleanup.run') return t('tasks.runs.summary.cleanup', { count: num('removed'), n: formatCount(num('removed')), size: formatBytes(num('bytes')) })
+  if (run.kind === 'prefetch.warm') return t('tasks.runs.summary.warm', { count: num('items'), n: formatCount(num('items')), fetched: formatCount(num('fetched')) })
   return t('tasks.runs.summary.done')
 }

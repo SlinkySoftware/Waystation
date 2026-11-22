@@ -22,6 +22,10 @@ Validation, reported as 422 field errors (``errors[].field`` a dotted path into 
   (setting it clears the others);
 - ``storage``: a quota (bytes, ``soft``/``hard``) for proxy and hosted repositories; groups store nothing, so a quota
   there is refused (set it on the members);
+- ``proxy.prefetch`` (T-O12): warm items in the format's syntax (``FormatDescriptor.warm_item``; formats without one
+  refuse items), at most 200, trimmed and de-duplicated; ``refresh_popular`` only for formats that can refresh
+  metadata (``refresh_request``); ``schedule`` a valid schedule, no more often than every 15 minutes. Saving keeps the
+  warm schedule (``job_definitions`` ``prefetch:<id>``) in step; deleting the repository drops it;
 - on update, ``name``, ``format`` and ``type`` cannot change.
 
 Clone (``clone``) copies a repository's configuration, never its content, under a new name and validates it like a
@@ -43,9 +47,11 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ValidationError
 
+from waystation_common.db import prefetch as prefetch_db
 from waystation_common.errors import Conflict
 from waystation_common.events import keys as event_keys
 from waystation_common.ids import new_id
+from waystation_common.jobs.schedule import Every, parse_schedule, validate_schedule
 from waystation_server.db import repositories as repos_db
 from waystation_server.problems import FieldError, FieldErrors, validation_errors
 from waystation_server.proxy.http import check_ca_pem, check_proxy_url
@@ -56,6 +62,7 @@ from waystation_server.repos.model import (
     StoredAutoBlock,
     StoredGroup,
     StoredHosted,
+    StoredPrefetch,
     StoredProxy,
     StoredStorage,
     StoredUpstreamAuth,
@@ -65,6 +72,7 @@ from waystation_server.repos.schemas import (
     AutoBlockConfig,
     GroupConfig,
     HostedConfig,
+    PrefetchConfig,
     ProxyConfig,
     RepositoryWrite,
     StorageConfig,
@@ -238,14 +246,47 @@ async def _check_names(
             )
 
 
+MIN_WARM_INTERVAL_S = 900
+
+
+def _stored_prefetch(
+    services: Services, fmt: str, prefetch: PrefetchConfig, errors: list[FieldError]
+) -> StoredPrefetch:
+    descriptor = services.formats.descriptor(fmt)
+    items = list(dict.fromkeys(item.strip() for item in prefetch.warm if item.strip()))
+    check = descriptor.warm_item if descriptor is not None else None
+    for i, item in enumerate(items):
+        problem = check(item) if check is not None else f'{fmt} repositories cannot warm items'
+        if problem is not None:
+            errors.append(FieldError(field=f'proxy.prefetch.warm.{i}', message=problem, code='format'))
+            if check is None:
+                break
+    if prefetch.refresh_popular and (descriptor is None or descriptor.refresh_request is None):
+        message = f'{fmt} metadata is not refreshed by prefetch'
+        errors.append(FieldError(field='proxy.prefetch.refresh_popular', message=message, code='unsupported'))
+    schedule: str | None = None
+    if (raw := _clean(prefetch.schedule)) is not None:
+        try:
+            schedule = validate_schedule(raw)
+            parsed = parse_schedule(schedule)
+            if isinstance(parsed, Every) and parsed.seconds < MIN_WARM_INTERVAL_S:
+                raise ValueError('an @every interval must be at least 15m')
+        except ValueError as exc:
+            errors.append(FieldError(field='proxy.prefetch.schedule', message=str(exc), code='format'))
+            schedule = None
+    return StoredPrefetch(refresh_popular=prefetch.refresh_popular, warm=tuple(items), schedule=schedule)
+
+
 def _stored_proxy(
     services: Services,
+    fmt: str,
     proxy: ProxyConfig,
     repo_id: str,
     previous: StoredProxy | None,
     errors: list[FieldError],
 ) -> StoredProxy | None:
     _check_url(proxy, errors)
+    prefetch = _stored_prefetch(services, fmt, proxy.prefetch, errors)
     auth = proxy.auth
     secret_enc: str | None = None
     if auth.kind is AuthKind.BASIC and not auth.username:
@@ -280,6 +321,7 @@ def _stored_proxy(
         ca_pem=_clean(proxy.ca_pem),
         http_proxy=_clean(proxy.http_proxy),
         auto_block=StoredAutoBlock(**proxy.auto_block.model_dump()),
+        prefetch=prefetch,
     )
 
 
@@ -306,7 +348,9 @@ async def _build(
         if body.proxy is None:
             errors.append(FieldError(field='proxy', message='required for proxy repositories', code='required'))
         else:
-            proxy = _stored_proxy(services, body.proxy, repo_id, existing.proxy if existing else None, errors)
+            proxy = _stored_proxy(
+                services, body.format, body.proxy, repo_id, existing.proxy if existing else None, errors
+            )
             errors.extend(await check_network(body.proxy))
     elif body.proxy is not None:
         errors.append(FieldError(field='proxy', message='only proxy repositories have an upstream', code='invalid'))
@@ -373,6 +417,7 @@ async def _build(
 async def _after_write(services: Services, repo: RepoConfig) -> None:
     if repo.format == 'docker' and repo.format_options.get('default_repo'):
         await repos_db.unset_default_docker(services.db, except_id=repo.id)
+    await prefetch_db.sync_schedule(services.db, repo.to_doc())
     services.catalog.invalidate()
 
 
@@ -440,6 +485,9 @@ def clone_body(
             ca_pem=p.ca_pem,
             http_proxy=p.http_proxy,
             auto_block=AutoBlockConfig(**p.auto_block.model_dump()),
+            prefetch=PrefetchConfig(
+                refresh_popular=p.prefetch.refresh_popular, warm=list(p.prefetch.warm), schedule=p.prefetch.schedule
+            ),
         )
     hosted: HostedConfig | None = None
     if source.type is RepoType.HOSTED:
@@ -502,6 +550,7 @@ async def delete(services: Services, repo: RepoConfig) -> None:
     if groups:
         raise Conflict(f'{repo.name} is a member of {", ".join(sorted(groups))}: remove it from the group first')
     await repos_db.delete(services.db, repo.id)
+    await prefetch_db.drop_schedule(services.db, repo.id)
     services.catalog.invalidate()
     try:
         await services.valkey.delete(

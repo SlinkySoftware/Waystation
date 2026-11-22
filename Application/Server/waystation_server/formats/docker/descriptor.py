@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, SetupSnippet, UiHints
 from waystation_server.formats.common.setup import TOKEN, USERNAME, on, snippet
+from waystation_server.formats.docker import prefetch
 from waystation_server.repos.model import RepoType
 
 _HOST = re.compile(
@@ -219,4 +220,6 @@ DESCRIPTOR = FormatDescriptor(
     probe_path=_probe,
     setup_snippets=_snippets,
     check_options=_check_options,
+    warm_item=prefetch.check_item,
+    refresh_request=prefetch.refresh_request,
 )

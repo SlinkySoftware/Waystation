@@ -41,8 +41,9 @@ from starlette.responses import JSONResponse, Response
 from waystation_common.errors import NotFound, WaystationError
 from waystation_common.events import CacheState
 from waystation_server.db import docker as docker_db
-from waystation_server.formats.base import FormatRequest
+from waystation_server.formats.base import FormatRequest, WarmContext
 from waystation_server.formats.common.background import Background
+from waystation_server.formats.docker import prefetch
 from waystation_server.formats.docker import protocol as p
 from waystation_server.formats.docker.browse import DockerBrowse, parse_manifest
 from waystation_server.formats.docker.descriptor import DESCRIPTOR, DockerOptions
@@ -117,6 +118,10 @@ class DockerPlugin:
     async def drain(self) -> None:
         """Wait for background indexing (tests, shutdown)."""
         await self._indexing.drain()
+
+    async def warm(self, ctx: WarmContext, item: str) -> None:
+        """Prefetch (T-O12): pull an image like ``docker pull`` (``formats.docker.prefetch``)."""
+        await prefetch.warm(ctx, item)
 
     async def handle(self, req: FormatRequest) -> Response:
         path = req.path

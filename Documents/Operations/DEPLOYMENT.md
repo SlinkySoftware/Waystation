@@ -214,6 +214,7 @@ The authoritative list of application settings, with defaults and descriptions, 
 | `WAYSTATION_EXTRA_CA_FILE` | empty | Extra PEM bundle trusted for upstream TLS (mount it like the secrets above) |
 | `WAYSTATION_SERVER_WORKERS` | `1` | uvicorn processes in the server container |
 | `WAYSTATION_WORKER_QUEUES` / `WORKER_CONCURRENCY` | all queues / `4` | Which job queues a worker consumes, and how many jobs at once |
+| `WAYSTATION_INTERNAL_URL` | `http://waystation-server:8000` | Where workers reach a server for prefetch jobs (SPECIFICATION §4.1 "Prefetch"): the server port, never the web tier. The default is the bundled stack's server; split hosts set a server host's published port. Prefetch also needs `WAYSTATION_SECRET_KEYS` (the worker signs its calls with them) |
 
 Compose-only variables (used for interpolation in `compose.yaml`, not read by the application):
 
@@ -350,9 +351,13 @@ Requirements:
   to a replica set (`WAYSTATION_MONGO_REPLSET_INIT` defaults to `false` here) and `WAYSTATION_VALKEY_URL` to a
   Valkey with `maxmemory-policy noeviction` and AOF. Use authentication, and let only the server and worker hosts
   reach them.
-- **The server port is for the web hosts only.** `WAYSTATION_SERVER_BIND` is the address the port is published on
-  (required). The server takes the `X-Real-IP` of any peer on a private address as the client address (that peer is
-  normally the web tier), so firewall the port so that nothing but the web hosts reaches it.
+- **The server port is for the web hosts only** (and the worker hosts, for prefetch). `WAYSTATION_SERVER_BIND` is
+  the address the port is published on (required). The server takes the `X-Real-IP` of any peer on a private address
+  as the client address (that peer is normally the web tier), so firewall the port so that nothing but the web and
+  worker hosts reach it.
+- **Workers reach a server for prefetch jobs.** Set `WAYSTATION_INTERNAL_URL=http://server1.example.com:8000` (one
+  server host's published port) on the worker hosts; without a reachable server the prefetch jobs fail and nothing
+  else is affected.
 - **The web hosts know the servers.** `WAYSTATION_SERVER_ADDR=server1.example.com:8000,server2.example.com:8000`
   (host:port, comma-separated). nginx balances requests over them and retries a request whose server cannot be
   reached on the next one; the names must resolve when `web` starts.

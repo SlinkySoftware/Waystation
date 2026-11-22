@@ -17,8 +17,9 @@ from waystation_common.db import jobs as jobs_db
 from waystation_common.db.client import Document
 from waystation_common.jobs import BlobGc
 from waystation_common.jobs.schedule import parse_schedule
-from waystation_server.api.cleanup import JobAccepted, JobProgress, RunStatus, run_trigger
+from waystation_server.api.cleanup import JobProgress
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.job_views import JobAccepted, RunStatus, run_trigger
 from waystation_server.security import access
 from waystation_server.security.access import Action
 
