@@ -1,7 +1,7 @@
 # Deploying Waystation
 
 This guide describes how to run Waystation on one Docker host, or split across hosts (section 9), **as the code works
-today** (release 0.2.8).
+today** (release 0.2.9).
 Anything not built yet is marked **Planned** with its task ID. For a five-minute evaluation run,
 see [TRY_IT.md](TRY_IT.md); for putting a reverse proxy in front, see [REVERSE_PROXIES.md](REVERSE_PROXIES.md); for
 client configuration per format, see [clients/](clients/).
@@ -127,7 +127,7 @@ Minimal `/srv/waystation/waystation.env`:
 ```bash
 # Compose
 WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware
-WAYSTATION_IMAGE_TAG=0.2.8
+WAYSTATION_IMAGE_TAG=0.2.9
 WAYSTATION_HTTP_BIND=0.0.0.0
 WAYSTATION_HTTP_PORT=8080
 

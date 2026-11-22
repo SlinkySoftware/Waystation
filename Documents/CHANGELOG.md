@@ -3,6 +3,9 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- **Release 0.2.9**: support bundle (T-O10), secret-key rotation (T-O11), prefetch jobs with adr/0012 accepted
+  (T-O12; new setting `WAYSTATION_INTERNAL_URL` for split-host workers), and the Docker Hub pull-limit meter line.
+  Docs and examples point at the 0.2.9 images.
 - T-U03 (owner feedback): the dashboard's Upstream health card shows the Docker Hub pull limit as a thin meter line
   again ("142 of 200 pulls left", reset time, amber below 20 %) instead of the gauge dial; the gauge stays in the
   component showcase.
