@@ -194,7 +194,9 @@ def decompress(data: bytes, suffix: str, *, limit: int = PACKAGES_MAX_BYTES) -> 
             stream = _decompressor(suffix)
             out = stream.decompress(data, max_length=limit + 1)
             eof = stream.eof
-    except (lzma.LZMAError, OSError, EOFError, zlib.error) as exc:
+    except Exception as exc:  # zlib.error, LZMAError, OSError, EOFError, ZstdError
+        if isinstance(exc, ValidationFailed):
+            raise
         raise ValidationFailed('index does not decompress') from exc
     if len(out) > limit:
         raise ValidationFailed('index decompresses beyond the size limit')

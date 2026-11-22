@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_common.conda import valid_build, valid_name, valid_subdir, valid_version
 from waystation_common.errors import ValidationFailed
 
@@ -89,7 +90,7 @@ def parse_index(data: bytes) -> PackageMeta:
     """``info/index.json`` -> the package's identity and repodata entry (raises ``ValidationFailed``)."""
     try:
         raw = json.loads(data)
-    except UnicodeDecodeError, ValueError:
+    except UnicodeDecodeError, ValueError, RecursionError:
         raise ValidationFailed('info/index.json is not valid JSON') from None
     if not isinstance(raw, dict):
         raise ValidationFailed('info/index.json is not a JSON object')
@@ -139,7 +140,7 @@ def parse_index(data: bytes) -> PackageMeta:
 
 def _find_index(stream: Any) -> PackageMeta:
     try:
-        with tarfile.open(fileobj=stream, mode='r|') as tar:
+        with tarfile.open(fileobj=stream, mode='r|', tarinfo=BoundedTarInfo) as tar:
             for count, member in enumerate(tar):
                 if count >= MAX_MEMBERS:
                     raise ValidationFailed('the package has too many files')
@@ -151,7 +152,7 @@ def _find_index(stream: Any) -> PackageMeta:
                 if fh is None:
                     raise ValidationFailed('info/index.json cannot be read')
                 return parse_index(fh.read(MAX_INDEX_JSON + 1))
-    except (tarfile.TarError, EOFError, OSError) as exc:
+    except READ_ERRORS as exc:
         raise ValidationFailed(f'the package is not a readable archive ({type(exc).__name__})') from None
     raise ValidationFailed('the package has no info/index.json')
 
@@ -168,9 +169,14 @@ def _read_conda(path: Path) -> PackageMeta:
             meta = names.get('metadata.json')
             if meta is None or meta.file_size > MAX_METADATA_JSON:
                 raise ValidationFailed('not a .conda package (no metadata.json)')
+            # Read bounded: ``archive.read`` inflates the whole member at once whatever its header declares.
+            with archive.open(meta) as fh:
+                raw_meta = fh.read(MAX_METADATA_JSON + 1)
+            if len(raw_meta) > MAX_METADATA_JSON:
+                raise ValidationFailed('not a .conda package (metadata.json is too large)')
             try:
-                version = json.loads(archive.read(meta)).get('conda_pkg_format_version')
-            except AttributeError, UnicodeDecodeError, ValueError:
+                version = json.loads(raw_meta).get('conda_pkg_format_version')
+            except AttributeError, UnicodeDecodeError, ValueError, RecursionError:
                 raise ValidationFailed('not a .conda package (metadata.json is not a JSON object)') from None
             if version != 2:
                 raise ValidationFailed('unsupported .conda format version')
@@ -179,10 +185,10 @@ def _read_conda(path: Path) -> PackageMeta:
                 raise ValidationFailed('not a .conda package (no info-*.tar.zst member)')
             with archive.open(infos[0]) as raw, zstd.ZstdFile(raw, 'rb') as tarball:
                 return _find_index(_Bounded(tarball, MAX_INFO_BYTES))
-    except zipfile.BadZipFile, zipfile.LargeZipFile:
-        raise ValidationFailed('not a .conda package (not a zip file)') from None
     except zstd.ZstdError:
         raise ValidationFailed('the .conda info archive cannot be decompressed') from None
+    except READ_ERRORS:
+        raise ValidationFailed('not a .conda package (not a readable zip file)') from None
 
 
 def _read_tar_bz2(path: Path) -> PackageMeta:

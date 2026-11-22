@@ -10,7 +10,7 @@ GID         := $(shell id -g)
 VERSION     := $(shell cat VERSION)
 TTY         := $(shell [ -t 0 ] && echo -t)
 DEV_RUN      = docker run --rm -i $(TTY) --user $(UID):$(GID) -v $(CURDIR):/src -w /src $(DEV_ENV) $(DEV_IMAGE)
-PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness tests/perf Build/ci Build/migration
+PY_SRC      := Application/Common Application/Server Application/Worker tests/clients/harness tests/perf Build/ci Build/migration tests/security
 # Modules held to 100% branch coverage (TASKS T-F04 acceptance).
 FULL_COVERAGE := --include="*/waystation_common/paths.py,*/waystation_common/crypto.py"
 
@@ -319,6 +319,10 @@ backup-test: ## Backup/restore end to end: seed, back up, wipe, restore, verify 
 .PHONY: web-config-test
 web-config-test: ## Web tier nginx config: render + nginx -t (plain, TLS, docker connectors), connector header checks (official nginx image, no build)
 	tests/web/run.sh
+.PHONY: security-scan
+security-scan: dev-image ## pip-audit (uv.lock), npm audit --omit=dev, Trivy on the built images (HIGH/CRITICAL) [SKIP_IMAGES=1] (Documents/Security/DEPENDENCIES.md)
+	DEV_IMAGE='$(DEV_IMAGE)' IMAGE_PREFIX='$(IMAGE_PREFIX)' IMAGE_TAG='$(IMAGE_TAG)' SKIP_IMAGES='$(SKIP_IMAGES)' \
+	  Build/ci/security_scan.sh
 .PHONY: deploy-test
 deploy-test: ## Split hosts + TLS end to end: standalone server x2, worker, web with TLS (own containers; integration lock) [DEPLOY_IMAGE_TAG=<built tag>]
 	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \

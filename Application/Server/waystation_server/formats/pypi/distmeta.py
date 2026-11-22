@@ -16,16 +16,21 @@ from email.parser import BytesHeaderParser
 from email.policy import compat32
 from pathlib import Path
 
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_common.errors import ValidationFailed
 
 MAX_METADATA = 1024 * 1024
 MAX_ENTRIES = 100_000
+MAX_UNPACKED = 4 * 1024**3  # declared member sizes: a compressed tar is decompressed to skip them
 MAX_TEXT = 1024
 MAX_REQUIRES = 200
 
 
 class DistributionInvalid(ValidationFailed):
     code = 'invalid_distribution'
+
+
+_ERRORS: tuple[type[BaseException], ...] = (*READ_ERRORS, DistributionInvalid)
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,8 @@ def _zip_entries(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     for info in infos:
         if not _safe_name(info.filename):
             raise DistributionInvalid('the archive contains an unsafe path')
+    if len({info.filename for info in infos}) != len(infos):  # an installer keeps the last copy, not the one read
+        raise DistributionInvalid('the archive contains a file twice')
     return infos
 
 
@@ -108,7 +115,7 @@ def read_wheel(path: Path) -> CoreMetadata:
             if len(found) != 1:
                 raise DistributionInvalid('a wheel must contain exactly one .dist-info/METADATA')
             return parse_metadata(_read_zip_member(archive, found[0]))
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, OSError, NotImplementedError, ValueError) as exc:
+    except _ERRORS as exc:
         if isinstance(exc, DistributionInvalid):
             raise
         raise DistributionInvalid('the wheel is not a valid zip archive') from None
@@ -123,7 +130,7 @@ def _read_sdist_zip(path: Path) -> CoreMetadata:
             if not found:
                 raise DistributionInvalid('the sdist has no PKG-INFO')
             return parse_metadata(_read_zip_member(archive, found[0]))
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, OSError, NotImplementedError, ValueError) as exc:
+    except _ERRORS as exc:
         if isinstance(exc, DistributionInvalid):
             raise
         raise DistributionInvalid('the sdist is not a valid zip archive') from None
@@ -132,11 +139,15 @@ def _read_sdist_zip(path: Path) -> CoreMetadata:
 def _read_sdist_tar(path: Path) -> CoreMetadata:
     """``<dir>/PKG-INFO`` of a tar sdist; every member is checked (names, link targets), not only those before it."""
     raw: bytes | None = None
+    unpacked = 0
     try:
-        with tarfile.open(path, mode='r:*') as archive:
+        with tarfile.open(path, mode='r:*', tarinfo=BoundedTarInfo) as archive:
             for count, member in enumerate(archive):
                 if count >= MAX_ENTRIES:
                     raise DistributionInvalid('the archive has too many entries')
+                unpacked += max(0, member.size)
+                if unpacked > MAX_UNPACKED:
+                    raise DistributionInvalid('the archive is too large when unpacked')
                 name = member.name.removeprefix('./')
                 linked = member.issym() or member.islnk()
                 if not _safe_name(name) or (linked and not _safe_name(member.linkname)):
@@ -149,7 +160,7 @@ def _read_sdist_tar(path: Path) -> CoreMetadata:
                         raise DistributionInvalid('the sdist PKG-INFO cannot be read')
                     with fh:
                         raw = fh.read(MAX_METADATA + 1)[:MAX_METADATA]
-    except (tarfile.TarError, EOFError, OSError, ValueError) as exc:
+    except _ERRORS as exc:
         if isinstance(exc, DistributionInvalid):
             raise
         raise DistributionInvalid('the sdist is not a valid archive') from None

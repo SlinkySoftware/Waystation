@@ -17,10 +17,10 @@ import json
 import re
 import tarfile
 import zipfile
-import zlib
 from typing import IO, Any
 
 from waystation_common import composer
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_common.errors import ValidationFailed
 from waystation_server.formats.composer.protocol import ENTRY_KEYS
 
@@ -51,8 +51,12 @@ def _zip_entries(archive: zipfile.ZipFile) -> list[tuple[str, zipfile.ZipInfo]]:
         raise ValidationFailed('the archive has too many files')
     total = 0
     out: list[tuple[str, zipfile.ZipInfo]] = []
+    seen: set[str] = set()
     for info in infos:
         name = safe_name(info.filename)
+        if name in seen:  # an extractor keeps the last copy: the checked one could be another
+            raise ValidationFailed(f'the archive has the file {name[:200]!r} twice')
+        seen.add(name)
         if info.flag_bits & 0x1:
             raise ValidationFailed('the archive has encrypted files')
         total += max(0, info.file_size)
@@ -68,7 +72,7 @@ def check_zip(file: IO[bytes]) -> None:
     try:
         with zipfile.ZipFile(file) as archive:
             _zip_entries(archive)
-    except zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, OSError, NotImplementedError:
+    except READ_ERRORS:
         raise ValidationFailed('not a zip archive') from None
 
 
@@ -76,7 +80,7 @@ def check_tar(file: IO[bytes]) -> None:
     """Refuse (``ValidationFailed``) a tar archive that is unreadable or unsafe to extract."""
     total = count = 0
     try:
-        with tarfile.open(fileobj=file, mode='r:*') as archive:
+        with tarfile.open(fileobj=file, mode='r:*', tarinfo=BoundedTarInfo) as archive:
             for member in archive:
                 count += 1
                 if count > MAX_ENTRIES:
@@ -87,7 +91,7 @@ def check_tar(file: IO[bytes]) -> None:
                 total += max(0, member.size)
                 if total > MAX_UNPACKED:
                     raise ValidationFailed('the archive is too large when unpacked')
-    except tarfile.TarError, EOFError, OSError, zlib.error:
+    except READ_ERRORS:
         raise ValidationFailed('not a tar archive') from None
 
 
@@ -121,15 +125,15 @@ def read_composer_json(file: IO[bytes]) -> dict[str, Any]:
                 raise ValidationFailed('composer.json is too large')
             with archive.open(info) as handle:
                 data = handle.read(MAX_COMPOSER_JSON + 1)
-    except zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, OSError, zlib.error, NotImplementedError:
-        raise ValidationFailed('not a Composer package (a zip archive)') from None
     except RuntimeError:  # encrypted members (zipfile asks for a password)
         raise ValidationFailed('the archive has encrypted files') from None
+    except READ_ERRORS:
+        raise ValidationFailed('not a Composer package (a zip archive)') from None
     if len(data) > MAX_COMPOSER_JSON:
         raise ValidationFailed('composer.json is too large')
     try:
         doc = json.loads(data.decode('utf-8-sig'))
-    except ValueError:
+    except ValueError, RecursionError:
         raise ValidationFailed('composer.json is not valid JSON') from None
     if not isinstance(doc, dict):
         raise ValidationFailed('composer.json is not a JSON object')

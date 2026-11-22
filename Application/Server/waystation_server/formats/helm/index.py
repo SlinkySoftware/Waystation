@@ -82,12 +82,21 @@ class _Resolver(BaseResolver):
     """Implicit types: ``null`` only (YAML 1.2 core spellings); every other plain scalar is a string."""
 
 
+class _NoMerge(yaml.constructor.SafeConstructor):
+    """No explicit ``!!merge`` keys: each one copies the merged mappings, exponential work for nested merges."""
+
+    def flatten_mapping(self, node: yaml.MappingNode) -> None:
+        if any(key.tag == 'tag:yaml.org,2002:merge' for key, _ in node.value):
+            raise yaml.YAMLError('YAML merge keys are not allowed')
+        super().flatten_mapping(node)
+
+
 _Resolver.add_implicit_resolver('tag:yaml.org,2002:null', re.compile(r'^(?:~|null|Null|NULL|)$'), ['~', 'n', 'N', ''])
 
 if getattr(yaml, '__with_libyaml__', False):  # pragma: no branch - libyaml ships in the PyYAML wheels
     from yaml._yaml import CParser
 
-    class _Loader(CParser, yaml.constructor.SafeConstructor, _Resolver):
+    class _Loader(CParser, _NoMerge, _Resolver):
         def __init__(self, stream: bytes) -> None:
             CParser.__init__(self, stream)
             yaml.constructor.SafeConstructor.__init__(self)
@@ -100,7 +109,7 @@ else:  # pragma: no cover
         yaml.scanner.Scanner,
         yaml.parser.Parser,
         yaml.composer.Composer,
-        yaml.constructor.SafeConstructor,
+        _NoMerge,
         _Resolver,
     ):
         def __init__(self, stream: bytes) -> None:

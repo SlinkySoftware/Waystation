@@ -19,18 +19,17 @@ from __future__ import annotations
 
 import base64
 import binascii
-import gzip
 import hashlib
 import io
 import json
 import re
 import tarfile
-import zlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_common.errors import PayloadTooLarge, ValidationFailed
 from waystation_server.formats.npm.browse import version_key
 from waystation_server.formats.npm.metadata import tarball_filename as url_filename
@@ -124,7 +123,7 @@ def parse_put(data: bytes, package: str) -> Published | Update:
         raise PayloadTooLarge(f'the request body exceeds {MAX_PUT_BYTES} bytes')
     try:
         doc = json.loads(data)
-    except ValueError:
+    except ValueError, RecursionError:
         raise ValidationFailed('the body is not valid JSON') from None
     doc = _object(doc, 'the body')
     name = doc.get('name', doc.get('_id'))
@@ -262,7 +261,7 @@ def inspect_tarball(data: bytes) -> TarballInfo:
     files = 0
     unpacked = 0
     try:
-        with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
+        with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz', tarinfo=BoundedTarInfo) as archive:
             for count, member in enumerate(archive, start=1):
                 if count > MAX_MEMBERS:
                     raise ValidationFailed(f'the tarball has more than {MAX_MEMBERS} entries')
@@ -284,10 +283,10 @@ def inspect_tarball(data: bytes) -> TarballInfo:
                     raw = handle.read() if handle is not None else b''
                     try:
                         parsed = json.loads(raw)
-                    except ValueError:
+                    except ValueError, RecursionError:
                         raise ValidationFailed('package.json in the tarball is not valid JSON') from None
                     package_json = _object(parsed, 'package.json')
-    except tarfile.TarError, EOFError, OSError, zlib.error, gzip.BadGzipFile:
+    except READ_ERRORS:
         raise ValidationFailed('the tarball is not a valid gzip-compressed tar archive') from None
     if package_json is None:
         raise ValidationFailed('the tarball has no package/package.json')

@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
+from waystation_common.archives import BoundedTarInfo
 from waystation_common.errors import ValidationFailed
 
 AR_MAGIC = b'!<arch>\n'
@@ -201,7 +202,7 @@ def _safe_member(name: str) -> bool:
 def control_file(tar_bytes: bytes) -> bytes:
     """The ``control`` file of an uncompressed control archive (read, never extracted)."""
     try:
-        with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode='r:') as tar:
+        with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode='r:', tarinfo=BoundedTarInfo) as tar:
             found: bytes | None = None
             count = 0
             while (member := tar.next()) is not None:

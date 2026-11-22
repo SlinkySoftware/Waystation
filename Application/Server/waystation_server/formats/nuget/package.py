@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import re
 import zipfile
-import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
@@ -26,6 +25,7 @@ from defusedxml import ElementTree
 from defusedxml.common import DefusedXmlException
 
 from waystation_common import nuget
+from waystation_common.archives import READ_ERRORS
 from waystation_common.errors import ValidationFailed
 
 MAX_ENTRIES = 100_000
@@ -158,10 +158,10 @@ def read_nuspec_from(file: IO[bytes]) -> bytes:
             info = _nuspec_entry(archive)
             with archive.open(info) as handle:
                 data = handle.read(MAX_NUSPEC + 1)
-    except zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, OSError, zlib.error, NotImplementedError:
-        raise ValidationFailed('not a NuGet package (a zip archive)') from None
     except RuntimeError:  # encrypted members (zipfile asks for a password)
         raise ValidationFailed('the package has encrypted files') from None
+    except READ_ERRORS:
+        raise ValidationFailed('not a NuGet package (a zip archive)') from None
     if len(data) > MAX_NUSPEC:
         raise ValidationFailed('the .nuspec file is too large')
     return data

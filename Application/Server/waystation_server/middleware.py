@@ -30,6 +30,10 @@ QUIET_PATHS = frozenset({'/healthz', '/readyz', '/metrics'})
 FORMAT_PREFIXES = ('/repository/', '/v2/', '/v2')
 STREAM_PATHS = frozenset({'/api/v1/events/stream'})
 UNMATCHED = 'unmatched'  # route label of requests no route matched (404s of unknown paths)
+# REST API and sign-in answers carry account data, tokens and CSRF values: never stored by a browser or a shared cache
+# unless the route chose its own Cache-Control (ASVS V8.2.1).
+NO_STORE_PREFIXES = ('/api/', '/auth/')
+NO_STORE = (b'cache-control', b'no-store')
 
 
 class RequestContextMiddleware:
@@ -54,12 +58,16 @@ class RequestContextMiddleware:
         started = time.perf_counter()
         status = 0
         rid_header = (b'x-request-id', rid.encode('ascii'))
+        no_store = scope['path'].startswith(NO_STORE_PREFIXES)
 
         async def send_wrapper(message: Message) -> None:
             nonlocal status
             if message['type'] == 'http.response.start':
                 status = message['status']
-                message['headers'] = [*message.get('headers', []), rid_header]
+                extra = [rid_header]
+                if no_store and not any(k.lower() == b'cache-control' for k, _ in message.get('headers', [])):
+                    extra.append(NO_STORE)
+                message['headers'] = [*message.get('headers', []), *extra]
             await send(message)
 
         token = bind_context(request_id=rid)

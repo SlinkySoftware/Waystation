@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_server.formats.cargo.common import valid_name, valid_version
 
 MAX_JSON = 8 * 1024 * 1024
@@ -98,7 +99,7 @@ def parse_metadata(data: bytes) -> Published:
     """The publish JSON (bounded by the caller), checked."""
     try:
         doc = json.loads(data)
-    except ValueError:
+    except ValueError, RecursionError:
         raise Invalid('the publish metadata is not valid JSON') from None
     if not isinstance(doc, dict):
         raise Invalid('the publish metadata is not a JSON object')
@@ -166,7 +167,7 @@ def inspect_crate(path: Path, name: str, vers: str) -> None:
     manifest: bytes | None = None
     total = 0
     try:
-        with tarfile.open(path, mode='r:gz') as archive:
+        with tarfile.open(path, mode='r:gz', tarinfo=BoundedTarInfo) as archive:
             for count, member in enumerate(archive, start=1):
                 if count > MAX_ENTRIES:
                     raise Invalid('the crate has too many files')
@@ -184,7 +185,7 @@ def inspect_crate(path: Path, name: str, vers: str) -> None:
                         raise Invalid('Cargo.toml is too large')
                     handle = archive.extractfile(member)
                     manifest = handle.read() if handle is not None else None
-    except tarfile.TarError, OSError, EOFError:
+    except READ_ERRORS:
         raise Invalid('the crate is not a gzipped tar archive') from None
     if manifest is None:
         raise Invalid(f'the crate has no {top}/Cargo.toml')

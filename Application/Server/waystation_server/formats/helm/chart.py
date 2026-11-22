@@ -1,6 +1,6 @@
 """Reading an uploaded chart package (``.tgz``) safely (FORMATS.md "Helm"; ARCHITECTURE §7 input hardening).
 
-Nothing is extracted to disk: the archive is read as a stream (in a thread) and every member is checked the way an
+Nothing is extracted to disk: the archive is read in order (in a thread) and every member is checked the way an
 extractor would need it to be (tar-slip guards): no absolute paths, no ``..``, no backslashes or control
 characters, one top-level directory, regular files and directories only (no links or devices), bounded member count
 and total size. ``<top>/Chart.yaml`` (at most ``MAX_CHART_YAML`` bytes) is parsed with the safe YAML loader of
@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import re
 import tarfile
-import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from waystation_common.archives import READ_ERRORS, BoundedTarInfo
 from waystation_common.errors import ValidationFailed
 from waystation_server.formats.helm.index import is_semver, load_yaml, normalise_entry
 
@@ -74,7 +74,7 @@ def read_chart(path: Path) -> ChartMeta:
     members = 0
     unpacked = 0
     try:
-        with tarfile.open(path, mode='r|gz') as tar:
+        with tarfile.open(path, mode='r:gz', tarinfo=BoundedTarInfo) as tar:
             for member in tar:
                 members += 1
                 if members > MAX_MEMBERS:
@@ -96,7 +96,7 @@ def read_chart(path: Path) -> ChartMeta:
                     if handle is None:  # pragma: no cover - regular files always have data
                         raise ValidationFailed('Chart.yaml is unreadable')
                     chart_yaml = handle.read(MAX_CHART_YAML + 1)
-    except tarfile.TarError, EOFError, OSError, zlib.error:
+    except READ_ERRORS:
         raise ValidationFailed('not a chart package (a gzip-compressed tar archive)') from None
     if chart_yaml is None:
         raise ValidationFailed('the chart archive has no <chart>/Chart.yaml')

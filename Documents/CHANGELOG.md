@@ -3,6 +3,22 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-23
+- T-R01: security review before v1.0.0. `Documents/Security/ASVS_L2.md` (OWASP ASVS 4.0.3 Level 2, requirement by
+  requirement with code and test references, findings with severities) and `Documents/Security/DEPENDENCIES.md`
+  (pip-audit, npm audit, Trivy results; container hardening table). Fixed: the SSRF guard now judges NAT64
+  (`64:ff9b::/96`) and IPv4-compatible IPv6 addresses by the IPv4 address they carry and refuses deprecated site-local addresses
+  (`waystation_common.ssrf.embedded_ipv4`); every tar reader opens archives with
+  `waystation_common.archives.BoundedTarInfo` in a file mode (pax/GNU extension-header and sparse-map memory bombs,
+  `RecursionError`, stream-mode inflation); bounded `.conda` `metadata.json` read; RPM file-list amplification capped;
+  YAML merge keys refused (gem metadata, `Chart.yaml`, Helm `index.yaml`); corrupt zips, tars and compressed indexes and
+  deeply nested JSON in package metadata answer the format's clean refusal instead of 500; duplicate zip entries
+  refused (Composer, PyPI); PyPI sdist unpacked-size bound; Swift symlinks that walk through another symlink dropped
+  or refused. Web tier: `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, HSTS with TLS, a strict
+  CSP for the UI and `Content-Security-Policy: sandbox` for everything else (rendered by `15-waystation.sh`, checked
+  live by `make web-config-test`); server: `Cache-Control: no-store` on `/api/` and `/auth/` answers without their own.
+  Images: OS security updates applied at build, pip removed from the server and worker runtime images. New tests:
+  `Application/Server/tests/test_security_matrix.py` (auth bypass matrix over every route and format),
+  `tests/security/` (SSRF, path and archive corpora; on the pytest and ruff paths). New target `make security-scan`.
 - T-P6-HF: Hugging Face Hub proxy (FORMATS.md "Hugging Face"; `formats/huggingface/`,
   `Operations/clients/huggingface.md`). huggingface_hub, transformers and the `hf` CLI use a proxy repository as
   `HF_ENDPOINT`: info documents (`api/<kind>s/<id>[/revision/<rev>]`, fetched with `blobs=true`) are cached as
