@@ -5,12 +5,12 @@ gotchas that real-world clients hit. Read the section before touching a format. 
 cited specs while implementing; when this file is wrong, fix it in the same change.
 
 ## Definition of done for a format
-1. Plugin under `waystation_server/formats/<format>/` implementing the `Format` contract (ARCHITECTURE §11).
+1. Plugin under `waystation_server/formats/<format>/` with a `FormatDescriptor` and a `FormatPlugin` (ARCHITECTURE §11).
 2. Proxy (and hosted/group where SPEC §4.5 says so) work with **every listed client** in `tests/clients/<format>/`
    using recorded upstream fixtures; the live-upstream smoke (`clients-live`) passes.
 3. Checksums/digests validated (SPEC §4.1); metadata URLs rewritten; conditional requests supported.
 4. Components extracted for browse/search with correct `version_sort`.
-5. "Set me up" snippets for each client; UI browse renderer for the format (delivered in the format's own task).
+5. "Set me up" snippets for each client; a UI browse renderer for the format.
 5a. Client authentication works for every listed client (SPEC §4.9) and is covered by the client tests.
 6. Docs: `Documents/Operations/clients/<format>.md` (client config, auth, troubleshooting).
 7. Perf budgets hold for the format's hot paths.
@@ -18,7 +18,7 @@ cited specs while implementing; when this file is wrong, fix it in the same chan
 Common rules: all format routes live under `/repository/<repo>/` (Nexus-compatible). Paths are normalised by
 `waystation_common.paths.normalise` before any lookup. Group repos merge metadata only where noted.
 
-## Prefetch (T-O12, adr/0012 accepted; SPEC §4.1 "Prefetch")
+## Prefetch (adr/0012; SPEC §4.1 "Prefetch")
 Proxy repositories only. A format opts in on its descriptor and plugin; the worker never learns a format (it calls
 the server's internal prefetch route, `waystation_server.prefetch`):
 - `FormatDescriptor.warm_item(item) -> str | None`: checks a warm item of the format's syntax (the message is the
@@ -44,12 +44,12 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | Hugging Face | `<repo_id>[@<revision>]` (every file of the revision, default `main`; ≤ 2,000 files and 200 GiB), `<repo_id>[@<revision>]:<path>` (one file); datasets as `datasets/<repo_id>...` (`julien-c/dummy-unknown`, `openai-community/gpt2@main:config.json`) | the revision's info document, then each file at its commit (verified as for a client) | info documents of branches and tags (`api/<kind>s/<id>[/revision/<rev>]`, same path) |
 | RubyGems | `gem:version` (`rake:13.2.1`), `gem:version-platform` (`nokogiri:1.18.8-x86_64-linux`), `gem` (= the newest release of the `ruby` platform, else the newest) | the gem's info file, the version's `.gem` (verified against the info checksum as for a client) and its `quick/Marshal.4.8` gemspec | `versions`, `names`, info files (same path) |
 
-Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
-below). Left for later: PyPI (`project==version`), Helm (`chart@version`), Galaxy, Terraform, Swift.
+Other formats do not support prefetch (their repositories refuse the settings); apt has its own worker refresh
+(`apt.refresh`, below). Limitation: PyPI, Helm, Galaxy, Terraform and Swift have no warm list.
 
 ---
 
-## Raw (generic) — Phase 2
+## Raw (generic)
 - `GET/HEAD /repository/<repo>/<path>`; hosted `PUT` (stream) and `DELETE`; directory listing as HTML/JSON
   (`Accept: application/json`) for browse.
 - Proxy: plain HTTP(S) upstream base URL; cache by path (`<repo>/<path>` → `<upstream_url>/<path>`, the path
@@ -74,7 +74,7 @@ below). Left for later: PyPI (`project==version`), Helm (`chart@version`), Galax
   `ETag: "sha256:<hex>"` and `X-Checksum-Sha256`. A URL ending in `/` cannot be uploaded to (400). Write policy:
   `allow_redeploy` replaces, `disable_redeploy` refuses an existing path (409, re-checked after the upload so a
   concurrent upload cannot slip through; delete stays allowed), `read_only` refuses uploads and deletes (403).
-  A hard repository quota (T-O03, `HostedStore.admit`) refuses an upload before any byte is read (507).
+  A hard repository quota (`HostedStore.admit`) refuses an upload before any byte is read (507).
   `DELETE` → 204 (404 when missing); blob GC frees the bytes. `GET`/`HEAD` serve by X-Accel with the same headers as
   the proxy. Uploads and deletes are audited (`content.upload` with path, size, sha256 and any verified sha1/md5,
   `replaced`; `content.delete`) and appear in the activity feed (`asset.created` / `asset.deleted`).
@@ -91,14 +91,14 @@ below). Left for later: PyPI (`project==version`), Helm (`chart@version`), Galax
   browse API's `FolderListing` shape (`path`, `entries`, `next_cursor`; `?cursor=`, 1000 per page), else an HTML index
   (escaped names, `Content-Security-Policy: default-src 'none'`, `nosniff`). Needs `browse` besides `read`. A folder
   with nothing under it → 404; the root answers an empty listing.
-- Built (T-P2-RAW): proxy `GET`/`HEAD` (M0) with curl and wget; hosted and group as above, with curl upload (with a
+- Tested: proxy `GET`/`HEAD` with curl and wget; hosted and group as above, with curl upload (with a
   checksum), download, conditional request, wget download (bearer header), JSON listing, group reads in order,
-  upload through the group and delete in the real-client harness. Browse (T-S09 min): the generic folder listing of
+  upload through the group and delete in the real-client harness. Browse: the generic folder listing of
   assets (`/api/v1/repositories/{name}/browse`), which shows uploads too. Nexus import creates raw hosted and group
-  repositories (T-M01). Not yet: components/search indexing beyond the asset tree, a basic-auth-only client test
+  repositories. Not yet: components/search indexing beyond the asset tree, a basic-auth-only client test
   matrix beyond curl/wget, the live smoke.
 
-## Docker / OCI — Phase 2
+## Docker / OCI
 Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API v2, Docker token auth spec.
 - Endpoints: `GET /v2/` (version check; `401` + `WWW-Authenticate: Bearer realm="<base>/auth/token",service="<host>"`
   when auth is required, including for anonymous-allowed repos if the client may need push); manifests
@@ -114,7 +114,7 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
   that registry; a group whose proxy members all are), else `404 NAME_UNKNOWN` so containerd falls back to the
   registry. Never another registry's image of the same name. The challenge's realm carries `?ns=` (clients keep the
   realm's query), the token service resolves scopes with it and names granted scopes `<repository>/<image>`.
-- Dedicated port connectors (T-P6-DOCKERC, ADR 0013): `format_options.connector_port`; a request the web tier
+- Dedicated port connectors (ADR 0013): `format_options.connector_port`; a request the web tier
   received on that port (header `X-Waystation-Connector`, trusted from internal hops only) resolves every name to that
   repository (no prefix, alias or `ns`); realm `?connector=<port>`, granted scopes renamed `<repository>/<image>`;
   `/v2/_catalog` lists that repository's images unprefixed; upload `Location`s and `from=` mounts stay in the
@@ -133,7 +133,7 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     anonymous token or configured credentials. Ping the upstream's `GET /v2/` once to learn the challenge, so every
     request carries its token up front (a first anonymous request per image would make record/replay and upstream
     request counts depend on which server process answers); re-learn on a later `401`.
-  - Tokens and learned challenges are shared by every server process (built 2026-11-21,
+  - Tokens and learned challenges are shared by every server process (
     `upstream_auth.SharedTokens`): Valkey `uptok:<sha256(repository key, scope)>` holds `<expiry ms> <token>` with
     the token AES-GCM encrypted under `WAYSTATION_SECRET_KEYS` (associated data = the key) and a PX of its remaining
     lifetime (the token's `expires_in` capped at 1 h, minus 15 s); `uprealm:<sha256(repository key)>` the challenge
@@ -147,7 +147,7 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     GHCR uses `pkg-containers.githubusercontent.com`: outbound allowlists must include them.
   - Docker Hub answers `401` (not `404`) for image names that do not exist; map an upstream 401/403 after token
     negotiation to `NAME_UNKNOWN`.
-  - Referrers (built 2026-11-21, `DockerPlugin.referrers`): `GET /v2/<name>/referrers/<digest>` asks the upstream's
+  - Referrers (`DockerPlugin.referrers`): `GET /v2/<name>/referrers/<digest>` asks the upstream's
     referrers API (`Accept: application/vnd.oci.image.index.v1+json`) and caches the answer as metadata
     `<name>/referrers/<digest>` (refreshed after `min(5 min, metadata_max_age)`, conditional revalidation, stale on
     error as usual). An upstream `404` (a registry with the API never answers 404; also 400/405/406/501) means it has
@@ -162,7 +162,7 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
   - Mirror mode: Docker daemon `registry-mirrors` sends Hub names (`library/nginx`) to `/v2/` → default repo.
 - Hosted: tag immutability patterns, overwrite policy, manifest validation (all referenced blobs/manifests exist
   in the repo or are mountable), size limit, `subject` field for referrers (cosign/notation signatures, SBOMs).
-  Built (T-P2-DOCKERH, `formats/docker/hosted.py` on `waystation_server.hosted.store`):
+  Implementation (`formats/docker/hosted.py` on `waystation_server.hosted.store`):
   - Layout: blobs are assets `blobs/<digest>` per repository (as in a proxy cache, so browse and cleanup work
     unchanged); manifests `<image>/manifests/<digest>` plus a `docker_manifests` record (references, `subject`,
     effective `artifactType` = `artifactType` else the config media type, size, annotations); tags in `docker_tags`
@@ -178,7 +178,7 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     default), must be a docker repository the principal may `read` (the registry token must carry its `pull`
     scope), and must hold the blob; the blob is then linked (claimed against GC), `201`. Otherwise an upload session
     starts (`202`). A blob already in the target repository mounts without `from`.
-  - Quotas (T-O03): with a hard quota reached, `POST` (also mounts; refused early when its `Content-Length` would go
+  - Quotas: with a hard quota reached, `POST` (also mounts; refused early when its `Content-Length` would go
     over), `PATCH`, `PUT` and manifest pushes (refused when the manifest would go over) answer `403 DENIED` with
     "repository <name> is over its quota: ..."; pulls and deletes still work. The low-disk guard answers `507`.
   - Manifest `PUT`: `Content-Type` (or the document's `mediaType` when the header is generic) must be a manifest or
@@ -212,14 +212,14 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
     sign/verify offline via the referrers API, crane delete, browse and audit) and the OCI distribution-spec
     conformance suite v1.1.1 (pull, push, content discovery, content management: all specs pass).
 - Group: read through members; tag lists merged; push goes to `writable_member`.
-  Built (T-P2-DOCKERG, `formats/docker/group.py`): members are docker proxy or hosted repositories by name, in order
+  Implementation (`formats/docker/group.py`): members are docker proxy or hosted repositories by name, in order
   (offline or missing ones skipped). Manifests (tag or digest): the first member that answers; a 404 moves on, an
   upstream failure (5xx, 401/403/429) moves on and is returned only when no member answers. Blobs: every member's
   stored/cached `blobs/<digest>` first (served by X-Accel, no upstream), then a `GET` asks members in order; a `HEAD`
   never goes upstream (it is how pushes check for existing layers, and pushed names must not reach public
   registries). `tags/list`: union of hosted members' tags and proxy members' upstream first page (cached as their
   `tags/list`), sorted, `n`/`last`/`Link`; `404 NAME_UNKNOWN` when no member knows the name. Referrers: union over
-  every member in order (hosted: stored referrers; proxies: their referrers answer above; since 2026-11-21), each
+  every member in order (hosted: stored referrers; proxies: their referrers answer above), each
   digest once, failing members skipped. Writes (manifest `PUT`/`DELETE`, uploads incl. status and cancel, blob `DELETE`) go to the writable member
   with the request otherwise unchanged (so `Location` keeps the group's name and a push continues through the group);
   the principal needs the action on the group (router) and on the member (`req.allows_member`, RBAC without the
@@ -229,16 +229,16 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
   when it misses there (as Nexus groups do); put hosted members first.
 - Clients to test: docker (BuildKit), podman, containerd/nerdctl (`hosts.toml` mirror with and without
   `override_path`), skopeo, crane, oras (artifacts), helm (OCI charts), cosign (signatures via referrers).
-- Browse (T-S09 min): every cached manifest is parsed in the background (thread, bounded) into `docker_manifests`
+- Browse: every cached manifest is parsed in the background (thread, bounded) into `docker_manifests`
   (index entries with platforms, or config + layers); a manifest cached by tag also sets `docker_tags` (only the
   full-`Accept` variant moves an existing tag). Image configs are read from the cache at view time (platform,
   `created`, labels, history). Index entries with platform `unknown/unknown` (attestations) are not platforms.
 
-## npm — Phase 2 (proxy), Phase 5 (hosted)
+## npm
 Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
 - `GET /<pkg>` and `GET /@scope%2f<pkg>` (also accept unencoded `@scope/pkg`) → packument. `Accept:
   application/vnd.npm.install-v1+json` = abbreviated metadata ("corgi"); cache both representations separately.
-- Version documents (built 2026-11-11): `GET /<pkg>/<version>` and `GET /<pkg>/<dist-tag>` (scoped:
+- Version documents: `GET /<pkg>/<version>` and `GET /<pkg>/<dist-tag>` (scoped:
   `/@scope/<pkg>/...` and `/@scope%2f<pkg>/...`) → the version object of the full packument (`versions[<v>]`, else
   the version the dist-tag names, the registry's order), `application/json`. corepack fetches these
   (`<registry>/@pnpm/exe.linux-x64/<v>`). The last segment must be 1-256 characters of `[A-Za-z0-9._~+-]` and not
@@ -259,10 +259,10 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
 - Group: merge packuments (versions union; first member wins per version; `dist-tags` from first member that has
   the tag), rewrite tarball URLs to the group.
 - Clients: npm 9/10/11, pnpm, yarn v1, yarn berry (`npmRegistryServer`), bun.
-- Browse (T-S09 min): a stored packument (either representation) is summarised in the background into
+- Browse: a stored packument (either representation) is summarised in the background into
   `npm_packages` (latest, dist-tags, version count; description and licence only from the full packument); versions
   are read from the cached packument (full preferred: publish times) and sorted by semver precedence.
-- Built (T-P5-NPMH; `formats/npm/hosted.py`, `group.py`, `publish.py`; client guide `Operations/clients/npm.md`):
+- Implementation (`formats/npm/hosted.py`, `group.py`, `publish.py`; client guide `Operations/clients/npm.md`):
   - **Publish** (`PUT /<pkg>` with `_attachments`, what `npm publish` sends): body ≤ 100 MiB, parsed in a thread;
     exactly one version and one attachment (named `<name>-<version>.tgz`, scoped: `@scope/name-<version>.tgz` as npm
     sends it, or the bare name); the version must be strict SemVer and name the URL's package; base64 decoded
@@ -325,7 +325,9 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
     pnpm/Yarn/Bun publish use the same requests and are not in the harness yet; their installs and audits through a
     proxy are (pnpm 12, Yarn 1, Yarn 4, Bun 1.4; `tests/clients/npm/pm.sh`).
 
-## apt (Debian, Ubuntu, Raspberry Pi OS) — Phase 2 (proxy), Phase 5 (hosted)
+**Limitations.** `npm star`, `owner`, `access`, `team` and web login are not offered. After a cleanup run removes hosted tarballs, their versions stay in the packument until the package next changes or a client asks for a missing tarball.
+
+## apt (Debian, Ubuntu, Raspberry Pi OS)
 - Layout under the upstream base: `dists/<suite>/{InRelease,Release,Release.gpg}`,
   `dists/<suite>/<component>/binary-<arch>/Packages{,.gz,.xz}`, `.../i18n/Translation-*`, `Contents-*`,
   `dists/<suite>/<component>/dep11/*`, **`by-hash/SHA256/<hash>`** paths, `pool/...` package files.
@@ -347,7 +349,7 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
 - **Suites may be several segments deep**: `deb https://repo.example.com/apt/debian bookworm/mongodb-org/8.0 main`
   (third-party vendor repositories) means `dists/bookworm/mongodb-org/8.0/InRelease`,
   `dists/bookworm/mongodb-org/8.0/main/binary-amd64/Packages.gz`; old Debian security used `buster/updates`.
-  Components may be several segments too (`main/debian-installer`, `updates/main`). Built 2026-11-11
+  Components may be several segments too (`main/debian-installer`, `updates/main`). 
   (`formats/apt/suites.py`): `InRelease`/`Release`/`Release.gpg` directly in a directory below `dists/` are the
   release of that suite, whatever its depth (not below a `binary-<arch>`/`source`/`i18n`/`dep11`/`cnf` directory:
   `main/binary-amd64/Release` is an index). For an index or `by-hash` path the suite is the longest directory with
@@ -357,18 +359,18 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   first segment. Suites are at most 8 segments deep; deeper or non-normal paths answer 404 without an upstream
   request. `apt_pool_index`/`apt_packages` and browse record the full suite name (`bookworm/mongodb-org/8.0`).
 - **Package files outside `pool/`**: a `Packages` `Filename` is a path relative to the repository root and need not
-  start with `pool/` (MongoDB lists `dists/bookworm/mongodb-org/8.0/main/binary-amd64/<name>.deb`). Built
-  2026-11-11: a package or source artefact name (`.deb`, `.udeb`, `.ddeb`, `.dsc`, `*.orig.*`, `*.debian.*`)
+  start with `pool/` (MongoDB lists `dists/bookworm/mongodb-org/8.0/main/binary-amd64/<name>.deb`).
+  A package or source artefact name (`.deb`, `.udeb`, `.ddeb`, `.dsc`, `*.orig.*`, `*.debian.*`)
   anywhere in the repository, `dists/` included, is a pool file (content, verified against the listing that names
   it, else served and recorded `unverified`); index and release names (`Packages*`, `Sources*`, `Translation-*`,
   `Contents-*`, `Release*`, `InRelease`) are never taken for packages.
-- Hosted: upload `.deb` (`PUT`, or `POST` raw or multipart; built 2026-11-22, below); worker regenerates
+- Hosted: upload `.deb` (`PUT`, or `POST` raw or multipart; below); worker regenerates
   `Packages`/`Release`/`InRelease` per suite/component/arch, signs with the repo key (`InRelease` clearsigned +
   `Release.gpg`), publishes atomically (write new index blobs, then swap metadata assets).
 - Clients: apt (deb822 `.sources` and one-line), with `Signed-By`; Debian 12/13, Ubuntu 24.04/26.04, Raspberry Pi OS (arm64/armhf).
-- Built (M0, T-P2-APT min): proxy `GET`/`HEAD` (`formats/apt/plugin.py`; parsers, suite rules and index naming in
+- Proxy implementation: proxy `GET`/`HEAD` (`formats/apt/plugin.py`; parsers, suite rules and index naming in
   `waystation_common.apt` (`deb822`, `suites`, `indexes`), `apt_pool_index`/`apt_packages` writes in
-  `waystation_common.db.apt`, shared with the worker since 2026-11-21). Indexes at plain paths are stored under their `by-hash/SHA256/<h>` key from the
+  `waystation_common.db.apt`, shared with the worker). Indexes at plain paths are stored under their `by-hash/SHA256/<h>` key from the
   `InRelease` (else `Release`) currently cached for the suite and fetched from the upstream `by-hash` path when the
   `Release` says `Acquire-By-Hash: yes`; files the `Release` does not list answer 404. `by-hash/SHA256` and
   `by-hash/SHA512` are accepted (other algorithms 404). `Packages` files (any of `.xz`, `.gz`, `.bz2`, `.lzma`,
@@ -379,7 +381,7 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   files are kept in a small in-process LRU keyed by blob digest. Real clients: apt on Debian 13 and Ubuntu 26.04
   (`tests/clients/apt/`); Raspberry Pi OS arm64 opt-in (`ARM64=1`, needs arm64 emulation). Not yet (proxy):
   `Release` signature checks by Waystation (clients verify), components (`components` collection).
-- Worker refresh (2026-11-21, job `apt.refresh`, queue `prefetch`, `waystation_worker.apt`; built-in schedule
+- Worker refresh (job `apt.refresh`, queue `prefetch`, `waystation_worker.apt`; built-in schedule
   `41 * * * *` over every apt proxy, or one repository by `repo_id`; dedupe `apt.refresh:<repo id|*>`). Per suite
   with a cached `InRelease`/`Release` (flat: per directory): (1) when the cached copy is older than
   `metadata_max_age_s`, the suite's cached `InRelease`, `Release` and `Release.gpg` are revalidated with a
@@ -402,10 +404,10 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   results are the same (content-addressed blobs, compare-and-set pool updates). Idempotent: a second run with
   nothing stale calls no upstream and changes nothing. Tests: `Application/Worker/tests/test_apt_refresh.py`,
   `Application/Server/tests/test_apt_refresh_integration.py`.
-- Browse (T-S09 min): the background indexing pass (and the worker refresh) writes each `Packages` stanza (name, version, architecture, section) to
+- Browse: the background indexing pass (and the worker refresh) writes each `Packages` stanza (name, version, architecture, section) to
   `apt_packages`, replacing the previous generation of that index; suites come from the cached `InRelease`/`Release`
   (origin, codename, date, components, architectures).
-- Built (T-P5-APTH, hosted, 2026-11-22): `formats/apt/hosted.py`, package reader `deb.py`, worker
+- Hosted implementation: `formats/apt/hosted.py`, package reader `deb.py`, worker
   `waystation_worker.apt_index`, records in `apt_hosted_packages` (`waystation_common.db.apt_hosted`). One distribution per
   repository (option `distribution`, one name without `/`), `components` (default `main`) and `architectures`
   (default `amd64 arm64`); `flat` is refused. Upload `PUT <repo>/[<anything>.deb]` or `POST <repo>/` (raw body, or
@@ -437,7 +439,9 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   `main`; the Nexus signing key is reported, not imported). Not yet: key import/rotation, source packages, several
   distributions per repository, `Contents`/`Translation` indexes, groups (SPEC §4.3).
 
-## yum / dnf (RHEL family, EPEL, Oracle, Fedora) — Phase 2 (proxy), Phase 5 (hosted)
+**Limitations.** Hosted: one distribution per repository, no source packages, no `Contents`/`Translation` indexes, no signing-key import, rotation or export. No group repositories.
+
+## yum / dnf (RHEL family, EPEL, Oracle, Fedora)
 - `repodata/repomd.xml` (+ `.asc`), `repodata/<hash>-primary.xml.{gz,zst}`, `filelists`, `other`, `updateinfo`,
   `modules.yaml`, `comps`; packages anywhere under the base.
 - Proxy: `repomd.xml(.asc)` = metadata; files referenced by `repomd.xml` = content validated against its
@@ -446,7 +450,7 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
 - Hosted: upload RPMs; worker builds `repodata` (createrepo-equivalent: primary/filelists/other, zstd), signs
   `repomd.xml` (`repomd.xml.asc`), atomic swap. Optional package signing is out of scope.
 - Clients: dnf 4/5, yum, zypper (smoke only).
-- Built (T-P2-YUM min, proxy): `formats/yum/plugin.py`, defused bounded parsers in `repodata.py`, `yum_packages`
+- Proxy implementation: `formats/yum/plugin.py`, defused bounded parsers in `repodata.py`, `yum_packages`
   access in `db/yum.py`. A *repository directory* is any directory holding `repodata/`; one Waystation repository
   serves every directory under its upstream URL. `repodata/repomd.xml` is metadata (revalidated, passed through,
   refused with 502 unless it parses); `repomd.xml.asc`/`.key` are small metadata and a newly stored `repomd.xml`
@@ -464,7 +468,7 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   `primary` (waiting for it), then validates; otherwise it is served and recorded `unverified` and dropped if a later
   listing disagrees (or uses another algorithm). Other paths (`.treeinfo`, keys) are metadata by path, so files
   over 128 MiB outside `repodata/` and packages (installer images) are not supported.
-- Built (T-P2-YUM full, 2026-11-10): **verified `repomd.xml`** (option `repomd_keys`: the upstream's armored public
+- **Verified `repomd.xml`** (option `repomd_keys`: the upstream's armored public
   keys, validated when saved): right before a `repomd.xml` is fetched or revalidated upstream (the engine's `expect`
   hook), its `repomd.xml.asc` is fetched fresh and cached, and the new `repomd.xml` is refused (502, nothing cached;
   stale-on-error applies) unless that signature verifies with one of the keys (`waystation_common.openpgp`,
@@ -480,10 +484,10 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   as `gpgkey`), AlmaLinux 10 (`extras`), Oracle Linux 9 (`addons`, `getPackage/` locations, filelists fetched by
   dnf 4.14), dnf 5 on Fedora 43 and zypper on openSUSE Leap 16 (smoke: makecache/refresh with the `.asc` verified by
   the client, download, `rpm -K`); fixtures about 8.7 MB (EPEL's primary and updateinfo), budget 16 MiB. The create
-  dialog offers yum (proxy) with Rocky/AlmaLinux/Oracle/EPEL presets and the options. Not yet: hosted (T-P5-YUMH),
+  dialog offers yum (proxy) with Rocky/AlmaLinux/Oracle/EPEL presets and the options. Not yet: hosted,
   yum 3 (EL7), the `components` collection, a worker-side refresh of `primary` and re-verification of unverified
   packages (they are re-checked whenever a newer listing is cached). Group: not supported (SPEC §4.3).
-- Built (T-P5-YUMH, hosted, 2026-11-10): `formats/yum/hosted.py`, header reader `rpm.py`, worker
+- Hosted implementation: `formats/yum/hosted.py`, header reader `rpm.py`, worker
   `waystation_worker.yum`. Upload `PUT <path>.rpm` (stored at that path) or `POST <dir>/` with the package as the body
   (stored as `<dir>/<name>-<version>-<release>.<arch>.rpm`); nothing under `repodata/`. The RPM header (lead, signature
   header padded to 8, main header; at most 64 MiB of header and 200 000 entries; every offset/count checked against
@@ -502,7 +506,9 @@ Spec: npm registry API (registry.npmjs.org behaviour; CouchDB-derived).
   Hosted repositories serve stored files only (404 before the first build). Clients: dnf 4 on Rocky Linux 10 in the
   harness (`repo_gpgcheck=1`, `gpgcheck=0` for the unsigned test package, API token as the password).
 
-## PyPI — Phase 5
+**Limitations.** Hosted: no signing-key import, rotation or export, no zstd repodata, no RPM package signing. No group repositories.
+
+## PyPI
 Specs: PEP 503 (simple HTML), PEP 691 (JSON simple API, `application/vnd.pypi.simple.v1+json`), PEP 658/714
 (`.metadata` files, `data-core-metadata`), PEP 700 (versions, upload-time), legacy JSON API (`/pypi/<pkg>/json`).
 - `GET /repository/<repo>/simple/` (index), `/simple/<normalised-name>/` (PEP 503 normalisation, redirect
@@ -514,7 +520,7 @@ Specs: PEP 503 (simple HTML), PEP 691 (JSON simple API, `application/vnd.pypi.si
   metadata extraction from the wheel/sdist; yank support.
 - Group: merge simple pages (union of files by filename; first member wins).
 - Clients: pip, uv, poetry, pdm, twine.
-- Built (T-P5-PYPI, `formats/pypi/`):
+- Implementation (`formats/pypi/`):
   - Routes: `simple/`, `simple/<project>/`, `packages/<project>/<file>` (+ `.metadata`), `pypi/<project>[/<version>]/json`,
     `POST` to the repository root (or `legacy/`). A non-normalised project name or a missing trailing slash answers
     `301` to the canonical URL (`?` query kept). `Accept` negotiation (PEP 691): highest `q`; between equals an
@@ -554,7 +560,7 @@ Specs: PEP 503 (simple HTML), PEP 691 (JSON simple API, `application/vnd.pypi.si
   - Clients verified (harness, recorded pypi.org fixtures): pip 26, uv 0.13 (`uv pip`, `uv publish`), twine 7,
     Poetry 2.5, PDM 2.29.
 
-## Maven — Phase 5
+## Maven
 Spec: Maven 2 repository layout (maven-resolver behaviour); `maven-metadata.xml` model 1.1.0.
 - Path layout `<group/as/path>/<artifactId>/<version>/<artifactId>-<version>[-classifier].<ext>`, plus checksums
   `.md5 .sha1 .sha256 .sha512` and `.asc`. `maven-metadata.xml` at artifact and version (SNAPSHOT) level = metadata,
@@ -563,7 +569,7 @@ Spec: Maven 2 repository layout (maven-resolver behaviour); `maven-metadata.xml`
 - Options (`MavenOptions`): `version_policy` `release` (default) / `snapshot` / `mixed` (proxies and hosted; groups
   skip members whose policy excludes a path's version), `layout_policy` `strict` (default: only layout paths; others
   404 on a proxy, 400 on deploy) / `permissive`.
-- Proxy (T-P5-MAVEN): upstream `https://repo.maven.apache.org/maven2/` (Central) or others, paths 1:1.
+- Proxy: upstream `https://repo.maven.apache.org/maven2/` (Central) or others, paths 1:1.
   `maven-metadata.xml` is metadata (revalidated; refused with 502 unless it parses: defusedxml, no DTD/entities,
   4 MiB, ≤ 100k entries). Artifacts are content verified while streaming against the upstream `.sha1`, else `.sha256`
   (fetched first and cached as small metadata assets, validated as hex digests); neither = unverified, computed
@@ -596,7 +602,7 @@ Spec: Maven 2 repository layout (maven-resolver behaviour); `maven-metadata.xml`
   non-timestamped SNAPSHOT, refusals); each consumes what it published through the group.
 - Search: Maven components are a global search source (artifactId, named `groupId:artifactId`, per version).
 
-## Go modules — Phase 5
+## Go modules
 Spec: GOPROXY protocol (`go help goproxy`), checksum database (`sum.golang.org`).
 - `/<module>/@v/list`, `/<module>/@v/<ver>.info|.mod|.zip`, `/<module>/@latest`; module paths case-encoded
   (`!` + lower-case). `list` and `@latest` = metadata; `.info/.mod/.zip` = content.
@@ -605,7 +611,7 @@ Spec: GOPROXY protocol (`go help goproxy`), checksum database (`sum.golang.org`)
   direct access to sum.golang.org (the go command asks the proxy's `/sumdb/<name>/supported` first). Private modules:
   `GOPRIVATE` / `GONOSUMDB` for those paths (documented).
 - Clients: go 1.24+.
-- Built (T-P5-GO, `formats/go/`; proxy and group, no hosted):
+- Implementation (`formats/go/`; proxy and group, no hosted):
   - Paths (`modpath`): module paths and versions are case-decoded (`!` + lower-case; an upper-case letter in a request
     is accepted), validated as `golang.org/x/mod/module` does (path elements, host-name first element, version
     characters, ≤ 500/128 characters) and re-encoded, so asset keys and upstream URLs use the one canonical
@@ -640,7 +646,7 @@ Spec: GOPROXY protocol (`go help goproxy`), checksum database (`sum.golang.org`)
     `go list -m -versions`, `go run`) through a proxy with sum.golang.org verified through it, and through a group
     with `.netrc` credentials (over HTTPS: the go command sends credentials over HTTPS only).
 
-## Helm (classic repositories) — Phase 5
+## Helm (classic repositories)
 - `index.yaml` (metadata) + chart `.tgz` (content) + optional `.prov`. Proxy rewrites chart URLs in `index.yaml`
   (absolute and relative) to the repo. Hosted: `PUT`/`POST` chart upload (ChartMuseum-compatible `POST /api/charts`
   optional), worker regenerates `index.yaml`. Group merges `index.yaml`.
@@ -648,7 +654,6 @@ Spec: GOPROXY protocol (`go help goproxy`), checksum database (`sum.golang.org`)
   (`helm repo add --username/--password`).
 - Clients: helm 3/4 (`helm repo add`, `helm pull`, `helm cm-push` optional).
 
-As implemented (T-P5-HELM, `waystation_server.formats.helm`; client guide `Documents/Operations/clients/helm.md`):
 - **Index loading** (`index.py`): JSON when the bytes are JSON, else YAML through a loader that resolves only `null`
   implicitly (every other plain scalar stays a string, so `version: 1.10` is never the float `1.1` and `yes` is never
   a boolean), refuses Python tags and aliases (billion laughs), bounded in nodes and depth; runs in a thread. Field
@@ -681,7 +686,9 @@ As implemented (T-P5-HELM, `waystation_server.formats.helm`; client guide `Docum
 - Not done: `helm cm-push` itself in the harness (its multipart request is tested with curl),
   global search over `helm_charts` (chart files are found as cached files), signing/verifying provenance.
 
-## Terraform / OpenTofu — Phase 5
+**Limitations.** Provenance files are stored and served but not verified. Global search finds chart files, not charts as packages.
+
+## Terraform / OpenTofu
 Specs: Provider Network Mirror Protocol, Provider Registry Protocol, Module Registry Protocol, Remote Service
 Discovery (`/.well-known/terraform.json`).
 - **Providers (proxy)**: implement the *network mirror protocol* at `/repository/<repo>/<hostname>/<namespace>/<type>/index.json`
@@ -699,8 +706,6 @@ Discovery (`/.well-known/terraform.json`).
   number can exist.
 - Works for registry.terraform.io and registry.opentofu.org upstreams. Clients: terraform 1.9+, tofu 1.8+.
 
-As implemented (T-P5-TFP, `waystation_server.formats.terraform`; client guide `Documents/Operations/clients/terraform.md`;
-proxy repositories only, the modules proxy and the hosted repository are T-P5-TFM):
 - **Routes** (`paths`): `<hostname>/<namespace>/<type>/index.json`, `<hostname>/<namespace>/<type>/<version>.json` and
   the archive `<hostname>/<namespace>/<type>/<version>/<os>/<arch>/<filename>` (the URL the version document gives,
   relative to it). Host names, namespaces and types are lower-cased and validated (host `[:port]`, `[a-z0-9-]` parts,
@@ -739,8 +744,6 @@ proxy repositories only, the modules proxy and the hosted repository are T-P5-TF
   and registry.opentofu.org (GitHub release assets behind a redirect), anonymous and with an API token in a
   `credentials` block (bearer); a token limited to other repositories is refused.
 
-As implemented (T-P5-TFM: the module registry proxy, the hosted repository and service discovery; `formats.terraform`
-`modules`, `hosted`; `waystation_server.wellknown`):
 - **Routes** (`paths.parse_registry_route`), below `/repository/<repo>/v1/`: `modules/<namespace>/<name>/<system>/
   versions`, `.../<version>/download`, `.../<version>/archive.tar.gz` (or `archive.zip`); the hosted repository also
   `PUT`/`DELETE .../<version>` and `providers/<namespace>/<type>/versions`, `.../<version>/download/<os>/<arch>`,
@@ -801,7 +804,7 @@ As implemented (T-P5-TFM: the module registry proxy, the hosted repository and s
   and installed with a bearer token in a `credentials` block (signed downloads); an invalid token and a token limited
   to other repositories are refused; an unsigned anonymous archive download answers `401`.
 
-## Ansible Galaxy — Phase 5
+## Ansible Galaxy
 Spec: Galaxy NG / Pulp Ansible v3 API (what `ansible-galaxy` speaks to galaxy.ansible.com).
 - Discovery `GET /repository/<repo>/api/` → `available_versions: {v3: "v3/"}`.
 - Collections: `/api/v3/collections/<ns>/<name>/`, `/versions/`, `/versions/<ver>/` (with `download_url`,
@@ -816,7 +819,6 @@ Spec: Galaxy NG / Pulp Ansible v3 API (what `ansible-galaxy` speaks to galaxy.an
   content (documented limitation).
 - Clients: ansible-galaxy (ansible-core 2.17+), `ansible-galaxy collection install -s <url>` / `ansible.cfg` server list.
 
-As implemented (T-P5-GALAXY, `waystation_server.formats.galaxy`; client guide `Documents/Operations/clients/galaxy.md`):
 - **Routes** (`plugin.parse_route`, trailing slashes optional): `''` (discovery with `api/` prefixes, so the
   repository URL is the server URL) and `api/` (`{"available_versions": {"v3": "v3/", "v1": "v1/"}}`, `v1` only when
   a proxy (member) proxies roles); `api/v3/collections/<ns>/<name>/[versions/[<version>/]]`; the Galaxy NG aliases
@@ -869,7 +871,9 @@ As implemented (T-P5-GALAXY, `waystation_server.formats.galaxy`; client guide `D
   group, import polled), `role install` (proxy). Not done: Galaxy in the perf suite, global search, collection
   signature verification (upstream `signatures` are passed through), publishing roles.
 
-## Swift Package Registry — Phase 5
+**Limitations.** Collection signatures are passed through, not verified. Role publishing is not offered (roles are proxied read-only). Global search finds collection files, not collections as packages.
+
+## Swift Package Registry
 Spec: Swift Package Registry Service (SE-0292, `swift package-registry`). `Accept: application/vnd.swift.registry.v1+json`, responses carry `Content-Version: 1`.
 - Endpoints: `GET /{scope}/{name}` (releases), `GET /{scope}/{name}/{version}` (metadata, `resources[{name:"source-archive", checksum}]`),
   `GET /{scope}/{name}/{version}/Package.swift` (+ `?swift-version=`), `GET /{scope}/{name}/{version}.zip`,
@@ -884,7 +888,7 @@ Spec: Swift Package Registry Service (SE-0292, `swift package-registry`). `Accep
   from URLs. Optionally proxy another registry when configured.
 - Hosted: publish via `swift package-registry publish`; signature verification optional (record signer).
 - Clients: Swift 6 toolchain on Linux in tests (`swift package-registry set`, `--replace-scm-with-registry`).
-- Built (T-P5-SWIFT, `formats/swift/`; proxy and hosted, no groups):
+- Implementation (`formats/swift/`; proxy and hosted, no groups):
   - Routes under `/repository/<repo>/`: `<scope>/<name>` (`.json` optional) release list, highest first, removed
     releases with a `410` `problem`, `Link` `latest-version` and `canonical`; `<scope>/<name>/<version>` (`.json`
     optional) release information (`id`, `version`, `resources[source-archive]` with `checksum` and `signing`,
@@ -937,7 +941,9 @@ Spec: Swift Package Registry Service (SE-0292, `swift package-registry`). `Accep
   - Not yet: proxying another registry (only SCM-backed), signature verification, asynchronous publication,
     groups, release-list pagination, the live smoke for swift.
 
-## NuGet v3 — Phase 6
+**Limitations.** Proxying another package registry is not offered (the proxy is SCM-backed). Signatures are recorded and passed to clients, not verified. Publication is synchronous only; release lists are not paginated. No group repositories.
+
+## NuGet v3
 Service index `index.json` (resources: `PackageBaseAddress/3.0.0` flat container, `RegistrationsBaseUrl`,
 `SearchQueryService`, `PackagePublish/2.0.0`). Rewrite every resource URL; registration pages contain absolute
 URLs (rewrite); `.nupkg` content validated against catalog/registration hash when available. Hosted push with
@@ -948,7 +954,7 @@ URLs (rewrite); `.nupkg` content validated against catalog/registration hash whe
   numbers, then a release after its prereleases, labels by dot-separated identifiers (numeric before text,
   case-insensitive), metadata ignored. SemVer 2.0.0 versions (dotted label or metadata) are hidden from clients that do
   not send `semVerLevel=2.0.0`. Ids: letters, digits, `.`, `_`, `-`, at most 100, compared case-insensitively.
-- Built (T-P6-NUGET, `formats/nuget/`):
+- Implementation (`formats/nuget/`):
   - Routes under `/repository/<repo>/`: `index.json` (service index, rendered per request for every type, absolute
     URLs from `WAYSTATION_BASE_URL`: `v3-flatcontainer/` as `PackageBaseAddress/3.0.0`, `v3/registration/` as every
     `RegistrationsBaseUrl` variant (SemVer 2 included), `query` as every `SearchQueryService` variant, and
@@ -1002,10 +1008,12 @@ URLs (rewrite); `.nupkg` content validated against catalog/registration hash whe
   - Not yet: NuGet.exe in the harness (needs Windows or Mono), symbol packages (`.snupkg`, `SymbolPackagePublish`),
     `SearchAutocompleteService`, vulnerability data, NuGet v2 upstreams, the live smoke.
 
-## Cargo (sparse index) — Phase 6
+**Limitations.** Symbol packages (`.snupkg`) and the autocomplete resource are not offered.
+
+## Cargo (sparse index)
 Specs: Cargo's registry index (sparse protocol, RFC 2789), registry web API (`cargo publish`/`yank`/`owner`/`search`),
 registry authentication (RFC 3139, `auth-required`). Client: `sparse+<base>/repository/<repo>/index/`.
-- Built (T-P6-CARGO, `formats/cargo/`; proxy, hosted and group):
+- Implementation (`formats/cargo/`; proxy, hosted and group):
   - Routes under `/repository/<repo>/`: `index/config.json` (generated per request: `dl` =
     `<repo>/crates/{crate}/{crate}-{version}.crate`, `api` = the repository URL, `auth-required: true` when the
     request carried credentials); index files `index/1/<n>`, `index/2/<n>`, `index/3/<c>/<n>`, `index/<ab>/<cd>/<n>`
@@ -1061,7 +1069,7 @@ registry authentication (RFC 3139, `auth-required`). Client: `sparse+<base>/repo
   - Not yet: owner management, `cargo search` against the upstream (only crates this repository knows), the live
     smoke for cargo, indexes served over the older Git protocol.
 
-## RubyGems — Phase 6 (built, T-P6-GEMS)
+## RubyGems
 RubyGems repositories (`formats/rubygems/`), proxy, hosted and group. Clients: gem and Bundler
 (`Operations/clients/rubygems.md`).
 
@@ -1127,7 +1135,9 @@ cleanup and the browse views (`GET rubygems/gems`, `GET rubygems/versions?gem=`:
 checksum, Ruby requirement, runtime dependencies, cached, pusher); global search finds gems by name. Prefetch: see
 "Prefetch". Nexus: `rubygems-*` repositories import; gems are kept forever.
 
-## Composer — Phase 6 (built, T-P6-COMPOSER)
+**Limitations.** Gem signatures (`*.sig`) are stored but not verified. Bundler before 2.5 (MD5 ETags) is not supported. Groups have no writable member.
+
+## Composer
 Composer 2 repositories (`formats/composer/`), proxy, hosted and group. Client: composer 2 (`Operations/clients/composer.md`).
 
 **Layout** (`/repository/<repo>/`): `packages.json` (rendered per request: `{"packages": [], "metadata-url":
@@ -1182,7 +1192,9 @@ Composer version order (`dev-*` branches first, then numbers, `-dev` < alpha < b
 finds packages by name. Prefetch: see "Prefetch". Nexus: `composer-*` repositories (the Composer plugin's) are
 imported with default options; content is kept forever (pinned).
 
-## Conda — Phase 6 (built, T-P6-CONDA)
+**Limitations.** Composer 1 `providers` metadata, the search/list API and security advisories are not offered. Groups have no writable member.
+
+## Conda
 Conda channels (`formats/conda/`), proxy and hosted. No groups: conda merges the channels a client lists itself, and
 merging repodata of several channels per request is not worth its cost; creating one is refused, as for apt.
 Clients: conda, mamba / micromamba, pixi (`Operations/clients/conda.md`).
@@ -1241,7 +1253,9 @@ Clients verified (harness, recorded conda-forge fixtures trimmed to the entries 
 environment through the proxy; `.conda` and `.tar.bz2` uploads to a hosted channel installed with a token; anonymous
 refused). Not yet: JLAP and sharded repodata, groups, conda and pixi in the harness, the live smoke.
 
-## Alpine apk — Phase 6 (built, T-P6-APK)
+**Limitations.** JLAP and sharded repodata answer 404 (clients fall back to the full `repodata.json`). No group repositories.
+
+## Alpine apk
 Alpine apk v2 repositories (`formats/apk/`, shared parsing in `waystation_common.apk`), proxy and hosted. Client: apk
 (`Operations/clients/apk.md`). Groups are not supported: an index is signed per repository and apk trusts one key per
 signature, so merged indexes would need re-signing (the create form and the API refuse apk groups).
@@ -1302,7 +1316,9 @@ upstream" and path-less warm items only. Real client: apk-tools on Alpine 3.22 (
 package assembled with busybox tools, the signed index refused until the served key is trusted, then `apk add`,
 upgrade and delete. Not yet: groups, apk v3 indexes and packages, verifying upstream index signatures in Waystation.
 
-## Hugging Face — Phase 6 (built, T-P6-HF)
+**Limitations.** No group repositories (an index is signed per repository). apk v3 (`.adb`) packages and indexes are not supported. Upstream index signatures are verified by apk on the client, not by Waystation.
+
+## Hugging Face
 A proxy of the Hugging Face Hub (`formats/huggingface/`) for `huggingface_hub` and everything built on it
 (transformers, diffusers, datasets, sentence-transformers, the `hf` CLI): `HF_ENDPOINT=<base>/repository/<repo>` (no
 trailing slash). Models and datasets; proxy repositories only (hosted and group repositories are refused: the Hub's
@@ -1373,3 +1389,5 @@ Clients verified (harness, recorded fixtures of `julien-c/dummy-unknown`): huggi
 `hf download`, `snapshot_download`; again from a fresh client cache with the repository offline; a Waystation API
 token as `HF_TOKEN`, a bad token refused. Not yet: the Hub's upload API (hosted), groups, Spaces, Xet passthrough,
 `paths-info`, revisions with `/` other than `refs/pr|convert/...`, the live smoke.
+
+**Limitations.** Proxy only: no hosted repositories (Hub upload API) and no groups. Spaces, Xet transfer passthrough and the `paths-info` API are not offered (hf_xet clients download over HTTP).
