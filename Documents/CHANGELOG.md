@@ -6,7 +6,7 @@ All notable changes, newest first. Each entry: date, task ID, summary.
 - T-F07: identical blob commits from several processes or replicas sharing the data directory now place the file
   once: `BlobStore.commit` puts the upload in place with a hard link (fails if the blob is there; an NFS-retransmitted
   link that already succeeded counts as placed) and falls back to the previous rename on filesystems without hard
-  links (adr/0011, proposed). `make test-nfs` runs the blob store tests on an NFSv4.1 mount from a userspace
+  links (adr/0011, accepted). `make test-nfs` runs the blob store tests on an NFSv4.1 mount from a userspace
   NFS-Ganesha container (`Build/Containers/compose.nfs.yaml`, `Build/ci/test_nfs.sh`), including six processes racing
   the same commit; part of `make check` and the Gitea `check.yml` (the runner must allow privileged containers).
 - T-F06: done. `test_registry_matches_data_model` checks that DATA_MODEL §1 and the collection registry list the

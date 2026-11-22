@@ -1,6 +1,6 @@
 # ADR 0011: Blob commits place the file with a hard link, falling back to rename
 
-Status: proposed (2026-11-22, T-F07). Needs the owner's approval before merging.
+Status: accepted (2026-11-22, owner). Proposed 2026-11-22 with T-F07.
 
 ## Context
 ADR 0002 and ARCHITECTURE §5 make blob commits atomic renames from `uploads/` into `blobs/sha256/...`. `rename`

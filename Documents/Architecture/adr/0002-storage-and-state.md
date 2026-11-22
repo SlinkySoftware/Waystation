@@ -8,8 +8,9 @@ the stack. Live activity, request coalescing across replicas, rate counters and 
 
 ## Decision
 - **Blob store**: one directory (`WAYSTATION_DATA_DIR`), sha256 content-addressed, global de-duplication across
-  repos and formats, atomic rename commits, uploads staged on the same filesystem. No other state on that path
-  except encrypted signing keys. Works on local disk and NFS/SMB.
+  repos and formats, atomic rename commits (since adr/0011: a hard link, rename where there are none), uploads
+  staged on the same filesystem. No other state on that path except encrypted signing keys. Works on local disk and
+  NFS/SMB.
 - **MongoDB** (bundled single-node replica set by default, external supported): configuration, metadata,
   identity, audit, job history, and stats in native time-series collections. Replica set mode enables change
   streams (cache invalidation across replicas) and transactions (hosted index swaps).
