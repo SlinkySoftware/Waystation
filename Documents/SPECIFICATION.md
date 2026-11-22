@@ -755,7 +755,7 @@ settings changes, webhook changes. Searchable in the UI, exported via API; reten
   from Nexus"): reads a Nexus Repository 3 configuration through its REST API (`/service/rest/v1/repositories`, then
   `/service/rest/v1/repositories/<format>/<type>/<name>` per repository, `maven` for `maven2`; a repository without
   a detail endpoint is mapped from its list entry) and creates equivalent repositories; cached content is re-fetched
-  on demand, hosted content can be migrated by a worker job (Phase 6).
+  on demand; hosted content is copied with client tools (`Documents/Operations/MIGRATING_FROM_NEXUS.md`).
   - **Connection**: the administrator gives the Nexus base URL (http(s), no credentials in it) and a Nexus
     administrator's username and password, sent as basic auth to that origin only, for that request only: never
     stored, logged, audited or returned. The SSRF guard applies (a Nexus on a private or loopback address needs

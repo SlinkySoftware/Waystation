@@ -3,6 +3,8 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-M04 dropped (owner): no Nexus hosted-content migration job; MIGRATING_FROM_NEXUS.md and SPECIFICATION say
+  hosted content is copied with client tools.
 - T-F03: no scheduled CI any more (owner): the Gitea `clients-live` and `perf` workflows lost their nightly runs.
   `clients-live` runs by hand only (the `WAYSTATION_CI_CLIENTS_LIVE` switch is gone); `perf` runs the CI profile on
   every push to `main` and either profile by hand. CI.md, SPECIFICATION and the harness/perf READMEs updated.

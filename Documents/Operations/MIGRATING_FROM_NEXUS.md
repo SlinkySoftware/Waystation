@@ -112,8 +112,8 @@ done
 Use a token with the `write` scope restricted to the target repositories, and set the hosted repository's write
 policy to `allow_redeploy` while copying if you may run the loop twice (put it back afterwards).
 
-Hosted npm, apt and yum repositories are not served by Waystation yet (the import report marks them
-*unsupported*); keep them in Nexus until they are (TASKS T-M04 adds a migration job for hosted content).
+Hosted repositories of a format or type Waystation does not serve are marked *unsupported* in the import report;
+keep them in Nexus. There is no built-in job that copies hosted content: use the client tools as above.
 
 ## 5. Warm the cache (optional)
 
