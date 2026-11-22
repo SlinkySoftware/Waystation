@@ -1,21 +1,19 @@
-# Gitea: the nightly live-upstream smoke of the real-client harness (T-P2-HARNESS; tests/clients/README.md,
+# Gitea: the live-upstream smoke of the real-client harness (T-P2-HARNESS; tests/clients/README.md,
 # Documents/Operations/CI.md). Every format's client scripts run against the live public upstreams through the fake
 # upstream in `live` mode (forward, store nothing), so upstream changes that the committed fixtures cannot show
-# (new index formats, CDN redirects, token realms) surface within a day. Gitea runs on local runners at no cost.
+# (new index formats, CDN redirects, token realms) surface. Manual runs only (no schedule, owner 2026-11-22).
+# Gitea runs on local runners at no cost.
 #
 # The runner must run jobs on the host (an `ubuntu-latest:host` runner label) or in a container whose checkout path
 # is the same on the Docker host, with network access to the public upstreams. Formats run one at a time.
 #
 # Optional organisation-level settings, referenced here by name only:
-#   vars.WAYSTATION_CI_CLIENTS_LIVE  'false' skips the workflow
 #   vars.WAYSTATION_CI_ARM64         'true' also runs the arm64 clients (Raspberry Pi OS): QEMU is registered on the
 #                                    runner host with docker/setup-qemu-action, as the image workflow does
 # Actions are pinned by commit SHA (version in the comment).
 name: clients-live
 
 on:
-  schedule:
-    - cron: '45 3 * * *'
   workflow_dispatch:
     inputs:
       format:
@@ -34,7 +32,6 @@ env:
 jobs:
   live:
     name: make clients-test MODE=live
-    if: ${{ vars.WAYSTATION_CI_CLIENTS_LIVE != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:

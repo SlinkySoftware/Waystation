@@ -1,11 +1,11 @@
 # Live-upstream smoke for the real-client harness (SPECIFICATION §11, tests/clients/README.md, Operations/CI.md).
 # Runs every format's client scripts against the live upstreams through the fake upstream in `live` mode (forward,
 # store nothing), arm64 clients included (QEMU on the runner, ARM64=1). PR-time replay runs are in ci.yml. The
-# nightly schedule runs on the Gitea mirror (.gitea/workflows/clients-live.yml), where runners cost nothing.
+# same workflow exists on the Gitea mirror (.gitea/workflows/clients-live.yml), where runners cost nothing.
 name: clients-live
 
 on:
-  # Manual only: GitHub Actions cost money (no nightly schedule here).
+  # Manual only: GitHub Actions cost money.
   workflow_dispatch:
     inputs:
       format:

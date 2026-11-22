@@ -2,7 +2,7 @@
 # apt through Waystation apt proxies (client-debian: Debian 13, client-ubuntu: Ubuntu 26.04, client-raspios: Raspberry
 # Pi OS arm64, opt-in with ARM64=1; HARNESS_CLIENT says which). apt keeps verifying the distribution's own signature (Signed-By unchanged): Waystation passes InRelease
 # through untouched, so a modified Release or index would fail apt-get update. Assertions use only what survives
-# fixture scrubbing. Record and replay use small suites (format.env); the live run (nightly) also adds the full base
+# fixture scrubbing. Record and replay use small suites (format.env); the live run also adds the full base
 # suite (trixie, resolute) with translations and every compression type, and installs a package only it has. The debian client also runs hosted.sh: a .deb built with
 # dpkg-deb uploaded to the hosted `apt-hosted` and installed by apt with the repository's signing key.
 set -eu

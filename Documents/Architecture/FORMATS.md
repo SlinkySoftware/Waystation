@@ -7,7 +7,7 @@ cited specs while implementing; when this file is wrong, fix it in the same chan
 ## Definition of done for a format
 1. Plugin under `waystation_server/formats/<format>/` implementing the `Format` contract (ARCHITECTURE §11).
 2. Proxy (and hosted/group where SPEC §4.5 says so) work with **every listed client** in `tests/clients/<format>/`
-   using recorded upstream fixtures; nightly live-upstream smoke passes.
+   using recorded upstream fixtures; the live-upstream smoke (`clients-live`) passes.
 3. Checksums/digests validated (SPEC §4.1); metadata URLs rewritten; conditional requests supported.
 4. Components extracted for browse/search with correct `version_sort`.
 5. "Set me up" snippets for each client; UI browse renderer for the format (delivered in the format's own task).
@@ -67,7 +67,7 @@ Common rules: all format routes live under `/repository/<repo>/` (Nexus-compatib
   upload through the group and delete in the real-client harness. Browse (T-S09 min): the generic folder listing of
   assets (`/api/v1/repositories/{name}/browse`), which shows uploads too. Nexus import creates raw hosted and group
   repositories (T-M01). Not yet: components/search indexing beyond the asset tree, a basic-auth-only client test
-  matrix beyond curl/wget, the nightly live smoke.
+  matrix beyond curl/wget, the live smoke.
 
 ## Docker / OCI — Phase 2
 Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API v2, Docker token auth spec.
@@ -901,7 +901,7 @@ Spec: Swift Package Registry Service (SE-0292, `swift package-registry`). `Accep
     refused), publish + duplicate refused, resolve and build against hosted, anonymous resolve refused, a token for
     other repositories refused, removal answered 410.
   - Not yet: proxying another registry (only SCM-backed), signature verification, asynchronous publication,
-    groups, release-list pagination, the nightly live smoke for swift.
+    groups, release-list pagination, the live smoke for swift.
 
 ## NuGet v3 — Phase 6
 Service index `index.json` (resources: `PackageBaseAddress/3.0.0` flat container, `RegistrationsBaseUrl`,

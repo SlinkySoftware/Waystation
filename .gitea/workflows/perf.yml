@@ -1,6 +1,6 @@
 # Gitea: the k6 performance suite (T-P2-PERF, tests/perf/README.md, Documents/Operations/CI.md). Gitea runs on
-# local runners at no cost. The CI profile runs after every push to main and on manual runs (choose the profile);
-# the full profile (1M assets, 500 concurrent downloads) runs nightly. Since M2 a budget over its limit fails the run.
+# local runners at no cost. The CI profile runs after every push to main; manual runs choose the profile (full:
+# 1M assets, 500 concurrent downloads). No schedule (owner 2026-11-22). Since M2 a budget over its limit fails the run.
 # Each run uploads tests/perf/.results (report.md, measured.json, raw results) as an artifact.
 #
 # The runner must run jobs on the host (an `ubuntu-latest:host` runner label) or in a container whose checkout path
@@ -14,8 +14,6 @@ name: perf
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       profile:
@@ -50,7 +48,7 @@ jobs:
         run: docker build -q -t "$DEV_IMAGE" -f Build/Containers/dev/Dockerfile Build/Containers/dev
       - name: Performance suite
         env:
-          PROFILE: ${{ github.event_name == 'schedule' && 'full' || inputs.profile || 'ci' }}
+          PROFILE: ${{ inputs.profile || 'ci' }}
           STRICT: ${{ inputs.strict && '1' || '' }}
         run: make perf PROFILE="$PROFILE" STRICT="$STRICT"
       - name: Report

@@ -3,6 +3,9 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-F03: no scheduled CI any more (owner): the Gitea `clients-live` and `perf` workflows lost their nightly runs.
+  `clients-live` runs by hand only (the `WAYSTATION_CI_CLIENTS_LIVE` switch is gone); `perf` runs the CI profile on
+  every push to `main` and either profile by hand. CI.md, SPECIFICATION and the harness/perf READMEs updated.
 - **Release 0.2.8** (milestone M2 complete: Nexus parity and cutover): TLS in the web container, split-host compose
   files, the browse performance fix and budgets enforced (below). Docs and examples point at the 0.2.8 images.
   Verified on arm64 before release: the linux/arm64 images on a Raspberry Pi 5 (Debian 13) passed `make e2e-m0`

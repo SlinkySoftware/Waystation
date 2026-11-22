@@ -1054,7 +1054,7 @@ rate limit, API latency triggers). Not exported yet: process CPU/memory, sign-in
 - **Real-client tests** (`tests/clients/<format>/`): containers run the actual clients (docker/podman/skopeo/crane,
   npm/pnpm/yarn, pip/uv/twine, mvn/gradle, apt, dnf, go, helm, terraform/tofu, ansible-galaxy, swift, dotnet nuget,
   cargo, gem, composer, conda) against a Waystation stack with **recorded upstream fixtures** (an offline fake
-  upstream replays captured responses; a nightly job runs against live upstreams). `make clients-test
+  upstream replays captured responses; a manual run goes against the live upstreams). `make clients-test
   FORMAT=<f> MODE=replay|record|live`; fixtures are scrubbed and pass `make clients-check` (forbidden strings,
   size budget). arm64 clients (Raspberry Pi OS) are opt-in (`ARM64=1`) where the host can run linux/arm64
   containers. Client authentication (LDAP and OIDC users, tokens, refusals) is one matrix, `tests/clients/auth/`.
@@ -1081,8 +1081,8 @@ rate limit, API latency triggers). Not exported yet: process CPU/memory, sign-in
 - Gitea Actions (secondary) `.gitea/workflows/images.yml` builds the images on every push to `main` and pushes them
   to the Gitea registry. Registry host and credentials only from org settings (`vars.REGISTRY_HOST`,
   `secrets.REGISTRY_USER` / `secrets.REGISTRY_TOKEN`). `.gitea/workflows/perf.yml` runs `make perf` (CI profile)
-  after every push to `main` and the full profile nightly, uploading the report as an artifact; `clients-live.yml`
-  runs the real-client harness against the live upstreams nightly (arm64 clients optional). Details:
+  after every push to `main` (the full profile by hand), uploading the report as an artifact; `clients-live.yml`
+  runs the real-client harness against the live upstreams by hand (arm64 clients optional). No scheduled CI runs. Details:
   `Documents/Operations/CI.md`.
 - The forbidden-strings check (`make forbidden-strings`, in `make check`) keeps environment details out of the
   public repository: host names outside `Build/ci/allowed_hosts.txt`, non-documentation IPs, keys and tokens fail.

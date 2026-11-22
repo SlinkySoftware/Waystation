@@ -5,7 +5,7 @@ Measures the SPECIFICATION §5.1 budgets against a throwaway Waystation stack an
 
 ```
 make perf                                  # CI profile: a few minutes, modest load
-make perf PROFILE=full                     # SPEC sizes: 1M assets, 500 concurrent downloads, 4 vCPU server (nightly)
+make perf PROFILE=full                     # SPEC sizes: 1M assets, 500 concurrent downloads, 4 vCPU server (by hand)
 make perf STRICT=1                         # fail on every budget over its limit (what M2 switches on)
 PERF_SCENARIOS="hit_small api" make perf   # some scenarios only
 PERF_LARGE_MIB=10240 make perf PROFILE=full  # any profile value can be overridden (here: a 10 GiB cached file)
@@ -91,5 +91,5 @@ always fails `make perf`.
 
 ## CI
 
-`.gitea/workflows/perf.yml` (Gitea runners, no cost): the CI profile on manual runs, the full profile nightly; each
+`.gitea/workflows/perf.yml` (Gitea runners, no cost): the CI profile on every push to main, either profile on manual runs; each
 run uploads `tests/perf/.results/` as an artifact. See `Documents/Operations/CI.md`.
