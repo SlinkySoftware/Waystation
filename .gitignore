@@ -35,6 +35,7 @@ Application/Web/playwright-report/
 tests/**/recordings-tmp/
 tests/clients/.run/
 tests/backup/.run/
+tests/deploy/.run/
 tests/perf/.run/
 tests/perf/.results/
 

@@ -1,0 +1,11 @@
+# Split-host test (tests/deploy/run.sh): the "worker host" (compose.standalone.worker.yaml) on the simulated LAN.
+services:
+  worker:
+    container_name: ${DT_ID}-worker
+    networks:
+      lan: {}
+
+networks:
+  lan:
+    external: true
+    name: ${DT_LAN}

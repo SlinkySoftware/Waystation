@@ -1,16 +1,17 @@
 # Waystation site config (rendered by the nginx image's envsubst step; only ${WAYSTATION_*} variables are
 # substituted, nginx's own $variables are left alone).
-#   WAYSTATION_SERVER_ADDR  host:port of the server service (default waystation-server:8000)
 #   WAYSTATION_DATA_DIR     blob store mount, read-only here (default /var/lib/waystation)
-#   WAYSTATION_WEB_PORT     listen port inside the container (default 8080)
+# The listeners (plain HTTP, or TLS + HTTP/2 with a plain-HTTP redirect) and the server list are rendered by
+# /docker-entrypoint.d/15-waystation.sh into the included *.inc files (WAYSTATION_SERVER_ADDR, WAYSTATION_WEB_PORT,
+# WAYSTATION_TLS_CERT/KEY).
 
 upstream waystation_server {
-    server ${WAYSTATION_SERVER_ADDR};
+    include /tmp/nginx-conf/waystation-upstream.inc;
     keepalive 64;
 }
 
 server {
-    listen ${WAYSTATION_WEB_PORT};
+    include /tmp/nginx-conf/waystation-listen.inc;
     server_name _;
 
     # Large artifacts pass through untouched (SPECIFICATION §8.4): no body size limit, no buffering.
@@ -32,6 +33,13 @@ server {
     proxy_read_timeout 600s;
     # The server answers with X-Accel-Redirect for cached content; let nginx follow it.
     proxy_intercept_errors off;
+
+    # ---- container healthcheck (answered by nginx itself)
+    location = /_web/healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
 
     # ---- SPA (UI_DESIGN; hashed assets are immutable, index.html never cached)
     location = / {

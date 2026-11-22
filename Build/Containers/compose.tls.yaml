@@ -1,0 +1,20 @@
+# Optional override: TLS in the web container (SPECIFICATION §8.4, Documents/Operations/DEPLOYMENT.md "TLS"). HTTPS
+# with HTTP/2 on WAYSTATION_HTTPS_PORT; the plain HTTP port then only redirects to WAYSTATION_BASE_URL (set it to the
+# https:// URL). Works with compose.yaml and compose.standalone.web.yaml, e.g. in .env:
+#   COMPOSE_FILE=compose.yaml:compose.tls.yaml
+# WAYSTATION_TLS_DIR holds the certificate chain and the key (PEM), readable by the web container (uid 101, group
+# WAYSTATION_GID): e.g. owner root, group WAYSTATION_GID, mode 0640. After renewing them:
+#   docker exec waystation-web nginx -s reload
+services:
+  web:
+    environment:
+      WAYSTATION_BASE_URL:
+      WAYSTATION_TLS_CERT: /run/waystation-tls/${WAYSTATION_TLS_CERT_NAME:-tls.crt}
+      WAYSTATION_TLS_KEY: /run/waystation-tls/${WAYSTATION_TLS_KEY_NAME:-tls.key}
+    ports:
+      - "${WAYSTATION_HTTPS_BIND:-0.0.0.0}:${WAYSTATION_HTTPS_PORT:-8443}:8443"
+    volumes:
+      - type: bind
+        source: ${WAYSTATION_TLS_DIR:?set WAYSTATION_TLS_DIR to the directory holding the certificate and key}
+        target: /run/waystation-tls
+        read_only: true

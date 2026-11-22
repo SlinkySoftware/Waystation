@@ -1,6 +1,7 @@
 # Deploying Waystation
 
-This guide describes how to run Waystation on one Docker host **as the code works today** (release 0.2.7).
+This guide describes how to run Waystation on one Docker host, or split across hosts (section 9), **as the code works
+today** (release 0.2.8).
 Anything not built yet is marked **Planned** with its task ID. For a five-minute evaluation run,
 see [TRY_IT.md](TRY_IT.md); for putting a reverse proxy in front, see [REVERSE_PROXIES.md](REVERSE_PROXIES.md); for
 client configuration per format, see [clients/](clients/).
@@ -122,7 +123,7 @@ Minimal `/srv/waystation/waystation.env`:
 ```bash
 # Compose
 WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware
-WAYSTATION_IMAGE_TAG=0.2.7
+WAYSTATION_IMAGE_TAG=0.2.8
 WAYSTATION_HTTP_BIND=0.0.0.0
 WAYSTATION_HTTP_PORT=8080
 
@@ -277,8 +278,37 @@ Prometheus scraping, the Grafana dashboard and the Zabbix template: [MONITORING.
 | Option | Status |
 |---|---|
 | External reverse proxy terminates TLS and forwards plain HTTP to `web` | **Supported.** Settings for nginx, Traefik, Caddy, HAProxy and Synology DSM: [REVERSE_PROXIES.md](REVERSE_PROXIES.md). Set `WAYSTATION_BASE_URL=https://...`, and `WAYSTATION_TRUST_FORWARDED=true` with `WAYSTATION_TRUSTED_PROXIES` so client addresses are logged and rate-limited correctly |
-| `web` terminates TLS itself (certificate and key paths, HTTP to HTTPS redirect, HTTP/2) | **Planned** (T-F05). Today `web` listens on plain HTTP only |
+| `web` terminates TLS itself (certificate and key paths, HTTP to HTTPS redirect, HTTP/2) | **Supported**: `compose.tls.yaml`, below |
 | No TLS at all | Works for a lab: set `WAYSTATION_BASE_URL=http://<host>:8080`. Docker needs the host in `insecure-registries`; session cookies are sent without `Secure` |
+
+### TLS in the web container
+
+Add the override `Build/Containers/compose.tls.yaml` (copy it next to `compose.yaml`). `web` then serves HTTPS with
+HTTP/2 (TLS 1.2 and 1.3) on container port 8443, and its plain HTTP port answers every request with a `308` redirect
+to `WAYSTATION_BASE_URL` (method and body kept), except the container healthcheck `/_web/healthz`.
+
+```bash
+# /srv/waystation/.env (or waystation.env): the override and its settings
+COMPOSE_FILE=compose.yaml:compose.tls.yaml
+WAYSTATION_BASE_URL=https://registry.example.com
+WAYSTATION_TLS_DIR=/srv/waystation/tls          # holds tls.crt (full chain) and tls.key, PEM
+WAYSTATION_HTTPS_PORT=443                       # published HTTPS port (default 8443)
+WAYSTATION_HTTP_PORT=80                         # published plain port, now redirect only (default 8080)
+# WAYSTATION_TLS_CERT_NAME / WAYSTATION_TLS_KEY_NAME: other file names inside WAYSTATION_TLS_DIR
+```
+
+```bash
+sudo install -d -o root -g 10001 -m 0750 /srv/waystation/tls      # 10001 = WAYSTATION_GID
+sudo install -o root -g 10001 -m 0640 fullchain.pem /srv/waystation/tls/tls.crt
+sudo install -o root -g 10001 -m 0640 privkey.pem /srv/waystation/tls/tls.key
+```
+
+The web container (uid 101, group `WAYSTATION_GID`) must be able to read both files; it refuses to start, with the
+reason in `docker logs waystation-web`, when only one is set or a file is unreadable. After renewing the certificate:
+`docker exec waystation-web nginx -s reload`. For certbot, either copy the renewed files in a deploy hook (as above),
+or set `WAYSTATION_TLS_DIR=/etc/letsencrypt` with `WAYSTATION_TLS_CERT_NAME=live/<name>/fullchain.pem` and
+`WAYSTATION_TLS_KEY_NAME=live/<name>/privkey.pem` (the `live/` links point into `archive/`, inside the same mount)
+and give group `WAYSTATION_GID` read access to the key. HSTS is not sent; add it at a proxy in front if you want it.
 
 When the reverse proxy runs in Docker on the same host, the simplest setup is to attach `web` to the proxy's network
 with an override and not publish a port at all; `Build/Containers/examples/traefik.override.example.yaml` shows
@@ -293,8 +323,49 @@ this for Traefik.
 | More worker concurrency or queue split | **Supported** within one worker container (`WAYSTATION_WORKER_CONCURRENCY`, `WAYSTATION_WORKER_QUEUES`). Extra worker containers need an override with a different `container_name` |
 | External MongoDB (replica set) | **Supported**: set `WAYSTATION_MONGO_URI` to the replica set, `WAYSTATION_MONGO_REPLSET_INIT=false`, and either leave the bundled `mongodb` service running unused or replace the `depends_on` of server, worker and init in an override (`depends_on: !reset {...}`). Server and worker reach it through the `frontend` network, but `init` is only on the `internal` backend network, so the override must also attach `init` to `frontend` |
 | External Valkey | **Supported** if it runs with `maxmemory-policy noeviction` and AOF enabled (job streams and locks must never be evicted) |
-| Server replicas behind one web tier, `compose.standalone.{web,server,worker}.yaml` for split hosts | **Planned** (T-F05). Coalescing and the job system are already multi-replica safe (tested with two server replicas); the deployment files are not written yet |
+| Split hosts: web, server and worker on separate hosts, several server or worker hosts | **Supported**: `compose.standalone.{web,server,worker}.yaml`, below |
 | Blob store on S3 | **Planned** post-v1 (D5) |
+
+### Split hosts
+
+Each tier runs from its own file, with the same env file on every host (copy the files from `Build/Containers/`):
+
+| Host | File | Runs | Publishes |
+|---|---|---|---|
+| web (one or more) | `compose.standalone.web.yaml` (+ `compose.tls.yaml`) | nginx: UI, routing, cached files | `WAYSTATION_HTTP_PORT` (and HTTPS) |
+| server (one or more) | `compose.standalone.server.yaml` | `init` (each start), then the server | `WAYSTATION_SERVER_BIND`:`WAYSTATION_SERVER_PORT` (8000) |
+| worker (one or more) | `compose.standalone.worker.yaml` | the worker | nothing |
+
+Requirements:
+
+- **Shared blob store.** Every web, server and worker host mounts the same filesystem (NFSv4 recommended; hard
+  links are used where available, rename atomicity is required) and points `WAYSTATION_DATA_SOURCE` at it (a host
+  path; `WAYSTATION_DATA_MOUNT_TYPE=bind` is the default in these files). The web hosts mount it read-only. The
+  files are owned by `WAYSTATION_UID:GID` (set by `init`), so the export must not squash those ids.
+- **External MongoDB and Valkey.** There is no bundled database in the standalone files: set `WAYSTATION_MONGO_URI`
+  to a replica set (`WAYSTATION_MONGO_REPLSET_INIT` defaults to `false` here) and `WAYSTATION_VALKEY_URL` to a
+  Valkey with `maxmemory-policy noeviction` and AOF. Use authentication, and let only the server and worker hosts
+  reach them.
+- **The server port is for the web hosts only.** `WAYSTATION_SERVER_BIND` is the address the port is published on
+  (required). The server takes the `X-Real-IP` of any peer on a private address as the client address (that peer is
+  normally the web tier), so firewall the port so that nothing but the web hosts reaches it.
+- **The web hosts know the servers.** `WAYSTATION_SERVER_ADDR=server1.example.com:8000,server2.example.com:8000`
+  (host:port, comma-separated). nginx balances requests over them and retries a request whose server cannot be
+  reached on the next one; the names must resolve when `web` starts.
+- **Order.** Start a server host first (its `init` creates the schema, applies migrations and the provisioning
+  file; running it on several server hosts at once is safe), then the worker and web hosts.
+
+```bash
+# on each host, from the directory holding the file and waystation.env
+docker compose -f compose.standalone.server.yaml --env-file waystation.env up -d --wait   # server hosts
+docker compose -f compose.standalone.worker.yaml --env-file waystation.env up -d --wait   # worker hosts
+docker compose -f compose.standalone.web.yaml -f compose.tls.yaml --env-file waystation.env up -d --wait  # web
+```
+
+Sessions, uploads in progress, coalescing and the live event stream are shared through MongoDB, Valkey and the blob
+store, so any server can answer any request. `make deploy-test` runs this topology in containers on one machine
+(two server hosts, a worker host, a TLS web host, external MongoDB and Valkey, one shared blob directory) and checks
+uploads, downloads, a proxied file, a worker job and that the web tier keeps serving with one server host stopped.
 
 ## 10. Backups
 
@@ -325,7 +396,8 @@ Valkey needs no backup: losing it never loses data (job outbox and schedules are
 
 The upgrade restarts the server: in-flight downloads are cut after Docker's stop timeout (10 s by default; the server
 itself allows 30 s). Add `stop_grace_period: 30s` to `server` in an override to let long transfers finish. Zero-
-downtime upgrades need two or more server replicas (planned with the standalone files, T-F05).
+downtime upgrades need two or more server hosts (split hosts, section 9): for a release whose notes list no
+migration, upgrade the server hosts one at a time; the web tier sends requests to the others meanwhile.
 
 ## 12. Troubleshooting
 

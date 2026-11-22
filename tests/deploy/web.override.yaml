@@ -1,0 +1,14 @@
+# Split-host test (tests/deploy/run.sh): the "web host" (compose.standalone.web.yaml + compose.tls.yaml) on the
+# simulated LAN as registry.example.com, ports not published on the test machine.
+services:
+  web:
+    container_name: ${DT_ID}-web
+    ports: !reset []
+    networks:
+      lan:
+        aliases: [registry.example.com]
+
+networks:
+  lan:
+    external: true
+    name: ${DT_LAN}
