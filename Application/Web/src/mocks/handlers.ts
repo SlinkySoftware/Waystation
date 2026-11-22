@@ -300,7 +300,7 @@ export const handlers = [
 
   http.get(`${API}/config`, async () => {
     await latency()
-    return HttpResponse.json({ instance_name: admin.instanceName, base_url: BASE_URL, version: '0.1.0-m0 (mock)', docker: { registry_host: REGISTRY_HOST, default_repo: world.repos.find((r) => (r.format_options as { default_repo?: boolean } | undefined)?.default_repo)?.name ?? null } })
+    return HttpResponse.json({ instance_name: admin.instanceName, base_url: BASE_URL, version: '1.0.0', docker: { registry_host: REGISTRY_HOST, default_repo: world.repos.find((r) => (r.format_options as { default_repo?: boolean } | undefined)?.default_repo)?.name ?? null } })
   }),
   http.get(`${API}/auth/providers`, () =>
     HttpResponse.json([

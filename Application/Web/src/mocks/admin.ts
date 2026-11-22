@@ -733,7 +733,7 @@ export class AdminWorld {
   system(storage: { total: number; used: number }): SystemInfo {
     const jitter = () => Math.round((0.3 + Math.random() * 1.4) * 100) / 100
     return {
-      version: '0.1.0-m0 (mock)',
+      version: '1.0.0',
       python: '3.14.0',
       started_at: this.startedAt,
       components: [

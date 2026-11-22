@@ -11,14 +11,14 @@ UI and cached files, **MongoDB** for metadata and stats, **Valkey** for hot-path
 someone's environment. Everything below is for working on the code.
 
 ## Read before doing anything
-1. `Documents/SPECIFICATION.md`: what the app does, requirements, deployment, build status (living document).
+1. `Documents/SPECIFICATION.md`: what the app does, requirements, deployment (living document; it always describes
+   the system as built).
 2. `Documents/Architecture/ARCHITECTURE.md`: **enforced** rules. Violating them is a bug.
 3. `Documents/Architecture/DATA_MODEL.md`: MongoDB collections, Valkey keys, the storage layout.
 4. `Documents/Architecture/FORMATS.md`: the per-format protocol notes. Read the section for any format you touch.
 5. `Documents/UI_DESIGN.md`: the design system and every page. The UI must look like professional, shipped software.
-6. `Documents/TASKS.md`: pick a task whose dependencies are DONE, mark it IN PROGRESS, and work only on that task.
-
-`appidea.txt` is the original brief. It is local only (gitignored, never committed). Never edit it.
+6. `Documents/TASKS.md`: open work. Pick a task whose dependencies are done, mark it IN PROGRESS, and work only on
+   that task. Completed tasks are archived in `Documents/History/BUILD_HISTORY.md`.
 
 ## Non-negotiables
 - **No environment details in this repo.** It is public. No real hostnames, IP addresses, domains, usernames,
@@ -39,32 +39,24 @@ someone's environment. Everything below is for working on the code.
 - Never commit secrets. `.env` is gitignored.
 
 ## Source control
-- Repository: `https://github.com/SlinkySoftware/Waystation` (remote `origin`). A developer may also push to
-  private mirrors; any extra remote and how to push to it is described in the developer's own untracked
-  `CLAUDE.local.md` (gitignored). Read it if it exists and follow it.
+- Repository: `https://github.com/SlinkySoftware/Waystation` (remote `origin`). Developers may also push to private
+  mirrors configured in their own untracked local agent settings; follow those settings when they exist, and never
+  name private hosts in tracked files, commit messages or PR text.
 - Authentication comes from the developer's git credential helpers. Never put credentials in remote URLs or `.git/config`.
 - Commit messages: `T-XXX: summary` (task ID first), imperative mood. No AI or tool attribution in commits.
-- The git repo is created in task T-F01 (SPECIFICATION §13.1).
 
-## Delivery: speed and parallelism (owner priority)
-Development speed matters as much as the end state. **Get to a running, clickable UI with basic real functionality
-as fast as possible** so the owner can give UI feedback early, then deepen.
-- **Milestone M0 "feedback build" comes first** (TASKS.md "Fast track"). Everything not needed for M0 waits.
-- **Work in parallel lanes**: platform, server, UI and formats are independent streams. Use subagents and separate
-  git worktrees/branches (one per lane or task), merge small PRs often, and keep `main` always runnable.
+## Development workflow
+- **Parallel lanes**: platform, server, UI and formats are independent streams. Use subagents and separate git
+  worktrees/branches (one per task), merge small PRs often, and keep `main` always runnable and releasable.
 - **One integration stack at a time per machine.** `make test-integration` (and so `make check`) queues on a
-  machine-wide lock: each run starts MongoDB, Valkey, OpenLDAP and Samba AD, and parallel runs ran the dev box out of
-  memory on 2026-11-09. Run unit tests, lint and typecheck in parallel freely; a "waiting" message from
+  machine-wide lock: each run starts MongoDB, Valkey, OpenLDAP and Samba AD, and parallel runs exhaust the memory of
+  a typical dev box. Run unit tests, lint and typecheck in parallel freely; a "waiting" message from
   `test-integration` is normal, so don't work around the lock.
-- **Contract first, UI never waits for the server**: the M0 API is written as OpenAPI first (T-V01) with MSW mock
-  handlers and a realistic fake live-event generator; the UI lane builds against `npm run dev:mock` from day one and
-  switches to the real server when endpoints land.
-- **Thin slices**: tasks marked `(min)` in the fast track are delivered as the smallest version that works end to
-  end; the full task stays TODO for later. Prefer one working end-to-end path over completeness.
-- What speed must **not** cut: the Non-negotiables above, ARCHITECTURE rules (X-Accel data plane, package
-  boundaries, the single RBAC decision point), and tests for what you ship (unit + one real-client smoke per slice).
-  Perf budgets and full client matrices are warnings until M2, failures after.
-- After M0 ships, carry on with M1/M2 lanes while UI feedback is collected; apply feedback as it arrives.
+- **Contract first, the UI never waits for the server**: API changes start in the OpenAPI schema with MSW mock
+  handlers; the UI builds against `npm run dev:mock` (seeded fixtures and a realistic fake live-event generator) and
+  switches to the real server when the endpoint lands.
+- Never cut: the Non-negotiables above, ARCHITECTURE rules (X-Accel data plane, package boundaries, the single RBAC
+  decision point), and tests for what you ship (unit tests plus a real-client test per format change).
 
 ## Working rules
 - **Docker only.** No host Python or Node. Everything runs through `make` (`make help` lists targets):
@@ -78,8 +70,9 @@ as fast as possible** so the owner can give UI feedback early, then deepen.
 - API change = server route + schema + regenerated client + UI in the same change.
 - New format = a plugin under `waystation_server/formats/<format>/` implementing the `Format` protocol, plus real-
   client tests in `tests/clients/<format>/` (FORMATS.md "Definition of done for a format").
-- When you finish a task, **in the same change** update: the task status in TASKS.md, SPECIFICATION §14 build
-  status, `Documents/CHANGELOG.md` (dated entry), and any spec/architecture section whose behaviour changed.
-  The specification always describes what the app does *now*.
+- When you finish a task, **in the same change**: remove its row from `Documents/TASKS.md` and append it to
+  `Documents/History/BUILD_HISTORY.md` as DONE (date and summary), add a dated `Documents/CHANGELOG.md` entry, and
+  update every spec/architecture section whose behaviour changed. The specification and architecture documents
+  describe the system as built, in the present tense; history belongs in BUILD_HISTORY and the CHANGELOG.
 - Architecture changes need an ADR in `Documents/Architecture/adr/` and the owner's approval before merging.
 - Keep performance budgets green (`Build/ci/budgets.json`; ARCHITECTURE §9). A regression is a failing build.

@@ -4,11 +4,11 @@
 //   - the mock UI: a running `npm run dev:mock` (or a mock build); the MSW service worker supplies the data, or
 //   - a REAL stack (REAL=1): signs in through the form with ADMIN_PASSWORD_FILE and shows what the server has
 //     cached (run `make e2e-m0` first so docker, npm, apt and raw content exists). This is how the M0 tour
-//     (Documents/Notes/UI_TOUR_M0.md) is taken.
+//     (Documents/History/UI_TOUR_M0.md) is taken.
 //   docker run --rm --network host -v "$PWD:/src" -w /src/Application/Web mcr.microsoft.com/playwright:v1.65.0-noble \
 //     sh -c 'npm i --no-save --prefix /tmp/pw playwright@1.65.0 >/dev/null && NODE_PATH=/tmp/pw/node_modules node scripts/screenshots.mjs'
 // Env: BASE (default http://localhost:9173/ui/, REAL: http://localhost:8080/ui/), OUT (default
-// ../../Documents/Notes/screenshots/m0), ONLY (regex on shot name), REAL=1, ADMIN_USER (default admin),
+// ../../Documents/History/screenshots/m0), ONLY (regex on shot name), REAL=1, ADMIN_USER (default admin),
 // ADMIN_PASSWORD_FILE (REAL only; mount it read-only into the container).
 import { mkdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -21,7 +21,7 @@ const REAL = process.env.REAL === '1'
 const BASE = process.env.BASE ?? (REAL ? 'http://localhost:8080/ui/' : 'http://localhost:9173/ui/')
 const ADMIN_USER = process.env.ADMIN_USER ?? 'admin'
 const ADMIN_PASSWORD = REAL ? readFileSync(process.env.ADMIN_PASSWORD_FILE ?? '/run/adminpw', 'utf8').trim() : ''
-const OUT = process.env.OUT ?? '../../Documents/Notes/screenshots/m0'
+const OUT = process.env.OUT ?? '../../Documents/History/screenshots/m0'
 const ONLY = process.env.ONLY ? new RegExp(process.env.ONLY) : null
 const WIDTHS = { desktop: { width: 1440, height: 900 }, mobile: { width: 390, height: 844 } }
 const THEMES = ['light', 'dark']

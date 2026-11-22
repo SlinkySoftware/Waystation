@@ -284,6 +284,10 @@ e2e: frontend-build-mock ## Playwright on the mock build: E2E flows, axe on ever
 	$(E2E_RUN) npx playwright test $(ARGS)
 e2e-update: frontend-build-mock ## Regenerate the visual-regression baselines (Application/Web/e2e/__screenshots__) after an intended UI change; review the images in the diff
 	$(E2E_RUN) npx playwright test visual.spec.ts --update-snapshots=all $(ARGS)
+.PHONY: readme-screenshots
+readme-screenshots: frontend-build-mock ## Retake the README screenshots (Documents/Images/*.png) on the mock build; review every image before committing
+	docker run --rm -i --init --ipc=host --user $(UID):$(GID) -e HOME=/tmp -e README_SHOTS=1 -e README_SHOTS_SEED -v $(CURDIR):/src -w /src/$(WEB_DIR) $(PLAYWRIGHT_IMAGE) \
+	  npx playwright test readme-shots.spec.ts --project=ui --workers=1 $(ARGS)
 .PHONY: e2e-m0 ui-smoke
 e2e-m0: ## M0 end to end with real clients against a RUNNING stack (WAYSTATION_URL, WAYSTATION_ADMIN_PASSWORD[_FILE])
 	tests/e2e/m0/run.sh
