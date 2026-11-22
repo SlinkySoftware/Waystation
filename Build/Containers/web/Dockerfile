@@ -20,9 +20,8 @@ RUN if [ -f package.json ]; then \
 
 FROM ${NGINX_IMAGE}
 USER root
-RUN rm -f /etc/nginx/conf.d/default.conf \
- && printf '#!/bin/sh\nmkdir -p /tmp/nginx-conf\n' > /docker-entrypoint.d/05-waystation-conf-dir.sh \
- && chmod 0755 /docker-entrypoint.d/05-waystation-conf-dir.sh
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY --chmod=0755 Build/Containers/web/15-waystation.sh /docker-entrypoint.d/15-waystation.sh
 COPY Build/Containers/web/nginx.conf /etc/nginx/nginx.conf
 COPY Build/Containers/web/nginx.conf.template /etc/nginx/templates/waystation.conf.template
 COPY --from=spa /out/ /usr/share/nginx/html/ui/
@@ -32,7 +31,8 @@ ENV NGINX_ENVSUBST_OUTPUT_DIR=/tmp/nginx-conf \
     NGINX_ENTRYPOINT_QUIET_LOGS=1 \
     WAYSTATION_SERVER_ADDR=waystation-server:8000 \
     WAYSTATION_DATA_DIR=/var/lib/waystation \
-    WAYSTATION_WEB_PORT=8080
-EXPOSE 8080
+    WAYSTATION_WEB_PORT=8080 \
+    WAYSTATION_WEB_TLS_PORT=8443
+EXPOSE 8080 8443
 HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -q -O /dev/null "http://127.0.0.1:${WAYSTATION_WEB_PORT}/ui/" || exit 1
+  CMD wget -q -O /dev/null "http://127.0.0.1:${WAYSTATION_WEB_PORT}/_web/healthz" || exit 1

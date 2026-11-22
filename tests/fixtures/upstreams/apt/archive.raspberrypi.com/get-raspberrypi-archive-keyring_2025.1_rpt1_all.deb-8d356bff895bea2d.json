@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://archive.raspberrypi.com/debian/pool/main/r/raspberrypi-archive-keyring/raspberrypi-archive-keyring_2025.1+rpt1_all.deb"
+  },
+  "response": {
+    "body_sha256": "2e727149d7acb8cc7f604e66d0049161039c8aa1eaf1175e54f9e69d963d60e4",
+    "body_size": 7372,
+    "headers": [
+      [
+        "vary",
+        "User-Agent"
+      ],
+      [
+        "last-modified",
+        "Fri, 06 Jun 2025 13:40:20 GMT"
+      ],
+      [
+        "etag",
+        "\"1ccc-636e75f12a91d\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "7372"
+      ],
+      [
+        "content-type",
+        "application/vnd.debian.binary-package"
+      ]
+    ],
+    "status": 200
+  }
+}

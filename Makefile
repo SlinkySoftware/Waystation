@@ -145,7 +145,7 @@ workflow-lint: ## actionlint + shellcheck on the GitHub and Gitea workflows
 forbidden-strings: dev-image ## Fail on non-allowlisted hosts/IPs, keys and tokens anywhere in the repo (Build/ci/allowed_hosts.txt)
 	Build/ci/forbidden_strings.sh
 
-budgets: dev-image ## Report performance budgets (Build/ci/budgets.json); only 'fail' budgets fail, the rest warn until M2 (STRICT=1: all fail)
+budgets: dev-image ## Report performance budgets (Build/ci/budgets.json); over-budget 'fail' budgets (all since M2) fail; STRICT=1 also fails 'warn' ones
 	@$(DEV_RUN) python Build/ci/budgets.py $(if $(MARKDOWN),--markdown) $(if $(filter 1,$(STRICT)),--strict)
 
 .PHONY: env-example
@@ -316,6 +316,11 @@ backup-test: ## Backup/restore end to end: seed, back up, wipe, restore, verify 
 	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
 	  flock -n 9 || { echo "backup-test: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
 	tests/backup/run.sh
+.PHONY: deploy-test
+deploy-test: ## Split hosts + TLS end to end: standalone server x2, worker, web with TLS (own containers; integration lock) [DEPLOY_IMAGE_TAG=<built tag>]
+	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
+	  flock -n 9 || { echo "deploy-test: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
+	IMAGE_TAG='$(DEPLOY_IMAGE_TAG)' tests/deploy/run.sh
 PROFILE ?= ci
 perf: dev-image ## k6 perf suite vs the SPEC §5.1 budgets: PROFILE=ci|full [STRICT=1] [PERF_SCENARIOS=...] (tests/perf/README.md)
 	TEST_LOCK='$(TEST_LOCK)' STRICT='$(STRICT)' tests/perf/run.sh $(PROFILE)

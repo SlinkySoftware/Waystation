@@ -9,19 +9,19 @@
       ]
     ],
     "method": "GET",
-    "url": "https://archive.ubuntu.com/ubuntu/dists/resolute-updates/main/binary-amd64/by-hash/SHA256/9c1b9c550cee550b22e5ca08aab25531ac65b573cb65696d78a7d0ac08d03f1d"
+    "url": "https://archive.ubuntu.com/ubuntu/dists/resolute-updates/main/binary-amd64/by-hash/SHA256/686978ebc19205cf55726f18e90c21877e0df20bb513608c291c915f37ad0770"
   },
   "response": {
-    "body_sha256": "9c1b9c550cee550b22e5ca08aab25531ac65b573cb65696d78a7d0ac08d03f1d",
-    "body_size": 843612,
+    "body_sha256": "686978ebc19205cf55726f18e90c21877e0df20bb513608c291c915f37ad0770",
+    "body_size": 900256,
     "headers": [
       [
         "last-modified",
-        "Sat, 07 Nov 2026 19:42:23 GMT"
+        "Sun, 22 Nov 2026 00:19:08 GMT"
       ],
       [
         "etag",
-        "\"cdf5c-65fb4ed84242f\""
+        "\"dbca0-660d26d04af1e\""
       ],
       [
         "accept-ranges",
@@ -29,7 +29,7 @@
       ],
       [
         "content-length",
-        "843612"
+        "900256"
       ],
       [
         "cache-control",

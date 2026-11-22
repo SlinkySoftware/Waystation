@@ -2,8 +2,9 @@
 
 Reads ``Build/ci/budgets.json`` and the measured values each check leaves behind (``source``: a JSON object of
 ``{budget id: value}``), prints a table (Markdown with ``--markdown``, e.g. for ``$GITHUB_STEP_SUMMARY``) and exits 1
-only when a budget whose ``enforce`` is ``fail`` is over its limit. ``warn`` budgets are reported, never fatal
-(until milestone M2, CLAUDE.md). Budgets without a source, or whose source has not run, are "not measured".
+only when a budget whose ``enforce`` is ``fail`` is over its limit (every budget since milestone M2, CLAUDE.md).
+``warn`` budgets (a new budget being introduced) are reported, never fatal. Budgets without a source, or whose
+source has not run, are "not measured".
 Stdlib only; runs in the dev image.
 """
 
@@ -19,8 +20,8 @@ DEFAULT_BUDGETS = Path('Build/ci/budgets.json')
 
 
 def evaluate(budgets: dict[str, Any], root: Path, *, strict: bool = False) -> list[dict[str, Any]]:
-    """One row per budget with its measured value and status. ``strict`` treats every budget as ``fail`` (what
-    milestone M2 switches on; `make perf STRICT=1` tries it early)."""
+    """One row per budget with its measured value and status. ``strict`` treats every budget as ``fail`` (also
+    the ``warn`` ones)."""
     rows = []
     for budget in budgets['budgets']:
         value = None
@@ -80,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = [r['id'] for r in rows if r['status'] == 'FAIL']
     warned = [r['id'] for r in rows if r['status'] == 'WARN']
     for budget_id in warned:
-        print(f'::warning title=Performance budget::{budget_id} is over budget (warning until M2)', file=sys.stderr)
+        print(f'::warning title=Performance budget::{budget_id} is over budget (enforce: warn)', file=sys.stderr)
     if failed:
         print(f'budgets: over budget: {", ".join(failed)}', file=sys.stderr)
         return 1

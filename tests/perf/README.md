@@ -84,9 +84,9 @@ set in the environment overrides the profile.
 
 ## Enforcement
 
-`budgets.json` says `"enforce": "warn"` for every k6 budget until milestone M2 (CLAUDE.md): over-budget values are
-reported (and annotated in CI) but do not fail the run. `STRICT=1` (`budgets.py --strict`) fails on any budget over
-its limit; at M2 the budgets switch to `"fail"`. A scenario that cannot run (stack, setup, k6 or probe failure)
+Since milestone M2 (2026-11-22) `budgets.json` says `"enforce": "fail"` for every budget (CLAUDE.md): a value over
+its limit fails `make perf` and `make budgets`. A new budget may start as `"warn"` (reported and annotated in CI, not
+fatal); `STRICT=1` (`budgets.py --strict`) fails on those too. A scenario that cannot run (stack, setup, k6 or probe failure)
 always fails `make perf`.
 
 ## CI

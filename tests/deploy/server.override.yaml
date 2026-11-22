@@ -1,0 +1,20 @@
+# Split-host test (tests/deploy/run.sh): one "server host" (compose.standalone.server.yaml) joined to the simulated
+# LAN network instead of publishing its port. Variables (set by run.sh): DT_ID, DT_HOST, DT_LAN, DT_ADMIN_PASSWORD.
+services:
+  server:
+    container_name: ${DT_ID}-${DT_HOST}-server
+    ports: !reset []
+    networks:
+      lan:
+        aliases: ["${DT_HOST}.example.com"]
+  init:
+    container_name: ${DT_ID}-${DT_HOST}-init
+    environment:
+      WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD: ${DT_ADMIN_PASSWORD}
+    networks:
+      lan: {}
+
+networks:
+  lan:
+    external: true
+    name: ${DT_LAN}

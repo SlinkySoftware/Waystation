@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://archive.raspberrypi.com/debian/dists/trixie/main/binary-arm64/Packages.gz"
+  },
+  "response": {
+    "body_sha256": "6e8fa003dca341c1c9882affcb65e7bf0eeac614d22d49377f46f556df75fb04",
+    "body_size": 504717,
+    "headers": [
+      [
+        "vary",
+        "User-Agent"
+      ],
+      [
+        "last-modified",
+        "Fri, 20 Nov 2026 19:47:06 GMT"
+      ],
+      [
+        "etag",
+        "\"7b38d-660ba82540ef2\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-length",
+        "504717"
+      ],
+      [
+        "content-type",
+        "application/x-gzip"
+      ]
+    ],
+    "status": 200
+  }
+}

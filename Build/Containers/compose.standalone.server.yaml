@@ -1,0 +1,120 @@
+# Waystation server on its own host (SPECIFICATION §8.3, Documents/Operations/DEPLOYMENT.md "Split hosts"):
+#   docker compose -f compose.standalone.server.yaml --env-file /path/to/waystation.env up -d
+# Runs `init` (data-dir ownership, schema, migrations, provisioning; safe on several hosts at once), then the server,
+# which publishes its port for the web hosts. Run as many server hosts as needed behind the web tier. Needs:
+#   WAYSTATION_MONGO_URI, WAYSTATION_VALKEY_URL  external MongoDB (replica set) and Valkey with authentication,
+#                           reachable from the server and worker hosts only (no bundled database here)
+#   WAYSTATION_DATA_SOURCE  the shared blob store (e.g. NFSv4) as a host path (WAYSTATION_DATA_MOUNT_TYPE=bind), the
+#                           same filesystem on every web, server and worker host
+#   WAYSTATION_SERVER_BIND  the address to publish the server port on. The server treats peers on private addresses
+#                           as the web tier (their X-Real-IP is taken as the client address): firewall this port so
+#                           that only the web hosts reach it.
+# The x-app-env list is the same in compose.yaml and the standalone files (test_compose_files.py checks it).
+name: waystation
+
+x-hardening: &hardening
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+
+x-app-env: &app-env
+  WAYSTATION_BASE_URL:
+  WAYSTATION_INSTANCE_NAME:
+  WAYSTATION_LOG_LEVEL:
+  WAYSTATION_LOG_FORMAT:
+  WAYSTATION_DATA_DIR: /var/lib/waystation
+  WAYSTATION_UID: ${WAYSTATION_UID:-10001}
+  WAYSTATION_GID: ${WAYSTATION_GID:-10001}
+  WAYSTATION_MAX_UPLOAD_GB:
+  WAYSTATION_MIN_FREE_GB:
+  WAYSTATION_COALESCE_TAIL:
+  WAYSTATION_COALESCE_LEASE_S:
+  WAYSTATION_MONGO_URI:
+  WAYSTATION_MONGO_URI_FILE:
+  WAYSTATION_MONGO_DB:
+  WAYSTATION_VALKEY_URL:
+  WAYSTATION_VALKEY_URL_FILE:
+  WAYSTATION_SECRET_KEYS:
+  WAYSTATION_SECRET_KEYS_FILE:
+  WAYSTATION_SESSION_SECRET:
+  WAYSTATION_SESSION_SECRET_FILE:
+  WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD:
+  WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE:
+  WAYSTATION_PROVISION_FILE:
+  WAYSTATION_SESSION_IDLE_MINUTES:
+  WAYSTATION_SESSION_MAX_HOURS:
+  WAYSTATION_LOGIN_RATE_LIMIT:
+  WAYSTATION_LOGIN_LOCKOUT_FAILURES:
+  WAYSTATION_LOGIN_LOCKOUT_MINUTES:
+  WAYSTATION_TOKEN_FAILURE_LIMIT:
+  WAYSTATION_AUDIT_RETENTION_DAYS:
+  WAYSTATION_TRUST_FORWARDED:
+  WAYSTATION_TRUSTED_PROXIES:
+  WAYSTATION_METRICS_ALLOW_CIDRS:
+  WAYSTATION_SSRF_ALLOW_CIDRS:
+  WAYSTATION_HTTP_PROXY:
+  WAYSTATION_NO_PROXY:
+  WAYSTATION_EXTRA_CA_FILE:
+  WAYSTATION_SERVER_WORKERS:
+  WAYSTATION_WORKER_QUEUES:
+  WAYSTATION_WORKER_CONCURRENCY:
+
+x-data-rw: &data-rw
+  type: ${WAYSTATION_DATA_MOUNT_TYPE:-bind}
+  source: ${WAYSTATION_DATA_SOURCE:?set WAYSTATION_DATA_SOURCE to the shared blob store mount}
+  target: /var/lib/waystation
+
+services:
+  server:
+    <<: *hardening
+    image: ${WAYSTATION_IMAGE_PREFIX:?set WAYSTATION_IMAGE_PREFIX}/waystation-server:${WAYSTATION_IMAGE_TAG:?set WAYSTATION_IMAGE_TAG}
+    container_name: waystation-server
+    read_only: true
+    tmpfs: [/tmp]
+    environment: *app-env
+    ports:
+      - "${WAYSTATION_SERVER_BIND:?set WAYSTATION_SERVER_BIND to the address the web hosts reach}:${WAYSTATION_SERVER_PORT:-8000}:8000"
+    volumes:
+      - *data-rw
+    networks:
+      frontend:
+        aliases: [waystation-server]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request as u; sys.exit(u.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status != 200)"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      init:
+        condition: service_completed_successfully
+
+  # One-shot: data dir ownership/modes, schema, migrations, provisioning (SPECIFICATION §8.1). Starts as root with
+  # only the capabilities needed to fix ownership, then drops to WAYSTATION_UID:GID. No replica-set initiation by
+  # default: the external MongoDB is already a replica set.
+  init:
+    <<: *hardening
+    image: ${WAYSTATION_IMAGE_PREFIX:?set WAYSTATION_IMAGE_PREFIX}/waystation-server:${WAYSTATION_IMAGE_TAG:?set WAYSTATION_IMAGE_TAG}
+    container_name: waystation-init
+    restart: "no"
+    user: "0:0"
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETUID, SETGID]
+    read_only: true
+    tmpfs: [/tmp]
+    command: ["python", "-m", "waystation_server.init"]
+    environment:
+      <<: *app-env
+      WAYSTATION_MONGO_REPLSET_INIT: ${WAYSTATION_MONGO_REPLSET_INIT:-false}
+    volumes:
+      - *data-rw
+    networks:
+      frontend:
+        aliases: [waystation-init]
+    healthcheck:
+      disable: true
+
+networks:
+  frontend: {}

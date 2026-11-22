@@ -1,0 +1,86 @@
+# Waystation worker on its own host (SPECIFICATION §8.3, Documents/Operations/DEPLOYMENT.md "Split hosts"):
+#   docker compose -f compose.standalone.worker.yaml --env-file /path/to/waystation.env up -d
+# Start it after a server host has run `init` once. No published ports. Run as many worker hosts as needed
+# (WAYSTATION_WORKER_QUEUES picks the job classes per host). Needs the same env file as the server hosts:
+#   WAYSTATION_MONGO_URI, WAYSTATION_VALKEY_URL  the external MongoDB and Valkey the servers use
+#   WAYSTATION_DATA_SOURCE  the shared blob store (e.g. NFSv4) as a host path (WAYSTATION_DATA_MOUNT_TYPE=bind)
+# The x-app-env list is the same in compose.yaml and the standalone files (test_compose_files.py checks it).
+name: waystation
+
+x-hardening: &hardening
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+
+x-app-env: &app-env
+  WAYSTATION_BASE_URL:
+  WAYSTATION_INSTANCE_NAME:
+  WAYSTATION_LOG_LEVEL:
+  WAYSTATION_LOG_FORMAT:
+  WAYSTATION_DATA_DIR: /var/lib/waystation
+  WAYSTATION_UID: ${WAYSTATION_UID:-10001}
+  WAYSTATION_GID: ${WAYSTATION_GID:-10001}
+  WAYSTATION_MAX_UPLOAD_GB:
+  WAYSTATION_MIN_FREE_GB:
+  WAYSTATION_COALESCE_TAIL:
+  WAYSTATION_COALESCE_LEASE_S:
+  WAYSTATION_MONGO_URI:
+  WAYSTATION_MONGO_URI_FILE:
+  WAYSTATION_MONGO_DB:
+  WAYSTATION_VALKEY_URL:
+  WAYSTATION_VALKEY_URL_FILE:
+  WAYSTATION_SECRET_KEYS:
+  WAYSTATION_SECRET_KEYS_FILE:
+  WAYSTATION_SESSION_SECRET:
+  WAYSTATION_SESSION_SECRET_FILE:
+  WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD:
+  WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE:
+  WAYSTATION_PROVISION_FILE:
+  WAYSTATION_SESSION_IDLE_MINUTES:
+  WAYSTATION_SESSION_MAX_HOURS:
+  WAYSTATION_LOGIN_RATE_LIMIT:
+  WAYSTATION_LOGIN_LOCKOUT_FAILURES:
+  WAYSTATION_LOGIN_LOCKOUT_MINUTES:
+  WAYSTATION_TOKEN_FAILURE_LIMIT:
+  WAYSTATION_AUDIT_RETENTION_DAYS:
+  WAYSTATION_TRUST_FORWARDED:
+  WAYSTATION_TRUSTED_PROXIES:
+  WAYSTATION_METRICS_ALLOW_CIDRS:
+  WAYSTATION_SSRF_ALLOW_CIDRS:
+  WAYSTATION_HTTP_PROXY:
+  WAYSTATION_NO_PROXY:
+  WAYSTATION_EXTRA_CA_FILE:
+  WAYSTATION_SERVER_WORKERS:
+  WAYSTATION_WORKER_QUEUES:
+  WAYSTATION_WORKER_CONCURRENCY:
+
+x-data-rw: &data-rw
+  type: ${WAYSTATION_DATA_MOUNT_TYPE:-bind}
+  source: ${WAYSTATION_DATA_SOURCE:?set WAYSTATION_DATA_SOURCE to the shared blob store mount}
+  target: /var/lib/waystation
+
+services:
+  worker:
+    <<: *hardening
+    image: ${WAYSTATION_IMAGE_PREFIX:?set WAYSTATION_IMAGE_PREFIX}/waystation-worker:${WAYSTATION_IMAGE_TAG:?set WAYSTATION_IMAGE_TAG}
+    container_name: waystation-worker
+    read_only: true
+    tmpfs: [/tmp]
+    environment: *app-env
+    volumes:
+      - *data-rw
+    networks:
+      frontend:
+        aliases: [waystation-worker]
+    healthcheck:
+      test: ["CMD", "python", "-m", "waystation_worker.health"]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+networks:
+  frontend: {}

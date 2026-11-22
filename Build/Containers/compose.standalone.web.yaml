@@ -1,0 +1,43 @@
+# Waystation web tier on its own host (SPECIFICATION §8.3, Documents/Operations/DEPLOYMENT.md "Split hosts"):
+#   docker compose -f compose.standalone.web.yaml --env-file /path/to/waystation.env up -d
+# Add compose.tls.yaml for TLS in this container. Needs:
+#   WAYSTATION_SERVER_ADDR  the server hosts' published ports, host:port separated by commas (one per server host;
+#                           nginx balances between them)
+#   the shared blob store (the same filesystem the server and worker hosts mount, e.g. NFSv4) as WAYSTATION_DATA_SOURCE
+#   with WAYSTATION_DATA_MOUNT_TYPE=bind (a host path), mounted read-only here
+name: waystation
+
+services:
+  web:
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    image: ${WAYSTATION_IMAGE_PREFIX:?set WAYSTATION_IMAGE_PREFIX}/waystation-web:${WAYSTATION_IMAGE_TAG:?set WAYSTATION_IMAGE_TAG}
+    container_name: waystation-web
+    read_only: true
+    tmpfs: [/tmp]
+    group_add: ["${WAYSTATION_GID:-10001}"]
+    environment:
+      WAYSTATION_SERVER_ADDR: ${WAYSTATION_SERVER_ADDR:?set WAYSTATION_SERVER_ADDR to the server hosts (host:port, comma-separated)}
+    ports:
+      - "${WAYSTATION_HTTP_BIND:-0.0.0.0}:${WAYSTATION_HTTP_PORT:-8080}:8080"
+    volumes:
+      - type: ${WAYSTATION_DATA_MOUNT_TYPE:-bind}
+        source: ${WAYSTATION_DATA_SOURCE:?set WAYSTATION_DATA_SOURCE to the shared blob store mount}
+        target: /var/lib/waystation
+        read_only: true
+    networks:
+      frontend:
+        aliases: [waystation-web]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/_web/healthz"]
+      interval: 15s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+networks:
+  frontend: {}

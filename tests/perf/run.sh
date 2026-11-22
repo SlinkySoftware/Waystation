@@ -10,8 +10,9 @@
 # raw k6/probe output, resource samples).
 #
 # Env: any PERF_* variable of the profile overrides it (e.g. PERF_LARGE_MIB=10240); PERF_SCENARIOS limits the
-# scenarios; STRICT=1 fails on every budget over its limit (warn-only until M2 otherwise); KEEP=1 leaves the stack
-# running for inspection (tear it down with `docker compose -p <project> down -v`).
+# scenarios; STRICT=1 fails on every budget over its limit, also 'warn' ones (budgets.json 'enforce' otherwise:
+# 'fail' for every budget since M2); KEEP=1 leaves the stack running for inspection (tear it down with
+# `docker compose -p <project> down -v`).
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -155,7 +156,7 @@ set -e
   echo "- Profile: \`$PROFILE\` (tests/perf/profiles/$PROFILE.env), $(date -u +%Y-%m-%dT%H:%MZ), commit $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   echo "- Stack: server ${PERF_SERVER_CPUS} CPUs / ${PERF_SERVER_WORKERS} processes, web ${PERF_WEB_CPUS} CPUs, MongoDB ${PERF_MONGO_CPUS} CPUs"
   echo "- Content: ${PERF_LARGE_MIB} MiB large file, ${PERF_MISS_LARGE} x ${PERF_MISS_LARGE_MIB} MiB misses at origin rate ${PERF_ORIGIN_RATE}, ${PERF_BULK_ASSETS} seeded assets (API), ${PERF_CONC_VUS} concurrent clients"
-  echo "- Enforcement: $([ "${STRICT:-0}" = 1 ] && echo 'strict (every budget fails)' || echo "budgets.json 'enforce' (warn until M2)")"
+  echo "- Enforcement: $([ "${STRICT:-0}" = 1 ] && echo 'strict (every budget fails)' || echo "budgets.json 'enforce'")"
   [ ${#failed[@]} -eq 0 ] || echo "- **Failed scenarios: ${failed[*]}**"
   echo "- Duration: $(( $(date +%s) - started )) s"
   echo

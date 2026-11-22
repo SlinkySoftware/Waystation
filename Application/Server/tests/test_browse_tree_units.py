@@ -6,7 +6,7 @@ from typing import Any
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from waystation_server.browse.tree import CHILD_COUNT_SPAN, list_folder
+from waystation_server.browse.tree import CHILD_COUNT_READS, CHILD_COUNT_SPAN, list_folder
 from waystation_server.db import browse as browse_db
 
 
@@ -123,3 +123,20 @@ async def test_big_sub_folders_cost_one_seek_each() -> None:
     children = [c.name async for c in browse_db.children(db, 'r', '')]  # type: ignore[arg-type]
     assert children == [f'g{g}' for g in range(10)]
     assert db.assets.queries <= 12
+
+
+async def test_root_of_folders_with_many_sub_folders_takes_bounded_reads() -> None:
+    """The perf suite's layout (``group/pkg/<version>/<file>``): counting a root group's children walked one seek per
+    package, about a thousand reads per root page. The walks share ``CHILD_COUNT_READS``; what did not fit is null."""
+    db = Db([f'group-{g}/pkg-{p:02d}/{v}.0.0/a.tgz' for g in range(10) for p in range(100) for v in range(5)])
+    page = await list_folder(db, 'r', '', cursor=None, limit=50)  # type: ignore[arg-type]
+    assert [e.name for e in page.entries] == [f'group-{g}' for g in range(10)]
+    assert {e.child_count for e in page.entries} <= {None, 100} and None in {e.child_count for e in page.entries}
+    assert db.assets.queries <= CHILD_COUNT_READS + 20
+
+
+async def test_count_children_within_and_beyond_a_budget() -> None:
+    db = Db([f'd/s{n:02d}/x' for n in range(30)])
+    assert await browse_db.count_children(db, 'r', 'd/', cap=100, budget=browse_db.ReadBudget(64)) == 30  # type: ignore[arg-type]
+    assert await browse_db.count_children(db, 'r', 'd/', cap=100, budget=browse_db.ReadBudget(1)) is None  # type: ignore[arg-type]
+    assert await browse_db.count_children(db, 'r', 'd/', cap=100, budget=browse_db.ReadBudget(0)) is None  # type: ignore[arg-type]
