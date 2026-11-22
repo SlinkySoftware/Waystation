@@ -3,6 +3,11 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- **Release 0.2.7** (milestone M3, Phase 5 formats): hosted apt repositories with signed, atomically published
+  indexes (T-P5-APTH); Terraform module registry proxy and the hosted Terraform repository with signed download
+  URLs (T-P5-TFM, adr/0010); Swift Package Registry with an SCM-backed proxy and hosted publishing (T-P5-SWIFT);
+  Maven 4, Gradle 8/9 and sbt in the client harness and Maven components in global search (T-P5-MAVEN). Docs and
+  examples point at the 0.2.7 images.
 - T-P5-SWIFT: Swift Package Registry repositories (SE-0292, SE-0391). SCM-backed proxies serve packages from a Git
   host (GitHub, GitLab, Gitea/Forgejo; `archive_layout`, `scopes` mapping, `mapped_scopes_only`): releases are the
   repository's SemVer tags (smart-HTTP ref advertisement, cached as metadata), each release's archive is built once
