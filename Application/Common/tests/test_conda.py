@@ -81,7 +81,7 @@ def test_invalid_versions_sort_first() -> None:
 def test_prerelease_and_cleanup_order() -> None:
     assert conda.is_prerelease('2.0rc1') and conda.is_prerelease('1.0.dev3') and conda.is_prerelease('1.0b2')
     assert not conda.is_prerelease('1.0') and not conda.is_prerelease('1.1.post1') and not conda.is_prerelease('?')
-    assert not conda.is_prerelease('2025b') and conda.is_prerelease('2.0.dev')
+    assert not conda.is_prerelease('2025b') and conda.is_prerelease('2.0dev')
     assert is_prerelease('conda', '3.0a1') and not is_prerelease('conda', '3.0')
     assert sorted(['1.10', '1.9', '1.9post1', '1.10rc1'], key=lambda v: sort_key('conda', v)) == [
         '1.9',
