@@ -1,15 +1,20 @@
-# Cargo clients
+# Cargo client guide
 
-How to point cargo (Rust) at a Waystation **Cargo** repository. The repository's **Set me up** tab shows the same
-snippets with your real URL filled in. Examples below use `https://waystation.example.com` and repositories called
-`crates-io` (a proxy of crates.io), `crates-internal` (hosted) and `crates` (a group of both, with `crates-internal`
-as its writable member).
+How to point cargo (Rust) at a Waystation **Cargo** repository and publish your own crates. The repository's **Set
+me up** tab shows the same snippets with your real URL filled in. Examples below use `https://waystation.example.com`
+and repositories called `crates-io` (a proxy of crates.io), `crates-internal` (hosted) and `crates` (a group of both,
+with `crates-internal` as its writable member).
 
-Status (T-P6-CARGO): proxy, hosted and group repositories with Cargo's **sparse** protocol. Verified by the
-real-client harness (`tests/clients/cargo/`) with cargo 1.99: a program with two crates.io dependencies built through
-a proxy that replaces crates.io, `cargo login`, `cargo publish`, `cargo yank` and `cargo yank --undo` on a hosted
-repository and a program built against the published crate, an anonymous build refused, and crates.io and hosted
-crates resolved together through a group that needs credentials.
+## Overview
+
+- Waystation serves Cargo's **sparse** protocol. Every repository's index is at
+  `sparse+https://waystation.example.com/repository/<name>/index/` (the `sparse+` prefix is required; the git index
+  protocol is not served).
+- Proxy, hosted and group repositories; `cargo publish`, `cargo yank`, `cargo owner --list` and `cargo search`.
+- Tested with cargo 1.99 (`tests/clients/cargo/`): a program with crates.io dependencies built through a proxy that
+  replaces crates.io, `cargo login`, `cargo publish`, `cargo yank` and `cargo yank --undo` on a hosted repository,
+  an anonymous build refused, and crates.io and hosted crates resolved together through a group that needs
+  credentials.
 
 ## Repository types
 
@@ -23,10 +28,15 @@ crates resolved together through a group that needs credentials.
   first member listing a version wins it); every `.crate` comes from the first member that has it. Publishing to the
   group goes to its writable member.
 
-Every repository's index is at `sparse+https://waystation.example.com/repository/<name>/index/`. Cargo only speaks
-the sparse protocol to Waystation (the `sparse+` prefix is required).
+### Prefetch (proxy repositories)
 
-## Use Waystation instead of crates.io
+The repository's warm list takes `crate@version` (an exact version, e.g. `serde@1.0.228`) or `crate` (its highest
+non-yanked release); warming caches the index file and the `.crate`. "Keep popular metadata fresh" revalidates the
+index files clients use most.
+
+## Client setup
+
+### cargo: replace crates.io
 
 `~/.cargo/config.toml` (Windows: `%USERPROFILE%\.cargo\config.toml`), or `.cargo/config.toml` in a project:
 
@@ -41,7 +51,7 @@ replace-with = "waystation"
 Every crates.io dependency now comes through Waystation; `Cargo.lock` keeps recording them as crates.io packages,
 with the same checksums, so lock files work with and without Waystation.
 
-## Use it as a named registry (private crates)
+### cargo: named registry (private crates)
 
 ```toml
 [registries.waystation]
@@ -75,18 +85,18 @@ build, write scope to publish):
 ```sh
 cargo login --registry waystation        # paste the token
 # or, for one shell or a CI job:
-export CARGO_REGISTRIES_WAYSTATION_TOKEN=<api token>
+export CARGO_REGISTRIES_WAYSTATION_TOKEN=<api-token>
 ```
 
-Cargo sends the token as the whole `Authorization` header; Waystation accepts it there (as well as `Bearer <token>`).
-When anonymous users may read the repository (proxies, by default), cargo needs no token to build. Otherwise
-Waystation answers cargo's first request (`config.json`) with `401`; cargo then sends the registry's token, and the
-`config.json` it gets says `"auth-required": true`, so cargo sends the token on every index, download and API request
-from then on. Without a token cargo stops with "no token found for `waystation`".
+Cargo sends the token as the whole `Authorization` header; Waystation accepts it there (as well as
+`Bearer <token>`). When anonymous users may read the repository (proxies, by default), cargo needs no token to build.
+Otherwise Waystation answers cargo's first request (`config.json`) with `401`; cargo then sends the registry's token,
+and the `config.json` it gets says `"auth-required": true`, so cargo sends the token on every index, download and API
+request from then on. Without a token cargo stops with "no token found for `waystation`".
 
 Use HTTPS in production: cargo sends the token on every request of a registry that needs credentials.
 
-## Publish, yank
+## Publishing
 
 ```toml
 # Cargo.toml: keep the crate off crates.io
@@ -109,21 +119,20 @@ cargo yank --undo --registry waystation --version 1.0.0 my-crate
   publishing a new version: lock files that recorded the old checksum fail to verify a replaced crate.
 - Yanking keeps the file downloadable (existing lock files keep working); new resolutions skip the version. Yank and
   un-yank need `write`.
-- `cargo owner` can list owners (the accounts that published the crate); adding or removing owners is refused:
-  access is managed with Waystation roles.
 - `cargo search --registry waystation <term>` searches the crates the repository knows (published crates, and for a
   proxy the crates it has cached), not all of crates.io.
 
-## Prefetch (proxy repositories)
+## Limitations
 
-The repository's warm list takes `crate@version` (an exact version, e.g. `serde@1.0.228`) or `crate` (its highest
-non-yanked release); warming caches the index file and the `.crate`. "Keep popular metadata fresh" revalidates the
-index files clients use most.
+- Sparse protocol only: the git index protocol is not served.
+- `cargo owner` can list owners (the accounts that published the crate); adding or removing owners is refused:
+  access is managed with Waystation roles.
+- `cargo search` covers only crates the repository knows, not the whole upstream.
 
 ## Troubleshooting
 
 - **`authenticated registries require a credential-provider to be configured`**: add
-  `global-credential-providers` (above).
+  `global-credential-providers` (see Authentication).
 - **`failed to get successful HTTP response from .../config.json`, status 401**: the repository needs credentials and
   cargo has no token for that registry name: `cargo login --registry <name>` or `CARGO_REGISTRIES_<NAME>_TOKEN`.
 - **403 on publish or yank**: the token lacks the write scope or your account lacks `write` on the repository (for a
