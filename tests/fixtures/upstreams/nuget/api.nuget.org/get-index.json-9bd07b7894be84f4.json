@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "application/json"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://api.nuget.org/v3-flatcontainer/ardalis.guardclauses/index.json"
+  },
+  "response": {
+    "body_sha256": "4522203974f1cf5720cd87aa89932a3834d1c7f6fa908376d59d44884dc48c78",
+    "body_size": 599,
+    "headers": [
+      [
+        "content-length",
+        "599"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "last-modified",
+        "Wed, 15 Apr 2026 19:34:04 GMT"
+      ],
+      [
+        "etag",
+        "0x8DE9B25F4693724"
+      ],
+      [
+        "expires",
+        "Sun, 22 Nov 2026 11:19:06 GMT"
+      ],
+      [
+        "cache-control",
+        "max-age=0, no-cache"
+      ]
+    ],
+    "status": 200
+  }
+}

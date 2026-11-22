@@ -15,6 +15,7 @@ import json
 import os
 import re
 import tempfile
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -126,6 +127,21 @@ class Exchange:
     status: int
     headers: list[tuple[str, str]] = field(default_factory=list)
     body: bytes = b''
+
+
+def identity_body(headers: list[tuple[str, str]], body: bytes, max_body: int) -> tuple[list[tuple[str, str]], bytes]:
+    """Decode a gzip/deflate body that an upstream sent although it was asked for ``identity`` (static files stored
+    compressed, e.g. NuGet's ``registration5-gz`` hives), so fixtures hold identity bytes: the Content-Encoding is
+    dropped and Content-Length fixed. Other codings are left alone. Raises ``ValueError`` past ``max_body`` bytes."""
+    coding = next((v for k, v in headers if k.lower() == 'content-encoding'), '').strip().lower()
+    if coding not in ('gzip', 'x-gzip', 'deflate') or not body:
+        return headers, body
+    decoder = zlib.decompressobj(wbits=47 if coding != 'deflate' else 15)
+    data = decoder.decompress(body, max_body + 1)
+    if len(data) > max_body:
+        raise ValueError(f'decoded upstream body exceeds {max_body} bytes')
+    kept = [(k, str(len(data)) if k.lower() == 'content-length' else v) for k, v in headers]
+    return [(k, v) for k, v in kept if k.lower() != 'content-encoding'], data
 
 
 def scrub_response(

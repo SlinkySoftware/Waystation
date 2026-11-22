@@ -13,6 +13,7 @@
   <YumBrowser v-else-if="repo.format === 'yum'" :repo="repo" />
   <TerraformBrowser v-else-if="repo.format === 'terraform'" :repo="repo" />
   <SwiftBrowser v-else-if="repo.format === 'swift'" :repo="repo" />
+  <NugetBrowser v-else-if="repo.format === 'nuget'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
@@ -27,6 +28,7 @@ import HelmBrowser from './HelmBrowser.vue'
 import GoBrowser from './GoBrowser.vue'
 import MavenBrowser from './MavenBrowser.vue'
 import NpmBrowser from './NpmBrowser.vue'
+import NugetBrowser from './NugetBrowser.vue'
 import PypiBrowser from './PypiBrowser.vue'
 import SwiftBrowser from './SwiftBrowser.vue'
 import YumBrowser from './YumBrowser.vue'

@@ -6,6 +6,7 @@ format package exposes ``DESCRIPTOR`` (``<format>.descriptor``) and, once implem
 (T-P2-YUM) proxy repositories; helm (T-P5-HELM), maven (T-P5-MAVEN) and pypi (T-P5-PYPI) proxy, hosted and group
 repositories; go (T-P5-GO) proxy and group repositories; galaxy (T-P5-GALAXY) proxy, hosted and group
 repositories; terraform (T-P5-TFP) provider network mirrors (proxy); swift (T-P5-SWIFT) SCM-backed proxy and hosted
+repositories; nuget (T-P6-NUGET) proxy, hosted and group
 repositories.
 """
 
@@ -25,6 +26,8 @@ from waystation_server.formats.maven.descriptor import DESCRIPTOR as MAVEN
 from waystation_server.formats.maven.plugin import MavenPlugin
 from waystation_server.formats.npm.descriptor import DESCRIPTOR as NPM
 from waystation_server.formats.npm.plugin import NpmPlugin
+from waystation_server.formats.nuget.descriptor import DESCRIPTOR as NUGET
+from waystation_server.formats.nuget.plugin import NugetPlugin
 from waystation_server.formats.pypi.descriptor import DESCRIPTOR as PYPI
 from waystation_server.formats.pypi.plugin import PypiPlugin
 from waystation_server.formats.raw.descriptor import DESCRIPTOR as RAW
@@ -40,7 +43,7 @@ from waystation_server.formats.yum.plugin import YumPlugin
 
 def default_registry() -> FormatRegistry:
     registry = FormatRegistry()
-    for descriptor in (DOCKER, NPM, APT, RAW, YUM, MAVEN, PYPI, GO, HELM, GALAXY, TERRAFORM, SWIFT):
+    for descriptor in (DOCKER, NPM, APT, RAW, YUM, MAVEN, PYPI, GO, HELM, GALAXY, TERRAFORM, SWIFT, NUGET):
         registry.register(descriptor)
     registry.set_plugin(HelmPlugin())  # T-P5-HELM
     registry.set_plugin(RawPlugin())  # T-P2-RAW
@@ -54,4 +57,5 @@ def default_registry() -> FormatRegistry:
     registry.set_plugin(GalaxyPlugin())  # T-P5-GALAXY: collections proxy, hosted, group; roles proxy
     registry.set_plugin(TerraformPlugin())  # T-P5-TFP: provider network mirror (proxy)
     registry.set_plugin(SwiftPlugin())  # T-P5-SWIFT: SCM-backed proxy, hosted
+    registry.set_plugin(NugetPlugin())  # T-P6-NUGET: proxy, hosted, group
     return registry

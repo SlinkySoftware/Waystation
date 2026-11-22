@@ -42,7 +42,7 @@ export const webhooks = {
   eventHelp: {
     content_upload: 'An image pushed, a package or file published to a hosted repository',
     content_delete: 'A tag, manifest, package or file deleted from a hosted repository',
-    content_update: 'Stored content changed in place (a PyPI release yanked or restored)',
+    content_update: 'Stored content changed in place (a PyPI release yanked or restored, a NuGet version unlisted or relisted)',
     repository_create: 'A repository was created',
     repository_update: 'A repository’s settings changed',
     repository_delete: 'A repository was deleted',

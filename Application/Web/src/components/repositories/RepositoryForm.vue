@@ -124,7 +124,7 @@
     </section>
 
     <section
-      v-if="!(model.format === 'yum' && model.type !== 'proxy') && model.format !== 'helm' && !(model.format === 'maven' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy' || model.format === 'swift') && model.type !== 'proxy')"
+      v-if="!(model.format === 'yum' && model.type !== 'proxy') && model.format !== 'helm' && !(model.format === 'maven' && model.type === 'group') && !(model.format === 'nuget' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy' || model.format === 'swift') && model.type !== 'proxy')"
       class="repo-form__section"
     >
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>
@@ -208,6 +208,23 @@
           :error-message="errors['format_options.collections_path']"
         />
         <q-toggle v-model="model.galaxyRoles" :label="t('repoForm.galaxyRoles')" />
+      </template>
+      <template v-else-if="model.format === 'nuget' && model.type === 'proxy'">
+        <q-toggle v-model="model.nugetVerifyCatalog" :label="t('repoForm.nugetVerifyCatalog')" />
+      </template>
+      <template v-else-if="model.format === 'nuget'">
+        <q-select
+          v-model="model.nugetDeleteMode"
+          outlined
+          dense
+          emit-value
+          map-options
+          :options="nugetDeleteModes"
+          :label="t('repoForm.nugetDeleteMode')"
+          :hint="t('repoForm.nugetDeleteModeHint')"
+          :error="!!errors['format_options.delete_mode']"
+          :error-message="errors['format_options.delete_mode']"
+        />
       </template>
       <template v-else-if="model.format === 'swift'">
         <q-select
@@ -590,6 +607,7 @@ const authOptions = computed(() => [
 const swiftLayouts = computed(() =>
   (['github', 'gitlab', 'gitea'] as const).map((value) => ({ label: t(`repoForm.swiftLayouts.${value}`), value })),
 )
+const nugetDeleteModes = computed(() => (['unlist', 'delete'] as const).map((value) => ({ label: t(`repoForm.nugetDeleteModes.${value}`), value })))
 const versionPolicyOptions = computed(() => [
   { label: t('repoForm.versionPolicies.release'), value: 'release' },
   { label: t('repoForm.versionPolicies.snapshot'), value: 'snapshot' },

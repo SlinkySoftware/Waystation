@@ -4,7 +4,7 @@
 // CSRF header on unsafe methods, cursor pagination, realistic latency.
 import { delay, http, HttpResponse } from 'msw'
 
-import type { Action, AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, PasswordChange, Preferences, ProfileUpdate, Problem, PypiYank, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
+import type { Action, AuthProviderTestRequest, AuthProviderWrite, FieldError, Format, NugetListing, PasswordChange, Preferences, ProfileUpdate, Problem, PypiYank, Repository, RepositoryWrite, Session, StatsRange, StorageGuard, StorageGuardSettings } from '@/api/types'
 import { M0_FORMATS } from '@/api/types'
 
 import { accessHandler } from './access'
@@ -23,6 +23,7 @@ import { goModuleList, goVersionsFor } from './fixtures/go'
 import { terraformProviderList, terraformVersionsFor } from './fixtures/terraform'
 import { hostedProviderList, hostedProviderVersionsFor, terraformModuleList, terraformModuleVersionsFor } from './fixtures/terraformModules'
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
+import { nugetPackageList, nugetSetListing, nugetVersionsFor } from './fixtures/nuget'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
 import { yumPackageList, yumVersionsFor } from './fixtures/yum'
 import { genericListing, rawListing } from './fixtures/raw'
@@ -159,7 +160,7 @@ function validate(body: RepositoryWrite, existing?: Repository): FieldError[] {
       errors.push({ field: 'type', message: 'go supports: proxy, group', code: 'unsupported' })
     } else if ((body.format === 'yum' || body.format === 'apt' || body.format === 'swift') && body.type === 'group') {
       errors.push({ field: 'type', message: `${body.format} supports: proxy, hosted`, code: 'unsupported' })
-    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift'].includes(body.format)) {
+    } else if (body.type !== 'proxy' && !['docker', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'yum', 'apt', 'swift', 'nuget'].includes(body.format)) {
       errors.push({ field: 'type', message: `${body.format} supports: proxy`, code: 'unsupported' })
     }
   }
@@ -807,6 +808,36 @@ export const handlers = [
     const body = (await request.json()) as PypiYank
     if (!pypiYank(repo.name, body.project, body.version, body.reason ?? null, body.yanked)) return notFound()
     return HttpResponse.json({ project: body.project.toLowerCase(), version: body.version, yanked: body.yanked, files: 2 })
+  }),
+  http.get(`${API}/repositories/:name/nuget/packages`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'nuget')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    return HttpResponse.json(paginate(nugetPackageList(repo.type, url.searchParams.get('q')), url))
+  }),
+  http.get(`${API}/repositories/:name/nuget/versions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'nuget')
+    if (!repo) return error ?? notFound()
+    const url = new URL(request.url)
+    const found = nugetVersionsFor(repo.name, repo.type, url.searchParams.get('package') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ package: found.package, ...paginate(found.items, url) })
+  }),
+  http.post(`${API}/repositories/:name/nuget/listing`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'nuget')
+    if (!repo || repo.type !== 'hosted') return error ?? notFound()
+    const body = (await request.json()) as NugetListing
+    if (!nugetSetListing(repo.name, body.package, body.version, body.listed)) return notFound()
+    return HttpResponse.json({ package: body.package.toLowerCase(), version: body.version, listed: body.listed })
   }),
   http.get(`${API}/repositories/:name/go/modules`, async ({ request, params }) => {
     const denied = guard(request)

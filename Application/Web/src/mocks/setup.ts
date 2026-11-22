@@ -400,6 +400,48 @@ function pypi(repo: Repository): SetupClient[] {
   return clients
 }
 
+/** NuGet: the v3 service index for dotnet and NuGet.exe; push, delete (unlist) for hosted repositories and writable groups. */
+function nuget(repo: Repository): SetupClient[] {
+  const index = `${BASE_URL}/repository/${repo.name}/index.json`
+  const writable = repo.type === 'hosted' || (repo.type === 'group' && Boolean(repo.group?.writable_member))
+  const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupClient['snippets'][number] => ({ id, title, description, language, filename, os: null, content })
+  const config = `<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="waystation" value="${index}" protocolVersion="3" />
+  </packageSources>
+  <packageSourceCredentials>
+    <waystation>
+      <add key="Username" value="{{USERNAME}}" />
+      <add key="ClearTextPassword" value="{{TOKEN}}" />
+    </waystation>
+  </packageSourceCredentials>
+</configuration>`
+  const dotnet: SetupClient['snippets'] = [
+    s('dotnet-source', 'Add the source', `dotnet nuget add source ${index} --name waystation`),
+    s('dotnet-source-auth', 'With credentials (when anonymous reads are not allowed)', `dotnet nuget add source ${index} --name waystation --username {{USERNAME}} --password {{TOKEN}} --store-password-in-clear-text`, 'shell', null, 'An API token is the password. --store-password-in-clear-text is needed on Linux and macOS, where dotnet cannot encrypt it.'),
+    s('nuget-config', 'Or per solution (nuget.config)', config, 'xml', 'nuget.config', '<clear /> makes this repository the only source: restores never reach nuget.org directly. Leave out packageSourceCredentials when anonymous reads are allowed.'),
+    s('dotnet-add', 'Add a package', 'dotnet add package Newtonsoft.Json\ndotnet restore'),
+  ]
+  if (writable) {
+    dotnet.push(
+      s('dotnet-push', 'Push a package', `dotnet pack -c Release\ndotnet nuget push bin/Release/MyLib.1.0.0.nupkg --source ${index} --api-key {{TOKEN}}`, 'shell', null, 'The API key is an API token with write permission on this repository.'),
+      s('dotnet-delete', 'Delete or unlist a version', `dotnet nuget delete MyLib 1.0.0 --source ${index} --api-key {{TOKEN}} --non-interactive`, 'shell', null, 'The repository\'s delete setting decides: unlist (hidden from search and version resolution, still restorable) or delete.'),
+    )
+  }
+  const nugetExe: SetupClient['snippets'] = [
+    s('nuget-exe-source', 'Add the source', `nuget sources add -Name waystation -Source ${index}`),
+    s('nuget-exe-source-auth', 'With credentials (when anonymous reads are not allowed)', `nuget sources add -Name waystation -Source ${index} -Username {{USERNAME}} -Password {{TOKEN}}`),
+    s('nuget-exe-install', 'Install a package', 'nuget install Newtonsoft.Json -Source waystation'),
+  ]
+  if (writable) nugetExe.push(s('nuget-exe-push', 'Push a package', `nuget push MyLib.1.0.0.nupkg -Source ${index} -ApiKey {{TOKEN}}`))
+  return [
+    { id: 'dotnet', label: 'dotnet CLI', snippets: dotnet },
+    { id: 'nuget-exe', label: 'NuGet.exe', snippets: nugetExe },
+  ]
+}
+
 /** Go: GOPROXY (the checksum database through the repository), private modules, .netrc credentials. */
 function go(repo: Repository): SetupClient[] {
   const url = `${BASE_URL}/repository/${repo.name}`
@@ -507,7 +549,7 @@ function terraformHosted(repo: Repository, host: string, s: Snip): SetupClient[]
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'nuget' ? nuget(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {

@@ -17,6 +17,28 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   `make check`); the client harness pulls and pushes through connector ports; `make deploy-test` checks an HTTPS
   connector. Operators: list the ports in `WAYSTATION_DOCKER_CONNECTORS` and publish the same numbers
   (DEPLOYMENT.md §8 "Docker port connectors").
+- T-P6-NUGET: NuGet v3 repositories (FORMATS.md "NuGet v3", `Operations/clients/nuget.md`). Every NuGet repository
+  serves its own service index (`/repository/<repo>/index.json`: flat container, registrations with SemVer 2,
+  search, and the publish endpoint for hosted repositories and groups with a writable member). **Proxy** of a v3
+  service index (preset nuget.org): version lists and registrations (gzip-encoded, paged) cached as metadata and
+  rewritten to the repository; `.nupkg`/`.nuspec` cached as content after a bounded check of the zip (zip-slip and
+  zip-bomb guards) and its `.nuspec` (defusedxml, must name the requested id and version) and, with the new option
+  `verify_catalog` (default on), the SHA-512 and size the upstream catalog publishes; search passed through.
+  **Hosted**: `dotnet nuget push` / `nuget push` with an API token as the API key (`X-NuGet-ApiKey`, read by
+  `security.authn` on format routes when there is no `Authorization` header) or basic credentials; write policy,
+  quotas, audit; `dotnet nuget delete` unlists (option `delete_mode`, default `unlist`) or deletes; relist by `POST`
+  and in the UI; version lists, registrations and local search rendered per request. **Group**: merged version lists,
+  registrations and search, files from the first member that has them, pushes to the writable member. NuGet version
+  order (`waystation_common.nuget`) for `version_sort`, cleanup ("keep the latest N") and the component index; new
+  collection `nuget_packages` (browse, global search). Prefetch warm items `Package@version` / `Package` and refresh
+  of version lists and registration indexes. Nexus import maps `nuget-proxy` (V3), `nuget-hosted` and `nuget-group`
+  (V2 proxies reported invalid). REST: `GET nuget/packages`, `GET nuget/versions`, `POST nuget/listing` (contract,
+  regenerated client); UI: NuGet in the create flow (proxy, hosted, group; options), browse renderer with
+  Unlist/Relist, prefetch section, "Set me up" (dotnet CLI, `nuget.config`, NuGet.exe), MSW mocks. Client harness
+  `tests/clients/nuget/` (.NET 10 SDK; recorded api.nuget.org fixtures of `Ardalis.GuardClauses` 5.0.0): restore
+  through the proxy, push + restore through hosted and the group, unlist, search, refused credentials. The harness's
+  fake upstream now decodes bodies an upstream gzip-encodes although asked for `identity`. Allowlisted hosts:
+  `nuget.org`, `schemas.microsoft.com` (the nuspec namespace).
 - **Release 0.2.9**: support bundle (T-O10), secret-key rotation (T-O11), prefetch jobs with adr/0012 accepted
   (T-O12; new setting `WAYSTATION_INTERNAL_URL` for split-host workers), and the Docker Hub pull-limit meter line.
   Docs and examples point at the 0.2.9 images.

@@ -36,6 +36,7 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | raw | a file path of the repository | that file | metadata paths (`metadata_path_regex`) |
 | Maven | `groupId:artifactId:version[:extension[:classifier]]` (no snapshots) | the POM, then the artifact: the given extension/classifier, else what `<packaging>` implies (`pom`: nothing more; `war`, `ear`, `aar`, `rar`, `zip`: that; otherwise `jar`) | `maven-metadata.xml` (same path) |
 | Go | `module@<canonical version>`, `module@latest`, `module` (= latest) | `@latest` when asked, then the version's `.info`, `.mod`, `.zip` (checked against the checksum database) | `@v/list`, `@latest` (same path) |
+| NuGet | `Package@version` (`Newtonsoft.Json@13.0.3`), `Package` (= the newest stable version, else the newest) | the flat container version list, the version's `.nupkg` (checked and verified against the catalog hash as for a client) and `.nuspec` | version lists (`v3-flatcontainer/<id>/index.json`) and registration indexes (`v3/registration/<id>/index.json`) |
 
 Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
 below). Left for later: PyPI (`project==version`), Helm (`chart@version`), Galaxy, Terraform, Swift.
@@ -935,6 +936,65 @@ Service index `index.json` (resources: `PackageBaseAddress/3.0.0` flat container
 `SearchQueryService`, `PackagePublish/2.0.0`). Rewrite every resource URL; registration pages contain absolute
 URLs (rewrite); `.nupkg` content validated against catalog/registration hash when available. Hosted push with
 `X-NuGet-ApiKey` = API token. Clients: dotnet CLI, nuget.exe (smoke).
+- Versions (`waystation_common.nuget`): `Major[.Minor[.Patch[.Revision]]][-label][+metadata]`; normalised = no
+  leading zeros, three numbers at least, the fourth only when not 0, metadata kept (registrations); package URLs use
+  the normalised version without metadata, lower case (`01.2.3` → `1.2.3`, `1.0.0-Beta` → `1.0.0-beta`). Order:
+  numbers, then a release after its prereleases, labels by dot-separated identifiers (numeric before text,
+  case-insensitive), metadata ignored. SemVer 2.0.0 versions (dotted label or metadata) are hidden from clients that do
+  not send `semVerLevel=2.0.0`. Ids: letters, digits, `.`, `_`, `-`, at most 100, compared case-insensitively.
+- Built (T-P6-NUGET, `formats/nuget/`):
+  - Routes under `/repository/<repo>/`: `index.json` (service index, rendered per request for every type, absolute
+    URLs from `WAYSTATION_BASE_URL`: `v3-flatcontainer/` as `PackageBaseAddress/3.0.0`, `v3/registration/` as every
+    `RegistrationsBaseUrl` variant (SemVer 2 included), `query` as every `SearchQueryService` variant, and
+    `api/v2/package` as `PackagePublish/2.0.0` for hosted repositories and groups with a writable member);
+    `v3-flatcontainer/<id>/index.json`, `.../<version>/<id>.<version>.nupkg`, `.../<version>/<id>.nuspec`;
+    `v3/registration/<id>/index.json` and (proxies) the upstream's pages and leaves below it; `query`;
+    `PUT api/v2/package`, `DELETE`/`POST api/v2/package/<id>/<version>`. Ids and versions in paths are normalised
+    (a zero fourth number or leading zeros name the same asset). `_upstream/` and `_catalog/` are asset keys, never routes.
+  - Proxy (upstream URL = a v3 service index; without `.json` `/index.json` is appended): the upstream's service
+    index cached as metadata `_upstream/index.json`, reduced to `PackageBaseAddress/3.0.0`, the best registration hive
+    (`3.6.0`, `Versioned`, `3.4.0`, ..., i.e. SemVer 2 first), every registration hive (search answers may name any)
+    and `SearchQueryService`. Version lists and registrations (index, pages, leaves) are metadata, JSON-validated
+    (≤ 64 MiB; nuget.org's `registration5-gz` hives arrive gzip-encoded) and rewritten: every string under an upstream
+    registration hive or the flat container now points at the repository; catalog `@id`s stay upstream identifiers.
+    `.nupkg` and `.nuspec` are content. A package is checked before it is committed (`CheckedExpected`, in a thread):
+    a zip whose entry names are safe (`\` read as `/`; no absolute paths, drive letters, `..`, NUL/control
+    characters), at most 100,000 entries and 16 GiB declared, no encryption, exactly one root `.nuspec` (≤ 1 MiB,
+    decompressed bounded) parsed by defusedxml that names the requested id and version. With `verify_catalog`
+    (default) the version's registration leaf is found (pages not inlined are fetched through the repository's own
+    routes, at most 64) and its catalog leaf, on a host the upstream's resources use, is cached as
+    `_catalog/<id>/<version>.json` (id, version, `packageHash`, `packageHashAlgorithm`, `packageSize`; ten-year max
+    age): the package must match its SHA-512 and size. Without a catalog entry only the package check applies.
+    Search passes through to the upstream's `SearchQueryService` (`relay`: not cached, bounded, `q`/`skip` ≤ 3000/
+    `take` ≤ 1000/`prerelease`/`semVerLevel`), URLs rewritten.
+  - Hosted (`hosted.py`): push = the first file part of a multipart body (what dotnet and NuGet.exe send) or the raw
+    body, streamed into the blob store (≤ 512 MiB, hard quota first, live upload transfer), checked as above and hashed
+    (SHA-512 for `packageHash`); stored as `v3-flatcontainer/<id>/<version>/<id>.<version>.nupkg` with
+    `assets.nuget` details, plus its `.nuspec`; the first push decides how the id is spelled. Write policy as for every
+    hosted format (`disable_redeploy` → `409`). `DELETE` unlists (`delete_mode: unlist`, default: kept, restorable,
+    `listed: false` and nuget.org's `1900-01-01` published date in registrations, left out of search) or removes both
+    files (`delete`); `POST` relists. Version lists (all versions, unlisted included, as nuget.org), registrations
+    (one inlined page; leaves `<version>.json`) and local search (terms match the id, title, tags or description;
+    `id:`/`packageid:` exact) are rendered per request (`ETag`, `304`, `HEAD`). Auth: `X-NuGet-ApiKey` = API token on
+    requests without an `Authorization` header (`security.authn`); pushes need `write`, deletes `delete`. Audited
+    `content.upload`/`content.update`/`content.delete` (`nuget_package`).
+  - Group (`group.py`): service index; version lists = union; registrations = every member's leaves (proxy pages
+    fetched and inlined) in one page, first member wins a version, URLs re-prefixed to the group; leaves/pages from
+    the first member that has them; files from the first member that holds them, else proxy members in order
+    (`X-Ws-Group-Member`); search = the members' answers merged (first wins per id, then `skip`/`take`); pushes and
+    deletes to the writable member (RBAC on the member).
+  - Browse/search: `nuget_packages` summaries (proxy: background after a version list or registration is cached;
+    hosted: on every change); `nuget/packages`, `nuget/versions`, `POST nuget/listing`; global search kind `package`.
+    Components: the `.nupkg` (`<id>`, normalised version, NuGet `version_sort`); cleanup ranks versions per package
+    in NuGet order (`.nupkg` and `.nuspec` share the version's rank).
+  - Prefetch: warm `Package@version` or `Package` (newest stable listed); refresh of version lists and registration
+    indexes.
+  - Clients verified (harness, recorded api.nuget.org fixtures of `Ardalis.GuardClauses` 5.0.0): .NET 10 SDK
+    (`dotnet restore`/`build` through proxy, hosted and group, `dotnet list package --outdated`, `pack`,
+    `nuget push` (directly and through the group), `nuget delete` (unlist), `package search`), the push API with the
+    API key alone (curl).
+  - Not yet: NuGet.exe in the harness (needs Windows or Mono), symbol packages (`.snupkg`, `SymbolPackagePublish`),
+    `SearchAutocompleteService`, vulnerability data, NuGet v2 upstreams, the live smoke.
 
 ## Cargo (sparse index) — Phase 6
 `config.json` (`dl`, `api`), sparse index files at `/<prefix>/<crate>` (metadata), downloads `.crate` validated

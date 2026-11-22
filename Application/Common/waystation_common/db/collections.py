@@ -48,6 +48,7 @@ GALAXY_COLLECTIONS = 'galaxy_collections'
 GALAXY_IMPORTS = 'galaxy_imports'  # hosted collection uploads waiting for (or done with) the import job
 SWIFT_RELEASES = 'swift_releases'  # Swift package releases: published (hosted) or pinned from a Git tag (proxy)
 SWIFT_PACKAGES = 'swift_packages'  # one summary per Swift package (browse, global search)
+NUGET_PACKAGES = 'nuget_packages'  # one summary per NuGet package id a repository has (browse, global search, hosted)
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -510,6 +511,15 @@ SPECS: tuple[CollectionSpec, ...] = (
                 [('repo_id', ASCENDING), ('scope_key', ASCENDING), ('name_key', ASCENDING)],
                 unique=True,
             ),
+            *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        NUGET_PACKAGES,
+        (
+            # One summary per package id (lower case) a repository has: cached version list (proxy) or pushes
+            # (hosted); browse lists them by id, hosted search filters them.
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=False),
         ),
     ),

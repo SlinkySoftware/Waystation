@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, SwiftOptions, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
+import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, NugetOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, SwiftOptions, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
 import { t } from '@/i18n'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
@@ -11,11 +11,11 @@ export type FormFormat = M0Format
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift', 'nuget']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'nuget']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
-export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'pypi', 'helm', 'galaxy']
+export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'pypi', 'helm', 'galaxy', 'nuget']
 
 export interface RepoFormModel {
   name: string
@@ -80,6 +80,9 @@ export interface RepoFormModel {
   swiftLayout: NonNullable<SwiftOptions['archive_layout']>
   swiftScopes: string
   swiftMappedOnly: boolean
+  // nuget: catalog verification (proxy), what `dotnet nuget delete` does (hosted)
+  nugetVerifyCatalog: boolean
+  nugetDeleteMode: NonNullable<NugetOptions['delete_mode']>
   verifySignatures: boolean
   tfArchiveHosts: string[]
   // apt
@@ -148,6 +151,7 @@ export const PRESETS: Record<M0Format, Preset[]> = {
     { id: 'gradle', label: 'Gradle plugins', apply: { name: 'gradle-plugins', upstreamUrl: 'https://plugins.gradle.org/m2/' } },
   ],
   pypi: [{ id: 'pypi', label: 'pypi.org', apply: { name: 'pypi-proxy', upstreamUrl: 'https://pypi.org' } }],
+  nuget: [{ id: 'nugetorg', label: 'nuget.org', apply: { name: 'nuget-proxy', upstreamUrl: 'https://api.nuget.org/v3/index.json' } }],
   go: [{ id: 'goproxy', label: 'proxy.golang.org', apply: { name: 'go-proxy', upstreamUrl: 'https://proxy.golang.org' } }],
   galaxy: [{ id: 'galaxy', label: 'galaxy.ansible.com', apply: { name: 'galaxy-proxy', upstreamUrl: 'https://galaxy.ansible.com/' } }],
   terraform: [
@@ -218,6 +222,8 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     swiftLayout: 'github',
     swiftScopes: '',
     swiftMappedOnly: false,
+    nugetVerifyCatalog: true,
+    nugetDeleteMode: 'unlist',
     tfArchiveHosts: [...DEFAULT_TF_ARCHIVE_HOSTS],
     distribution: '',
     flat: false,
@@ -242,7 +248,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
   const h = repo.hosted
   const quotaBytes = repo.storage?.quota_bytes ?? null
   const quotaSize = quotaBytes ? fromBytes(quotaBytes) : { size: m.quotaSize, unit: m.quotaUnit }
-  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions & TerraformOptions & SwiftOptions
+  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions & TerraformOptions & SwiftOptions & NugetOptions
   return {
     ...m,
     name: repo.name,
@@ -290,6 +296,8 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     swiftLayout: o.archive_layout ?? 'github',
     swiftScopes: Object.entries(o.scopes ?? {}).map(([scope, owner]) => `${scope} = ${owner}`).join('\n'),
     swiftMappedOnly: o.mapped_scopes_only ?? false,
+    nugetVerifyCatalog: o.verify_catalog ?? true,
+    nugetDeleteMode: o.delete_mode ?? 'unlist',
     tfArchiveHosts: o.module_archive_hosts ?? [...DEFAULT_TF_ARCHIVE_HOSTS],
     distribution: o.distribution ?? '',
     flat: o.flat ?? false,
@@ -347,6 +355,10 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       return m.type === 'proxy' ? { repo_path: m.repoPath.trim(), gpg_key: m.gpgKey?.trim() || null, repomd_keys: m.repomdKeys.trim() || null } : {}
     case 'helm':
       return {}
+    case 'nuget':
+      // Catalog verification is a proxy setting, the delete mode a hosted one (the form shows only the one that
+      // applies; the other keeps its stored value). Groups carry neither.
+      return m.type === 'group' ? {} : { verify_catalog: m.nugetVerifyCatalog, delete_mode: m.nugetDeleteMode }
     case 'swift':
       // The Git host settings are proxy settings (the server refuses them on hosted repositories).
       return m.type === 'proxy' ? { archive_layout: m.swiftLayout, scopes: parseScopes(m.swiftScopes), mapped_scopes_only: m.swiftMappedOnly } : {}
@@ -430,7 +442,7 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
 // ---------------------------------------------------------------- prefetch (T-O12)
 
 /** Formats whose proxies can warm a list of items and keep popular metadata fresh. */
-export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go']
+export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget']
 /** Server limits of the warm list (PrefetchConfig). */
 export const WARM_MAX_ITEMS = 200
 export const WARM_MAX_LENGTH = 512

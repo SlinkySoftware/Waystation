@@ -12,7 +12,9 @@ Components and versions come from asset paths (``coordinates``) until components
   ``collections/<ns>/<name>/<ns>-<name>-<version>.tar.gz`` (per collection, SemVer); terraform
   ``<hostname>/<namespace>/<type>/<version>/<os>/<arch>/<archive>.zip`` (per provider, semver; every platform of a
   version shares its rank), module archives ``v1/modules/<namespace>/<name>/<system>/<version>/archive.*`` and
-  hosted provider packages ``v1/providers/<namespace>/<type>/<version>/*.zip`` (per module / provider, semver); every
+  hosted provider packages ``v1/providers/<namespace>/<type>/<version>/*.zip`` (per module / provider, semver); nuget
+  ``v3-flatcontainer/<id>/<version>/<id>.<version>.nupkg`` and its ``.nuspec`` (per package, NuGet version order,
+  both files of a version share its rank); every
   other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
@@ -44,6 +46,7 @@ DAY = timedelta(days=1)
 # Swift releases are immutable and a proxy's archives are pinned by checksum (rebuilt bytes could differ): only the
 # SCM proxy's cached upstream tarballs are cleanup candidates.
 SWIFT_SCM_PREFIX = '_scm/'
+NUGET_FLAT = 'v3-flatcontainer/'
 
 
 @dataclass(frozen=True)
@@ -123,6 +126,10 @@ def coordinates(fmt: str, path: str) -> Coord:
         if dist_version is not None:
             project = path.split('/')[1]
             return Coord(project, dist_version, project, True)
+    if fmt == 'nuget' and path.startswith(NUGET_FLAT) and filename.endswith(('.nupkg', '.nuspec')):
+        parts = path.split('/')
+        if len(parts) == 4 and parts[1] and parts[2]:  # v3-flatcontainer/<id>/<version>/<file>
+            return Coord(parts[1], parts[2], parts[1], True)
     if fmt == 'go' and '/@v/' in path and filename.endswith(('.zip', '.mod', '.info')):
         escaped, _, _ = path.partition('/@v/')
         stem = filename.rsplit('.', 1)[0]

@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 
 import pytest
-from upstream_store import REDACTED, Exchange, FixtureStore, RequestKey, auth_kind, scrub_response, scrub_url
+from upstream_store import (
+    REDACTED,
+    Exchange,
+    FixtureStore,
+    RequestKey,
+    auth_kind,
+    identity_body,
+    scrub_response,
+    scrub_url,
+)
 
 
 def test_scrub_url_redacts_signed_query_values_and_userinfo() -> None:
@@ -164,3 +174,15 @@ def test_store_reads_legacy_names_only_for_their_own_request(tmp_path: Path) -> 
     other = RequestKey.build('GET', 'https://registry.example.com/is/-/is-4.6.0.zip', {})
     assert other.stem != tgz.stem and (tmp_path / 'registry.example.com' / other.stem).with_suffix('.json') == legacy
     assert store.load(other) is None
+
+
+def test_identity_body_decodes_a_coding_the_upstream_sent_anyway() -> None:
+    raw = b'{"items": []}'
+    headers = [('Content-Type', 'application/json'), ('Content-Encoding', 'gzip'), ('Content-Length', '99')]
+    kept, body = identity_body(headers, gzip.compress(raw), 1024)
+    assert body == raw
+    assert kept == [('Content-Type', 'application/json'), ('Content-Length', str(len(raw)))]
+    plain = [('Content-Type', 'text/plain')]
+    assert identity_body(plain, b'abc', 1024) == (plain, b'abc')
+    with pytest.raises(ValueError, match='exceeds'):
+        identity_body(headers, gzip.compress(b'x' * 4096), 1024)

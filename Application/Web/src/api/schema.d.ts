@@ -1438,6 +1438,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/nuget/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Packages of a NuGet repository (hosted pushes, a proxy's cached version lists, a group's members) */
+        get: operations["listNugetPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/nuget/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One package and its versions (newest first, NuGet version order) */
+        get: operations["listNugetVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/nuget/listing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unlist or relist a version of a hosted NuGet repository (needs `write`) */
+        post: operations["setNugetListing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/yum/packages": {
         parameters: {
             query?: never;
@@ -3740,8 +3797,21 @@ export interface components {
              */
             mapped_scopes_only: boolean;
         };
+        NugetOptions: {
+            /**
+             * @description Verify each package downloaded from the upstream against the SHA-512 hash and size its catalog entry publishes, when the upstream has a catalog (nuget.org does). Every package is also checked to be a readable NuGet package whose .nuspec names the requested id and version (proxy repositories)
+             * @default true
+             */
+            verify_catalog: boolean;
+            /**
+             * @description `dotnet nuget delete` on a hosted repository: `unlist` hides the version from search and version resolution but keeps it restorable (as nuget.org does); `delete` removes it
+             * @default unlist
+             * @enum {string}
+             */
+            delete_mode: "unlist" | "delete";
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["NugetOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -4322,6 +4392,52 @@ export interface components {
             chart: components["schemas"]["HelmChart"];
             items: components["schemas"]["HelmVersion"][];
             next_cursor: string | null;
+        };
+        NugetPackage: {
+            /** @description Package id in lower case (as in package URLs) */
+            name: string;
+            /** @description Package id as its author spelled it */
+            id: string;
+            /** @description Newest stable version, else the newest version */
+            latest_version?: string | null;
+            version_count: number;
+            description?: string | null;
+            authors?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        NugetPackagePage: {
+            items: components["schemas"]["NugetPackage"][];
+            next_cursor: string | null;
+        };
+        NugetVersion: {
+            /** @description Normalised version */
+            version: string;
+            prerelease: boolean;
+            /** @description False: unlisted (hidden from search and version resolution, still restorable) */
+            listed: boolean;
+            /** @description The .nupkg is held by this repository (always true in hosted repositories) */
+            cached: boolean;
+            size_bytes?: number | null;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** @description Hosted: who pushed it */
+            uploaded_by?: string | null;
+            /** @description Path of the .nupkg in the repository */
+            path: string;
+            download_url: string;
+        };
+        NugetVersionPage: {
+            package: components["schemas"]["NugetPackage"];
+            /** @description Newest first (NuGet version order) */
+            items: components["schemas"]["NugetVersion"][];
+            next_cursor: string | null;
+        };
+        NugetListing: {
+            package: string;
+            version: string;
+            /** @description False: unlist the version; true: relist it */
+            listed: boolean;
         };
         YumPackage: {
             name: string;
@@ -8282,6 +8398,92 @@ export interface operations {
                     "application/json": components["schemas"]["HelmVersionPage"];
                 };
             };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listNugetPackages: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NugetPackagePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listNugetVersions: {
+        parameters: {
+            query: {
+                /** @description Package id (case-insensitive) */
+                package: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NugetVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setNugetListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NugetListing"];
+            };
+        };
+        responses: {
+            /** @description The version's listing state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NugetListing"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
