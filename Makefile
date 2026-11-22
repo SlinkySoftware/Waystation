@@ -134,7 +134,7 @@ test-integration-authentik: ## OIDC tests against authentik too (opt-in: Postgre
 	  ARGS='Application/Server/tests/test_oidc_providers_integration.py $(ARGS)'
 
 .PHONY: check
-check: forbidden-strings workflow-lint fmt-check lint typecheck test test-nfs test-integration clients-check frontend-check e2e budgets ## Everything CI runs on a PR (grows as tasks land)
+check: forbidden-strings workflow-lint fmt-check lint typecheck test web-config-test test-nfs test-integration clients-check frontend-check e2e budgets ## Everything CI runs on a PR (grows as tasks land)
 
 .PHONY: forbidden-strings budgets workflow-lint
 ACTIONLINT_IMAGE ?= rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
@@ -316,6 +316,9 @@ backup-test: ## Backup/restore end to end: seed, back up, wipe, restore, verify 
 	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \
 	  flock -n 9 || { echo "backup-test: another run holds $(TEST_LOCK); waiting"; flock 9; }; fi; \
 	tests/backup/run.sh
+.PHONY: web-config-test
+web-config-test: ## Web tier nginx config: render + nginx -t (plain, TLS, docker connectors), connector header checks (official nginx image, no build)
+	tests/web/run.sh
 .PHONY: deploy-test
 deploy-test: ## Split hosts + TLS end to end: standalone server x2, worker, web with TLS (own containers; integration lock) [DEPLOY_IMAGE_TAG=<built tag>]
 	@if [ -n "$(TEST_LOCK)" ] && command -v flock >/dev/null; then exec 9>>"$(TEST_LOCK)"; \

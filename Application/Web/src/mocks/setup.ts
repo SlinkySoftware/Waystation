@@ -12,6 +12,27 @@ function on(os: 'linux' | 'macos' | 'windows', base: SetupSnippet, patch: Partia
 
 const psEnv = (lines: [string, string][]) => lines.map(([k, v]) => `$env:${k} = "${v}"`).join('\n')
 
+/** `<base URL host>:<connector port>` (the base URL's own port dropped), or null without a connector port (the server's `connector_host`). */
+function connectorHost(repo: Repository): string | null {
+  const port = (repo.format_options as DockerOptions | undefined)?.connector_port
+  if (typeof port !== 'number') return null
+  const host = new URL(BASE_URL).hostname
+  return `${host}:${port}`
+}
+
+/** The dedicated port connector snippet (SPEC §4.4), when the repository has one (the server's `_connector`). */
+function dockerConnector(repo: Repository, image: string): SetupSnippet[] {
+  const chost = connectorHost(repo)
+  if (chost === null) return []
+  const port = (repo.format_options as DockerOptions).connector_port
+  const base = { id: 'docker-connector', language: 'shell', filename: null, os: null } as const
+  if (repo.type === 'hosted') {
+    return [{ ...base, title: `Push and pull through the dedicated port ${port}`, content: `docker login ${chost}\ndocker tag myapp:1.0 ${chost}/myapp:1.0\ndocker push ${chost}/myapp:1.0`, description: 'No repository prefix on this port; it needs its own docker login.' }]
+  }
+  const description = repo.type === 'proxy' ? `No repository prefix on this port. Sign in with docker login ${chost} when anonymous pulls are not allowed.` : 'No repository prefix on this port.'
+  return [{ ...base, title: `Pull through the dedicated port ${port}`, content: `docker pull ${chost}/${image}`, description }]
+}
+
 function dockerHosted(repo: Repository): SetupClient[] {
   const image = `${REGISTRY_HOST}/${repo.name}/myapp`
   const snippet = (id: string, title: string, content: string): SetupClient['snippets'][number] => ({ id, title, language: 'shell', filename: null, os: null, content })
@@ -22,6 +43,7 @@ function dockerHosted(repo: Repository): SetupClient[] {
       snippets: [
         { ...snippet('docker-login', 'Sign in (an API token as the password)', `echo "{{TOKEN}}" | docker login ${REGISTRY_HOST} --username {{USERNAME}} --password-stdin`), description: 'Pushing needs write permission on this repository; use an API token with the write scope.' },
         snippet('docker-push', 'Tag and push an image', `docker tag myapp:1.0 ${image}:1.0\ndocker push ${image}:1.0`),
+        ...dockerConnector(repo, repo.type === 'hosted' ? 'myapp:1.0' : 'team/app:1.0'),
         snippet('docker-buildx', 'Build and push a multi-platform image', `docker buildx build --platform linux/amd64,linux/arm64 -t ${image}:1.0 --push .`),
         snippet('docker-pull', 'Pull', `docker pull ${image}:1.0`),
       ],
@@ -57,6 +79,7 @@ function docker(repo: Repository): SetupClient[] {
     dockerSnippets.push(prefix)
     if (alias) dockerSnippets.push({ id: 'pull-alias', title: `Pull by upstream alias (${alias})`, description: 'Keep the upstream registry name in the image reference: only the host changes.', language: 'shell', filename: null, os: null, content: `docker pull ${host}/${alias}/${sample}` })
   }
+  dockerSnippets.push(...dockerConnector(repo, opts.docker_hub ? 'library/nginx:latest' : 'org/image:tag'))
   if (opts.default_repo) {
     dockerSnippets.splice(1, 0, { id: 'pull-default', title: 'Pull without a prefix (default repository)', description: 'Docker Hub names work as they are; single-segment names get library/ like on Docker Hub.', language: 'shell', filename: null, os: null, content: `docker pull ${host}/${hub ? 'nginx:latest' : sample}` })
     const mirror: SetupSnippet = { id: 'docker-mirror', title: 'Use as a Docker Hub mirror', description: 'Every docker pull of a Docker Hub image then goes through Waystation. Restart the daemon afterwards.', language: 'json', filename: '/etc/docker/daemon.json', os: null, content: `{\n  "registry-mirrors": ["${BASE_URL}"]\n}` }
@@ -490,6 +513,8 @@ export function setupGuide(repo: Repository): SetupGuide {
   if (repo.format === 'docker') {
     notes.push(`Docker clients address this repository as ${REGISTRY_HOST}/${repo.name}/… (path routing).`)
     if (opts.aliases?.length) notes.push(`${opts.aliases.map((a) => `${REGISTRY_HOST}/${a}/…`).join(', ')} also routes here.`)
+    const chost = connectorHost(repo)
+    if (chost) notes.push(`${chost}/… (dedicated port) also routes here.`)
     if (opts.default_repo) notes.push('This is the default docker repository: unprefixed names and registry-mirrors pulls land here.')
   }
   return { repository: repo.name, format: repo.format, clients, notes }

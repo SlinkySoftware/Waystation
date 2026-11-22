@@ -363,6 +363,23 @@
         <q-input v-if="model.type === 'proxy'" v-model="model.metadataRegex" outlined dense :label="t('repoForm.metadataRegex')" :hint="t('repoForm.metadataRegexHint')" class="mono-input" />
         <q-select v-model="model.contentDisposition" outlined dense emit-value map-options :options="dispositionOptions" :label="t('repoForm.disposition')" />
       </template>
+      <q-input
+        v-if="model.format === 'docker'"
+        :model-value="model.connectorPort"
+        outlined
+        dense
+        clearable
+        type="number"
+        :min="CONNECTOR_PORT_MIN"
+        :max="CONNECTOR_PORT_MAX"
+        :placeholder="t('repoForm.connectorPortNone')"
+        :label="t('repoForm.connectorPort')"
+        :hint="t('repoForm.connectorPortHint')"
+        :error="!!connectorError"
+        :error-message="connectorError"
+        data-test="connector-port"
+        @update:model-value="(v: string | number | null) => (model.connectorPort = parseConnectorPort(v))"
+      />
     </section>
 
     <q-expansion-item v-if="model.type === 'proxy'" v-model="cachingOpen" dense dense-toggle switch-toggle-side :label="t('repoForm.caching')" class="repo-form__advanced" header-class="section-label">
@@ -520,7 +537,18 @@ import { useRepositoriesStore } from '@/stores/repositories'
 import { typeMeta } from '@/utils/domain'
 import { QUOTA_UNITS } from '@/utils/quota'
 
-import { NAME_PATTERN, PREFETCH_FORMATS, type Preset, PRESETS, type RepoFormModel, WRITABLE_GROUP_FORMATS } from './form'
+import {
+  CONNECTOR_PORT_MAX,
+  CONNECTOR_PORT_MIN,
+  connectorPortError,
+  NAME_PATTERN,
+  parseConnectorPort,
+  PREFETCH_FORMATS,
+  type Preset,
+  PRESETS,
+  type RepoFormModel,
+  WRITABLE_GROUP_FORMATS,
+} from './form'
 import PrefetchFields from './PrefetchFields.vue'
 import UpstreamTest from './UpstreamTest.vue'
 
@@ -544,6 +572,8 @@ const writableOptions = computed(() =>
     .filter((name) => repositories.byName.get(name)?.type === 'hosted')
     .map((name) => ({ label: name, value: name })),
 )
+/** The dedicated port: the client-side range check first, then the server's (taken / reserved / range). */
+const connectorError = computed(() => connectorPortError(model.value) || props.errors['format_options.connector_port'] || '')
 const membersError = computed(() => Object.entries(props.errors).find(([field]) => field.startsWith('group.members') || field === 'group')?.[1] ?? '')
 
 const policyOptions = computed(() =>

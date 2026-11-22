@@ -48,6 +48,7 @@ class RequestContextMiddleware:
         state: dict[str, Any] = scope.setdefault('state', {})
         state['request_id'] = rid
         state['client_ip'] = client_ip
+        state['internal_hop'] = internal  # the direct peer is the web tier (or another internal container)
         fields: dict[str, Any] = {}
         state['log'] = fields
         started = time.perf_counter()

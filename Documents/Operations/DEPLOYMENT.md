@@ -228,7 +228,8 @@ Compose-only variables (used for interpolation in `compose.yaml`, not read by th
 | `WAYSTATION_SUBNET`, `WAYSTATION_BACKEND_SUBNET` | Docker picks | Explicit subnets for `frontend` / `backend` when Docker's default pools collide with routed networks; only read through the override `compose.subnets.yaml` (`COMPOSE_FILE=compose.yaml:compose.subnets.yaml`) |
 
 The web image reads `WAYSTATION_SERVER_ADDR` (default `waystation-server:8000`) and `WAYSTATION_WEB_PORT` (default
-`8080`) from its own environment; the defaults match `compose.yaml`.
+`8080`) from its own environment; the defaults match `compose.yaml`. `WAYSTATION_DOCKER_CONNECTORS` (empty) lists its
+docker dedicated port connectors (section 8, "Docker port connectors").
 
 ## 6. Start
 
@@ -319,6 +320,39 @@ and give group `WAYSTATION_GID` read access to the key. HSTS is not sent; add it
 When the reverse proxy runs in Docker on the same host, the simplest setup is to attach `web` to the proxy's network
 with an override and not publish a port at all; `Build/Containers/examples/traefik.override.example.yaml` shows
 this for Traefik.
+
+### Docker port connectors
+
+Some docker clients need a whole host:port for one repository (Nexus "connectors": `docker pull
+registry.example.com:5001/library/nginx`, no repository prefix). Three steps, all yours (the web container holds no
+state and cannot ask the server which ports to open, ADR 0013):
+
+1. On each docker repository that needs one, set **Dedicated port (connector)** (`format_options.connector_port`,
+   1024-65535, unique, not the base URL's port).
+2. List the same ports for the web container and publish them **with the same numbers** (the "Set me up" snippets
+   and the clients use `<base URL host>:<port>`):
+
+   ```yaml
+   # /srv/waystation/compose.override.yaml
+   services:
+     web:
+       environment:
+         WAYSTATION_DOCKER_CONNECTORS: "5001,5002"
+       ports:
+         - "0.0.0.0:5001:5001"
+         - "0.0.0.0:5002:5002"
+   ```
+
+3. `docker compose up -d web`. The web container refuses to start (reason in `docker logs waystation-web`) when an
+   entry is not a port, is outside 1024-65535, repeats, or is one of its own ports.
+
+Each connector port answers only the registry API (`/v2/`), over HTTPS + HTTP/2 with the same certificate when the web
+container terminates TLS (section 8), else plain HTTP (clients then need it in `insecure-registries`). Tokens still
+come from `WAYSTATION_BASE_URL` (`/auth/token?connector=<port>`), so clients must reach the base URL too, and
+`docker login` is needed once per connector (`docker login registry.example.com:5001`). A listed port that no
+repository uses answers 404 for every image; a repository port the web container does not list is unreachable.
+Behind an external reverse proxy, forward each connector port to the same port of `web` as a plain TCP or HTTP
+stream (REVERSE_PROXIES.md §1 requirements apply).
 
 ## 9. Scaling and split deployments
 

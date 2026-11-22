@@ -59,7 +59,12 @@ async def test_create_get_list_delete(admin: httpx.AsyncClient, client: httpx.As
     body = created.json()
     assert body['status'] == 'ok'
     assert body['url'] == 'https://registry.example.com/repository/docker-hub/'
-    assert body['format_options'] == {'aliases': ['docker.io'], 'docker_hub': True, 'default_repo': True}
+    assert body['format_options'] == {
+        'aliases': ['docker.io'],
+        'docker_hub': True,
+        'default_repo': True,
+        'connector_port': None,
+    }
     assert body['proxy']['metadata_max_age_s'] == 1800
     assert body['stats']['requests_spark_24h'] == [0] * 24
 
@@ -326,7 +331,7 @@ async def test_clone_copies_configuration_and_secret(admin: httpx.AsyncClient, s
     assert body['proxy']['metadata_max_age_s'] == 60
     assert body['storage'] == {'quota_bytes': 1_000_000, 'quota_mode': 'hard'}
     # aliases and the default repository name one repository: the source keeps them
-    assert body['format_options'] == {'aliases': [], 'docker_hub': True, 'default_repo': False}
+    assert body['format_options'] == {'aliases': [], 'docker_hub': True, 'default_repo': False, 'connector_port': None}
     assert (await admin.get(f'{API}/docker-hub')).json()['format_options']['default_repo'] is True
     doc = await services.db[REPOSITORIES].find_one({'name': 'docker-hub-2'})
     src = await services.db[REPOSITORIES].find_one({'name': 'docker-hub'})

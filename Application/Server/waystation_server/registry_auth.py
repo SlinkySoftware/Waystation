@@ -19,6 +19,10 @@
   request carries it in the realm (``/auth/token?ns=...``; clients keep the realm's query). Scopes are then resolved
   with it (``routing.resolve_docker``) and a granted scope is renamed ``<repository>/<image>``, so the token names the
   repository it was granted on and does not depend on ``ns`` afterwards.
+- A request on a dedicated port connector (``routing.connector_port``, ADR 0013) is challenged with
+  ``/auth/token?connector=<port>`` in the realm, the same way: scopes resolve to the connector's repository and a
+  granted scope is renamed ``<repository>/<image>``. The parameter only selects the repository a name resolves to
+  (like a ``<repository>/`` prefix), so it needs no trust: grants are still what RBAC allows there.
 - ``registry:catalog:*`` is granted to every caller: ``/v2/_catalog`` lists only the images of repositories RBAC lets
   the principal see.
 - The bearer authenticator turns a valid token into the principal it was issued to (re-resolved every request;
@@ -108,8 +112,16 @@ def request_scope(name_path: str, method: str) -> str | None:
     return f'repository:{image_name(name_path)}:{actions}'
 
 
-def challenge(services: Services, *, scope: str | None, error: str | None = None, ns: str | None = None) -> Response:
-    realm = f'{services.base_url}/auth/token' + (f'?{urlencode({"ns": ns})}' if ns else '')
+def challenge(
+    services: Services,
+    *,
+    scope: str | None,
+    error: str | None = None,
+    ns: str | None = None,
+    connector: int | None = None,
+) -> Response:
+    query = {'connector': str(connector)} if connector is not None else {'ns': ns} if ns else {}
+    realm = f'{services.base_url}/auth/token' + (f'?{urlencode(query)}' if query else '')
     parts = [f'realm="{realm}"', f'service="{registry_host(services)}"']
     if scope:
         parts.append(f'scope="{scope}"')
@@ -131,20 +143,23 @@ def token_allows(principal: Principal, repo_name: str, action: Action) -> bool:
 
 
 # ---------------------------------------------------------------------------- grants
-async def _grant(services: Services, principal: Principal, scope: Scope, ns: str | None = None) -> Scope:
+async def _grant(
+    services: Services, principal: Principal, scope: Scope, ns: str | None = None, connector: int | None = None
+) -> Scope:
     from waystation_server.routing import resolve_docker
 
     if scope.type == 'registry':
         # ``/v2/_catalog`` lists only what RBAC lets the principal see, so anyone may ask for it.
         allowed = scope.name == 'catalog' and '*' in scope.actions
         return dataclasses.replace(scope, actions=('*',) if allowed else ())
-    route = await resolve_docker(services, scope.name, ns)
+    route = await resolve_docker(services, scope.name, ns, connector)
     if route is None or not access.can_see(principal, route.repo):
         return dataclasses.replace(scope, actions=())
     wanted = DOCKER_ACTIONS_ALL if '*' in scope.actions else scope.actions
     granted = tuple(a for a in wanted if a in ACTION_MAP and access.check(principal, ACTION_MAP[a][0], route.repo))
-    if ns is not None:
-        # ``<repository>/<image>`` resolves to the same repository without ``ns`` (``authenticate_bearer``).
+    if ns is not None or connector is not None:
+        # ``<repository>/<image>`` resolves to the same repository without ``ns`` or the connector
+        # (``authenticate_bearer``).
         return dataclasses.replace(scope, name=f'{route.repo.name}/{route.path}', actions=granted)
     return dataclasses.replace(scope, actions=granted)
 
@@ -191,6 +206,7 @@ async def _issue(
     scope_values: list[str],
     ns: str | None,
     offline: bool,
+    connector: str | None = None,
 ) -> Response:
     """The token response: an access token for what the scopes grant, plus a refresh token when ``offline`` was
     asked for by a signed-in caller."""
@@ -198,8 +214,9 @@ async def _issue(
 
     host = registry_host(services)
     scopes = parse_scopes(scope_values)[:20]
-    namespace = mirror_namespace(services, ns)
-    granted = [await _grant(services, principal, s, namespace) for s in scopes]
+    port = _connector(connector)
+    namespace = mirror_namespace(services, ns) if port is None else None
+    granted = [await _grant(services, principal, s, namespace, port) for s in scopes]
     signer = await services.registry_signer.get()
     subject = 'anonymous' if principal.is_anonymous else principal.id
     token_id = principal.token.token_id if principal.token is not None else None
@@ -218,6 +235,14 @@ async def _issue(
     return JSONResponse(body, headers={'Cache-Control': 'no-store', 'Pragma': 'no-cache'})
 
 
+def _connector(raw: str | None) -> int | None:
+    """``?connector=<port>`` from a connector challenge's realm; a malformed value resolves nothing (0)."""
+    if raw is None:
+        return None
+    raw = raw.strip()
+    return int(raw) if raw.isascii() and raw.isdigit() and len(raw) <= 5 else 0
+
+
 def _service_error(services: Services, service: str | None) -> Response | None:
     if service and service != registry_host(services):
         return oci_error(400, f'unknown service {service!r}', code='UNSUPPORTED')
@@ -232,6 +257,7 @@ async def token(
     scope: Annotated[list[str] | None, Query(max_length=4096)] = None,
     ns: Annotated[str | None, Query(max_length=255)] = None,
     offline_token: Annotated[str | None, Query(max_length=8)] = None,
+    connector: Annotated[str | None, Query(max_length=8)] = None,
 ) -> Response:
     """Docker token authentication: anonymous, or HTTP basic credentials. ``offline_token=true`` (``docker login``)
     with credentials also returns a ``refresh_token``, which clients keep instead of the password."""
@@ -249,6 +275,7 @@ async def token(
         scope_values=scope or [],
         ns=ns,
         offline=(offline_token or '').lower() == 'true',
+        connector=connector,
     )
 
 
@@ -301,7 +328,11 @@ async def _refresh_principal(services: Services, refresh_token: str) -> Principa
 
 @router.post('/auth/token')
 @access.public  # OAuth2 token endpoint of the Docker token specification; authenticates the grant itself
-async def oauth_token(request: Request, ns: Annotated[str | None, Query(max_length=255)] = None) -> Response:
+async def oauth_token(
+    request: Request,
+    ns: Annotated[str | None, Query(max_length=255)] = None,
+    connector: Annotated[str | None, Query(max_length=8)] = None,
+) -> Response:
     """``grant_type=password`` (``username``, ``password``; an API token works as the password) or
     ``grant_type=refresh_token`` (``refresh_token``), with ``service``, ``scope`` (space-separated) and
     ``client_id``. ``access_type=offline`` with a password grant also returns a ``refresh_token``. containerd posts a
@@ -323,14 +354,30 @@ async def oauth_token(request: Request, ns: Annotated[str | None, Query(max_leng
             return oci_error(400, 'username and password are required', code='UNSUPPORTED')
         principal = await _password_principal(services, request, username, password)
         offline = form.get('access_type', '') == 'offline'
-        return await _issue(request, services, principal, scope_values=scope_values, ns=namespace, offline=offline)
+        return await _issue(
+            request,
+            services,
+            principal,
+            scope_values=scope_values,
+            ns=namespace,
+            offline=offline,
+            connector=connector,
+        )
     if grant == 'refresh_token':
         presented = form.get('refresh_token', '')
         refreshed = await _refresh_principal(services, presented) if presented else None
         if refreshed is None:
             return _invalid_grant('invalid, expired or revoked refresh token')
         # The refresh token is not rotated: the Docker daemon keeps the one ``docker login`` stored.
-        return await _issue(request, services, refreshed, scope_values=scope_values, ns=namespace, offline=False)
+        return await _issue(
+            request,
+            services,
+            refreshed,
+            scope_values=scope_values,
+            ns=namespace,
+            offline=False,
+            connector=connector,
+        )
     return oci_error(400, 'unsupported grant_type (password or refresh_token)', code='UNSUPPORTED')
 
 

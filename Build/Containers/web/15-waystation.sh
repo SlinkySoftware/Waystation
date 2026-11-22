@@ -8,9 +8,15 @@
 #   WAYSTATION_TLS_CERT       certificate chain (PEM) path; with WAYSTATION_TLS_KEY turns on TLS: HTTPS with HTTP/2 on
 #   WAYSTATION_TLS_KEY        WAYSTATION_WEB_TLS_PORT (default 8443), and the plain port redirects to HTTPS
 #   WAYSTATION_BASE_URL       the redirect target when it is an https:// URL (else https://<requested host>)
+#   WAYSTATION_DOCKER_CONNECTORS  docker dedicated port connectors (SPECIFICATION §4.4, ADR 0013): ports separated by
+#                             commas or spaces (1024-65535, not the web ports). Each gets its own server: /v2/ only,
+#                             HTTPS + HTTP/2 on the same certificate when TLS is on (else plain HTTP), proxied with
+#                             X-Waystation-Connector: <port>; the server routes it to the docker repository whose
+#                             connector_port it is. Publish the same port numbers on the host.
+#   WAYSTATION_NGINX_CONF_DIR output directory (default /tmp/nginx-conf; tests render elsewhere)
 set -eu
 
-out=/tmp/nginx-conf
+out=${WAYSTATION_NGINX_CONF_DIR:-/tmp/nginx-conf}
 port=${WAYSTATION_WEB_PORT:-8080}
 tls_port=${WAYSTATION_WEB_TLS_PORT:-8443}
 cert=${WAYSTATION_TLS_CERT:-}
@@ -39,21 +45,67 @@ for a in $addrs; do
 done
 [ -s "$out/waystation-upstream.inc" ] || die 'WAYSTATION_SERVER_ADDR is empty'
 
+# ---- docker dedicated port connectors (checked before the listeners are written)
+connectors=''
+for c in $(printf '%s' "${WAYSTATION_DOCKER_CONNECTORS:-}" | tr ',' ' '); do
+  case $c in *[!0-9]* | 0*) die "invalid WAYSTATION_DOCKER_CONNECTORS entry '$c' (expected a port number)" ;; esac
+  [ "${#c}" -le 5 ] && [ "$c" -ge 1024 ] && [ "$c" -le 65535 ] \
+    || die "WAYSTATION_DOCKER_CONNECTORS port $c is outside 1024-65535"
+  [ "$c" != "$port" ] && [ "$c" != "$tls_port" ] || die "WAYSTATION_DOCKER_CONNECTORS port $c is a web port"
+  case " $connectors " in *" $c "*) die "WAYSTATION_DOCKER_CONNECTORS lists port $c twice" ;; esac
+  connectors="$connectors $c"
+done
+
+tls=0
+if [ -n "$cert" ] || [ -n "$key" ]; then
+  [ -n "$cert" ] && [ -n "$key" ] || die 'set both WAYSTATION_TLS_CERT and WAYSTATION_TLS_KEY, or neither'
+  for f in "$cert" "$key"; do
+    case $f in *[!A-Za-z0-9._/@+-]*) die "unsupported characters in TLS file path '$f'" ;; esac
+    [ -r "$f" ] || die "cannot read $f (uid 101 needs read access: e.g. group WAYSTATION_GID, mode 0640)"
+  done
+  tls=1
+fi
+
+# One server per connector: only the registry API (and the blobs the server redirects to). nginx sets the header
+# itself, so a client's copy never reaches the server; the main server clears it (nginx.conf.template).
+: > "$out/waystation-connectors.conf"
+for c in $connectors; do
+  if [ "$tls" = 1 ]; then
+    listen="listen $c ssl;
+    include /tmp/nginx-conf/waystation-tls.inc;"
+  else
+    listen="listen $c;"
+  fi
+  cat >> "$out/waystation-connectors.conf" <<EOF
+# docker dedicated port connector $c (WAYSTATION_DOCKER_CONNECTORS)
+server {
+    $listen
+    server_name _;
+    include /tmp/nginx-conf/waystation-proxy.inc;
+    proxy_set_header X-Waystation-Connector $c;
+    location /v2/ {
+        proxy_pass http://waystation_server;
+    }
+    location = /v2 {
+        proxy_pass http://waystation_server;
+    }
+    include /tmp/nginx-conf/waystation-blobs.inc;
+    location / {
+        return 404;
+    }
+}
+EOF
+done
+
 # ---- listeners
-rm -f "$out/waystation-redirect.conf"
-if [ -z "$cert" ] && [ -z "$key" ]; then
+rm -f "$out/waystation-redirect.conf" "$out/waystation-tls.inc"
+if [ "$tls" = 0 ]; then
   printf 'listen %s;\n' "$port" > "$out/waystation-listen.inc"
   exit 0
 fi
 
-[ -n "$cert" ] && [ -n "$key" ] || die 'set both WAYSTATION_TLS_CERT and WAYSTATION_TLS_KEY, or neither'
-for f in "$cert" "$key"; do
-  case $f in *[!A-Za-z0-9._/@+-]*) die "unsupported characters in TLS file path '$f'" ;; esac
-  [ -r "$f" ] || die "cannot read $f (uid 101 needs read access: e.g. group WAYSTATION_GID, mode 0640)"
-done
-
-cat > "$out/waystation-listen.inc" <<EOF
-listen $tls_port ssl;
+printf 'listen %s ssl;\ninclude /tmp/nginx-conf/waystation-tls.inc;\n' "$tls_port" > "$out/waystation-listen.inc"
+cat > "$out/waystation-tls.inc" <<EOF
 http2 on;
 ssl_certificate $cert;
 ssl_certificate_key $key;

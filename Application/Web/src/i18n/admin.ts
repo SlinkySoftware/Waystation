@@ -409,6 +409,7 @@ export const admin = {
     defaultCleared: 'No default docker repository',
     aliases: 'Upstream aliases',
     aliasesNone: 'No aliases',
+    connectorPort: 'Dedicated port',
     noDockerRepos: 'There is no docker repository yet.',
     twoFactor: 'Two-factor sign-in',
     twoFactorCaption: 'Local accounts can protect their sign-in with a code from an authenticator app.',

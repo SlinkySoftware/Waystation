@@ -3555,6 +3555,8 @@ export interface components {
              * @default false
              */
             default_repo: boolean;
+            /** @description Dedicated port connector (Nexus style, SPEC §4.4): clients on <host>:<port> reach this repository without a prefix. Unique across repositories, not the base URL port; the web tier must listen on it too (WAYSTATION_DOCKER_CONNECTORS, operator work). null = none */
+            connector_port?: number | null;
         };
         NpmOptions: {
             /**

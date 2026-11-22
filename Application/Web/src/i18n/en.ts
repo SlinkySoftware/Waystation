@@ -315,7 +315,7 @@ export const en = {
     title: 'Clone {name}',
     caption: 'A new repository with the same configuration and stored credentials. Cached and uploaded content is not copied.',
     submit: 'Clone repository',
-    dockerNote: 'Docker aliases and the default-repository setting stay with the original.',
+    dockerNote: 'Docker aliases, the default-repository setting and the dedicated port stay with the original.',
     done: 'Repository {name} created',
   },
   repoCreate: {
@@ -441,6 +441,11 @@ export const en = {
     immutableTags: 'Immutable tags (regular expressions)',
     immutableTagsHint: 'Tags matching one of these never move or go away once pushed, e.g. v[0-9]+\\.[0-9]+\\.[0-9]+. Press Enter to add.',
     defaultRepoHosted: 'Default docker repository (unprefixed names are pushed and pulled here)',
+    connectorPort: 'Dedicated port (connector)',
+    connectorPortNone: 'None',
+    connectorPortHint:
+      'Optional. Clients use <host>:<port>/<image> without the repository prefix, e.g. registry.example.com:5001/library/nginx. The web container must listen on this port too (WAYSTATION_DOCKER_CONNECTORS, and publish the same port).',
+    connectorPortRange: 'A whole number from {min} to {max}',
     members: 'Members',
     membersLabel: 'Member repositories',
     membersHint: 'Searched in the order you pick them: put hosted repositories before proxies. Remove and re-add to reorder.',

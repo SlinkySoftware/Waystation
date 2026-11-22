@@ -1,0 +1,29 @@
+# Waystation web tier: cached content served by X-Accel-Redirect (ARCHITECTURE §4.5)
+# (rendered by the nginx image's envsubst step into /tmp/nginx-conf; included by the main server and by every docker
+# dedicated port connector server, see 15-waystation.sh).
+# ---- cached content via X-Accel-Redirect (ARCHITECTURE §4.5). Only reachable by an internal redirect from
+# the server. The server answers conditional requests itself; nginx serves bytes and ranges.
+location /_blobs/ {
+    internal;
+    alias ${WAYSTATION_DATA_DIR}/blobs/;
+    sendfile on;
+    etag off;
+    # Content-Type is taken from the server's response on the internal redirect; nginx copies it. The empty
+    # types map keeps nginx from guessing a type from the (extension-less) blob file name.
+    types { }
+    default_type application/octet-stream;
+    add_header ETag $upstream_http_x_ws_etag always;
+    add_header Docker-Content-Digest $upstream_http_docker_content_digest always;
+    add_header Docker-Distribution-API-Version $upstream_http_docker_distribution_api_version always;
+    add_header X-Ws-Digest $upstream_http_x_ws_digest always;
+    add_header X-Ws-Cache $upstream_http_x_ws_cache always;
+    add_header X-Ws-Group-Member $upstream_http_x_ws_group_member always;
+    # Swift Package Registry (SE-0292 §4.3, §4.4): API version, manifest alternates, archive digest, signature.
+    add_header Content-Version $upstream_http_content_version always;
+    add_header Link $upstream_http_link always;
+    add_header Digest $upstream_http_digest always;
+    add_header X-Swift-Package-Signature-Format $upstream_http_x_swift_package_signature_format always;
+    add_header X-Swift-Package-Signature $upstream_http_x_swift_package_signature always;
+    add_header X-Request-Id $upstream_http_x_request_id always;
+    add_header X-Content-Type-Options nosniff always;
+}

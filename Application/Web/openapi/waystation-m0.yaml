@@ -4437,6 +4437,7 @@ components:
           items: { type: string, maxLength: 253 }
         docker_hub: { type: boolean, description: 'Upstream is Docker Hub: token auth, `library/` prefix, rate-limit tracking', default: false }
         default_repo: { type: boolean, description: 'Make this the default docker repository (mirror mode, unprefixed names)', default: false }
+        connector_port: { type: [integer, 'null'], minimum: 1024, maximum: 65535, description: 'Dedicated port connector (Nexus style, SPEC §4.4): clients on <host>:<port> reach this repository without a prefix. Unique across repositories, not the base URL port; the web tier must listen on it too (WAYSTATION_DOCKER_CONNECTORS, operator work). null = none' }
     NpmOptions:
       type: object
       properties:

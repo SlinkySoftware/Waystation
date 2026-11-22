@@ -44,7 +44,7 @@ describe('CloneRepositoryDialog', () => {
     expect(input.value).toBe('dockerhub-proxy-copy')
     expect(document.body.textContent).toContain('Clone dockerhub-proxy')
     expect(document.body.textContent).toContain('Cached and uploaded content is not copied')
-    expect(document.body.textContent).toContain('Docker aliases and the default-repository setting stay with the original')
+    expect(document.body.textContent).toContain('Docker aliases, the default-repository setting and the dedicated port stay with the original')
   })
 
   it('posts the new name and emits the created repository', async () => {

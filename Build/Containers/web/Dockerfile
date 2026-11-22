@@ -24,6 +24,7 @@ RUN rm -f /etc/nginx/conf.d/default.conf
 COPY --chmod=0755 Build/Containers/web/15-waystation.sh /docker-entrypoint.d/15-waystation.sh
 COPY Build/Containers/web/nginx.conf /etc/nginx/nginx.conf
 COPY Build/Containers/web/nginx.conf.template /etc/nginx/templates/waystation.conf.template
+COPY Build/Containers/web/waystation-proxy.inc.template Build/Containers/web/waystation-blobs.inc.template /etc/nginx/templates/
 COPY --from=spa /out/ /usr/share/nginx/html/ui/
 USER 101
 ENV NGINX_ENVSUBST_OUTPUT_DIR=/tmp/nginx-conf \

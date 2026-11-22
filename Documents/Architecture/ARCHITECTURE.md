@@ -27,6 +27,9 @@
 - **web**: the only published port. Serves the SPA, proxies dynamic paths to `server`, and serves file bodies
   for cache hits from the blob store via `X-Accel-Redirect` (sendfile, HTTP ranges, `ETag`). Holds no state, no
   credentials, no business logic. The blob store is mounted **read-only**.
+  As implemented (T-P6-DOCKERC, adr/0013 accepted): docker dedicated port connectors are extra web listeners from the
+  static list `WAYSTATION_DOCKER_CONNECTORS` (`/v2/` and `/_blobs/` only), which tell the server the port in
+  `X-Waystation-Connector`; the web tier never learns which repository owns a port (§7).
 - **server**: stateless. Speaks every format protocol, the REST API, SSE, the Docker token service. Makes every
   authorization decision. Reads/writes MongoDB and Valkey; writes blobs. Never runs long batch work: it enqueues jobs.
 - **worker**: stateless job runner. Owns all batch and scheduled work. No HTTP listener except health.
@@ -245,6 +248,12 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   `?ws_grant=<expiry>.<HMAC>` (`security.download_urls`: repository id, exact path, 5 minutes; key derived from
   `SECRET_KEYS`). `access.download_grant` accepts a valid grant as a `GET`/`HEAD` of that one file and nothing else;
   formats obtain grants only through `FormatRequest.download_query`.
+- Docker port connectors (adr/0013 accepted, T-P6-DOCKERC): `X-Waystation-Connector: <port>` is set only by the web
+  tier's connector listeners (replacing a client's copy; the main listeners clear it) and read only by
+  `routing.connector_port`, which ignores it unless the direct peer is an internal hop (`clientip`, like `X-Real-IP`).
+  It only selects the repository a `/v2/` name resolves to, exactly as a `<repository>/` prefix would; the
+  `?connector=` realm parameter of the token service does the same for scopes. Neither grants anything by itself:
+  RBAC and the registry token's per-repository grants decide.
 - System grants (adr/0012 accepted, T-O12): the worker's prefetch jobs call the server's internal route
   `POST /_internal/prefetch/<repo id>` with `X-Ws-System-Grant: <expiry>.<HMAC>` (`waystation_common.system_grants`:
   purpose `prefetch`, repository id, 5 minutes; key derived from `SECRET_KEYS`). `access.system_grant` accepts a valid

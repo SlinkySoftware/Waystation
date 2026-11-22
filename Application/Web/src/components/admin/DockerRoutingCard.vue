@@ -33,6 +33,10 @@
             </template>
             <span v-else class="text-faint">{{ t('admin.settings.aliasesNone') }}</span>
           </span>
+          <span v-if="connector(repo)" class="docker__aliases" data-test="docker-connector">
+            <span class="text-faint">{{ t('admin.settings.connectorPort') }}:</span>
+            <span class="mono docker__alias">{{ connector(repo) }}</span>
+          </span>
         </li>
       </ul>
     </template>
@@ -65,6 +69,19 @@ onMounted(() => {
 
 const options_ = (repo: Repository) => (repo.format_options ?? {}) as DockerOptions
 const aliases = (repo: Repository) => options_(repo).aliases ?? []
+/** The base URL's host name (its own port dropped): a dedicated port connector listens on the same host. */
+const baseHost = computed(() => {
+  try {
+    return new URL(config.config?.base_url ?? '').hostname
+  } catch {
+    return ''
+  }
+})
+/** `<host>:<port>` of the repository's dedicated port connector, '' without one. */
+const connector = (repo: Repository) => {
+  const port = options_(repo).connector_port
+  return typeof port === 'number' ? `${baseHost.value}:${port}` : ''
+}
 const dockerRepos = computed(() => repos.items.filter((r) => r.format === 'docker'))
 const current = computed(() => dockerRepos.value.find((r) => options_(r).default_repo)?.name ?? NONE)
 const selected = ref<string>(NONE)

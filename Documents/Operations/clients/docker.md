@@ -36,6 +36,12 @@ repository. The same API is also served under `/repository/<repo>/v2/...` (Nexus
 | `registry.example.com/library/nginx:1.27` (and mirror mode) | default repository | `library/nginx` |
 | `registry.example.com/ghcr/owner/app:1.0` | `ghcr` | `owner/app` |
 | `registry.example.com/ghcr.io/owner/app:1.0` | `ghcr` (alias) | `owner/app` |
+| `registry.example.com:5001/library/nginx:1.27` | the repository whose dedicated port is 5001 | `library/nginx` |
+
+A repository can also have a **dedicated port** (a Nexus-style connector, `format_options.connector_port`): on that
+port every name belongs to that one repository, with no prefix. The administrator must also list the port for the
+web container ([DEPLOYMENT.md](../DEPLOYMENT.md) §8, "Docker port connectors"). Sign in once per port
+(`docker login registry.example.com:5001`); without TLS add the port to `insecure-registries` too.
 
 ## Docker Engine
 

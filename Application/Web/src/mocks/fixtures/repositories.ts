@@ -84,7 +84,7 @@ const SEEDS: Seed[] = [
     hitRatio: 0.902,
     requests24h: 8_317,
     createdDaysAgo: 41,
-    options: { aliases: ['ghcr.io'], docker_hub: false, default_repo: false },
+    options: { aliases: ['ghcr.io'], docker_hub: false, default_repo: false, connector_port: 5001 },
     ...DOCKER,
   },
   {

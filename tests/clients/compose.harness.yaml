@@ -321,6 +321,9 @@ services:
   web:
     container_name: ${HARNESS_PROJECT}-web
     ports: !reset []
+    environment:
+      # docker dedicated port connectors (tests/clients/docker: docker-hub on 5001, docker-hosted on 5002)
+      WAYSTATION_DOCKER_CONNECTORS: "5001 5002"
   server:
     container_name: ${HARNESS_PROJECT}-server
     environment:

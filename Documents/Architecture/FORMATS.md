@@ -107,6 +107,11 @@ Specs: OCI Distribution Spec v1.1, OCI Image Spec v1.1, Docker Registry HTTP API
   that registry; a group whose proxy members all are), else `404 NAME_UNKNOWN` so containerd falls back to the
   registry. Never another registry's image of the same name. The challenge's realm carries `?ns=` (clients keep the
   realm's query), the token service resolves scopes with it and names granted scopes `<repository>/<image>`.
+- Dedicated port connectors (T-P6-DOCKERC, ADR 0013): `format_options.connector_port`; a request the web tier
+  received on that port (header `X-Waystation-Connector`, trusted from internal hops only) resolves every name to that
+  repository (no prefix, alias or `ns`); realm `?connector=<port>`, granted scopes renamed `<repository>/<image>`;
+  `/v2/_catalog` lists that repository's images unprefixed; upload `Location`s and `from=` mounts stay in the
+  connector's unprefixed view.
 - Headers: always `Docker-Content-Digest`, correct `Content-Type` = manifest media type, `Docker-Distribution-API-Version: registry/2.0`,
   `OCI-Subject` on referrer-bearing PUTs. HEAD on manifests must not count against Docker Hub limits.
 - Accept handling: honour client `Accept` list across `application/vnd.oci.image.index.v1+json`,

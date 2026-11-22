@@ -9,7 +9,7 @@ ensure_repo() {  # ensure_repo <name> <json>: create the repository unless an ea
   ws_api GET "/repositories/$1" > /dev/null 2>&1 || ws_api POST /repositories "$2" > /dev/null || fail "could not create $1"
 }
 
-step 'create docker proxy repositories docker-hub (default, alias docker.io) and ghcr (alias ghcr.io)'
+step 'create docker proxy repositories docker-hub (default, alias docker.io, connector port 5001) and ghcr (alias ghcr.io)'
 ws_login
 ensure_repo docker-hub '{
   "name": "docker-hub",
@@ -18,7 +18,7 @@ ensure_repo docker-hub '{
   "online": true,
   "description": "Docker Hub (client harness)",
   "proxy": {"upstream_url": "https://registry-1.docker.io"},
-  "format_options": {"docker_hub": true, "default_repo": true, "aliases": ["docker.io"]}
+  "format_options": {"docker_hub": true, "default_repo": true, "aliases": ["docker.io"], "connector_port": 5001}
 }'
 ensure_repo ghcr '{
   "name": "ghcr",
@@ -30,14 +30,15 @@ ensure_repo ghcr '{
   "format_options": {"aliases": ["ghcr.io"]}
 }'
 
-step 'create docker hosted repositories docker-hosted (immutable v<semver> tags) and docker-hosted-copy'
+step 'create docker hosted repositories docker-hosted (immutable v<semver> tags, connector port 5002) and docker-hosted-copy'
 ensure_repo docker-hosted '{
   "name": "docker-hosted",
   "format": "docker",
   "type": "hosted",
   "online": true,
   "description": "Hosted images (client harness)",
-  "hosted": {"write_policy": "allow_redeploy", "immutable_tag_patterns": ["v[0-9]+(\\.[0-9]+)*"]}
+  "hosted": {"write_policy": "allow_redeploy", "immutable_tag_patterns": ["v[0-9]+(\\.[0-9]+)*"]},
+  "format_options": {"connector_port": 5002}
 }'
 ensure_repo docker-hosted-copy '{"name": "docker-hosted-copy", "format": "docker", "type": "hosted", "online": true}'
 
@@ -91,13 +92,14 @@ CONF
   exit 0
 fi
 
-step 'start dockerd (registry-mirrors + insecure-registries = the stack)'
+step 'start dockerd (registry-mirrors + insecure-registries = the stack and its connector ports)'
 registry=${WAYSTATION_URL#http://}
+web_host=${registry%:*}
 mkdir -p /etc/docker
 cat > /etc/docker/daemon.json <<JSON
 {
   "registry-mirrors": ["$WAYSTATION_URL"],
-  "insecure-registries": ["$registry"]
+  "insecure-registries": ["$registry", "$web_host:5001", "$web_host:5002"]
 }
 JSON
 dockerd > /tmp/dockerd.log 2>&1 &

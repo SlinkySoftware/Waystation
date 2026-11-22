@@ -2,6 +2,7 @@
 (monolithic, chunked, resumable, mounts), manifest validation, tags and immutability, deletes, referrers, the catalog,
 RBAC, audit and the browse API. Every query on the registry request path is explained (no collection scans)."""
 
+import base64
 import hashlib
 import json
 from collections.abc import AsyncIterator, Callable
@@ -646,3 +647,145 @@ async def test_delete_only_token_and_invalid_tags(admin: httpx.AsyncClient, v2: 
     bad = await reg.push_manifest('apps/x', '.INVALID_NAME', manifest())
     assert bad.status_code == 400
     assert bad.json()['errors'][0]['code'] == 'TAG_INVALID'
+
+
+# ---------------------------------------------------------------------------- dedicated port connectors (T-P6-DOCKERC)
+class ConnectorRegistry(Registry):
+    """A docker client on a dedicated port connector: the web tier adds ``X-Waystation-Connector`` to every ``/v2/``
+    request, and the challenge's realm carries ``?connector=<port>`` to the token service."""
+
+    def __init__(
+        self, client: httpx.AsyncClient, port: int, auth: tuple[str, str] | None = ('admin', PASSWORD)
+    ) -> None:
+        super().__init__(client, auth)
+        self.port = port
+
+    async def token(self, *scopes: str) -> dict[str, str]:
+        params = [('service', SERVICE), ('connector', str(self.port)), *(('scope', s) for s in scopes)]
+        issued = await self.client.get('/auth/token', params=params, auth=self.auth)
+        assert issued.status_code == 200, issued.text
+        return {'Authorization': f'Bearer {issued.json()["token"]}', 'X-Waystation-Connector': str(self.port)}
+
+
+def token_access(headers: dict[str, str]) -> Any:
+    body = headers['Authorization'].removeprefix('Bearer ').split('.')[1]
+    return json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))['access']
+
+
+async def create_connector_repo(admin: httpx.AsyncClient, name: str, port: int) -> None:
+    body = {
+        'name': name,
+        'format': 'docker',
+        'type': 'hosted',
+        'online': True,
+        'format_options': {'connector_port': port},
+    }
+    created = await admin.post('/api/v1/repositories', json=body)
+    assert created.status_code == 201, created.text
+
+
+async def test_connector_port_validation(admin: httpx.AsyncClient) -> None:
+    body = {'name': 'conn-a', 'format': 'docker', 'type': 'hosted', 'online': True}
+    created = await admin.post('/api/v1/repositories', json={**body, 'format_options': {'connector_port': 5002}})
+    assert created.status_code == 201, created.text
+    assert created.json()['format_options']['connector_port'] == 5002
+    taken = await admin.post(
+        '/api/v1/repositories', json={**body, 'name': 'conn-b', 'format_options': {'connector_port': 5002}}
+    )
+    assert taken.status_code == 422
+    assert taken.json()['errors'] == [
+        {
+            'field': 'format_options.connector_port',
+            'message': 'is already the connector port of conn-a',
+            'code': 'taken',
+        }
+    ]
+    low = await admin.post(
+        '/api/v1/repositories', json={**body, 'name': 'conn-b', 'format_options': {'connector_port': 80}}
+    )
+    assert low.status_code == 422
+    assert low.json()['errors'][0]['field'] == 'format_options.connector_port'
+    # saving the repository again keeps its own port; a clone starts without it
+    again = await admin.put('/api/v1/repositories/conn-a', json={**body, 'format_options': {'connector_port': 5002}})
+    assert again.status_code == 200, again.text
+    clone = await admin.post('/api/v1/repositories/conn-a/clone', json={'name': 'conn-c'})
+    assert clone.status_code == 201, clone.text
+    assert clone.json()['format_options']['connector_port'] is None
+
+
+async def test_connector_push_pull_mount_and_catalog(admin: httpx.AsyncClient, v2: httpx.AsyncClient) -> None:
+    await create_connector_repo(admin, 'conn-hosted', 5002)
+    await create_hosted(admin, 'other')
+    reg = Registry(v2)
+    await reg.push_image('other/base', 'v1')
+    conn = ConnectorRegistry(v2, 5002)
+
+    # no token: the challenge names the unprefixed scope and sends the client to the connector's token realm
+    challenge = await v2.get('/v2/app/manifests/v1', headers={'X-Waystation-Connector': '5002'})
+    assert challenge.status_code == 401
+    assert challenge.headers['www-authenticate'] == (
+        f'Bearer realm="https://{SERVICE}/auth/token?connector=5002",service="{SERVICE}",scope="repository:app:pull"'
+    )
+    # a token from the connector realm names the repository it was granted on
+    assert token_access(await conn.token('repository:app:pull,push')) == [
+        {'type': 'repository', 'name': 'conn-hosted/app', 'actions': ['pull', 'push']}
+    ]
+
+    # push without a prefix: Location headers stay in the connector's (unprefixed) view
+    pushed = await conn.push_blob('app', LAYER)
+    assert pushed.headers['location'] == f'/v2/app/blobs/{digest(LAYER)}'
+    image = await conn.push_image('app', 'v1')
+    # the same image under the repository prefix on the main listener, and through the connector
+    prefixed = await reg.request('GET', 'conn-hosted/app', 'manifests/v1', actions='pull')
+    assert prefixed.status_code == 200 and prefixed.headers['docker-content-digest'] == image
+    pulled = await conn.request('GET', 'app', 'manifests/v1', actions='pull')
+    assert pulled.status_code == 200 and pulled.headers['docker-content-digest'] == image
+    # a name whose first segment is another repository's stays inside the connector's repository
+    assert (await conn.request('GET', 'other/base', 'manifests/v1', actions='pull')).status_code == 404
+    # mount from another image of the connector's repository (``from`` resolves through the connector)
+    mounted = await conn.request(
+        'POST', 'app2', 'blobs/uploads/', params={'mount': digest(LAYER), 'from': 'app'}, extra=('repository:app:pull',)
+    )
+    assert mounted.status_code == 201, mounted.text
+    assert mounted.headers['location'] == f'/v2/app2/blobs/{digest(LAYER)}'
+    await conn.push_image('app2', 'v1')
+
+    # catalog on the connector: its repository's images, unprefixed, paged
+    catalog = await conn.token('registry:catalog:*')
+    assert (await v2.get('/v2/_catalog', headers=catalog)).json() == {'repositories': ['app', 'app2']}
+    paged = await v2.get('/v2/_catalog', headers=catalog, params={'n': 1})
+    assert paged.json() == {'repositories': ['app']}
+    assert paged.headers['link'] == '</v2/_catalog?n=1&last=app>; rel="next"'
+    assert (await v2.get('/v2/_catalog', headers=catalog, params={'last': 'app'})).json() == {'repositories': ['app2']}
+    # a port no repository has: nothing resolves, the catalog is empty
+    nowhere = {**catalog, 'X-Waystation-Connector': '5009'}
+    assert (await v2.get('/v2/app/manifests/v1', headers=nowhere)).status_code == 404
+    assert (await v2.get('/v2/_catalog', headers=nowhere)).json() == {'repositories': []}
+    # anonymous callers see nothing of the hosted repository through its connector either
+    anon = ConnectorRegistry(v2, 5002, None)
+    anon_catalog = await v2.get('/v2/_catalog', headers=await anon.token('registry:catalog:*'))
+    assert anon_catalog.json() == {'repositories': []}
+    assert token_access(await anon.token('repository:app:pull')) == [
+        {'type': 'repository', 'name': 'app', 'actions': []}
+    ]
+    assert (await anon.request('GET', 'app', 'manifests/v1', actions='pull')).status_code == 401
+
+
+async def test_connector_header_from_outside_the_container_network_is_ignored(
+    services: Services, admin: httpx.AsyncClient
+) -> None:
+    """Only the web tier sets ``X-Waystation-Connector`` (it overwrites a client's copy on connector listeners and
+    clears it on the others); a request reaching the server from anywhere else cannot select a connector."""
+    await create_connector_repo(admin, 'conn-hosted', 5002)
+    async with asgi_client(services) as inside:
+        await Registry(inside).push_image('conn-hosted/app', 'v1')
+    async with asgi_client(services, client=('198.51.100.7', 50000)) as outside:
+        reg = Registry(outside)
+        spoofed = await outside.get('/v2/app/manifests/v1', headers={'X-Waystation-Connector': '5002'})
+        assert spoofed.status_code == 401
+        assert 'connector=' not in spoofed.headers['www-authenticate']
+        headers = {**await reg.token('repository:app:pull'), 'X-Waystation-Connector': '5002'}
+        # without a default docker repository the unprefixed name resolves nowhere: the header changed nothing
+        assert (await outside.get('/v2/app/manifests/v1', headers=headers)).status_code == 404
+        prefixed = await reg.request('GET', 'conn-hosted/app', 'manifests/v1', actions='pull')
+        assert prefixed.status_code == 200

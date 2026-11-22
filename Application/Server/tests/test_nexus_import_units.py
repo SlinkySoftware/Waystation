@@ -169,7 +169,32 @@ def test_hosted_and_group_sections() -> None:
         'members': ['docker-hosted', 'dockerhub-proxy', 'ghcr-proxy'],
         'writable_member': 'docker-hosted',
     }
-    assert any(d.field == 'docker connector' and d.nexus == 'httpPort 8082' for d in group.differences)
+    # the Nexus connector port becomes the dedicated port connector (T-P6-DOCKERC)
+    assert group.body['format_options'] == {'connector_port': 8082}
+    assert any('connector port 8082' in note and 'WAYSTATION_DOCKER_CONNECTORS' in note for note in group.notes)
+    assert not any('connector' in d.field for d in group.differences)
+
+
+def test_docker_connector_ports() -> None:
+    every = frozenset({'proxy', 'hosted', 'group'})
+    supported = {**PROXY_ONLY, 'docker': every}
+    base = nexus_repos()['docker-hosted']
+
+    def mapped(docker: dict[str, Any]) -> Any:
+        detail = {**base.detail, 'docker': {**(base.detail or {}).get('docker', {}), **docker}}
+        m = map_repository(NexusRepository(entry=base.entry, detail=detail), supported=supported)
+        assert m.body is not None
+        return m
+
+    both = mapped({'httpPort': 8082, 'httpsPort': 8083, 'subdomain': 'hosted'})
+    assert both.body['format_options'] == {'connector_port': 8083}  # HTTPS first: one connector per repository
+    fields = {d.field: d for d in both.differences}
+    assert fields['docker.httpPort'].nexus == '8082' and fields['docker.httpPort'].waystation == '8083'
+    assert fields['docker.subdomain'].nexus == 'hosted'
+    low = mapped({'httpPort': 80, 'httpsPort': None})
+    assert low.body['format_options'] == {}
+    assert any(d.field == 'docker.httpPort' and 'below 1024' in d.note for d in low.differences)
+    assert mapped({'httpPort': None, 'httpsPort': True}).body['format_options'] == {}  # not a port number
 
 
 # ---------------------------------------------------------------------------------------------------- client
@@ -260,12 +285,14 @@ async def test_preview_plans_every_repository(unit_services: Services, nexus: Fa
         'docker_hub': True,
         'aliases': ['docker.io'],
         'default_repo': True,
+        'connector_port': None,
     }
     assert items['ghcr-proxy'].repository is not None
     assert items['ghcr-proxy'].repository.format_options == {
         'aliases': ['ghcr.io'],
         'docker_hub': False,
         'default_repo': False,
+        'connector_port': None,
     }
     assert items['rocky'].repository is not None
     assert items['rocky'].repository.format_options == {'repo_path': '', 'gpg_key': None, 'repomd_keys': None}
@@ -300,6 +327,19 @@ async def test_preview_against_existing_repositories(unit_services: Services, ne
     assert report.default_docker_repo is not None and report.default_docker_repo.name == 'quay'
     hub = items['dockerhub-proxy'].repository
     assert hub is not None and hub.format_options is not None and hub.format_options['default_repo'] is False
+
+
+@pytest.mark.parametrize(
+    'unit_repos',
+    [[make_repo('docker-hosted-old', 'docker', format_options={'connector_port': 8082})]],
+)
+async def test_preview_connector_port_already_taken(unit_services: Services, nexus: FakeUpstream) -> None:
+    items = {i.name: i for i in (await nexus_import.preview(unit_services, ADMIN, request(nexus))).items}
+    group = items['docker-group']
+    assert group.action == 'create' and group.repository is not None, group.reason
+    assert group.repository.format_options['connector_port'] is None
+    diff = next(d for d in group.differences if d.field == 'format_options.connector_port')
+    assert diff.nexus == '8082' and 'docker-hosted-old' in diff.note
 
 
 async def test_default_docker_requested_and_undetermined(unit_services: Services, nexus: FakeUpstream) -> None:

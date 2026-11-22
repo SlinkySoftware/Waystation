@@ -59,6 +59,8 @@ export interface RepoFormModel {
   aliases: string[]
   dockerHub: boolean
   defaultRepo: boolean
+  /** Dedicated port connector (<host>:<port>/<image>, no repository prefix); null = none. */
+  connectorPort: number | null
   // npm
   auditPassthrough: boolean
   // pypi
@@ -201,6 +203,7 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     aliases: [],
     dockerHub: false,
     defaultRepo: false,
+    connectorPort: null,
     auditPassthrough: true,
     jsonApi: true,
     sumdbProxy: true,
@@ -272,6 +275,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     aliases: o.aliases ?? [],
     dockerHub: o.docker_hub ?? false,
     defaultRepo: o.default_repo ?? false,
+    connectorPort: o.connector_port ?? null,
     auditPassthrough: o.audit_passthrough ?? true,
     jsonApi: o.json_api ?? true,
     sumdbProxy: o.sumdb_proxy ?? true,
@@ -307,7 +311,9 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
 function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
   switch (m.format) {
     case 'docker':
-      return m.type !== 'proxy' ? { aliases: [], docker_hub: false, default_repo: m.defaultRepo } : { aliases: m.aliases, docker_hub: m.dockerHub, default_repo: m.defaultRepo }
+      return m.type !== 'proxy'
+        ? { aliases: [], docker_hub: false, default_repo: m.defaultRepo, connector_port: m.connectorPort }
+        : { aliases: m.aliases, docker_hub: m.dockerHub, default_repo: m.defaultRepo, connector_port: m.connectorPort }
     case 'npm':
       return { audit_passthrough: m.auditPassthrough }
     case 'apt': {
@@ -469,6 +475,28 @@ export function prefetchErrors(m: RepoFormModel): Record<string, string> {
     } else if (schedule.split(' ').length !== 5) errors['proxy.prefetch.schedule'] = t('prefetch.error.fiveFields')
   }
   return errors
+}
+
+// ---------------------------------------------------------------- docker dedicated port (T-P6-DOCKERC)
+
+/** The connector ports the server accepts (unprivileged TCP ports). */
+export const CONNECTOR_PORT_MIN = 1024
+export const CONNECTOR_PORT_MAX = 65535
+
+/** Input value → model: empty/blank → null (no connector), anything else a number (validated by connectorPortError). */
+export function parseConnectorPort(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  const text = String(value).trim()
+  return text === '' ? null : Number(text)
+}
+
+/** Client-side range check of the dedicated port; uniqueness and the base URL port are the server's call. */
+export function connectorPortError(m: RepoFormModel): string {
+  const port = m.connectorPort
+  if (m.format !== 'docker' || port === null) return ''
+  return Number.isInteger(port) && port >= CONNECTOR_PORT_MIN && port <= CONNECTOR_PORT_MAX
+    ? ''
+    : t('repoForm.connectorPortRange', { min: CONNECTOR_PORT_MIN, max: CONNECTOR_PORT_MAX })
 }
 
 /** Client-side checks mirroring the server's (the server stays authoritative). */

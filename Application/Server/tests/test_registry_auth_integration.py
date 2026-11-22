@@ -565,3 +565,52 @@ async def test_refresh_token_of_an_api_token_follows_the_api_token(
         assert (await refreshed(docker, refresh)).status_code == 200
         assert (await api.delete(f'/api/v1/auth/me/tokens/{token_id}')).status_code == 204
     assert (await refreshed(docker, refresh)).status_code == 401
+
+
+async def test_connector_routes_every_name_to_its_repository(docker: httpx.AsyncClient, services: Services) -> None:
+    """T-P6-DOCKERC: the web tier's ``X-Waystation-Connector`` selects the repository; names need no prefix, and the
+    default repository, aliases and ``ns`` play no part on a connector."""
+    await _repo(services, 'quay', upstream='https://quay.io/', aliases=['quay.io'], connector_port=5001)
+    services.catalog.invalidate()
+    on_connector = {'X-Waystation-Connector': '5001'}
+    challenge = await docker.get('/v2/library/nginx/manifests/1', params={'ns': 'docker.io'}, headers=on_connector)
+    assert f'realm="https://{SERVICE}/auth/token?connector=5001"' in challenge.headers['www-authenticate']
+    token = (
+        await docker.get(
+            '/auth/token',
+            params={'connector': '5001', 'service': SERVICE, 'scope': 'repository:library/nginx:pull'},
+        )
+    ).json()['token']
+    assert claims(token)['access'] == [{'type': 'repository', 'name': 'quay/library/nginx', 'actions': ['pull']}]
+    bearer = {'Authorization': f'Bearer {token}'}
+    served = await docker.get(
+        '/v2/library/nginx/manifests/1', params={'ns': 'docker.io'}, headers=on_connector | bearer
+    )
+    assert served.text == 'quay library/nginx/manifests/1 anonymous'
+    # the token names the repository, so the same pull works by prefix on the main listener
+    assert (await docker.get('/v2/quay/library/nginx/manifests/1', headers=bearer)).status_code == 200
+    # ... while without the header the unprefixed name is the default repository's (not granted by this token)
+    assert (await docker.get('/v2/library/nginx/manifests/1', headers=bearer)).status_code == 401
+    # an alias or another repository's name is just part of the image name on a connector
+    alias = (
+        await docker.get('/auth/token', params={'connector': '5001', 'scope': 'repository:docker.io/x:pull'})
+    ).json()
+    assert claims(alias['token'])['access'][0]['name'] == 'quay/docker.io/x'
+    # the OAuth2 endpoint takes the realm's query too (containerd)
+    posted = await post_token(docker, None, grant_type='password', username='admin', password=PASSWORD,
+                              scope='repository:app:pull')  # fmt: skip
+    assert claims(posted.json()['access_token'])['access'][0]['name'] == 'app'  # no connector: not renamed
+    connector_post = await docker.post(
+        '/auth/token',
+        params={'connector': '5001'},
+        data={'service': SERVICE, 'grant_type': 'password', 'username': 'admin', 'password': PASSWORD,
+              'scope': 'repository:app:pull'},
+    )  # fmt: skip
+    assert claims(connector_post.json()['access_token'])['access'][0]['name'] == 'quay/app'
+    # a connector port no repository has, or a malformed value: nothing resolves (and nothing is granted)
+    for value in ('5009', 'abc', '99999999'):
+        assert (
+            await docker.get('/v2/library/nginx/manifests/1', headers={**bearer, 'X-Waystation-Connector': value})
+        ).status_code == 404
+        grant = (await docker.get('/auth/token', params={'connector': value, 'scope': 'repository:x:pull'})).json()
+        assert claims(grant['token'])['access'][0]['actions'] == []
