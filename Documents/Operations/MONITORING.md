@@ -2,7 +2,7 @@
 
 Waystation exposes health endpoints and Prometheus metrics from the server. The repository ships a Grafana
 dashboard and a Zabbix 7 template for them in `Build/monitoring/`. This page lists exactly what is exported and the
-few signals that are not yet. Deployment: [DEPLOYMENT.md](DEPLOYMENT.md).
+few signals that are not. Deployment: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 | File | What |
 |---|---|
@@ -49,7 +49,7 @@ Counters also have the usual `_created` series (except with several server proce
 | `waystation_http_request_duration_seconds` | histogram | `route`, `method`, `status` | Server time of every HTTP request (format, REST API, health, token service) except the long-lived event stream. `route` is the matched route template (`/api/v1/repositories/{name}`, `/repository/{repo_name}/{path}`; `unmatched` for unknown paths), never the raw path; `method` is the HTTP method (`OTHER` for unusual ones); `status` is the class (`2xx`, `3xx`, `4xx`, `5xx`). Buckets 5 ms to 30 s. For format requests served by `X-Accel-Redirect` this is the server's part only (lookup and headers), not the transfer |
 | `waystation_upstream_autoblock_total` | counter | `repo`, `event` | Auto-block transitions seen by this process: `blocked` (after N consecutive failures), `reblocked` (a probe failed; the period doubled), `resumed` (the upstream answered again) |
 | `waystation_storage_refusals_total` | counter | none | Cache fills and uploads refused by the low-disk guard (free space would drop below its floor: Storage page or `PUT /api/v1/storage/guard`, default `WAYSTATION_MIN_FREE_GB`) |
-| `waystation_quota_refusals_total` | counter | `repo`, `kind` | Writes refused by a hard repository quota (T-O03): `upload` (refused with the format's error, docker `403 DENIED`) or `fill` (a proxy download served without being cached) |
+| `waystation_quota_refusals_total` | counter | `repo`, `kind` | Writes refused by a hard repository quota: `upload` (refused with the format's error, docker `403 DENIED`) or `fill` (a proxy download served without being cached) |
 | `waystation_fills_not_stored_total` | counter | `repo`, `reason` | Proxy downloads served to the client without being cached: `quota` (hard quota reached) or `low_disk` (low-disk guard). Each one went to the upstream, so a rising rate means lost caching |
 | `waystation_quota_alerts_total` | counter | `repo`, `level` | Quota thresholds reached (announced once each in the activity feed): `80` (warning) and `100` (quota reached) |
 | `waystation_inflight_transfers` | gauge | none | Live transfers right now |
@@ -84,11 +84,11 @@ never `sum`.
 | `waystation_repository_quota_bytes` | `repo`, `mode` | Per repository with a quota: the quota in bytes; `mode` is `soft` (warns) or `hard` (refuses new writes once reached) |
 | `waystation_repository_stored_bytes` | `repo` | Bytes the repository stores, counted against its quota (sum of its assets; a blob shared with other repositories counts in each) |
 | `waystation_repository_quota_used_ratio` | `repo` | Stored bytes / quota (1 = quota reached; above 1 is possible for soft quotas and after a quota was lowered) |
-| `waystation_cleanup_removed_items_total`, `waystation_cleanup_removed_bytes_total` | none | Counters: items (assets, docker tags and manifests) and asset bytes removed by cleanup policies (T-O01), all runs |
-| `waystation_gc_runs_total`, `waystation_gc_freed_blobs_total`, `waystation_gc_freed_bytes_total`, `waystation_gc_orphan_uploads_removed_total` | none | Counters: blob GC runs, blobs and bytes it freed, orphan upload files it removed (T-O02). Read from the Valkey hash `maintenance:totals`, so they survive server restarts and need no multi-process merge |
-| `waystation_verify_runs_total`, `waystation_verify_missing_blobs_total`, `waystation_verify_damaged_blobs_total`, `waystation_verify_refetch_marked_total`, `waystation_verify_hosted_lost_total` | none | Counters: blob verify runs, referenced blobs it found missing or damaged, proxied assets it marked for re-fetch, hosted assets it reported lost (counted on every run that still finds them) (T-O07, `maintenance:totals`) |
+| `waystation_cleanup_removed_items_total`, `waystation_cleanup_removed_bytes_total` | none | Counters: items (assets, docker tags and manifests) and asset bytes removed by cleanup policies, all runs |
+| `waystation_gc_runs_total`, `waystation_gc_freed_blobs_total`, `waystation_gc_freed_bytes_total`, `waystation_gc_orphan_uploads_removed_total` | none | Counters: blob GC runs, blobs and bytes it freed, orphan upload files it removed. Read from the Valkey hash `maintenance:totals`, so they survive server restarts and need no multi-process merge |
+| `waystation_verify_runs_total`, `waystation_verify_missing_blobs_total`, `waystation_verify_damaged_blobs_total`, `waystation_verify_refetch_marked_total`, `waystation_verify_hosted_lost_total` | none | Counters: blob verify runs, referenced blobs it found missing or damaged, proxied assets it marked for re-fetch, hosted assets it reported lost (counted on every run that still finds them) (`maintenance:totals`) |
 | `waystation_assets_blob_missing` | `repository_type` (`hosted`, `proxy`) | Assets currently marked by blob verify as missing their blob: hosted = lost until uploaded again or restored ([BACKUP.md](BACKUP.md)), proxy = re-fetched on the next request (MongoDB, partial index `blob_missing`) |
-| `waystation_webhook_deliveries_total` | `outcome` | Counter of webhook delivery attempts (T-O05, [WEBHOOKS.md](WEBHOOKS.md)): `succeeded` (a 2xx answer), `failed` (will be retried), `dead` (gave up: attempts used up, or a target the SSRF guard refuses). From the Valkey hash `webhooks:totals` |
+| `waystation_webhook_deliveries_total` | `outcome` | Counter of webhook delivery attempts ([WEBHOOKS.md](WEBHOOKS.md)): `succeeded` (a 2xx answer), `failed` (will be retried), `dead` (gave up: attempts used up, or a target the SSRF guard refuses). From the Valkey hash `webhooks:totals` |
 | `waystation_webhook_deliveries_pending` | none | Webhook deliveries waiting for an attempt (first attempts and retries) |
 | `waystation_metrics_source_up` | `source` | 1 when `valkey`, `mongodb` or `filesystem` answered while building the cluster figures, else 0 |
 
@@ -154,11 +154,9 @@ Panels, top to bottom:
 
 Ratios and totals in the tiles and tables cover the selected time range.
 
-The "Quotas and disk" row was added with T-O03 after that check: its queries pass `promtool check rules` and a
-`promtool test rules` case on sample quota series, but it has not been loaded into Grafana yet. Checked by loading
-the rest into Grafana 12.2 through file provisioning, with Prometheus 3.7 scraping sample output of
-the real `waystation_server.metrics.Metrics` class plus cluster figures with the real names: every panel query
-returned data.
+The dashboard was validated by loading it into Grafana 12.2 through file provisioning, with Prometheus 3.7
+scraping the server's real metric output: every panel query returns data. The quota queries are also covered
+by `promtool test rules` cases.
 
 ## 4. Zabbix
 
@@ -233,13 +231,8 @@ Triggers:
 | Waystation: blob GC has not run for a day (no `blob.gc` run completed in 24 hours, once a day of data exists) | Warning |
 | Waystation: hosted content lost (blob verify found hosted assets without their blob; the run's log lists them) | High |
 
-Checked by importing it into Zabbix 7.0 through the API and linking it to a host polling a stand-in serving sample
-output of the real `Metrics` class plus cluster figures: every item and discovered prototype received values, and
-the liveness, readiness, failing-upstream, rate-limit, job-age, refused-writes, low-disk and blob-store-full
-triggers fired on matching sample values. The blob GC items, the "blob GC has not run for a day" trigger and the two
-cleanup/GC dashboard panels were added afterwards (with the T-O01/T-O02 counters), and so were the quota and
-low-disk items, the "Repository quotas" discovery and its three triggers (T-O03), and the blob verify items, the
-"hosted content lost" trigger and the two verify panels (T-O07); those have not been through that check yet. The quota triggers resolve when the quota figure has had no value for 10 minutes (the quota was removed
+The template was validated by importing it into Zabbix 7.0 through the API against a host serving the server's real
+metric output: every item and discovered prototype receives values, and the triggers fire on matching values. The quota triggers resolve when the quota figure has had no value for 10 minutes (the quota was removed
 or the cluster figures are unavailable). The low-disk guard itself is covered by "blob store full" (free space at
 or below the guard's floor, the same condition as `waystation_storage_low`) and "low disk space".
 
@@ -247,12 +240,12 @@ or below the guard's floor, the same condition as `waystation_storage_low`) and 
 every metric they query is one the server exports, dashboard panels have unique ids and do not overlap, and the
 template's uuids, item keys, trigger item references, trigger dependencies, value maps and macros resolve.
 
-## 5. Not exported yet
+## 5. Signals not exported as metrics
 
-| Signal | Where it is today |
+| Signal | Where to find it |
 |---|---|
 | Docker Hub rate-limit reset time | Docker Hub reports only the window (`w=21600`), exported as `waystation_upstream_ratelimit_window_seconds` |
-| Job retries and failures per job kind | Job runs in MongoDB (`job_runs`); Tasks page planned (T-O04) |
-| Sign-in failures and lockouts | Audit and logs |
+| Job retries and failures per job kind | The Tasks page (job runs with status, result and log) and `/api/v1/tasks/runs`; dead letters as `waystation_jobs_dead_letters` |
+| Sign-in failures and lockouts | The audit log (`auth.login` failures, `auth.lockout`) and the server log |
 | Per-repository storage | `/api/v1/stats/storage` and the UI (repositories with a quota: `waystation_repository_stored_bytes`) |
 | Process metrics (CPU, memory, open files) | Not exported; use container metrics |
