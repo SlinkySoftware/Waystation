@@ -14,6 +14,29 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   global search source (kind `package`, matched on the artifactId, named `groupId:artifactId`, Browse link to the
   version; Maven files link to their version too): `search_name`/`search_sfx` on `components`, partial on
   `format: maven`, and migration `0006_maven_search` backfills the suffix keys.
+- T-P5-APTH: hosted apt repositories. `.deb` uploads by `PUT` or `POST` (raw or multipart, `?component=`), streamed
+  after the hard-quota check and read safely in a thread (`formats/apt/deb.py`: ar layout, bounded control-archive
+  decompression for gzip/xz/zstd, tar names checked, one control paragraph with valid `Package`/`Version`/
+  `Architecture`), stored at their pool path; write policy, the same version and architecture once per repository,
+  `DELETE`, audit `content.upload`/`content.delete`. New collection `apt_hosted_packages`; the worker job `index.apt`
+  (outbox, dirty-flag dedupe, also after cleanup runs) builds `Packages`/`.gz`/`.xz` per component and architecture
+  with by-hash copies, `Release`, a clearsigned `InRelease` and `Release.gpg` with the per-repository key and switches
+  them atomically, keeping the previous generation's by-hash files; public key at `public.asc`/`public.gpg`.
+  `waystation_common.signing` gained cleartext signing (canonical-text signatures; adr/0007 already provided for it)
+  and binary certificates; the generic publish helpers moved to `waystation_common.db.published`. apt options
+  `components` and `architectures`; browse and search through the existing apt views and the component index; "Set
+  me up" for hosted apt; create flow (Hosted tile, components, architectures); Nexus import of apt hosted
+  repositories. Harness: dpkg-deb, upload, apt update verifying `InRelease` with the served key, install, upgrade,
+  wrong key refused, delete, with an API token (`tests/clients/apt/hosted.sh`, Debian 13).
+- **Release 0.2.6** (milestone M2, Nexus parity and cutover): client-auth matrix for docker, npm, apt, dnf and raw
+  with LDAP and OIDC users (T-A04); registry refresh tokens, OAuth2 `POST /auth/token` and revocation of issued
+  tokens (T-S12); invalid credentials never downgraded to anonymous; referrers API for proxies and upstream tokens
+  shared across server processes (T-P2-DOCKERP); hour/day stats, storage history, top artifacts and repositories,
+  latency percentiles (T-F09, T-S11); component index with version ordering, download counters and digest "where
+  used" (T-S09); substring search (adr/0009); apt worker refresh; repository clone; UI: density, card grid,
+  Packages/Activity/Members tabs, two-pane tree, README rendering, accessibility pass and Playwright suites
+  (T-U01..U09); more harness clients (pnpm, Yarn, Bun, podman, containerd) and an opt-in run against Nexus 3.
+  Docs and examples point at the 0.2.6 images.
 - T-S12: presented-but-invalid credentials are never downgraded to anonymous on the format routes: an
   `Authorization` header outside `/v2/` that does not resolve to a principal (a Bearer/Token value not shaped like an
   API token, an empty or unknown scheme, a password instead of a token) answers the `401` Basic challenge before any

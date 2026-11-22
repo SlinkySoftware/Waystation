@@ -102,7 +102,9 @@ covers text files only; binary bodies are scanned for key/token shapes.
 `.deb` for apt. Raising a budget is a reviewed change. apt (owner decision 2026-11-08): fixtures are recorded
 against small real suites only (`trixie-updates`, `trixie-security`, `resolute-updates`, `resolute-security`; one
 component, amd64, compressed `Packages` only: no translations, contents or dep11) with a 32 MiB budget
-(`tests/clients/apt/format.env`); full suites are covered by the nightly live run, not fixtures.
+(`tests/clients/apt/format.env`); full suites are covered by the nightly live run, not fixtures. The debian client
+also runs `apt/hosted.sh`: a `.deb` built with dpkg-deb is uploaded to a hosted repository and installed by apt with
+`Signed-By` the key Waystation serves (no upstream traffic; bash sends the uploads, debian-slim has no curl).
 Maven: fixtures are hamcrest-library/hamcrest-core 1.3 and reactive-streams 1.0.3/1.0.4 from Maven Central (about
 130 KB); everything Maven needs to build (plugins) comes from the client image. `client-maven` (mvn 3.9) runs first,
 then `client-jvm`: Maven 4 (the same `maven/mvn.sh`), Gradle 8 and 9 (`maven/gradle.sh`: strict dependency

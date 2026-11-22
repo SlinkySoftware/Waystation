@@ -3353,13 +3353,28 @@ export interface components {
             audit_passthrough: boolean;
         };
         AptOptions: {
-            /** @description Informational default suite, e.g. `trixie` */
+            /** @description Proxy: informational default suite, e.g. `trixie`. Hosted: the distribution the repository publishes (`dists/<distribution>/`; one directory, no `/`) */
             distribution: string;
             /**
-             * @description Flat repository layout (no `dists/`)
+             * @description Flat repository layout (no `dists/`); proxy only
              * @default false
              */
             flat: boolean;
+            /**
+             * @description Hosted: the components uploads may go to (`?component=`, default the first); each is published
+             * @default [
+             *       "main"
+             *     ]
+             */
+            components: string[];
+            /**
+             * @description Hosted: the architectures always published (`binary-<arch>`; `Architecture: all` packages are listed in each); architectures of uploaded packages are added
+             * @default [
+             *       "amd64",
+             *       "arm64"
+             *     ]
+             */
+            architectures: string[];
         };
         RawOptions: {
             /** @description Paths matching this regex are mutable metadata (revalidated) */

@@ -146,7 +146,31 @@ function galaxy(repo: Repository): SetupClient[] {
   return [{ id: 'ansible-galaxy', label: 'ansible-galaxy', snippets }]
 }
 
+/** Hosted apt: the repository's signing key, a deb822 source with Signed-By, credentials, and curl uploads. */
+function aptHosted(repo: Repository): SetupClient[] {
+  const opts = (repo.format_options ?? {}) as AptOptions
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const keyring = `/etc/apt/keyrings/${repo.name}.asc`
+  const components = opts.components ?? ['main']
+  const sample = 'mypackage_1.0-1_amd64.deb'
+  return [
+    {
+      id: 'apt',
+      label: 'apt',
+      snippets: [
+        { id: 'apt-key', title: "Install the repository's signing key", description: `Waystation signs InRelease and Release.gpg with this repository's own key. Compare the fingerprint with the one shown in Waystation; a binary keyring is at ${url}public.gpg.`, language: 'shell', filename: null, os: 'linux', content: `sudo install -d -m 0755 /etc/apt/keyrings\ncurl -fsSL -u {{USERNAME}}:{{TOKEN}} ${url}public.asc | sudo tee ${keyring} > /dev/null\ngpg --show-keys ${keyring}` },
+        { id: 'apt-sources', title: 'deb822 source (Debian 12+, Ubuntu 24.04+)', language: 'text', filename: `/etc/apt/sources.list.d/${repo.name}.sources`, os: 'linux', content: `Types: deb\nURIs: ${url}\nSuites: ${opts.distribution}\nComponents: ${components.join(' ')}\nSigned-By: ${keyring}\n` },
+        { id: 'apt-auth', title: 'Credentials (an API token as the password)', description: 'Only when anonymous reads are off. Keep the file chmod 600; apt sends it over https only (write the machine line with http:// for a plain-http URL).', language: 'text', filename: `/etc/apt/auth.conf.d/${repo.name}.conf`, os: 'linux', content: `machine ${url.replace(/^https?:\/\//, '')}\nlogin {{USERNAME}}\npassword {{TOKEN}}\n` },
+        { id: 'upload', title: 'Upload a package', description: `Uploads need the write permission. The package goes to component ${components[0]} (add ?component=<name> to the URL for another of: ${components.join(' ')}); the indexes are rebuilt and signed within seconds.`, language: 'shell', filename: null, os: 'linux', content: `curl -fS -u {{USERNAME}}:{{TOKEN}} --upload-file ${sample} ${url}` },
+        { id: 'delete', title: 'Delete a package', description: 'The path is the one the upload answered (Location); deletes need the delete permission.', language: 'shell', filename: null, os: 'linux', content: `curl -fS -u {{USERNAME}}:{{TOKEN}} -X DELETE ${url}pool/${components[0]}/m/mypackage/${sample}` },
+        { id: 'apt-update', title: 'Then', language: 'shell', filename: null, os: 'linux', content: 'sudo apt update && sudo apt install mypackage' },
+      ],
+    },
+  ]
+}
+
 function apt(repo: Repository): SetupClient[] {
+  if (repo.type === 'hosted') return aptHosted(repo)
   const opts = (repo.format_options ?? {}) as AptOptions
   const upstream = repo.proxy?.upstream_url ?? ''
   const url = `${BASE_URL}/repository/${repo.name}/`

@@ -228,6 +228,20 @@ class AptRefresh(JobPayload):
         return f'apt.refresh:{self.repo_id or "*"}'
 
 
+class AptIndex(JobPayload):
+    """Regenerate a hosted apt repository's signed ``dists/`` (``Packages``, ``Release``, ``InRelease``,
+    ``Release.gpg``) from its ``apt_hosted_packages`` records (FORMATS.md "apt"; ``waystation_worker.apt_index``).
+    Enqueued through the outbox in the transaction that changed the packages."""
+
+    kind: ClassVar[str] = 'index.apt'
+    queue: ClassVar[Queue] = 'index'
+
+    repo_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'index.apt:{self.repo_id}'
+
+
 class GalaxyImport(JobPayload):
     """Import an uploaded Ansible collection into its hosted repository (FORMATS.md "Ansible Galaxy";
     ``waystation_worker.galaxy``): validate the artifact (``MANIFEST.json``, ``FILES.json`` and every file's sha256,

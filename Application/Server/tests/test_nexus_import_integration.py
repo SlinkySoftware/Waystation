@@ -78,7 +78,12 @@ async def test_preview_then_apply_is_idempotent(
     assert hub['proxy']['metadata_max_age_s'] == 86400
     assert (await admin.get('/api/v1/config')).json()['docker']['default_repo'] == 'dockerhub-proxy'
     debian = (await admin.get('/api/v1/repositories/debian-security')).json()
-    assert debian['format_options'] == {'distribution': 'trixie-security', 'flat': False}
+    assert debian['format_options'] == {
+        'distribution': 'trixie-security',
+        'flat': False,
+        'components': ['main'],
+        'architectures': ['amd64', 'arm64'],
+    }
     oracle = (await admin.get('/api/v1/repositories/oracle')).json()
     assert oracle['proxy']['offline'] is True
     ghcr = (await admin.get('/api/v1/repositories/ghcr-proxy')).json()
