@@ -993,6 +993,27 @@ paths:
               schema: { $ref: '#/components/schemas/SystemInfo' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /system/support-bundle:
+    get:
+      tags: [admin]
+      operationId: getSupportBundle
+      summary: Download a support bundle (zip of redacted configuration, versions, health, failed jobs, recent errors); needs `admin`
+      description: |
+        The attachment `waystation-support-<instance>-<UTC time>.zip` holds `README.txt`, `manifest.json`,
+        `versions.json`, `settings.json` (environment settings with secrets as `<redacted>`, URIs without
+        credentials; stored instance settings), `repositories.json` and `auth_providers.json` (secrets only as
+        `*_set` flags, CA bundles as fingerprints), `health.json`, `jobs.json` and `errors.json` (the newest
+        WARNING/ERROR log records of every server and worker). A section that cannot be read holds
+        `{"error": "<reason>"}`. Audited as `system.support_bundle`.
+      responses:
+        '200':
+          description: The support bundle (zip)
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /auth-providers:
     get:
       tags: [admin]

@@ -77,6 +77,7 @@ const TEMPLATES: Template[] = [
   { action: 'content.delete', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('repository', 'raw-releases'), details: { path: 'tools/waystation-cli-1.2.0-linux-amd64.tar.gz' } }) },
   { action: 'cleanup.run', weight: 3, make: (n) => ({ actor: ACTORS.system, target: repoTarget(n), details: { policy: 'Unused for 90 days', deleted_assets: Math.floor(between(3, 900, n)), reclaimed_bytes: Math.floor(between(1e6, 8e9, n)) } }) },
   { action: 'settings.update', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('settings', 'general'), changes: [change('instance_name', 'Waystation', 'Package mirror')] }) },
+  { action: 'system.support_bundle', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('system', 'Support bundle', 'support-bundle'), details: { bytes: 48_213, files: 9 } }) },
   { action: 'webhook.create', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'ci-release-builds', WEBHOOK_ID), changes: [change('url', null, 'https://ci.example.com/hooks/waystation'), change('events', null, ['content.upload']), change('secret', null, '***', true)] }) },
   { action: 'webhook.update', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'ci-release-builds', WEBHOOK_ID), changes: [change('repositories', [], ['raw-*'])] }) },
   { action: 'webhook.delete', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'old-chat-hook', '01JCWEBHOOK0000000000000OLD') }) },

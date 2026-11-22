@@ -19,6 +19,7 @@ from waystation_common.db.client import create_client, database
 from waystation_common.db.migrations import check_schema
 from waystation_common.events import EventEmitter
 from waystation_common.logs import configure_logging
+from waystation_common.recent_errors import RecentErrors
 from waystation_common.settings import Settings, get_settings
 from waystation_common.valkey import create_valkey
 from waystation_worker import health
@@ -43,8 +44,10 @@ async def jobs_loop(settings: Settings, stop: asyncio.Event) -> None:  # pragma:
     redis = create_valkey(settings)
     client = create_client(settings, app_name='waystation-worker')
     db = database(client, settings)
+    recent_errors = RecentErrors('worker')  # WARNING/ERROR records -> Valkey for the support bundle (T-O10)
     try:
         await check_schema(db)
+        recent_errors.start(redis)
         async with EventEmitter(redis) as emitter:
             system = JobSystem(
                 db,
@@ -62,6 +65,7 @@ async def jobs_loop(settings: Settings, stop: asyncio.Event) -> None:  # pragma:
             finally:
                 health.set_watchdog(None)
     finally:
+        await recent_errors.aclose()
         await redis.aclose()
         await client.close()
 

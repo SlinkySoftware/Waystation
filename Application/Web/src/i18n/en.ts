@@ -1669,6 +1669,7 @@ export const en = {
       cleanup: 'Cleanup',
       task: 'Tasks',
       settings: 'Settings',
+      system: 'System',
       webhook: 'Webhooks',
     },
     allInCategory: 'All {category}',
@@ -1694,6 +1695,7 @@ export const en = {
       cleanup: { run: 'Ran cleanup' },
       task: { update: 'Changed a task schedule', run: 'Ran a task', retry: 'Retried a dead letter', discard: 'Discarded a dead letter' },
       settings: { update: 'Changed settings' },
+      system: { support_bundle: 'Downloaded a support bundle' },
       webhook: { create: 'Created a webhook', update: 'Changed a webhook', delete: 'Deleted a webhook', test: 'Sent a test event', redeliver: 'Redelivered a webhook event' },
     },
     failed: {
@@ -1738,6 +1740,7 @@ export const en = {
       task: 'Task',
       job: 'Job',
       anonymous_access: 'Anonymous access',
+      system: 'System',
     },
     auth: {
       session: 'Web session',

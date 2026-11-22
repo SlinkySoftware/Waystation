@@ -437,6 +437,11 @@ def _worker_view(doc: Document, now: datetime) -> Worker:
 @router.get('/tasks/workers', response_model=WorkerOverview, operation_id='getWorkers')
 @access.requires(Action.ADMIN)
 async def get_workers(request: Request, svc: ServicesDep) -> WorkerOverview:
+    return await worker_overview(svc)
+
+
+async def worker_overview(svc: Any) -> WorkerOverview:
+    """Workers, queue figures and the dead-letter count (also in the support bundle)."""
     now = datetime.now(UTC)
     docs = await jobs_db.list_workers(svc.db)
     stats = await svc.jobs.queue.stats(QUEUES)

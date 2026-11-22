@@ -27,7 +27,7 @@ const GLOBAL_RULES: [Method, RegExp, Need][] = [
   ['GET', /^\/stats\/(summary|traffic|storage|upstreams)$/, 'stats-read'],
   ['GET', /^\/(transfers|activity|activity\/export)$/, 'stats-read'],
   ['*', /^\/(tasks|maintenance|webhooks|provisioning|import)(\/|$)/, 'admin'],
-  ['*', /^\/system$/, 'admin'],
+  ['*', /^\/system(\/|$)/, 'admin'],
   ['POST', /^\/repositories$/, 'admin'],
   ['*', /^\/(users|groups|service-accounts|tokens|anonymous-access)(\/|$)/, 'user-admin'],
   ['*', /^\/roles\/.+/, 'user-admin'],

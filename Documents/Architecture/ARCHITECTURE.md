@@ -359,3 +359,7 @@ Format endpoints return the format's native error shape (OCI JSON errors, npm JS
 formats). REST API errors use RFC 9457 problem+json. Logs are JSON lines with `request_id`, `principal`,
 `repo`, `format`, `op`, `cache`, `status`, `duration_ms`, `bytes`; never secrets, never tokens, never full
 authorization headers.
+Recent WARNING/ERROR records are also kept for the support bundle (T-O10): `waystation_common.recent_errors.RecentErrors`
+on the root logger of every server and worker process queues the redacted, bounded record in memory and a background
+task appends it to the Valkey stream `errors:recent`; it never blocks or fails the caller (full buffer or Valkey down
+= dropped and counted; floods of one message summarised).

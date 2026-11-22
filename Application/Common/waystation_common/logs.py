@@ -35,6 +35,9 @@ _SENSITIVE = re.compile(
     r'pass(word|wd)?|secret|token|authori[sz]ation|cookie|credential|api[_-]?key|private[_-]?key', re.I
 )
 
+# Credentials inside a URL (``https://user:pass@host/``).
+_USERINFO = re.compile(r'\b([a-z][a-z0-9+.-]*://)[^/@\s]+@', re.I)
+
 # Attributes every LogRecord has; anything else on a record came from ``extra``.
 _RECORD_ATTRS: Final = frozenset(vars(logging.LogRecord('', 0, '', 0, '', None, None))) | {'message', 'asctime'}
 
@@ -77,22 +80,33 @@ def redact(key: str, value: Any) -> Any:
     return value
 
 
+def mask_userinfo(text: str) -> str:
+    """``text`` with the credentials of any URL in it masked (``https://user:pass@host`` → ``https://***@host``)."""
+    return _USERINFO.sub(r'\1***@', text)
+
+
+def record_fields(record: logging.LogRecord) -> dict[str, Any]:
+    """The fields of a JSON log line: time, level, logger, message, the request context and ``extra`` (redacted),
+    and the formatted exception."""
+    entry: dict[str, Any] = {
+        'ts': datetime.fromtimestamp(record.created, UTC).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
+        'level': record.levelname,
+        'logger': record.name,
+        'msg': record.getMessage(),
+    }
+    for key, value in get_context().items():
+        entry[key] = redact(key, value)
+    for key, value in vars(record).items():
+        if key not in _RECORD_ATTRS and not key.startswith('_'):
+            entry[key] = redact(key, value)
+    if record.exc_info:
+        entry['exc'] = ''.join(traceback.format_exception(*record.exc_info)).rstrip()
+    return entry
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
-        entry: dict[str, Any] = {
-            'ts': datetime.fromtimestamp(record.created, UTC).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
-            'level': record.levelname,
-            'logger': record.name,
-            'msg': record.getMessage(),
-        }
-        for key, value in get_context().items():
-            entry[key] = redact(key, value)
-        for key, value in vars(record).items():
-            if key not in _RECORD_ATTRS and not key.startswith('_'):
-                entry[key] = redact(key, value)
-        if record.exc_info:
-            entry['exc'] = ''.join(traceback.format_exception(*record.exc_info)).rstrip()
-        return json.dumps(entry, default=str, ensure_ascii=False)
+        return json.dumps(record_fields(record), default=str, ensure_ascii=False)
 
 
 class ConsoleFormatter(logging.Formatter):

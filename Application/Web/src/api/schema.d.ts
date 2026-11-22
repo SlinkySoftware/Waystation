@@ -765,6 +765,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/system/support-bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download a support bundle (zip of redacted configuration, versions, health, failed jobs, recent errors); needs `admin`
+         * @description The attachment `waystation-support-<instance>-<UTC time>.zip` holds `README.txt`, `manifest.json`,
+         *     `versions.json`, `settings.json` (environment settings with secrets as `<redacted>`, URIs without
+         *     credentials; stored instance settings), `repositories.json` and `auth_providers.json` (secrets only as
+         *     `*_set` flags, CA bundles as fingerprints), `health.json`, `jobs.json` and `errors.json` (the newest
+         *     WARNING/ERROR log records of every server and worker). A section that cannot be read holds
+         *     `{"error": "<reason>"}`. Audited as `system.support_bundle`.
+         */
+        get: operations["getSupportBundle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth-providers": {
         parameters: {
             query?: never;
@@ -7017,6 +7042,28 @@ export interface operations {
                     "application/json": components["schemas"]["SystemInfo"];
                 };
             };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getSupportBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The support bundle (zip) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
         };
     };

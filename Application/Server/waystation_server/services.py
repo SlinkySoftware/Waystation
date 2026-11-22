@@ -23,6 +23,7 @@ from waystation_common.db.client import Client, Database, create_client, databas
 from waystation_common.db.migrations import check_schema
 from waystation_common.events import EventEmitter
 from waystation_common.jobs import JobClient
+from waystation_common.recent_errors import RecentErrors
 from waystation_common.settings import Settings
 from waystation_common.storage import BlobStore
 from waystation_common.valkey import create_valkey
@@ -93,6 +94,8 @@ class Services:
     bearer_authenticators: list[BearerAuthenticator] = field(default_factory=list)
     keyring: Keyring | None = None
     download_urls: DownloadUrls = field(default_factory=lambda: DownloadUrls([]))  # adr/0010
+    # WARNING/ERROR log records -> Valkey ``errors:recent`` for the support bundle (T-O10)
+    recent_errors: RecentErrors = field(default_factory=lambda: RecentErrors('server'))
     mongo_client: Client | None = None
     check_schema_on_start: bool = True
     _started: bool = field(default=False, repr=False)
@@ -233,6 +236,7 @@ class Services:
             return
         if self.check_schema_on_start:
             await check_schema(self.db)
+        self.recent_errors.start(self.valkey)
         if self.keyring is None:
             log.warning('WAYSTATION_SECRET_KEYS is not set: upstream credentials cannot be stored')
         await self.emitter.start()
@@ -264,6 +268,7 @@ class Services:
         await self.rbac.stop()
         await self.webhooks.aclose()
         await self.audit.aclose()
+        await self.recent_errors.aclose()
         await self.emitter.aclose()
         await self.upstream.aclose()
         await self.valkey.aclose()

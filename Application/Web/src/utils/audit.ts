@@ -18,7 +18,7 @@ import {
   iconWebhook,
 } from '@/utils/icons'
 
-export const AUDIT_CATEGORIES = ['auth', 'session', 'token', 'service_account', 'user', 'group', 'role', 'auth_provider', 'repository', 'content', 'cleanup', 'settings', 'webhook'] as const
+export const AUDIT_CATEGORIES = ['auth', 'session', 'token', 'service_account', 'user', 'group', 'role', 'auth_provider', 'repository', 'content', 'cleanup', 'settings', 'system', 'webhook'] as const
 export type AuditCategory = (typeof AUDIT_CATEGORIES)[number]
 
 /** Every action the server records (or will record: see the server's audit catalog). */
@@ -35,6 +35,7 @@ export const AUDIT_ACTIONS: Record<AuditCategory, readonly string[]> = {
   content: ['upload', 'delete'],
   cleanup: ['run'],
   settings: ['update'],
+  system: ['support_bundle'],
   webhook: ['create', 'update', 'delete', 'test', 'redeliver'],
 }
 
@@ -53,6 +54,7 @@ const CATEGORY_ICONS: Record<AuditCategory, string> = {
   content: iconPackage,
   cleanup: iconCleanup,
   settings: iconSettings,
+  system: iconSystem,
   webhook: iconWebhook,
 }
 

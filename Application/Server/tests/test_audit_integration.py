@@ -567,6 +567,12 @@ async def test_every_spec_action_is_recorded(services: Services, admin: httpx.As
     assert policy_update['changes'] == [{'field': 'enabled', 'before': True, 'after': False, 'redacted': False}]
     await rec.expect(A.CLEANUP_POLICY_DELETE, **{'target.id': policy_id})
 
+    # --- support bundle download
+    bundle = await admin.get(f'{api}/system/support-bundle')
+    assert bundle.status_code == 200, bundle.text
+    downloaded = await rec.expect(A.SYSTEM_SUPPORT_BUNDLE, **{'target.id': 'support-bundle'})
+    assert downloaded['details']['bytes'] == len(bundle.content)
+
     # --- sign-out
     signed_out = await admin.post(f'{api}/auth/logout')
     assert signed_out.status_code == 200

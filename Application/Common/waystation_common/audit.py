@@ -92,6 +92,7 @@ class AuditAction(StrEnum):
     TASK_RETRY = 'task.retry'  # a dead-lettered job queued again
     TASK_DISCARD = 'task.discard'  # a dead-lettered job dropped
     SETTINGS_UPDATE = 'settings.update'
+    SYSTEM_SUPPORT_BUNDLE = 'system.support_bundle'  # a support bundle downloaded (System page)
     WEBHOOK_CREATE = 'webhook.create'
     WEBHOOK_UPDATE = 'webhook.update'
     WEBHOOK_DELETE = 'webhook.delete'
@@ -139,6 +140,7 @@ SPEC_ACTIONS: dict[str, tuple[AuditAction, ...]] = {
     'cleanup policy changes': (A.CLEANUP_POLICY_CREATE, A.CLEANUP_POLICY_UPDATE, A.CLEANUP_POLICY_DELETE),
     'task changes': (A.TASK_UPDATE, A.TASK_RUN, A.TASK_RETRY, A.TASK_DISCARD),
     'settings changes': (A.SETTINGS_UPDATE,),
+    'support bundle downloads': (A.SYSTEM_SUPPORT_BUNDLE,),
     'webhook changes': (A.WEBHOOK_CREATE, A.WEBHOOK_UPDATE, A.WEBHOOK_DELETE, A.WEBHOOK_TEST, A.WEBHOOK_REDELIVER),
 }
 
