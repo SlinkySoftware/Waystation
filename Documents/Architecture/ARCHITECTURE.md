@@ -83,9 +83,10 @@
 
 ## 5. Storage
 - `waystation_common.storage.BlobStore` is the only API to blobs: `open_writer() -> BlobWriter` (streaming,
-  hashing sha256 incrementally, size limit), `commit(writer) -> BlobRef` (fsync file, atomic rename into place,
-  fsync dir), `exists`, `stat`, `path_for_xaccel`, `delete` (GC only). Interface designed so an S3 driver can be
-  added (D5) with presigned-redirect serving instead of X-Accel.
+  hashing sha256 incrementally, size limit), `commit(writer) -> BlobRef` (fsync file, atomic hard link into place
+  so concurrent identical commits place the blob once across processes and hosts, rename where the filesystem has
+  no hard links (adr/0011), fsync dir), `exists`, `stat`, `path_for_xaccel`, `delete` (GC only). Interface designed
+  so an S3 driver can be added (D5) with presigned-redirect serving instead of X-Accel.
 - Layout under `WAYSTATION_DATA_DIR`:
   - `blobs/sha256/<aa>/<bb>/<full-hex>`: immutable content. Created 0640, dirs 0750.
   - `uploads/<uuid>`: in-progress downloads (cache fill) and uploads (hosted, OCI chunked). Same filesystem as

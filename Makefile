@@ -116,12 +116,25 @@ test-nexus: sync ## Nexus import against a real sonatype/nexus3 container (opt-i
 	$(DEV_RUN) uv run --frozen pytest -m nexus -p no:cacheprovider $(ARGS); rc=$$?; \
 	  $(COMPOSE_NEXUS) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
 
+# The blob store on NFS (T-F07): a userspace NFS server container and the storage tests on its export, mounted by the
+# kernel client inside a privileged dev container (the mount stays in that container). Light: a few seconds.
+NFS_PROJECT := waystation-nfs-$(shell printf '%s' '$(CURDIR)' | md5sum | cut -c1-8)
+COMPOSE_NFS  = docker compose -p $(NFS_PROJECT) -f Build/Containers/compose.nfs.yaml
+.PHONY: test-nfs
+test-nfs: sync ## Blob store tests on an NFSv4.1-mounted directory (NFS-Ganesha container; privileged test container)
+	@$(COMPOSE_NFS) up -d --build --quiet-pull || { $(COMPOSE_NFS) logs --no-color --tail 80; \
+	  $(COMPOSE_NFS) down -v --remove-orphans >/dev/null 2>&1; exit 1; }; \
+	docker run --rm -i --privileged --network $(NFS_PROJECT)_default -v $(CURDIR):/src -w /src $(DEV_IMAGE) \
+	  Build/ci/test_nfs.sh nfs.example.com $(UID) $(GID) $(ARGS); rc=$$?; \
+	  [ $$rc -eq 0 ] || $(COMPOSE_NFS) logs --no-color --tail 40; \
+	  $(COMPOSE_NFS) down -v --remove-orphans >/dev/null 2>&1; exit $$rc
+
 test-integration-authentik: ## OIDC tests against authentik too (opt-in: PostgreSQL + server + worker, a few minutes to start)
 	$(MAKE) test-integration TEST_PROFILES='--profile authentik' TEST_AUTHENTIK_URL=http://authentik.example.com:9000 \
 	  ARGS='Application/Server/tests/test_oidc_providers_integration.py $(ARGS)'
 
 .PHONY: check
-check: forbidden-strings workflow-lint fmt-check lint typecheck test test-integration clients-check frontend-check e2e budgets ## Everything CI runs on a PR (grows as tasks land)
+check: forbidden-strings workflow-lint fmt-check lint typecheck test test-nfs test-integration clients-check frontend-check e2e budgets ## Everything CI runs on a PR (grows as tasks land)
 
 .PHONY: forbidden-strings budgets workflow-lint
 ACTIONLINT_IMAGE ?= rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667

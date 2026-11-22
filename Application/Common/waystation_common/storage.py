@@ -17,8 +17,10 @@ Guarantees:
 - Nothing appears under ``blobs/`` until ``commit`` has verified size/digest and fsynced the file, and the rename
   is atomic, so a process killed mid-write leaves at most an orphan in ``uploads/`` (``sweep_uploads`` removes
   orphans older than a cutoff; GC runs it with 24 h).
-- Identical content committed concurrently in one process is put in place once (``BlobRef.created`` is True for
-  exactly one writer); across processes the race is benign: both renames carry identical bytes atomically.
+- Identical content committed concurrently is put in place once (``BlobRef.created`` is True for exactly one
+  writer), in one process (a per-digest lock) and across processes and replicas sharing the directory, NFS included
+  (placement is a hard link, which fails if the blob is there). On a filesystem without hard links placement falls
+  back to a rename: then the cross-process race is benign but both writers may report ``created``.
 - No file I/O on the event loop: buffered writes (``chunk_size``, default 1 MiB) are hashed and written in a worker
   thread; every other filesystem call also runs in ``asyncio.to_thread``.
 - ``open_writer`` refuses to start when free space would drop below the guard's floor, the larger of
@@ -40,7 +42,7 @@ back to where the request started (the upload stays resumable); ``discard_upload
 characters (anything else is refused before touching the filesystem).
 
 ``path_for_xaccel(sha256)`` is the internal URI the web tier serves (``/_blobs/...``, ARCHITECTURE §4.5).
-``delete`` is for GC only. Not done yet: the NFS-backed CI scenario (T-F07 full task).
+``delete`` is for GC only. ``make test-nfs`` runs this module's tests on an NFS-mounted directory.
 
 GC safety (ARCHITECTURE §5): ``commit`` calls ``guard.claim(sha256, size)`` before it puts the file in place, also
 when identical content is already there. The server's guard (``waystation_common.db.blobs.MongoBlobGuard``) records
@@ -52,6 +54,7 @@ blob without committing it must call ``guard.claim`` first.
 from __future__ import annotations
 
 import asyncio
+import errno
 import hashlib
 import os
 import re
@@ -74,6 +77,8 @@ ORPHAN_AGE_S = 24 * 3600
 _HEX = re.compile(r'^[0-9a-f]{64}$')
 _UPLOAD_ID = re.compile(r'^[0-9a-f]{32}$')
 PARTIAL_HASHES = 512  # resumable uploads whose sha256 state this process keeps between requests
+# ``link`` errors meaning "this filesystem has no hard links here" (some FUSE, SMB and object-store mounts)
+_NO_HARD_LINKS = frozenset({errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK})
 
 
 class UploadOffsetMismatch(ValidationFailed):
@@ -461,11 +466,29 @@ class BlobStore:
         return writer.size
 
     def _place_sync(self, writer: BlobWriter, target: Path) -> bool:
+        """Put the upload at ``target`` unless the blob is already there; True when this call placed it.
+
+        ``link`` fails when the target exists, so of several processes (or replicas on one NFS export) committing
+        the same content exactly one places it. A link whose reply was lost and retransmitted (NFS) reports EEXIST
+        although it succeeded: the target is then our own file. Filesystems without hard links fall back to
+        ``rename``, where a cross-process race is benign (identical bytes, atomic rename) but may place twice."""
         if target.exists():
             writer.path.unlink(missing_ok=True)
             return False
         created = self._mkdirs_sync(target.parent)
-        writer.path.rename(target)
+        try:
+            os.link(writer.path, target)
+        except FileExistsError:
+            placed = writer.path.samefile(target)
+            writer.path.unlink(missing_ok=True)
+            if not placed:
+                return False
+        except OSError as exc:
+            if exc.errno not in _NO_HARD_LINKS:
+                raise
+            writer.path.rename(target)
+        else:
+            writer.path.unlink()
         _fsync_dir(target.parent)
         for directory in created:
             _fsync_dir(directory.parent)

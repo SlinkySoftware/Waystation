@@ -1,7 +1,7 @@
 # Deploying Waystation
 
-This guide describes how to run Waystation on one Docker host **as the code works today** (version 0.1, the M0
-feedback build). Anything not built yet is marked **Planned** with its task ID. For a five-minute evaluation run,
+This guide describes how to run Waystation on one Docker host **as the code works today** (release 0.2.7).
+Anything not built yet is marked **Planned** with its task ID. For a five-minute evaluation run,
 see [TRY_IT.md](TRY_IT.md); for putting a reverse proxy in front, see [REVERSE_PROXIES.md](REVERSE_PROXIES.md); for
 client configuration per format, see [clients/](clients/).
 
@@ -38,8 +38,8 @@ Every long-running container runs as a non-root user with a read-only root files
 
 ### Sizing
 
-These are starting points for a home lab or small team, not measured limits (the performance suite, T-P2-PERF, is
-not built yet).
+These are starting points for a home lab or small team, not measured capacity limits (the k6 suite, `make perf`,
+checks latency budgets on a CI-sized stack, not host sizing).
 
 | Resource | Small (a few machines, CI runner) | Medium (tens of machines, busy CI) | Notes |
 |---|---|---|---|
@@ -80,7 +80,8 @@ are required; there is no `:latest`.
 
 ```bash
 sudo install -d -m 0755 /srv/waystation
-sudo install -d -m 0750 -o root -g docker /srv/waystation/secrets
+# Secret files (section 5) are read by the containers as WAYSTATION_GID (default 10001), so that group owns the directory
+sudo install -d -m 0750 -o root -g 10001 /srv/waystation/secrets
 # Copy Build/Containers/compose.yaml from the release (or the checkout) into /srv/waystation/
 sudo cp compose.yaml /srv/waystation/compose.yaml
 ```
@@ -98,11 +99,11 @@ host.
 | MongoDB | named volume `waystation_mongodb` | `/data/db` | `WAYSTATION_MONGO_MOUNT_TYPE=bind` and `WAYSTATION_MONGO_DIR=/srv/waystation/mongodb` |
 | Valkey (AOF) | named volume `waystation_valkey` | `/data` | none (Valkey holds no system-of-record data) |
 
-- `uploads/` must be on the same filesystem as `blobs/` (cache fills commit with an atomic rename). Keep the whole
-  data directory on one mount.
-- The blob store works on local disk, NFSv4 or SMB (no hard links; rename atomicity required). On a network
-  filesystem, coalesced followers wait for the commit instead of tailing the in-progress file
-  (`WAYSTATION_COALESCE_TAIL=auto`, ARCHITECTURE §6.3).
+- `uploads/` must be on the same filesystem as `blobs/` (cache fills commit with an atomic link or rename). Keep the
+  whole data directory on one mount.
+- The blob store works on local disk, NFSv4 or SMB (commits use hard links where the filesystem has them, else an
+  atomic rename; CI runs the blob store tests on an NFSv4.1 mount). On a network filesystem, coalesced followers
+  wait for the commit instead of tailing the in-progress file (`WAYSTATION_COALESCE_TAIL=auto`, ARCHITECTURE §6.3).
 - `init` creates the layout and fixes ownership (`WAYSTATION_UID:WAYSTATION_GID`, default `10001:10001`, setgid
   directories 2750, files 0640) on every start, idempotently. The web container joins the same group
   (`group_add`) to read blobs. For a bind mount, create the directory and let `init` fix it.
@@ -138,6 +139,15 @@ WAYSTATION_SESSION_SECRET=<output of: head -c 32 /dev/urandom | base64>
 sudo chown root:docker /srv/waystation/waystation.env && sudo chmod 0640 /srv/waystation/waystation.env
 ```
 
+Every `docker compose` command in this guide passes `--env-file waystation.env`: without it compose cannot
+interpolate the image names and refuses to run (`required variable WAYSTATION_IMAGE_PREFIX is missing`). To drop the
+flag, name the file `/srv/waystation/.env` instead; compose reads `.env` from the project directory by itself.
+
+Start from the minimal file above. If you copy [`.env.example`](../../.env.example) instead, it lists every setting
+with the application's default, and two differ from what the bundled stack needs: set
+`WAYSTATION_MONGO_REPLSET_INIT=true` (the bundled MongoDB's replica set is initiated by `init`; `false` there means an
+external MongoDB) and remove or fill in every line you do not need.
+
 `WAYSTATION_SECRET_KEYS` encrypts stored upstream credentials and the registry token signing key. **Back it up with
 the database; losing it makes those secrets unreadable.** To rotate, prepend a new key (`new,old`): the first key
 encrypts, all keys decrypt.
@@ -160,7 +170,9 @@ services:
 
 Compose merges `volumes` lists, so the data mount stays. Then set, for example,
 `WAYSTATION_SECRET_KEYS_FILE=/run/waystation-secrets/secret_keys` in the env file (and leave
-`WAYSTATION_SECRET_KEYS` unset). The files must be readable by `WAYSTATION_GID` (e.g. `root:10001 0640`).
+`WAYSTATION_SECRET_KEYS` unset). The directory and the files must be readable by `WAYSTATION_GID` (directory
+`root:10001 0750` as created in section 4, files `root:10001 0640`); otherwise the server stops with
+`WAYSTATION_SECRET_KEYS_FILE: cannot read ...: Permission denied`.
 
 ### Environment reference
 
@@ -232,10 +244,17 @@ Unless `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD(_FILE)` was set, `init` prints a one
 docker logs waystation-init 2>&1 | grep -A4 'first administrator'
 ```
 
-Open `https://registry.example.com/ui/` (or `http://<host>:8080/ui/` before TLS is in place), sign in as `admin`,
-and create repositories (Repositories → Create). Change the password on your profile (avatar menu → Profile), or set
+Save it now: recreating `init` (any upgrade or configuration change) discards these logs, and the password is never
+shown again. To choose it yourself instead, set `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE` before the first start.
+
+Open `https://registry.example.com/ui/`, sign in as `admin`, and create repositories (Repositories → Create).
+Before TLS is in place, use `http://<host>:8080/ui/` **with** `WAYSTATION_BASE_URL=http://<host>:8080` in the env
+file: an `https://` base URL makes the session cookie `Secure`, so a plain-HTTP sign-in cannot keep its session
+(section 8, "No TLS at all"; switch the base URL when the proxy is in place). Change the password on your profile (avatar menu → Profile), or set
 `WAYSTATION_BOOTSTRAP_ADMIN_PASSWORD_FILE` before the first start to choose it. Each repository's "Set me up" panel
-shows client configuration; the per-format guides are in [clients/](clients/).
+shows client configuration; the per-format guides are in [clients/](clients/). For scripted installs, the REST API
+is described by `GET /api/v1/openapi.json` on the running server; [AGENT_DEPLOYMENT.md](AGENT_DEPLOYMENT.md) section 8
+shows repository creation through it.
 
 To keep the configuration in version control instead, declare repositories, roles, providers, policies, webhooks and
 settings in a provisioning file ([PROVISIONING.md](PROVISIONING.md)); `init` applies it at every start.
@@ -248,9 +267,9 @@ settings in a provisioning file ([PROVISIONING.md](PROVISIONING.md)); `init` app
 | `GET /readyz` | through web, or server port 8000 | MongoDB and Valkey both answered within 2 s (`200 ok`), else `503 unavailable` |
 | `GET /ui/` | web | The web container's own healthcheck |
 | heartbeat file | worker | `python -m waystation_worker.health` (the container healthcheck): the job loop polled its queues within 45 s |
-| `GET /metrics` | through web | Prometheus metrics, only for `WAYSTATION_METRICS_ALLOW_CIDRS` (404 for everyone else) |
+| `GET /metrics` | through web | Prometheus metrics, only for `WAYSTATION_METRICS_ALLOW_CIDRS` (404 for everyone else). The default allows only scrapes from inside the containers: a request from the host through the published port arrives from the Docker bridge gateway, so add the scraper's (or that gateway's) CIDR |
 
-`docker compose ps` shows the health of every container. `depends_on` restarts web when the server restarts.
+`docker compose --env-file waystation.env ps` shows the health of every container. `depends_on` restarts web when the server restarts.
 Prometheus scraping, the Grafana dashboard and the Zabbix template: [MONITORING.md](MONITORING.md).
 
 ## 8. TLS
@@ -286,8 +305,8 @@ Full procedures are in [BACKUP.md](BACKUP.md). In short:
    timer: `sudo ./waystation-backup.sh backup --target /mnt/backup/waystation --keep 14`. It dumps MongoDB
    (`mongodump --archive --gzip`), then copies the blob files (hard-linked from the previous backup when unchanged)
    and `keys/`, and writes a manifest. `--hosted-only` skips cached proxy content (re-fetched after a restore).
-3. Restore: `docker compose stop web server worker`, `sudo ./waystation-backup.sh restore --from <backup>`,
-   `docker compose up -d`, then `./waystation-backup.sh verify` (the blob verify task marks proxied assets whose
+3. Restore: `docker compose --env-file waystation.env stop web server worker`,
+   `sudo ./waystation-backup.sh restore --from <backup>`, `docker compose --env-file waystation.env up -d`, then `./waystation-backup.sh verify` (the blob verify task marks proxied assets whose
    content is missing for re-fetch and reports hosted losses).
 
 Valkey needs no backup: losing it never loses data (job outbox and schedules are re-derived from MongoDB).
@@ -320,4 +339,6 @@ downtime upgrades need two or more server replicas (planned with the standalone 
 | Live dashboard does not update | The proxy buffers `/api/v1/events/stream` (REVERSE_PROXIES.md) |
 | Log shows the proxy's address as the client | `WAYSTATION_TRUST_FORWARDED` / `WAYSTATION_TRUSTED_PROXIES` (REVERSE_PROXIES.md) |
 | `AutoReconnect: ... Connection is closed` in the server log under load | mongod refuses connections past its open-file limit: "MongoDB connections" in section 2 |
-| `/metrics` returns 404 | The scraper's address is not in `WAYSTATION_METRICS_ALLOW_CIDRS` |
+| `/metrics` returns 404 | The scraper's address is not in `WAYSTATION_METRICS_ALLOW_CIDRS` (from the Docker host itself, requests come from the bridge gateway, section 7) |
+| `required variable WAYSTATION_IMAGE_PREFIX is missing` | `docker compose` ran without `--env-file waystation.env` (section 5) |
+| Server stops with `..._FILE: cannot read ...: Permission denied` | The secrets directory or file is not readable by `WAYSTATION_GID` (section 5) |

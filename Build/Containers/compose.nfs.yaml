@@ -1,0 +1,19 @@
+# `make test-nfs` (T-F07): a userspace NFSv4.1 server (NFS-Ganesha) whose export the blob store's tests mount
+# (Build/ci/test_nfs.sh). Project name unique per checkout; `down -v` removes everything. The export lives on a
+# Docker volume: Ganesha's VFS backend needs file handles, which the volume's filesystem provides.
+services:
+  nfs:
+    build:
+      context: nfs
+    image: waystation-test-nfs:local
+    # Only what Ganesha needs to serve files as their owners: open by handle, set ids, keep modes and ownership.
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH, DAC_OVERRIDE, CHOWN, FOWNER, FSETID, SETUID, SETGID, SYS_RESOURCE]
+    volumes:
+      - export:/export
+    networks:
+      default:
+        aliases: [nfs.example.com]
+
+volumes:
+  export: {}

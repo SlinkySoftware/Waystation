@@ -3,6 +3,21 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-F07: identical blob commits from several processes or replicas sharing the data directory now place the file
+  once: `BlobStore.commit` puts the upload in place with a hard link (fails if the blob is there; an NFS-retransmitted
+  link that already succeeded counts as placed) and falls back to the previous rename on filesystems without hard
+  links (adr/0011, proposed). `make test-nfs` runs the blob store tests on an NFSv4.1 mount from a userspace
+  NFS-Ganesha container (`Build/Containers/compose.nfs.yaml`, `Build/ci/test_nfs.sh`), including six processes racing
+  the same commit; part of `make check` and the Gitea `check.yml` (the runner must allow privileged containers).
+- T-F06: done. `test_registry_matches_data_model` checks that DATA_MODEL §1 and the collection registry list the
+  same collections with the same unique and TTL indexes; DATA_MODEL now shows the unique index on `groups.name`.
+- T-M03: DEPLOYMENT.md walked on a clean host with the 0.2.7 images, from the docs alone: it passed, and the gaps
+  it found are fixed: the secrets directory belongs to group `WAYSTATION_GID` (the server could not read secret
+  files), every `docker compose` command passes `--env-file waystation.env` (DEPLOYMENT, BACKUP and the backup tool's
+  messages; or name the file `.env`), save the one-time admin password before `init` is recreated, use an `http://`
+  base URL before TLS, `/metrics` from the Docker host, `MONGO_REPLSET_INIT` when starting from `.env.example`, a
+  pointer to the OpenAPI document for scripted installs, stale version text.
+- T-F03: done; the first green runs on GitHub (`ci.yml`, `release.yml`) and Gitea were confirmed.
 - **Release 0.2.7** (milestone M3, Phase 5 formats): hosted apt repositories with signed, atomically published
   indexes (T-P5-APTH); Terraform module registry proxy and the hosted Terraform repository with signed download
   URLs (T-P5-TFM, adr/0010); Swift Package Registry with an SCM-backed proxy and hosted publishing (T-P5-SWIFT);

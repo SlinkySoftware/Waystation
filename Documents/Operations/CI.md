@@ -10,7 +10,7 @@ Every CI step is a `make` target, so anything CI runs can be reproduced locally 
 | `.github/workflows/release.yml` | every release tag `vX.Y.Z` (and `vX.Y.Z-<pre>`) | server, worker and web images for linux/amd64 and linux/arm64 pushed to GHCR as `X.Y.Z`, `X.Y`, `sha-<commit>` and (stable releases) `latest`, with SBOM and SLSA provenance attestations |
 | `.github/workflows/clients-live.yml` | manual (one format or all) | the real-client harness against the live upstreams (`MODE=live`), arm64 clients included (QEMU registered on the runner, `ARM64=1`) |
 | `.gitea/workflows/clients-live.yml` | nightly (Gitea), manual (one format or all) | the same live client smoke on the Gitea runners; arm64 clients when `WAYSTATION_CI_ARM64` is `true` |
-| `.gitea/workflows/check.yml` | push to `main` and pull requests (Gitea), manual | `make check` without `test-integration`, step by step (`forbidden-strings`, `workflow-lint`, `fmt-check`, `lint`, `typecheck`, `test`, `clients-check`, `frontend-check`), the generated API client diff and the budget report; then, only on push to `main` and manual runs, `make test-integration` in a second job |
+| `.gitea/workflows/check.yml` | push to `main` and pull requests (Gitea), manual | `make check` without `test-integration`, step by step (`forbidden-strings`, `workflow-lint`, `fmt-check`, `lint`, `typecheck`, `test`, `test-nfs`, `clients-check`, `frontend-check`), the generated API client diff and the budget report; then, only on push to `main` and manual runs, `make test-integration` in a second job |
 | `.gitea/workflows/images.yml` | push to `main` (Gitea), manual | server, worker and web images pushed to the Gitea container registry |
 | `.gitea/workflows/perf.yml` | push to `main` (Gitea), nightly, manual | `make perf`: the k6 suite, CI profile on push (manual: either profile), full profile nightly; results uploaded as the `perf-results` artifact |
 
@@ -26,7 +26,8 @@ release tag to its commit and replace the SHA and the comment everywhere it is u
 ### `make check`
 
 In order: `forbidden-strings`, `workflow-lint`, `fmt-check`, `lint` (ruff + import-linter), `typecheck` (mypy
-strict), `test` (unit + coverage), `test-integration` (throwaway MongoDB/Valkey), `clients-check` (fixture scan +
+strict), `test` (unit + coverage), `test-nfs` (the blob store on NFS, below), `test-integration` (throwaway
+MongoDB/Valkey), `clients-check` (fixture scan +
 size budgets), `frontend-check` (generated-client check, ESLint, vue-tsc, Vitest, production build + bundle budget),
 `budgets` (report).
 
@@ -37,6 +38,16 @@ the whole run, so runs from parallel worktrees queue instead of starting several
 In CI the dev image is built once per job by `docker/build-push-action` with the GitHub Actions layer cache
 (`scope=dev-image`), loaded as `waystation-dev:local`, and `SKIP_DEV_IMAGE_BUILD=1` stops make from rebuilding it.
 The buildx builder is not made the default, so make, compose and the harness keep using the normal Docker builder.
+
+### Blob store on NFS (`make test-nfs`)
+
+`make test-nfs` starts `Build/Containers/compose.nfs.yaml`, a userspace NFSv4.1 server (NFS-Ganesha with its VFS
+backend, built from `Build/Containers/nfs/`; the host's kernel nfsd is never touched), then runs
+`Build/ci/test_nfs.sh` in a privileged dev-image container: it mounts the export with the kernel NFS client (the
+mount exists only in that container), and runs `Application/Common/tests/test_storage.py` on it as the calling user
+(`WAYSTATION_TEST_BLOB_DIR`): layout and modes, verified commits, kill mid-write, sweeps, resumable uploads and
+identical commits racing from six processes (exactly one places the blob, adr/0011). It takes a few seconds, needs
+no lock, and always ends with `down -v`. The runner must allow privileged containers.
 
 ### Opt-in: Nexus import against a real Nexus (`make test-nexus`)
 

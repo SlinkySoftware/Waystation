@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import hashlib
 import os
 import signal
@@ -23,7 +24,9 @@ DIGEST = hashlib.sha256(DATA).hexdigest()
 
 @pytest.fixture
 def store(tmp_path: Path) -> BlobStore:
-    root = tmp_path / 'data'
+    # WAYSTATION_TEST_BLOB_DIR: run the store on another filesystem, e.g. an NFS mount (make test-nfs)
+    shared = os.environ.get('WAYSTATION_TEST_BLOB_DIR')
+    root = Path(shared) / f'{tmp_path.name}-{os.urandom(4).hex()}' if shared else tmp_path / 'data'
     prepare_data_dir(root, os.geteuid(), os.getegid())
     return BlobStore(root, chunk_size=64 * 1024)
 
@@ -69,6 +72,110 @@ async def test_concurrent_identical_writes_commit_once(store: BlobStore) -> None
     assert store.blob_path(DIGEST).read_bytes() == DATA
     assert files_under(store.uploads_dir) == []
     assert store._locks == {}
+
+
+def test_concurrent_identical_commits_across_processes_commit_once(store: BlobStore) -> None:
+    """Separate processes (replicas sharing the data directory) commit the same content: one of them places it."""
+    script = textwrap.dedent(
+        f"""
+        import asyncio, sys, time
+        from pathlib import Path
+        from waystation_common.storage import BlobStore
+
+        async def main():
+            store = BlobStore(Path({str(store.root)!r}), chunk_size=65536)
+            data = Path(sys.argv[1]).read_bytes()
+            writer = await store.open_writer()
+            await writer.write(data)
+            await writer.sync()
+            print('ready', flush=True)
+            sys.stdin.readline()
+            ref = await store.commit(writer)
+            print(int(ref.created), ref.sha256, flush=True)
+
+        asyncio.run(main())
+        """
+    )
+    source = store.root / 'source.bin'
+    source.write_bytes(DATA)
+    procs = [
+        subprocess.Popen(
+            [sys.executable, '-c', script, str(source)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
+        )
+        for _ in range(6)
+    ]
+    results = []
+    try:
+        for proc in procs:
+            assert proc.stdout is not None
+            assert proc.stdout.readline().strip() == 'ready'
+        for proc in procs:  # release them together
+            assert proc.stdin is not None
+            proc.stdin.write('go\n')
+            proc.stdin.flush()
+        for proc in procs:
+            out, _ = proc.communicate(timeout=60)
+            assert proc.returncode == 0
+            created, digest = out.split()
+            results.append((int(created), digest))
+    finally:
+        for proc in procs:
+            if proc.poll() is None:
+                proc.kill()
+    assert sum(created for created, _ in results) == 1
+    assert {digest for _, digest in results} == {DIGEST}
+    assert store.blob_path(DIGEST).read_bytes() == DATA
+    assert store.blob_path(DIGEST).stat().st_nlink == 1
+    assert files_under(store.uploads_dir) == []
+
+
+async def test_lost_link_reply_counts_as_placed(store: BlobStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    """NFS: a retransmitted link whose first attempt succeeded reports EEXIST; the target is then our own file."""
+    real_link = os.link
+
+    def link_twice(src: object, dst: object) -> None:
+        real_link(src, dst)  # type: ignore[arg-type]
+        real_link(src, dst)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(storage.os, 'link', link_twice)
+    ref = await write_all(store, DATA)
+    assert ref.created
+    assert store.blob_path(DIGEST).read_bytes() == DATA
+    assert store.blob_path(DIGEST).stat().st_nlink == 1
+    assert files_under(store.uploads_dir) == []
+
+
+async def test_link_racing_another_process_is_not_created(store: BlobStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Another process places the blob between our existence check and our link."""
+
+    def other_process_wins(src: object, dst: object) -> None:
+        Path(dst).parent.mkdir(parents=True, exist_ok=True)  # type: ignore[arg-type]
+        Path(dst).write_bytes(DATA)  # type: ignore[arg-type]
+        raise FileExistsError(errno.EEXIST, 'File exists')
+
+    monkeypatch.setattr(storage.os, 'link', other_process_wins)
+    ref = await write_all(store, DATA)
+    assert not ref.created
+    assert store.blob_path(DIGEST).read_bytes() == DATA
+    assert files_under(store.uploads_dir) == []
+
+
+@pytest.mark.parametrize('code', [errno.EPERM, errno.EOPNOTSUPP, errno.EIO])
+async def test_filesystem_without_hard_links_renames(
+    store: BlobStore, monkeypatch: pytest.MonkeyPatch, code: int
+) -> None:
+    def no_links(src: object, dst: object) -> None:
+        raise OSError(code, os.strerror(code))
+
+    monkeypatch.setattr(storage.os, 'link', no_links)
+    if code == errno.EIO:  # a real I/O error is not mistaken for "no hard links"
+        with pytest.raises(OSError, match=os.strerror(code)):
+            await write_all(store, DATA)
+        assert not store.blob_path(DIGEST).exists()
+    else:
+        assert (await write_all(store, DATA)).created
+        assert store.blob_path(DIGEST).read_bytes() == DATA
+    assert files_under(store.uploads_dir) == []
 
 
 async def test_digest_and_size_mismatch_leave_nothing(store: BlobStore) -> None:

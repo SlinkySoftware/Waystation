@@ -1,3 +1,6 @@
+import re
+from pathlib import Path
+
 import pytest
 from pymongo import TEXT
 
@@ -57,3 +60,40 @@ async def test_client_factory_does_not_connect() -> None:
         assert client.options.pool_options.max_pool_size > 0
     finally:
         await client.close()
+
+
+DATA_MODEL = Path(__file__).resolve().parents[3] / 'Documents' / 'Architecture' / 'DATA_MODEL.md'
+
+
+def _documented_collections() -> dict[str, str]:
+    """Collection name -> its "Indexes" cell, from the tables in DATA_MODEL §1 (MongoDB). A row may name several
+    collections of the same shape (`stats_hour` / `stats_day`)."""
+    text = DATA_MODEL.read_text(encoding='utf-8')
+    section = text.split('\n## 1. ', 1)[1].split('\n## 2. ', 1)[0]
+    rows: dict[str, str] = {}
+    for line in section.splitlines():
+        cells = [cell.strip() for cell in re.split(r'(?<!\\)\|', line)[1:-1]]
+        if len(cells) == 3 and re.fullmatch(r'`[a-z_]+`( / `[a-z_]+`)*', cells[0]):
+            rows.update(dict.fromkeys(re.findall(r'`([a-z_]+)`', cells[0]), cells[2]))
+    return rows
+
+
+def test_registry_matches_data_model() -> None:
+    """Every collection in DATA_MODEL §1 is in the registry and the reverse (T-F06), and the unique and TTL indexes
+    the document names agree with the registry. Collections documented as not used have no registry entry."""
+    documented = _documented_collections()
+    unused = {name for name, cell in documented.items() if cell == '\N{EN DASH}' and name not in c.COLLECTIONS}
+    assert unused == {'signing_keys'}
+    assert set(documented) - unused == set(c.COLLECTIONS)
+    mismatches = []
+    for name, spec in c.COLLECTIONS.items():
+        cell = documented[name].lower()
+        unique = any(model.document.get('unique') for model in spec.indexes)
+        ttl = 'expireAfterSeconds' in spec.options or any(
+            'expireAfterSeconds' in model.document for model in spec.indexes
+        )
+        if unique != ('unique' in cell):
+            mismatches.append(f'{name}: unique index in the registry: {unique}; DATA_MODEL: {documented[name]}')
+        if ttl != ('ttl' in cell or 'expireafterseconds' in cell):
+            mismatches.append(f'{name}: TTL in the registry: {ttl}; DATA_MODEL: {documented[name]}')
+    assert not mismatches, '\n'.join(mismatches)

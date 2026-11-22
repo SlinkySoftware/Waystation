@@ -49,6 +49,8 @@ jobs:
         run: make typecheck
       - name: Unit tests
         run: make test
+      - name: Blob store on NFS (NFS-Ganesha container; needs privileged containers)
+        run: make test-nfs
       - name: Client harness fixtures
         run: make clients-check
       - name: Frontend (generated API client current, ESLint, vue-tsc, Vitest, build)

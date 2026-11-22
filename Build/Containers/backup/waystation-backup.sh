@@ -26,7 +26,7 @@
 #   deletes the oldest complete backups beyond N.
 # restore: checks the archive against the manifest, replaces the database with the dump, copies the blob files and
 #   keys back (existing files are kept), fixes their ownership and empties Valkey. Server, worker and web must be
-#   stopped (`docker compose stop web server worker`); MongoDB must be running. Then start the stack and run verify.
+#   stopped (`docker compose --env-file <env file> stop web server worker`); MongoDB must be running. Then start the stack and run verify.
 # verify: runs the blob.verify task in the worker and waits for its result (missing blobs of proxied assets are
 #   marked for re-fetch, hosted losses are reported).
 # shellcheck disable=SC2016  # the mongosh JavaScript is single-quoted on purpose ($match, $group)
@@ -289,7 +289,7 @@ app_container() {  # the container whose data mount, networks and environment th
   for c in "$prefix-worker" "$prefix-server" "$prefix-init"; do
     if exists "$c"; then echo "$c"; return; fi
   done
-  die "no container $prefix-worker, $prefix-server or $prefix-init (create the stack first: docker compose up -d init)"
+  die "no container $prefix-worker, $prefix-server or $prefix-init (create the stack first: docker compose --env-file <env file> up -d init)"
 }
 
 app_env() {  # app_env <container> <NAME>: a variable from the container's configuration (empty when unset)
@@ -351,7 +351,7 @@ case "$command" in
     from=$(readlink -f "$from")
     if [ "$force" != 1 ]; then
       for c in "$prefix-server" "$prefix-worker" "$prefix-web"; do
-        ! running "$c" || die "$c is running: stop web, server and worker first (docker compose stop web server worker)"
+        ! running "$c" || die "$c is running: stop web, server and worker first (docker compose --env-file <env file> stop web server worker)"
       done
     fi
     user=""  # restore runs as root: it sets the owner of the restored files
@@ -364,7 +364,7 @@ case "$command" in
         echo "note: $prefix-valkey is not running; empty Valkey before starting the stack (FLUSHALL)" >&2
       fi
     fi
-    say "restore complete. Next: docker compose up -d, then: $0 verify --prefix $prefix"
+    say "restore complete. Next: docker compose --env-file <env file> up -d, then: $0 verify --prefix $prefix"
     ;;
   verify)
     running "$prefix-worker" || die "$prefix-worker is not running (start the stack first)"

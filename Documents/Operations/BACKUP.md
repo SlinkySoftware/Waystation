@@ -187,10 +187,10 @@ server refuses to start on a database migrated by a newer release.
 
 ```bash
 cd /srv/waystation
-docker compose stop web server worker            # MongoDB and Valkey keep running
+docker compose --env-file waystation.env stop web server worker   # MongoDB and Valkey keep running
 sudo ./waystation-backup.sh restore --from /mnt/backup/waystation/waystation-20261110T023000Z
-docker compose up -d                             # init applies migrations and fixes ownership
-./waystation-backup.sh verify                    # see section 6
+docker compose --env-file waystation.env up -d                    # init applies migrations and fixes ownership
+./waystation-backup.sh verify                                     # see section 6
 # from a checkout: make restore FROM=<backup dir>; make verify-blobs
 ```
 
@@ -199,10 +199,10 @@ docker compose up -d                             # init applies migrations and f
 1. Install the stack as in [DEPLOYMENT.md](DEPLOYMENT.md) with the **same** env file and secret files (above all
    `WAYSTATION_SECRET_KEYS`), but do not start it yet.
 2. Create the empty stack and let `init` prepare MongoDB (replica set, schema) and the data directory:
-   `docker compose up -d init` and wait until `docker wait waystation-init` prints `0`; then
-   `docker compose create worker` (the tool borrows the worker container's data mount).
+   `docker compose --env-file waystation.env up -d init` and wait until `docker wait waystation-init` prints `0`; then
+   `docker compose --env-file waystation.env create worker` (the tool borrows the worker container's data mount).
 3. `sudo ./waystation-backup.sh restore --from <backup directory>`.
-4. `docker compose up -d`, then `./waystation-backup.sh verify`.
+4. `docker compose --env-file waystation.env up -d`, then `./waystation-backup.sh verify`.
 
 The administrator and every other account come back with the database; the bootstrap password in the env file is
 only used when the database has no administrator.
@@ -265,7 +265,7 @@ docker exec -i waystation-mongodb mongorestore --archive --gzip --drop < waystat
 docker run --rm -v waystation_data:/data -v /mnt/backup/waystation:/backup alpine \
   tar -C /data -xf /backup/waystation-blobs-2026-11-10.tar
 docker exec waystation-valkey valkey-cli FLUSHALL
-docker compose up -d && docker exec waystation-worker python -m waystation_worker.run_task blob.verify --wait
+docker compose --env-file waystation.env up -d && docker exec waystation-worker python -m waystation_worker.run_task blob.verify --wait
 ```
 
 ## 9. Testing the procedure
