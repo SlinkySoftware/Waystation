@@ -10,7 +10,7 @@ export type FormFormat = M0Format
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'swift']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
 export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
@@ -71,13 +71,14 @@ export interface RepoFormModel {
   // galaxy (proxy)
   galaxyCollectionsPath: string
   galaxyRoles: boolean
-  // terraform (provider network mirror)
+  // terraform (proxy: provider network mirror and module registry proxy)
   tfOrigins: string[]
   // swift (SCM-backed proxy): how the Git host serves tag tarballs, scope → owner lines, allowlist mode
   swiftLayout: NonNullable<SwiftOptions['archive_layout']>
   swiftScopes: string
   swiftMappedOnly: boolean
   verifySignatures: boolean
+  tfArchiveHosts: string[]
   // apt
   distribution: string
   flat: boolean
@@ -104,6 +105,8 @@ export const DEFAULT_APT_ARCHITECTURES: readonly string[] = ['amd64', 'arm64']
 
 /** Provider registries a Terraform mirror serves by default (the server's default too). */
 export const DEFAULT_TF_ORIGINS: readonly string[] = ['registry.terraform.io', 'registry.opentofu.org']
+/** Hosts a Terraform module proxy caches module archives from by default (the server's default too). */
+export const DEFAULT_TF_ARCHIVE_HOSTS: readonly string[] = ['github.com']
 
 export interface Preset {
   id: string
@@ -206,6 +209,7 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     swiftLayout: 'github',
     swiftScopes: '',
     swiftMappedOnly: false,
+    tfArchiveHosts: [...DEFAULT_TF_ARCHIVE_HOSTS],
     distribution: '',
     flat: false,
     aptComponents: [...DEFAULT_APT_COMPONENTS],
@@ -273,6 +277,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     swiftLayout: o.archive_layout ?? 'github',
     swiftScopes: Object.entries(o.scopes ?? {}).map(([scope, owner]) => `${scope} = ${owner}`).join('\n'),
     swiftMappedOnly: o.mapped_scopes_only ?? false,
+    tfArchiveHosts: o.module_archive_hosts ?? [...DEFAULT_TF_ARCHIVE_HOSTS],
     distribution: o.distribution ?? '',
     flat: o.flat ?? false,
     aptComponents: o.components ?? [...DEFAULT_APT_COMPONENTS],
@@ -314,8 +319,12 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
         verify_checksums: m.verifyChecksums,
         nosumdb: m.nosumdb.map((p) => p.trim()).filter(Boolean),
       }
-    case 'terraform':
-      return { origins: m.tfOrigins.map((h) => h.trim().toLowerCase()).filter(Boolean), verify_signatures: m.verifySignatures }
+    case 'terraform': {
+      // Origins, signatures and archive hosts are proxy settings; the hosted repository keeps the defaults.
+      if (m.type !== 'proxy') return {}
+      const hosts = (list: string[]) => list.map((h) => h.trim().toLowerCase()).filter(Boolean)
+      return { origins: hosts(m.tfOrigins), verify_signatures: m.verifySignatures, module_archive_hosts: hosts(m.tfArchiveHosts) }
+    }
     case 'yum':
       return m.type === 'proxy' ? { repo_path: m.repoPath.trim(), gpg_key: m.gpgKey?.trim() || null, repomd_keys: m.repomdKeys.trim() || null } : {}
     case 'helm':

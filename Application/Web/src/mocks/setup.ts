@@ -395,24 +395,89 @@ function go(repo: Repository): SetupClient[] {
   ]
 }
 
-/** Terraform/OpenTofu: the provider_installation network mirror and a credentials block (bearer API token). */
+/** Terraform/OpenTofu proxy: the provider_installation network mirror, module lookups through a host block and
+ * credentials blocks (bearer API token); the hosted repository: credentials, sources and publishing. */
 function terraform(repo: Repository): SetupClient[] {
   const url = `${BASE_URL}/repository/${repo.name}/`
   const host = new URL(BASE_URL).host
   const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupClient['snippets'][number] => ({ id, title, description, language, filename, os: null, content })
-  const config = `provider_installation {\n  network_mirror {\n    url = "${url}"\n  }\n}\n\ncredentials "${host}" {\n  token = "{{TOKEN}}"\n}\n`
-  const note = 'Every provider is installed through Waystation. The credentials block is needed only when anonymous reads are not allowed: the API token is sent as a bearer token to this host only.'
+  if (repo.type === 'hosted') return terraformHosted(repo, host, s)
+  const registry = repo.proxy?.upstream_url ? new URL(repo.proxy.upstream_url).host : 'registry.terraform.io'
+  const config =
+    `provider_installation {\n  network_mirror {\n    url = "${url}"\n  }\n}\n\n` +
+    `# modules from ${registry} through Waystation (module sources stay "<namespace>/<name>/<system>")\n` +
+    `host "${registry}" {\n  services = {\n    "modules.v1" = "${url}v1/modules/"\n  }\n}\n` +
+    `credentials "${registry}" {\n  token = "{{TOKEN}}"\n}\n\ncredentials "${host}" {\n  token = "{{TOKEN}}"\n}\n`
+  const note = `Every provider is installed through Waystation (network mirror). The host block sends module lookups for ${registry} to this repository: archives from GitHub tags and allowed hosts are cached here, other module sources are fetched by the client itself. The credentials blocks are needed only when anonymous reads are not allowed: the API token is sent as a bearer token to Waystation only.`
   return [
     { id: 'terraform', label: 'Terraform', snippets: [
       s('terraform-cli-config', 'Terraform CLI configuration', config, 'hcl', '~/.terraformrc', `${note} TF_CLI_CONFIG_FILE names another file.`),
       on('windows', s('terraform-cli-config', 'Terraform CLI configuration', config, 'hcl', '%APPDATA%\\terraform.rc', `${note} TF_CLI_CONFIG_FILE names another file.`)),
-      s('terraform-init', 'Install providers', 'terraform init\n# record the hashes of every platform your team uses in .terraform.lock.hcl:\nterraform providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=windows_amd64'),
+      s('terraform-init', 'Install providers and modules', 'terraform init\n# record the hashes of every platform your team uses in .terraform.lock.hcl:\nterraform providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=windows_amd64'),
       s('terraform-token-env', 'Or pass the token in the environment', `export TF_TOKEN_${host.replace(/-/g, '__').replace(/\./g, '_')}={{TOKEN}}`, 'shell', null, 'Instead of the credentials block (host names without a port only).'),
     ] },
     { id: 'tofu', label: 'OpenTofu', snippets: [
       s('tofu-cli-config', 'OpenTofu CLI configuration', config, 'hcl', '~/.tofurc', `${note} TF_CLI_CONFIG_FILE names another file.`),
       on('windows', s('tofu-cli-config', 'OpenTofu CLI configuration', config, 'hcl', '%APPDATA%\\tofu.rc', `${note} TF_CLI_CONFIG_FILE names another file.`)),
-      s('tofu-init', 'Install providers', 'tofu init'),
+      s('tofu-init', 'Install providers and modules', 'tofu init'),
+    ] },
+  ]
+}
+
+type Snip = (id: string, title: string, content: string, language?: string, filename?: string | null, description?: string) => SetupClient['snippets'][number]
+
+function terraformHosted(repo: Repository, host: string, s: Snip): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const config = `credentials "${host}" {\n  token = "{{TOKEN}}"\n}\n`
+  const note = `Module and provider addresses start with this host name, which Terraform finds through https://${host}/.well-known/terraform.json (it must contain a dot, and Waystation must be served over https). The credentials block is needed only when anonymous reads are not allowed; file downloads get short-lived signed URLs, so no other configuration is needed.`
+  const usage = s(
+    'terraform-sources',
+    'Use private providers and modules',
+    `terraform {\n  required_providers {\n    example = {\n      source  = "${host}/my-namespace/example"\n      version = "1.0.0"\n    }\n  }\n}\n\nmodule "network" {\n  source  = "${host}/my-namespace/network/aws"\n  version = "1.0.0"\n}\n`,
+    'hcl',
+    'main.tf',
+    'Module sources are <host>/<namespace>/<name>/<system>, provider sources <host>/<namespace>/<type>.',
+  )
+  const publishModule = s(
+    'terraform-publish-module',
+    'Publish a module',
+    `tar -czf network.tar.gz -C ./network .\ncurl --fail -H "Authorization: Bearer {{TOKEN}}" --upload-file network.tar.gz \\\n  ${url}v1/modules/my-namespace/network/aws/1.0.0`,
+    'shell',
+    null,
+    "The archive holds the module directory's contents (its .tf files at the root). Publishing needs the write permission; versions cannot be replaced (delete one with curl -X DELETE on the same URL).",
+  )
+  const publishProvider = s(
+    'terraform-publish-provider',
+    'Publish a provider release',
+    'cd dist  # terraform-provider-example_1.0.0_<os>_<arch>.zip for each platform\n' +
+      'sha256sum terraform-provider-example_1.0.0_*.zip > terraform-provider-example_1.0.0_SHA256SUMS\n' +
+      'gpg --detach-sign terraform-provider-example_1.0.0_SHA256SUMS\n' +
+      'gpg --armor --export my-signing-key > signing-key.asc\n' +
+      'curl --fail -H "Authorization: Bearer {{TOKEN}}" \\\n' +
+      '  $(for f in terraform-provider-example_1.0.0_*.zip; do printf -- "-F archive=@%s " "$f"; done) \\\n' +
+      '  -F shasums=@terraform-provider-example_1.0.0_SHA256SUMS \\\n' +
+      '  -F signature=@terraform-provider-example_1.0.0_SHA256SUMS.sig \\\n' +
+      '  -F signing_key=@signing-key.asc -F protocols=5.0 \\\n' +
+      `  ${url}v1/providers/my-namespace/example/1.0.0`,
+    'shell',
+    null,
+    'SHA256SUMS must list every archive and verify with the signing key, as Terraform and OpenTofu check them when they install the provider. Releases cannot be replaced.',
+  )
+  return [
+    { id: 'terraform', label: 'Terraform', snippets: [
+      s('terraform-cli-config', 'Terraform CLI configuration', config, 'hcl', '~/.terraformrc', `${note} TF_CLI_CONFIG_FILE names another file; terraform login ${host} works too.`),
+      on('windows', s('terraform-cli-config', 'Terraform CLI configuration', config, 'hcl', '%APPDATA%\\terraform.rc', `${note} TF_CLI_CONFIG_FILE names another file; terraform login ${host} works too.`)),
+      s('terraform-token-env', 'Or pass the token in the environment', `export TF_TOKEN_${host.replace(/-/g, '__').replace(/\./g, '_')}={{TOKEN}}`, 'shell', null, 'Instead of the credentials block (host names without a port only).'),
+      usage,
+      s('terraform-init', 'Install', 'terraform init'),
+      publishModule,
+      publishProvider,
+    ] },
+    { id: 'tofu', label: 'OpenTofu', snippets: [
+      s('tofu-cli-config', 'OpenTofu CLI configuration', config, 'hcl', '~/.tofurc', `${note} TF_CLI_CONFIG_FILE names another file; tofu login ${host} works too.`),
+      on('windows', s('tofu-cli-config', 'OpenTofu CLI configuration', config, 'hcl', '%APPDATA%\\tofu.rc', `${note} TF_CLI_CONFIG_FILE names another file; tofu login ${host} works too.`)),
+      usage,
+      s('tofu-init', 'Install', 'tofu init'),
     ] },
   ]
 }

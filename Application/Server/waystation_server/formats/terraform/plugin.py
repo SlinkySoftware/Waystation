@@ -30,21 +30,29 @@ import hashlib
 import time
 from collections import OrderedDict
 from collections.abc import Callable
+from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import urljoin
 
 from starlette.responses import Response
 
 from waystation_common import openpgp
-from waystation_common.errors import DigestMismatch, NotFound, WaystationError
+from waystation_common.errors import DigestMismatch, NotFound, UpstreamError, WaystationError
 from waystation_common.events import CacheState
 from waystation_server.db import terraform as tf_db
 from waystation_server.formats.base import FormatDescriptor, FormatRequest
 from waystation_server.formats.common.background import Background
-from waystation_server.formats.terraform import paths, registry, ziphash
+from waystation_server.formats.terraform import modules, paths, registry, ziphash
 from waystation_server.formats.terraform.browse import TerraformBrowse
-from waystation_server.formats.terraform.descriptor import DESCRIPTOR, TerraformOptions, allowed_origins, origin_scheme
-from waystation_server.formats.terraform.paths import Op, Provider, Route
+from waystation_server.formats.terraform.descriptor import (
+    DESCRIPTOR,
+    TerraformOptions,
+    allowed_origins,
+    origin_scheme,
+    upstream_host,
+)
+from waystation_server.formats.terraform.hosted import TerraformHosted, sibling
+from waystation_server.formats.terraform.paths import Module, Op, Provider, RegistryOp, RegistryRoute, Route
 from waystation_server.problems import native_error
 from waystation_server.proxy.engine import (
     AssetKind,
@@ -61,6 +69,7 @@ from waystation_server.repos.model import RepoType
 JSON = 'application/json'
 TEXT = 'text/plain; charset=utf-8'
 ZIP = 'application/zip'
+TARGZ = 'application/gzip'
 OCTETS = 'application/octet-stream'
 SAFE_HEADERS = {'X-Content-Type-Options': 'nosniff'}
 DISCOVERY_MAX_AGE_S = 86_400
@@ -68,6 +77,7 @@ FOREVER_S = 100 * 365 * 86_400
 MAX_ARCHIVE = 1024 * 1024 * 1024
 MAX_DOWNLOAD_TRIES = 3
 _PARSED_CACHE = 64
+MODULE_PROXY_OPS = frozenset({RegistryOp.MODULE_VERSIONS, RegistryOp.MODULE_DOWNLOAD, RegistryOp.MODULE_ARCHIVE})
 
 
 class _Lru[K, V]:
@@ -130,6 +140,9 @@ class TerraformPlugin:
         self.browser = TerraformBrowse()
         self._indexing = Background('terraform-providers')
         self._parsed: _Lru[str, dict[str, registry.VersionInfo]] = _Lru(_PARSED_CACHE)
+        self._module_lists: _Lru[str, list[str]] = _Lru(_PARSED_CACHE)
+        self._tops: _Lru[str, str] = _Lru(_PARSED_CACHE)
+        self.hosted = TerraformHosted()
 
     async def drain(self) -> None:
         """Wait for background indexing (tests, shutdown)."""
@@ -149,6 +162,16 @@ class TerraformPlugin:
         return response
 
     async def _handle(self, req: FormatRequest) -> Response:
+        registry_route = paths.parse_registry_route(req.path)
+        if registry_route is not None:
+            req.log(op=registry_route.op.value)
+            if req.repo.type is RepoType.HOSTED:
+                return await self.hosted.handle(req, registry_route)
+            if req.repo.type is RepoType.PROXY and registry_route.op in MODULE_PROXY_OPS:
+                if req.method not in ('GET', 'HEAD'):
+                    return tf_error(405, 'method not allowed', headers={'Allow': 'GET, HEAD'})
+                return await self._module(req, registry_route)
+            raise NotFound('not found: not a path of this repository')
         route = paths.parse_route(req.path)
         if route is None:
             raise NotFound('not found: not a provider network mirror path')
@@ -170,12 +193,13 @@ class TerraformPlugin:
         raise NotFound('Not Found')  # pragma: no cover
 
     # ------------------------------------------------------------------ origin documents
-    async def registry_base(self, req: FormatRequest, hostname: str) -> str:
-        """The origin's provider registry base URL (``providers.v1``, from its cached service discovery)."""
+    async def registry_base(self, req: FormatRequest, hostname: str, service: str = 'providers.v1') -> str:
+        """The origin's provider registry base URL (``providers.v1``; or another ``service``, e.g. ``modules.v1``),
+        from its cached service discovery."""
         scheme = origin_scheme(hostname, req.repo.proxy.upstream_url if req.repo.proxy else None)
 
         def validate(data: bytes, info: UpstreamInfo) -> None:
-            registry.parse_discovery(data, hostname, scheme)
+            registry.check_discovery(data)
 
         spec = AssetSpec(
             path=paths.discovery_key(hostname),
@@ -190,7 +214,8 @@ class TerraformPlugin:
             component=hostname,
         )
         asset = await req.proxy.ensure(req, spec)
-        return registry.parse_discovery(await req.proxy.read(asset, max_bytes=registry.MAX_DISCOVERY), hostname, scheme)
+        data = await req.proxy.read(asset, max_bytes=registry.MAX_DISCOVERY)
+        return registry.parse_discovery(data, hostname, scheme, service)
 
     async def versions(self, req: FormatRequest, provider: Provider) -> dict[str, registry.VersionInfo]:
         """The registry's version list for ``provider`` (cached metadata, parsed once per content)."""
@@ -366,6 +391,184 @@ class TerraformPlugin:
         )
         return await req.proxy.serve(req, spec)
 
+    # ------------------------------------------------------------------ module registry (proxy)
+    def _module_origin(self, req: FormatRequest) -> str:
+        """The origin module registry of a proxy: its upstream URL's host."""
+        upstream = upstream_host(req.repo.proxy.upstream_url if req.repo.proxy else None)
+        if upstream is None:
+            raise NotFound('Not Found')
+        return upstream[0]
+
+    def archive_hosts(self, req: FormatRequest) -> frozenset[str]:
+        """Hosts module archives may be fetched from: the ``module_archive_hosts`` option and the upstream's host."""
+        upstream = upstream_host(req.repo.proxy.upstream_url if req.repo.proxy else None)
+        return frozenset({*self.options(req).module_archive_hosts, *([upstream[0]] if upstream else [])})
+
+    async def _module(self, req: FormatRequest, route: RegistryRoute) -> Response:
+        module = route.module
+        assert module is not None
+        match route.op:
+            case RegistryOp.MODULE_VERSIONS:
+                return await self._module_versions(req, module)
+            case RegistryOp.MODULE_DOWNLOAD:
+                return await self._module_download(req, module, route.version)
+            case RegistryOp.MODULE_ARCHIVE:
+                return await self._module_archive(req, module, route.version, route.filename)
+        raise NotFound('Not Found')  # pragma: no cover
+
+    async def module_versions(self, req: FormatRequest, module: Module) -> list[str]:
+        """The origin's version list of ``module`` (cached metadata, revalidated after the metadata max age)."""
+        hostname = self._module_origin(req)
+        base = await self.registry_base(req, hostname, 'modules.v1')
+        spec = AssetSpec(
+            path=paths.module_versions_key(hostname, module),
+            kind=AssetKind.METADATA,
+            upstream_url=urljoin(base, f'{module.key}/versions'),
+            content_type=JSON,
+            max_size=modules.MAX_MODULE_VERSIONS,
+            validate=_validate_module_versions,
+            on_stored=self._on_module_versions_stored(req.proxy, req.repo.id, module),
+            head_passthrough=False,
+            artifact=f'{module.key} versions',
+            component=module.key,
+        )
+        asset = await req.proxy.ensure(req, spec)
+        parsed = self._module_lists.get(asset.blob_sha256)
+        if parsed is None:
+            data = await req.proxy.read(asset, max_bytes=modules.MAX_MODULE_VERSIONS)
+            parsed = await asyncio.to_thread(modules.parse_module_versions, data)
+            self._module_lists.put(asset.blob_sha256, parsed)
+        return parsed
+
+    async def module_location(self, req: FormatRequest, module: Module, version: str) -> str:
+        """Where the origin says a module version is (its download answer, kept: a release does not change)."""
+        hostname = self._module_origin(req)
+        base = await self.registry_base(req, hostname, 'modules.v1')
+        url = urljoin(base, f'{module.key}/{version}/download')
+
+        def validate(data: bytes, info: UpstreamInfo) -> None:
+            modules.parse_download(data, info.headers, url)
+
+        spec = AssetSpec(
+            path=paths.module_download_key(hostname, module, version),
+            kind=AssetKind.METADATA,
+            upstream_url=url,
+            content_type=JSON,
+            max_size=modules.MAX_DOWNLOAD_DOC,
+            max_age_s=FOREVER_S,
+            store_headers=('X-Terraform-Get',),
+            no_content_ok=True,
+            validate=validate,
+            head_passthrough=False,
+            artifact=f'{module.key} {version} download',
+            component=module.key,
+        )
+        asset = await req.proxy.ensure(req, spec)
+        data = await req.proxy.read(asset, max_bytes=modules.MAX_DOWNLOAD_DOC)
+        return modules.parse_download(data, {k.lower(): v for k, v in asset.headers.items()}, url)
+
+    def _archive_spec(
+        self, req: FormatRequest, module: Module, version: str, source: modules.ArchiveSource, location: str
+    ) -> AssetSpec:
+        db, repo_id = req.proxy.db, req.repo.id
+
+        async def expect() -> Expected | None:
+            # The digest is pinned at the first fetch: a later fetch (after cleanup) must bring the same bytes.
+            pinned = await tf_db.module_archive_sha256(db, repo_id, module.key, version)
+            return CheckedExpected(sha256=pinned, check=_archive_check(source.filename))
+
+        key = paths.module_archive_key(module, version, source.filename)
+        return AssetSpec(
+            path=key,
+            kind=AssetKind.CONTENT,
+            upstream_url=source.url,
+            content_type=ZIP if source.filename.endswith('.zip') else TARGZ,
+            max_size=modules.MAX_ARCHIVE,
+            max_age_s=FOREVER_S,
+            expect=expect,
+            on_stored=self._on_module_archive_stored(req.proxy, repo_id, module, version, source, location),
+            artifact=f'{module.key} {version}',
+            component=module.key,
+        )
+
+    async def _module_versions(self, req: FormatRequest, module: Module) -> Response:
+        started = time.perf_counter()
+        versions = await self.module_versions(req, module)
+        return self._generated(req, modules.render_module_versions(versions), started)
+
+    async def _module_download(self, req: FormatRequest, module: Module, version: str) -> Response:
+        started = time.perf_counter()
+        location = await self.module_location(req, module, version)
+        source = modules.archive_source(location, self.archive_hosts(req))
+        if source is None:
+            # Not an archive Waystation can cache (another git host, ssh, no ref...): the client fetches it itself.
+            req.log(module_source='passthrough')
+            req.hosted.account(req, CacheState.HIT, 204, 0, started)
+            return Response(status_code=204, headers={'X-Terraform-Get': location, 'Cache-Control': 'no-store'})
+        spec = self._archive_spec(req, module, version, source, location)
+        asset = await req.proxy.ensure(req, spec)  # cached now, so the module's directory inside it is known
+        top = await self._top(req, asset, source) if source.strip_top else None
+        query = req.download_query(sibling(req.path, source.filename))  # the path as the client will ask for it
+        target = modules.client_location(f'./{source.filename}{query}', source, top)
+        req.hosted.account(req, CacheState.HIT, 204, 0, started)
+        return Response(status_code=204, headers={'X-Terraform-Get': target, 'Cache-Control': 'no-store'})
+
+    async def _top(self, req: FormatRequest, asset: StoredAsset, source: modules.ArchiveSource) -> str | None:
+        top = self._tops.get(asset.blob_sha256)
+        if top is None:
+            path = req.proxy.blobs.blob_path(asset.blob_sha256)
+            top = await asyncio.to_thread(_read_top, path, source.filename)
+            if top is not None:
+                self._tops.put(asset.blob_sha256, top)
+        return top
+
+    async def _module_archive(self, req: FormatRequest, module: Module, version: str, filename: str) -> Response:
+        location = await self.module_location(req, module, version)
+        source = modules.archive_source(location, self.archive_hosts(req))
+        if source is None or source.filename != filename:
+            raise NotFound(f'not found: {module.key} {version} is not served as {filename}')
+        return await req.proxy.serve(req, self._archive_spec(req, module, version, source, location))
+
+    def _on_module_versions_stored(self, engine: ProxyEngine, repo_id: str, module: Module) -> OnStored:
+        async def stored(asset: StoredAsset, data: bytes | None) -> None:
+            if data is None:
+                return
+            raw = data
+
+            async def index() -> None:
+                versions = await asyncio.to_thread(modules.parse_module_versions, raw)
+                latest = registry.latest_of(versions)
+                await tf_db.record_module_versions(engine.db, repo_id, module.key, latest, len(versions))
+
+            self._indexing.spawn((repo_id, module.key, asset.blob_sha256), index)
+
+        return stored
+
+    def _on_module_archive_stored(
+        self,
+        engine: ProxyEngine,
+        repo_id: str,
+        module: Module,
+        version: str,
+        source: modules.ArchiveSource,
+        location: str,
+    ) -> OnStored:
+        async def stored(asset: StoredAsset, data: bytes | None) -> None:
+            entry = {
+                'version': version,
+                'filename': source.filename,
+                'sha256': asset.blob_sha256,
+                'size': asset.size,
+                'source': location,
+            }
+
+            async def index() -> None:
+                await tf_db.record_module_archive(engine.db, repo_id, module.key, entry)
+
+            self._indexing.spawn((repo_id, module.key, version), index)
+
+        return stored
+
     # ------------------------------------------------------------------ browse summaries
     def _on_versions_stored(self, engine: ProxyEngine, repo_id: str, provider: Provider) -> OnStored:
         async def stored(asset: StoredAsset, data: bytes | None) -> None:
@@ -412,3 +615,24 @@ class TerraformPlugin:
 
 def _validate_versions(data: bytes, info: UpstreamInfo) -> None:
     registry.parse_versions(data)
+
+
+def _validate_module_versions(data: bytes, info: UpstreamInfo) -> None:
+    modules.parse_module_versions(data)
+
+
+def _archive_check(filename: str) -> Callable[[BinaryIO], None]:
+    """An ``Expected.check`` for a module archive: it must be a readable archive (Terraform unpacks it)."""
+
+    def check(file: BinaryIO) -> None:
+        try:
+            modules.archive_top(file, filename)
+        except UpstreamError as exc:
+            raise DigestMismatch(exc.detail) from None
+
+    return check
+
+
+def _read_top(path: Path, filename: str) -> str | None:
+    with path.open('rb') as file:
+        return modules.archive_top(file, filename)

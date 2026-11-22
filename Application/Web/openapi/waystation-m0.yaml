@@ -1936,7 +1936,7 @@ paths:
     get:
       tags: [browse]
       operationId: listTerraformProviders
-      summary: Providers a Terraform provider mirror has cached (version lists or archives), by address
+      summary: Providers a Terraform provider mirror has cached (version lists or archives), or the hosted repository's providers, by address
       parameters:
         - { name: q, in: query, schema: { type: string, maxLength: 200 } }
         - $ref: '#/components/parameters/Cursor'
@@ -1960,7 +1960,7 @@ paths:
         - name: provider
           in: query
           required: true
-          description: 'Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null`'
+          description: 'Provider address `<hostname>/<namespace>/<type>`, e.g. `registry.terraform.io/hashicorp/null` (the hosted repository: `<namespace>/<type>`)'
           schema: { type: string, maxLength: 400 }
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -1970,6 +1970,48 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TerraformVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/terraform/modules:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listTerraformModules
+      summary: Modules of a Terraform repository (proxy - cached version lists or archives; hosted - published), by address
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Modules
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerraformModulePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/terraform/module-versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listTerraformModuleVersions
+      summary: One module and its versions (newest first), with the archive held for each
+      parameters:
+        - name: module
+          in: query
+          required: true
+          description: 'Module address `<namespace>/<name>/<system>`, e.g. `hashicorp/consul/aws`'
+          schema: { type: string, maxLength: 400 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TerraformModuleVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /repositories/{name}/apt/suites:
@@ -4410,8 +4452,14 @@ components:
           maxItems: 50
           items: { type: string, minLength: 1, maxLength: 253 }
           default: [registry.terraform.io, registry.opentofu.org]
-          description: "Provider registry host names this mirror serves providers of (the first part of a provider address, e.g. `registry.terraform.io/hashicorp/null`). The upstream URL's host is always allowed too"
-        verify_signatures: { type: boolean, default: true, description: "Verify each version's SHA256SUMS against its OpenPGP signature and the signing keys the origin registry publishes before anything of that version is served" }
+          description: "Provider registry host names this mirror serves providers of (the first part of a provider address, e.g. `registry.terraform.io/hashicorp/null`). The upstream URL's host is always allowed too. Proxy repositories only"
+        verify_signatures: { type: boolean, default: true, description: "Verify each version's SHA256SUMS against its OpenPGP signature and the signing keys the origin registry publishes before anything of that version is served. Proxy repositories only" }
+        module_archive_hosts:
+          type: array
+          maxItems: 50
+          items: { type: string, minLength: 1, maxLength: 253 }
+          default: [github.com]
+          description: "Hosts the module registry proxy fetches and caches module archives from: GitHub repositories at a tag (`github.com`, fetched as tag archives) and HTTP(S) or S3 archive URLs on these hosts. Other sources are passed to the client unchanged. The upstream URL's host is always allowed too. Proxy repositories only"
     SwiftOptions:
       type: object
       properties:
@@ -5284,7 +5332,7 @@ components:
       type: object
       required: [provider, version_count, cached_archives, size_bytes]
       properties:
-        provider: { type: string, description: 'Provider address: `<hostname>/<namespace>/<type>`' }
+        provider: { type: string, description: "Provider address: `<hostname>/<namespace>/<type>` (the hosted repository: `<namespace>/<type>`, the host name being this instance's)" }
         latest: { type: [string, 'null'], description: 'Newest release in the cached version list, else the newest version' }
         version_count: { type: integer, description: Versions in the cached registry version list }
         cached_archives: { type: integer, description: 'Provider archives (one per version and platform) cached' }
@@ -5330,6 +5378,8 @@ components:
           description: Archives of the version held by this repository
           items: { $ref: '#/components/schemas/TerraformArchive' }
         size_bytes: { type: integer }
+        key_id: { type: [string, 'null'], description: 'Hosted: ID of the key that signed the SHA256SUMS' }
+        uploaded_by: { type: [string, 'null'], description: 'Hosted: who published the release' }
     TerraformVersionPage:
       type: object
       required: [provider, items, next_cursor]
@@ -5339,6 +5389,58 @@ components:
           type: array
           description: Newest first (semantic version order)
           items: { $ref: '#/components/schemas/TerraformVersion' }
+        next_cursor: { type: [string, 'null'] }
+    TerraformModule:
+      type: object
+      required: [module, version_count, cached_versions, size_bytes]
+      properties:
+        module: { type: string, description: 'Module address on its registry: `<namespace>/<name>/<system>`' }
+        latest: { type: [string, 'null'], description: 'Newest release (proxy: of the cached version list)' }
+        version_count: { type: integer, description: 'Versions listed (proxy: the cached registry list; hosted: uploaded)' }
+        cached_versions: { type: integer, description: Versions whose archive this repository holds }
+        size_bytes: { type: integer, description: Bytes of the archives held }
+    TerraformModulePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TerraformModule' }
+        next_cursor: { type: [string, 'null'] }
+    TerraformModuleArchive:
+      type: object
+      required: [filename, path, size, sha256]
+      properties:
+        filename: { type: string, description: '`archive.tar.gz` or `archive.zip`' }
+        path: { type: string, description: Repository path of the archive (a Browse tree path) }
+        size: { type: integer }
+        sha256: { type: string, description: 'Digest of the archive (proxy: pinned when it was first fetched)' }
+        source: { type: [string, 'null'], description: 'Proxy: the source address the origin registry gave' }
+        uploaded_by: { type: [string, 'null'], description: 'Hosted: who published the version' }
+        created_at: { type: [string, 'null'], format: date-time }
+        last_downloaded_at: { type: [string, 'null'], format: date-time }
+        downloads: { type: integer }
+    TerraformModuleVersion:
+      type: object
+      required: [version, prerelease, listed, archive]
+      properties:
+        version: { type: string }
+        prerelease: { type: boolean }
+        listed: { type: boolean, description: 'Proxy: in the cached registry version list; hosted: always' }
+        archive:
+          description: The archive this repository holds, if any
+          oneOf:
+            - $ref: '#/components/schemas/TerraformModuleArchive'
+            - type: 'null'
+    TerraformModuleVersionPage:
+      type: object
+      required: [module, items, next_cursor]
+      properties:
+        module: { $ref: '#/components/schemas/TerraformModule' }
+        items:
+          type: array
+          description: Newest first (semantic version order)
+          items: { $ref: '#/components/schemas/TerraformModuleVersion' }
         next_cursor: { type: [string, 'null'] }
     AptSuite:
       type: object

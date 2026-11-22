@@ -526,7 +526,10 @@ class GoVersionPage(BaseModel):
 
 # ---------------------------------------------------------------------------- terraform
 class TerraformProvider(BaseModel):
-    provider: str = Field(description='Provider address: `<hostname>/<namespace>/<type>`')
+    provider: str = Field(
+        description='Provider address: `<hostname>/<namespace>/<type>` (the hosted repository: `<namespace>/<type>`, '
+        "the host name being this instance's)"
+    )
     latest: str | None = Field(
         default=None, description='Newest release in the cached version list, else the newest version'
     )
@@ -560,11 +563,51 @@ class TerraformVersion(BaseModel):
     listed: bool = Field(description='In the cached registry version list')
     archives: list[TerraformArchive] = Field(description='Archives of the version held by this repository')
     size_bytes: int
+    key_id: str | None = Field(default=None, description='Hosted: ID of the key that signed the SHA256SUMS')
+    uploaded_by: str | None = Field(default=None, description='Hosted: who published the release')
 
 
 class TerraformVersionPage(BaseModel):
     provider: TerraformProvider
     items: list[TerraformVersion] = Field(description='Newest first (semantic version order)')
+    next_cursor: str | None
+
+
+class TerraformModule(BaseModel):
+    module: str = Field(description='Module address on its registry: `<namespace>/<name>/<system>`')
+    latest: str | None = Field(default=None, description='Newest release (proxy: of the cached version list)')
+    version_count: int = Field(description='Versions listed (proxy: the cached registry list; hosted: uploaded)')
+    cached_versions: int = Field(description='Versions whose archive this repository holds')
+    size_bytes: int = Field(description='Bytes of the archives held')
+
+
+class TerraformModulePage(BaseModel):
+    items: list[TerraformModule]
+    next_cursor: str | None
+
+
+class TerraformModuleArchive(BaseModel):
+    filename: str = Field(description='`archive.tar.gz` or `archive.zip`')
+    path: str = Field(description='Repository path of the archive (a Browse tree path)')
+    size: int
+    sha256: str = Field(description='Digest of the archive (proxy: pinned when it was first fetched)')
+    source: str | None = Field(default=None, description='Proxy: the source address the origin registry gave')
+    uploaded_by: str | None = Field(default=None, description='Hosted: who published the version')
+    created_at: datetime | None = None
+    last_downloaded_at: datetime | None = None
+    downloads: int = 0
+
+
+class TerraformModuleVersion(BaseModel):
+    version: str
+    prerelease: bool
+    listed: bool = Field(description='Proxy: in the cached registry version list; hosted: always')
+    archive: TerraformModuleArchive | None = Field(description='The archive this repository holds, if any')
+
+
+class TerraformModuleVersionPage(BaseModel):
+    module: TerraformModule
+    items: list[TerraformModuleVersion] = Field(description='Newest first (semantic version order)')
     next_cursor: str | None
 
 
@@ -644,6 +687,16 @@ class TerraformBrowser(Protocol):
     ) -> TerraformVersionPage:
         """One provider's versions (cached version list and cached archives, newest first); raises ``NotFound`` for
         an unknown provider."""
+
+    async def modules(
+        self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int
+    ) -> TerraformModulePage:
+        """Modules (proxy: with a cached version list or archive; hosted: published), by address."""
+
+    async def module_versions(
+        self, ctx: BrowseContext, *, module: str, cursor: str | None, limit: int
+    ) -> TerraformModuleVersionPage:
+        """One module's versions, newest first; raises ``NotFound`` for an unknown module."""
 
 
 @runtime_checkable

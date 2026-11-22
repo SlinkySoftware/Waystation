@@ -3,3 +3,5 @@ opensource.org
 reactive-streams.org
 creativecommons.org
 spdx.org
+# Gradle's distribution server: client-jvm's image downloads Gradle 8 and 9 from it (maven/jvm/Dockerfile).
+services.gradle.org

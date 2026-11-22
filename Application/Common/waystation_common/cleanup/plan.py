@@ -11,7 +11,9 @@ Components and versions come from asset paths (``coordinates``) until components
   ``<module>/@v/<version>.{zip,mod,info}`` (case-encoding decoded; per module, Go semver); galaxy
   ``collections/<ns>/<name>/<ns>-<name>-<version>.tar.gz`` (per collection, SemVer); terraform
   ``<hostname>/<namespace>/<type>/<version>/<os>/<arch>/<archive>.zip`` (per provider, semver; every platform of a
-  version shares its rank); every other format
+  version shares its rank), module archives ``v1/modules/<namespace>/<name>/<system>/<version>/archive.*`` and
+  hosted provider packages ``v1/providers/<namespace>/<type>/<version>/*.zip`` (per module / provider, semver); every
+  other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -131,6 +133,17 @@ def coordinates(fmt: str, path: str) -> Coord:
         artifact = parse_artifact_path(path)
         if artifact is not None:
             return Coord(artifact.fqcn, artifact.version, artifact.fqcn, True)
+    if fmt == 'terraform' and path.startswith('v1/'):
+        # T-P5-TFM: v1/modules/<ns>/<name>/<system>/<version>/archive.{tar.gz,zip} (proxy and hosted) and
+        # v1/providers/<ns>/<type>/<version>/<file>.zip (hosted)
+        parts = path.split('/')
+        if parts[1] == 'modules' and len(parts) == 7 and filename in ('archive.tar.gz', 'archive.zip'):
+            module = '/'.join(parts[2:5])
+            return Coord(module, parts[5], module, True)
+        if parts[1] == 'providers' and len(parts) == 6 and filename.endswith('.zip'):
+            provider = '/'.join(parts[2:4])
+            return Coord(provider, parts[4], provider, True)
+        return Coord(path, filename, _parent(path), False)
     if fmt == 'terraform' and filename.endswith('.zip') and path.count('/') == 6:
         hostname, namespace, kind, version, _ = path.split('/', 4)
         provider = f'{hostname}/{namespace}/{kind}'

@@ -136,7 +136,8 @@ async def _dispatch(
         principal = await authenticate(request)
         hidden_login = not access.can_see(principal, repo)
     else:
-        principal = await access.authorize_repo(request, repo, action)
+        granted = access.download_grant(request, repo, path, services.download_urls) if root == 'repository' else None
+        principal = granted or await access.authorize_repo(request, repo, action)
         hidden_login = False
     if hidden_login and not repo.online:
         raise access.hidden_repo(request, principal)
@@ -162,6 +163,9 @@ async def _dispatch(
         _repository=services.catalog.get,
         _allows_member=lambda action, member: access.check(
             dataclasses.replace(principal, token_access=None), action, member
+        ),
+        _download_grant=lambda file_path: (
+            '' if principal.is_anonymous else services.download_urls.sign(repo.id, file_path)
         ),
     )
     if login:

@@ -1,7 +1,8 @@
 // tlsfront: a TLS front for the plain-HTTP harness stack, so the go command (which sends credentials over HTTPS
 // only, from .netrc or the GOPROXY URL) can authenticate to Waystation. Standard library only; runs in the client
 // container: go run tlsfront.go <listen address> <upstream URL> <certificate file to write>.
-// The certificate is self-signed for "localhost" and generated at start-up (never stored outside the container).
+// The certificate is self-signed for "localhost" (and the names in $TLSFRONT_NAMES, separated by spaces: Terraform
+// module addresses need a host name with a dot) and generated at start-up (never stored outside the container).
 package main
 
 import (
@@ -18,6 +19,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -36,7 +38,7 @@ func main() {
 	template := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
 		Subject:               pkix.Name{CommonName: "localhost"},
-		DNSNames:              []string{"localhost"},
+		DNSNames:              append([]string{"localhost"}, strings.Fields(os.Getenv("TLSFRONT_NAMES"))...),
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,

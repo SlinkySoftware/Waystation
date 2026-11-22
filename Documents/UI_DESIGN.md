@@ -165,6 +165,13 @@ Format-aware views are on the Packages tab:
   pre-release and "not in version list" badges, protocols, platform count, cache state, expandable to the archives
   held per platform with size, cached time, copyable `zh:` and `h1:` hashes, and the platforms the registry lists).
   The repository form's Terraform options: origin registries (chips) and the signature verification toggle.
+  T-P5-TFM: a Providers / Modules / Files toggle (`view` query parameter, like yum). Modules table (address
+  `<namespace>/<name>/<system>`, latest, versions, archives held, size) → module page (a copyable `module` block;
+  versions newest first with pre-release and "not in version list" badges and the archive held, expandable to its
+  size, time, copyable sha256, the source the registry gave or the publisher, and downloads). The hosted repository
+  shows its providers as `<namespace>/<type>` with releases (signing key ID, publisher) and its snippets with this
+  instance's host name. Create flow: the Hosted tile is enabled for Terraform (one per instance; a second is refused
+  with the server's message); proxy options add module archive hosts (chips); the hosted form explains discovery.
 - **apt / yum**: suites/components/arches tree → package list with versions and arch.
 - **Raw**: folder listing.
 

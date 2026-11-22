@@ -1,0 +1,33 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://registry.terraform.io/v1/modules/hashicorp/subnets/cidr/1.0.0/download"
+  },
+  "response": {
+    "body_sha256": null,
+    "body_size": 0,
+    "headers": [
+      [
+        "x-terraform-get",
+        "git::https://github.com/hashicorp/terraform-cidr-subnets?ref=52ca061aaea2e8f58c91ac03ca1fae45e44c28bf"
+      ],
+      [
+        "cache-control",
+        "public, max-age=604800, stale-if-error=31536000"
+      ],
+      [
+        "vary",
+        "Accept-Encoding,X-Terraform-Version"
+      ]
+    ],
+    "status": 204
+  }
+}

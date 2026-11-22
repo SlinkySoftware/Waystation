@@ -12,7 +12,7 @@
     "url": "https://registry.terraform.io/v1/providers/hashicorp/null/versions"
   },
   "response": {
-    "body_sha256": "c57439e6674993df32c30960828656a544606a4580e522ac73fd17c6f5cf022e",
+    "body_sha256": "f113650a930fadb4b1b97a38778ef9a7b37ccc243c6f13489fde3b2e48b9e287",
     "body_size": 7280,
     "headers": [
       [
@@ -21,11 +21,11 @@
       ],
       [
         "last-modified",
-        "Mon, 09 Nov 2026 21:14:48 GMT"
+        "Fri, 20 Nov 2026 15:17:44 GMT"
       ],
       [
         "cache-control",
-        "stale-if-error=31536000, public, max-age=30, stale-while-revalidate=1800"
+        "public, max-age=30, stale-while-revalidate=1800, stale-if-error=31536000"
       ],
       [
         "vary",

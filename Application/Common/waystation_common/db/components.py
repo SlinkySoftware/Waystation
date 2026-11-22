@@ -39,7 +39,7 @@ from waystation_common.db.collections import (
     REPOSITORIES,
 )
 from waystation_common.ids import new_id
-from waystation_common.searchkeys import fold
+from waystation_common.searchkeys import fold, name_keys
 
 log = logging.getLogger('waystation.components')
 
@@ -90,8 +90,10 @@ async def upsert(db: Database, repo_id: str, key: ComponentKey, asset: Mapping[s
     now = datetime.now(UTC)
     query = {'repo_id': repo_id, 'format': key.format, 'namespace': key.namespace, 'name': key.name}
     query['version'] = key.version
+    # Maven components are a global search source (substring keys too); the others only need ``name_lc``.
+    keys = name_keys(key.name) if key.format == 'maven' else {'name_lc': fold(key.name)}
     update = {
-        '$set': {'version_sort': key.version_sort, 'display': key.display, 'name_lc': fold(key.name)},
+        '$set': {'version_sort': key.version_sort, 'display': key.display, **keys},
         '$setOnInsert': {
             '_id': new_id(),
             'created_at': asset.get('created_at') or now,

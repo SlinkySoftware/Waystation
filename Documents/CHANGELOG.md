@@ -16,6 +16,35 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   "Set me up"; the proxy engine's `AssetSpec.missing_statuses` (Git hosts answer 401 for unknown repositories).
   Real-client harness `tests/clients/swift/` (swift 6.4 behind a TLS front; fixtures about 200 KB);
   `Documents/Operations/clients/swift.md`.
+- T-P5-TFM: Terraform module registry proxy and the hosted Terraform repository. Proxy repositories also serve the
+  Module Registry Protocol (`v1/modules/...`) of their upstream registry: GitHub tag archives and HTTP(S)/S3 archives
+  from `module_archive_hosts` (default `github.com`) are cached with their sha256 pinned at the first fetch, other
+  sources are passed through. An instance has one hosted Terraform repository (a second is refused; unique index
+  `terraform_hosted_single`): module uploads (`PUT`, bounded archive checks), provider releases (multipart: zips,
+  `SHA256SUMS`, signature verified against the uploaded key), immutable versions, deletes, both registry protocols,
+  announced by `/.well-known/terraform.json` (visibility-filtered). File URLs in registry answers carry short-lived
+  signed grants for signed-in callers (adr/0010, accepted 2026-11-22): terraform and tofu send no
+  token with file downloads. New collection `terraform_modules`; browse `terraform/modules`,
+  `terraform/module-versions` and hosted providers; search and components for modules; UI: hosted type in the create
+  flow, module archive hosts option, Providers / Modules / Files views; "Set me up" with a `host` block for the proxy
+  and credentials, sources and publishing for the hosted repository; Nexus import notes the one-hosted rule. The proxy
+  engine accepts `204` for opted-in metadata (`no_content_ok`). Harness: terraform 1.17 and tofu 1.13 install
+  `hashicorp/subnets/cidr` through both registries' module proxies and a private module and provider from the hosted
+  repository with a bearer token; invalid and narrowed tokens are refused (`client-terraform` image gains gnupg; the
+  TLS front takes extra names from `TLSFRONT_NAMES`; the fixture store keeps `X-Terraform-Get`).
+
+
+- T-P5-MAVEN (done): Maven 4 (4.0.0-rc-7), Gradle 8.14 and 9.9 and sbt 1.13 join mvn 3.9 in the real-client harness
+  (`client-jvm`, one image on client-maven's JDK 21 base with pinned, checksum-verified distributions). Each resolves
+  hamcrest/reactive-streams through the Central proxy and the group with checksum verification (Maven
+  `--strict-checksums`, Gradle strict dependency verification plus a tampered-checksum failure, coursier with SHA-1
+  required), publishes a release and SNAPSHOTs with credentials after the 401 challenge (Gradle `maven-publish` with
+  module metadata, sbt Maven-style publish, mvn 4 deploy), is refused a redeploy, an anonymous publish and (Gradle,
+  sbt) a wrong token, and consumes its artifacts through the group. One new fixture (a Central 404); replay passing;
+  the nightly live run includes them (`FORMAT=all`). No server changes were needed. Maven components are now a
+  global search source (kind `package`, matched on the artifactId, named `groupId:artifactId`, Browse link to the
+  version; Maven files link to their version too): `search_name`/`search_sfx` on `components`, partial on
+  `format: maven`, and migration `0006_maven_search` backfills the suffix keys.
 - T-P5-APTH: hosted apt repositories. `.deb` uploads by `PUT` or `POST` (raw or multipart, `?component=`), streamed
   after the hard-quota check and read safely in a thread (`formats/apt/deb.py`: ar layout, bounded control-archive
   decompression for gzip/xz/zstd, tar names checked, one control paragraph with valid `Package`/`Version`/

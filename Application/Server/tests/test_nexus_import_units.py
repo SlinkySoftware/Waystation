@@ -145,6 +145,15 @@ def test_unsupported_and_invalid() -> None:
 
 
 @pytest.mark.skipif(not supports_section('group'), reason='group repositories are not in this build yet')
+def test_hosted_terraform_note() -> None:
+    files = nexus_repos()['files']
+    entry = {**files.entry, 'name': 'terraform-hosted', 'format': 'terraform'}
+    supported = {**PROXY_ONLY, 'terraform': frozenset({'proxy', 'hosted'})}
+    mapped = map_repository(NexusRepository(entry=entry, detail=files.detail), supported=supported)
+    assert mapped.action == 'create' and mapped.body is not None and mapped.body['format'] == 'terraform'
+    assert any('one hosted Terraform repository' in note for note in mapped.notes)
+
+
 def test_hosted_and_group_sections() -> None:
     every = frozenset({'proxy', 'hosted', 'group'})
     supported = {**PROXY_ONLY, 'docker': every, 'raw': every}

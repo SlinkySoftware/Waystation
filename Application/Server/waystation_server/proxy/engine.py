@@ -263,6 +263,9 @@ class AssetSpec:
     # Upstream statuses that mean "does not exist" (native 404, negative-cached). Git hosts answer 401 for a
     # repository that does not exist (or is private) on their smart-HTTP endpoints.
     missing_statuses: frozenset[int] = GONE_CODES
+    # ``ensure`` only: an upstream ``204 No Content`` is a valid (empty) document whose ``store_headers`` carry the
+    # answer (a Terraform module registry's download endpoint: ``X-Terraform-Get``).
+    no_content_ok: bool = False
 
 
 def _origin(url: str) -> tuple[str, str, int]:
@@ -522,6 +525,8 @@ class ProxyEngine:
             await response.aclose()
             await self._revalidated(asset, info)
             return asset
+        if info.status == 204 and spec.no_content_ok:
+            info = replace(info, status=200)
         if info.status != 200:
             await response.aclose()
             error = UpstreamError(f'upstream answered {info.status}')

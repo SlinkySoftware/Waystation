@@ -237,7 +237,7 @@
         />
         <q-toggle v-model="model.swiftMappedOnly" :label="t('repoForm.swiftMappedOnly')" />
       </template>
-      <template v-else-if="model.format === 'terraform'">
+      <template v-else-if="model.format === 'terraform' && model.type === 'proxy'">
         <q-select
           v-model="model.tfOrigins"
           outlined
@@ -253,6 +253,23 @@
           :error-message="errors['format_options.origins']"
         />
         <q-toggle v-model="model.verifySignatures" :label="t('repoForm.verifySignatures')" />
+        <q-select
+          v-model="model.tfArchiveHosts"
+          outlined
+          dense
+          multiple
+          use-chips
+          use-input
+          new-value-mode="add-unique"
+          hide-dropdown-icon
+          :label="t('repoForm.tfArchiveHosts')"
+          :hint="t('repoForm.tfArchiveHostsHint')"
+          :error="!!errors['format_options.module_archive_hosts']"
+          :error-message="errors['format_options.module_archive_hosts']"
+        />
+      </template>
+      <template v-else-if="model.format === 'terraform' && model.type === 'hosted'">
+        <p class="text-secondary tf-hosted-note">{{ t('repoForm.tfHostedNote', { url: `${baseUrl}/.well-known/terraform.json` }) }}</p>
       </template>
       <template v-else-if="model.format === 'apt'">
         <div class="repo-form__row">
@@ -569,6 +586,11 @@ function applyPreset(p: Preset): void {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.tf-hosted-note {
+  margin: 0;
+  font-size: var(--fs-13);
 }
 
 .repo-form__presets {

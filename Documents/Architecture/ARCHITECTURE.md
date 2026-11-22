@@ -236,6 +236,11 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   (`security.registry_revocation`): a per-user cut-off, durable in `users.tokens_not_before` and announced in Valkey
   (`regtok:nbf:<user>`, read on every `/v2/` request with a user's token); tokens issued (`iat_ms`) at or before it
   are refused. Set when a user is disabled or deleted, changes or gets a new password, or has sessions revoked.
+- Signed download grants (adr/0010, accepted 2026-11-22, T-P5-TFM): Terraform and OpenTofu fetch the files a registry answer
+  points at without their registry token, so the Terraform format gives a signed-in caller file URLs carrying
+  `?ws_grant=<expiry>.<HMAC>` (`security.download_urls`: repository id, exact path, 5 minutes; key derived from
+  `SECRET_KEYS`). `access.download_grant` accepts a valid grant as a `GET`/`HEAD` of that one file and nothing else;
+  formats obtain grants only through `FormatRequest.download_query`.
 - Credentials for upstreams and LDAP/OIDC secrets are AES-GCM encrypted with `SECRET_KEYS` (first key encrypts,
   all keys decrypt; rotation job re-encrypts).
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and

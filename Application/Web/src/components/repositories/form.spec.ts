@@ -245,14 +245,16 @@ describe('repository form model', () => {
       format: 'terraform',
       type: 'proxy',
       proxy: { upstream_url: 'https://registry.terraform.io' },
-      format_options: { origins: ['registry.terraform.io', 'registry.opentofu.org'], verify_signatures: true },
+      format_options: { origins: ['registry.terraform.io', 'registry.opentofu.org'], verify_signatures: true, module_archive_hosts: ['github.com'] },
     })
-    const custom = toWrite({ ...emptyModel('terraform'), tfOrigins: [' Registry.Example.com ', ''], verifySignatures: false })
-    expect(custom.format_options).toEqual({ origins: ['registry.example.com'], verify_signatures: false })
-    const repo = { name: 'tf', format: 'terraform', type: 'proxy', online: true, format_options: { origins: ['tf.example.com'], verify_signatures: false } } as unknown as Repository
-    expect(modelFromRepository(repo)).toMatchObject({ tfOrigins: ['tf.example.com'], verifySignatures: false })
-    expect(modelFromRepository({ ...repo, format_options: {} } as unknown as Repository)).toMatchObject({ tfOrigins: ['registry.terraform.io', 'registry.opentofu.org'], verifySignatures: true })
+    const custom = toWrite({ ...emptyModel('terraform'), tfOrigins: [' Registry.Example.com ', ''], verifySignatures: false, tfArchiveHosts: ['GitHub.com', ' downloads.example.com'] })
+    expect(custom.format_options).toEqual({ origins: ['registry.example.com'], verify_signatures: false, module_archive_hosts: ['github.com', 'downloads.example.com'] })
+    const repo = { name: 'tf', format: 'terraform', type: 'proxy', online: true, format_options: { origins: ['tf.example.com'], verify_signatures: false, module_archive_hosts: [] } } as unknown as Repository
+    expect(modelFromRepository(repo)).toMatchObject({ tfOrigins: ['tf.example.com'], verifySignatures: false, tfArchiveHosts: [] })
+    expect(modelFromRepository({ ...repo, format_options: {} } as unknown as Repository)).toMatchObject({ tfOrigins: ['registry.terraform.io', 'registry.opentofu.org'], verifySignatures: true, tfArchiveHosts: ['github.com'] })
     expect(GROUP_FORMATS).not.toContain('terraform')
-    expect(HOSTED_FORMATS).not.toContain('terraform')
+    // the hosted repository (one per instance): a private module and provider registry, default options
+    expect(HOSTED_FORMATS).toContain('terraform')
+    expect(toWrite({ ...emptyModel('terraform', 'hosted'), name: 'terraform' })).toMatchObject({ type: 'hosted', format_options: {} })
   })
 })
