@@ -64,6 +64,9 @@ class Stream:
     version_prefix: str | None = None
     substring: bool = False  # a substring stream (key ``name_lc``)
     has_base: bool = False  # substring stream of a source that also has a ``base_lc`` stream
+    # equalities every query repeats: the partial filter of the collection's search indexes beyond the key
+    # (``components``: ``format: maven``)
+    match: Mapping[str, Any] | None = None
 
     @property
     def index(self) -> str:
@@ -145,6 +148,8 @@ def _filter(stream: Stream) -> dict[str, Any]:
             query['name_lc'] = {'$not': rng}
     if stream.version_field and stream.version_prefix:
         query[stream.version_field] = {'$regex': '^' + re.escape(stream.version_prefix)}
+    if stream.match:
+        query.update(stream.match)
     return query
 
 

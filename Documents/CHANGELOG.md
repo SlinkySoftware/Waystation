@@ -3,6 +3,17 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-P5-MAVEN (done): Maven 4 (4.0.0-rc-7), Gradle 8.14 and 9.9 and sbt 1.13 join mvn 3.9 in the real-client harness
+  (`client-jvm`, one image on client-maven's JDK 21 base with pinned, checksum-verified distributions). Each resolves
+  hamcrest/reactive-streams through the Central proxy and the group with checksum verification (Maven
+  `--strict-checksums`, Gradle strict dependency verification plus a tampered-checksum failure, coursier with SHA-1
+  required), publishes a release and SNAPSHOTs with credentials after the 401 challenge (Gradle `maven-publish` with
+  module metadata, sbt Maven-style publish, mvn 4 deploy), is refused a redeploy, an anonymous publish and (Gradle,
+  sbt) a wrong token, and consumes its artifacts through the group. One new fixture (a Central 404); replay passing;
+  the nightly live run includes them (`FORMAT=all`). No server changes were needed. Maven components are now a
+  global search source (kind `package`, matched on the artifactId, named `groupId:artifactId`, Browse link to the
+  version; Maven files link to their version too): `search_name`/`search_sfx` on `components`, partial on
+  `format: maven`, and migration `0006_maven_search` backfills the suffix keys.
 - T-S12: presented-but-invalid credentials are never downgraded to anonymous on the format routes: an
   `Authorization` header outside `/v2/` that does not resolve to a principal (a Bearer/Token value not shaped like an
   API token, an empty or unknown scheme, a password instead of a token) answers the `401` Basic challenge before any

@@ -108,17 +108,27 @@ async def _search_suffixes(db: Database) -> None:
     """``name_sfx`` (substring search, adr/0009) on every document that has ``name_lc`` but no suffixes yet, from
     its ``name_lc``, in batches. Idempotent and resumable: a document is only touched while it lacks ``name_sfx``."""
     for collection in SEARCHABLE:
-        missing = {'name_lc': {'$exists': True}, 'name_sfx': {'$exists': False}}
-        ops: list[UpdateOne] = []
-        async for doc in db[collection].find(missing, {'name_lc': 1}):
-            value = doc.get('name_lc')
-            if isinstance(value, str):
-                ops.append(UpdateOne({'_id': doc['_id'], **missing}, {'$set': {'name_sfx': suffixes(value)}}))
-            if len(ops) >= BACKFILL_BATCH:
-                await db[collection].bulk_write(ops, ordered=False)
-                ops = []
-        if ops:
+        await _backfill_suffixes(db, collection, {})
+
+
+async def _backfill_suffixes(db: Database, collection: str, query: dict[str, Any]) -> None:
+    missing = {**query, 'name_lc': {'$exists': True}, 'name_sfx': {'$exists': False}}
+    ops: list[UpdateOne] = []
+    async for doc in db[collection].find(missing, {'name_lc': 1}):
+        value = doc.get('name_lc')
+        if isinstance(value, str):
+            ops.append(UpdateOne({'_id': doc['_id'], **missing}, {'$set': {'name_sfx': suffixes(value)}}))
+        if len(ops) >= BACKFILL_BATCH:
             await db[collection].bulk_write(ops, ordered=False)
+            ops = []
+    if ops:
+        await db[collection].bulk_write(ops, ordered=False)
+
+
+async def _maven_search(db: Database) -> None:
+    """Maven components become a search source (T-P5-MAVEN): ``name_sfx`` on those that have ``name_lc`` (every
+    component writer sets it) but no suffixes yet. Idempotent and resumable, as ``_search_suffixes``."""
+    await _backfill_suffixes(db, COMPONENTS, {'format': 'maven'})
 
 
 async def _usage_artifacts(db: Database) -> None:
@@ -143,6 +153,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration('0003_usage_artifacts', 'artifact counts in repo_usage (T-S05)', _usage_artifacts),
     Migration('0004_component_ids', 'string ids for components (T-S09)', _component_ids),
     Migration('0005_search_suffixes', 'suffix keys for substring search (T-U06)', _search_suffixes),
+    Migration('0006_maven_search', 'search keys on Maven components (T-P5-MAVEN)', _maven_search),
 )
 
 

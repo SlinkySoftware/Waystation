@@ -297,6 +297,12 @@ services:
             chmod -R a+rX /opt/m2-seed
     image: waystation-harness-maven:3.9.11-1  # bump the suffix when the Dockerfile above changes
 
+  client-jvm:  # Maven 4, Gradle 8 and 9, sbt (maven format) on client-maven's JDK 21 base; maven/jvm/Dockerfile
+    <<: *client
+    build:
+      context: ${HARNESS_CLIENTS_DIR}/maven/jvm
+    image: waystation-harness-jvm:4.0.0-rc-7-1  # pinned versions in the Dockerfile; bump the suffix when it changes
+
   # ---- Waystation stack under test: own container names, no published port, trusts the harness CA.
   web:
     container_name: ${HARNESS_PROJECT}-web

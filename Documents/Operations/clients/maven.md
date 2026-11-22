@@ -7,10 +7,12 @@ repository's **Set me up** tab shows the same snippets with your real URL filled
 (hosted, release version policy), `maven-snapshots` (hosted, SNAPSHOT version policy) and `maven-public` (a group of
 the three, in that order).
 
-Status: proxy, hosted and group repositories (FORMATS.md "Maven"). Verified with Maven 3.9 by the real-client
-harness (`tests/clients/maven/`: resolve through the proxy and the group with strict checksums, deploy a release
-and SNAPSHOTs, consume them through the group). Gradle and sbt use the same repository layout and are expected to
-work but are not yet in the harness.
+Status: proxy, hosted and group repositories (FORMATS.md "Maven"). Verified by the real-client harness
+(`tests/clients/maven/`) with Maven 3.9, Maven 4 (4.0.0-rc-7), Gradle 8.14 and 9.9 and sbt 1.13: each resolves
+through the proxy and the group with checksum verification (Maven `--strict-checksums`, Gradle strict dependency
+verification, coursier with SHA-1 required), publishes a release and SNAPSHOTs with credentials sent after the `401`
+challenge, is refused a redeploy of the release and an anonymous publish, and consumes what it published through the
+group. Maven components (one per version) are found by artifactId in the global search.
 
 ## Repository options
 
@@ -147,12 +149,38 @@ publishing {
 
 with `wsUser` and `wsToken` in `~/.gradle/gradle.properties` (never in the project).
 
+Gradle publishes the jar, the POM, Gradle module metadata (`.module`) and `.md5`/`.sha1`/`.sha256`/`.sha512`
+checksums; SNAPSHOTs are timestamped. Waystation stores the module metadata like any artifact file and regenerates
+`maven-metadata.xml` itself.
+
+Checksums: by default Gradle does not verify downloads against the repository's checksum files. Use its dependency
+verification:
+`gradle --write-verification-metadata sha256 build` once (review and commit `gradle/verification-metadata.xml`), then
+every build verifies each artifact and POM/module file against it (strict by default).
+
+Plain `http://` URLs (a test instance) need `isAllowInsecureProtocol = true` in the `maven { }` block.
+
 ## sbt
 
 ```scala
 resolvers += "maven-public" at "https://waystation.example.com/repository/maven-public/"
 credentials += Credentials("Waystation", "waystation.example.com", "your-username", "your-api-token")
+// SHA-1 checksums are required instead of "if present"
+update / checksums := Vector("sha1")
+
+publishMavenStyle := true
+publishTo := Some(
+  if (isSnapshot.value) "maven-snapshots" at "https://waystation.example.com/repository/maven-snapshots/"
+  else "maven-releases" at "https://waystation.example.com/repository/maven-releases/"
+)
 ```
+
+The realm must be `Waystation` (the realm of Waystation's `401` challenge) and the host the bare host name, without
+scheme or port. To use only Waystation, set `externalResolvers := Seq(...)` instead of adding to `resolvers`. sbt
+publishes SNAPSHOTs without timestamps (`app-1.1.0-SNAPSHOT.jar`, replaced on every publish), which Waystation
+serves as they are. sbt refuses to republish an existing release itself; with
+`publishConfiguration ~= (_.withOverwrite(true))` the repository's write policy decides (`400` with
+`disable_redeploy`). Plain `http://` URLs need `("id" at "http://...").withAllowInsecureProtocol(true)`.
 
 ## Authentication
 

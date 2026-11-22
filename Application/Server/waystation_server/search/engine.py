@@ -13,6 +13,8 @@ the rank; exact keyset paging, no skipping, stable under concurrent writes).
 
 - Cached files (``assets`` of kind ``content``) of every format except docker (whose files are layer digests;
   images are found by their tags), named by their last path segment. A version prefix excludes files.
+- Maven components (``components`` of format ``maven``, one per groupId:artifactId:version) by artifactId, named
+  ``groupId:artifactId``; they and the Maven files link to the artifact's version in Browse.
 - ``cached=true`` leaves out the apt/yum package listings (what a cached index lists may not be downloaded); their
   downloaded packages are still found as files.
 
@@ -39,10 +41,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from waystation_common.components import key_for
 from waystation_common.db.client import Database
 from waystation_common.db.collections import (
     APT_PACKAGES,
     ASSETS,
+    COMPONENTS,
     DOCKER_TAGS,
     GO_MODULES,
     NPM_PACKAGES,
@@ -105,6 +109,7 @@ class Source:
     projection: Mapping[str, int]
     version_field: str | None = None
     listing: bool = False  # rows of an upstream index listing: may not be cached
+    match: Mapping[str, Any] | None = None  # equalities the collection's search indexes are partial on
 
     def applies(self, repo: RepoConfig) -> bool:
         return repo.format == self.format if self.format is not None else repo.format != 'docker'
@@ -185,6 +190,16 @@ SOURCES: tuple[Source, ...] = (
         {'name': 1, 'epoch': 1, 'version': 1, 'release': 1, 'arch': 1, 'path': 1, 'size': 1, 'updated_at': 1},
         version_field='version',
         listing=True,
+    ),
+    Source(
+        'maven',
+        COMPONENTS,
+        'package',
+        'maven',
+        ('name_lc',),
+        {'namespace': 1, 'name': 1, 'version': 1, 'size_bytes': 1, 'updated_at': 1},
+        version_field='version',
+        match={'format': 'maven'},
     ),
     Source('file', ASSETS, 'file', None, ('name_lc',), {'path': 1, 'size': 1, 'blob_sha256': 1, 'updated_at': 1}),
 )
@@ -267,6 +282,7 @@ def _streams(
             version_prefix=version,
             substring=substring,
             has_base='base_lc' in source.keys,
+            match=source.match,
         )
         out.append((rank, source, stream))
     return out
@@ -453,6 +469,8 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {'module': _GO_BANG.sub(lambda m: m.group(1).upper(), path.split('/@v/', 1)[0])}
     if repo.format == 'terraform' and path.count('/') >= 3 and not path.split('/', 2)[1].startswith('.'):
         return {'provider': '/'.join(path.split('/', 3)[:3])}
+    if repo.format == 'maven' and (gav := key_for('maven', path)) is not None:
+        return {'artifact': f'{gav.namespace}:{gav.name}', 'version': gav.version}
     parent = _parent(path)
     return {'path': parent} if parent else {}
 
@@ -536,6 +554,21 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 sha256=None,
                 cached=True,
                 browse=SearchBrowseLink(repository=repo.name, query={'provider': str(doc['name'])}),
+            )
+        case 'maven':
+            coordinates = f'{doc["namespace"]}:{doc["name"]}'
+            return SearchHit(
+                **common,
+                name=coordinates,
+                version=doc.get('version'),
+                qualifier=None,
+                path=None,
+                size=_int(doc.get('size_bytes')),
+                sha256=None,
+                cached=True,
+                browse=SearchBrowseLink(
+                    repository=repo.name, query={'artifact': coordinates, 'version': str(doc.get('version', ''))}
+                ),
             )
         case 'apt':
             suite, component, arch = str(doc.get('suite', '')), str(doc.get('component', '')), str(doc.get('arch', ''))
