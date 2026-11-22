@@ -42,6 +42,7 @@ from datetime import datetime
 from typing import Any
 
 from waystation_common.components import key_for
+from waystation_common.conda import parse_path as conda_path
 from waystation_common.db.client import Database
 from waystation_common.db.collections import (
     APT_PACKAGES,
@@ -49,6 +50,7 @@ from waystation_common.db.collections import (
     CARGO_CRATES,
     COMPONENTS,
     COMPOSER_PACKAGES,
+    CONDA_NAMES,
     DOCKER_TAGS,
     GO_MODULES,
     NPM_PACKAGES,
@@ -147,6 +149,16 @@ SOURCES: tuple[Source, ...] = (
         ('name_lc',),
         {'name': 1, 'display_name': 1, 'latest': 1, 'updated_at': 1},
         version_field='latest',
+    ),
+    Source(
+        'conda',
+        CONDA_NAMES,
+        'package',
+        'conda',
+        ('name_lc',),
+        {'name': 1, 'latest': 1, 'updated_at': 1},
+        version_field='latest',
+        listing=True,
     ),
     Source(
         'nuget',
@@ -531,6 +543,8 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {'artifact': f'{gav.namespace}:{gav.name}', 'version': gav.version}
     if repo.format == 'cargo' and path.startswith('crates/') and path.count('/') == 2:
         return {'crate': path.split('/')[1]}
+    if repo.format == 'conda' and (found := conda_path(path)) is not None:
+        return {'package': found[1].name}
     if repo.format == 'swift' and path.count('/') >= 2 and not path.startswith('_scm/'):
         scope, package = path.split('/', 2)[:2]
         return {'scope': scope, 'package': package}
@@ -629,6 +643,18 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 sha256=None,
                 cached=True,
                 browse=SearchBrowseLink(repository=repo.name, query={'crate': str(doc['name'])}),
+            )
+        case 'conda':
+            return SearchHit(
+                **common,
+                name=str(doc['name']),
+                version=doc.get('latest'),
+                qualifier=None,
+                path=None,
+                size=None,
+                sha256=None,
+                cached=False,
+                browse=SearchBrowseLink(repository=repo.name, query={'package': str(doc['name'])}),
             )
         case 'go':
             return SearchHit(

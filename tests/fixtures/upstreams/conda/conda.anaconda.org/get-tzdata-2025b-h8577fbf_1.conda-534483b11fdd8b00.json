@@ -1,0 +1,49 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://conda.anaconda.org/conda-forge/noarch/tzdata-2025b-h8577fbf_1.conda"
+  },
+  "response": {
+    "body_sha256": "865716d3e2ccaca1218462645830d2370ab075a9a118c238728e1231a234bc6c",
+    "body_size": 119010,
+    "headers": [
+      [
+        "content-type",
+        "binary/octet-stream"
+      ],
+      [
+        "content-length",
+        "119010"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "cache-control",
+        "public, max-age=1200"
+      ],
+      [
+        "etag",
+        "\"e4e8496b68cf5f25e76fbe67f3856550\""
+      ],
+      [
+        "expires",
+        "Sun, 22 Nov 2026 16:39:42 GMT"
+      ],
+      [
+        "last-modified",
+        "Fri, 12 Dec 2025 23:28:12 GMT"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -1,7 +1,7 @@
 """Which component an asset belongs to (DATA_MODEL ``components``; T-S09).
 
 A component is what a user thinks of as one artifact of a repository: a package version (npm, apt, yum, PyPI, Go,
-Galaxy, Terraform, Helm, Swift, NuGet, Composer, Cargo), a Maven ``groupId:artifactId:version``, a docker image
+Galaxy, Terraform, Helm, Swift, NuGet, Composer, Cargo, Conda), a Maven ``groupId:artifactId:version``, a docker image
 tag, or a raw file. Its assets are the files that make it up; only the files a client downloads to *get* the
 artifact link to it (a ``.tgz``, a ``.deb``, a wheel, a docker tag's manifest, a Swift source archive...), never
 checksums, signatures or index metadata, so download counts are honest.
@@ -40,6 +40,7 @@ PACKAGE_FILES: dict[str, tuple[str, ...]] = {
     'cargo': ('.crate',),
     'nuget': ('.nupkg',),
     'composer': ('.zip', '.tar'),
+    'conda': ('.conda', '.tar.bz2'),
 }
 
 

@@ -16,6 +16,8 @@
 * nuget: NuGet version order (``waystation_common.nuget``: four numbers, prereleases before their release, labels
   case-insensitive, metadata ignored).
 * composer: Composer version order (``waystation_common.composer``: stability suffixes, ``dev-`` branches first).
+* conda: conda ``VersionOrder`` (``waystation_common.conda``: epoch, ``dev`` first, strings before numbers,
+  ``post`` last).
 * everything else: a generic natural order (digit runs numerically, other runs as text).
 
 ``sort_key(fmt, version)`` returns a key usable with ``sorted``; ``is_prerelease(fmt, version)`` follows each
@@ -29,7 +31,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from waystation_common import composer, nuget
+from waystation_common import composer, conda, nuget
 
 _SEMVER = re.compile(
     r'^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$'
@@ -323,6 +325,8 @@ def sort_key(fmt: str, version: str) -> Any:
         return nuget.sort_string(version)
     if fmt == 'composer':
         return composer.sort_string(version)
+    if fmt == 'conda':
+        return conda.sort_string(version)
     compare = _CMP.get(fmt)
     if compare is not None:
         return functools.cmp_to_key(compare)(version)
@@ -340,6 +344,8 @@ def is_prerelease(fmt: str, version: str) -> bool:
         return nuget.is_prerelease(version)
     if fmt == 'composer':
         return composer.is_prerelease(version)
+    if fmt == 'conda' and conda.parse_version(version) is not None:
+        return conda.is_prerelease(version)
     if fmt in ('apt', 'yum') and '~' in version:
         return True
     return _MARKERS.search(version) is not None

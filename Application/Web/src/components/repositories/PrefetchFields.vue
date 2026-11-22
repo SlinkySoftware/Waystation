@@ -61,7 +61,7 @@ import { t } from '@/i18n'
 
 import { type FormFormat, parseWarm, prefetchErrors, type RepoFormModel, WARM_MAX_ITEMS } from './form'
 
-type PrefetchFormat = 'docker' | 'npm' | 'raw' | 'maven' | 'go' | 'cargo'
+type PrefetchFormat = 'docker' | 'npm' | 'raw' | 'maven' | 'go' | 'cargo' | 'conda'
 
 const props = withDefaults(defineProps<{ errors?: Record<string, string> }>(), { errors: () => ({}) })
 const model = defineModel<RepoFormModel>({ required: true })

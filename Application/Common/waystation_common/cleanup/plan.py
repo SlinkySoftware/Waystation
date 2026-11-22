@@ -16,7 +16,9 @@ Components and versions come from asset paths (``coordinates``) until components
   ``v3-flatcontainer/<id>/<version>/<id>.<version>.nupkg`` and its ``.nuspec`` (per package, NuGet version order,
   both files of a version share its rank); composer
   ``dists/<vendor>/<name>/<version>/<file>`` (per package, Composer version order); cargo
-  ``crates/<crate>/<crate>-<version>.crate`` (per crate, SemVer); every other format
+  ``crates/<crate>/<crate>-<version>.crate`` (per crate, SemVer); conda
+  ``<subdir>/<name>-<version>-<build>.conda|.tar.bz2``
+  (per name and subdir, conda VersionOrder; every build of a version shares its rank); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -41,6 +43,7 @@ from urllib.parse import unquote
 
 from waystation_common.cleanup.model import Candidate, Criteria
 from waystation_common.cleanup.versions import is_prerelease, sort_key
+from waystation_common.conda import parse_path as conda_path
 from waystation_common.galaxy import parse_artifact_path
 
 DAY = timedelta(days=1)
@@ -158,6 +161,12 @@ def coordinates(fmt: str, path: str) -> Coord:
             provider = '/'.join(parts[2:4])
             return Coord(provider, parts[4], provider, True)
         return Coord(path, filename, _parent(path), False)
+    if fmt == 'conda':
+        found = conda_path(path)
+        if found is not None:  # <subdir>/<name>-<version>-<build>.conda|.tar.bz2: per name and subdir
+            subdir, pkg = found
+            return Coord(pkg.name, pkg.version, f'{pkg.name}/{subdir}', True)
+        return Coord(path, filename, path, False)  # repodata files: each on its own
     if fmt == 'cargo' and path.startswith('crates/') and path.count('/') == 2 and filename.endswith('.crate'):
         crate = path.split('/')[1]
         if filename.startswith(crate + '-') and len(filename) > len(crate) + 7:

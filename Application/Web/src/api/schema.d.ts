@@ -1438,6 +1438,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/conda/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Package names listed by a conda repository (indexed repodata of a proxy, uploads of a hosted channel) */
+        get: operations["listCondaPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/conda/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One conda package and its files (newest version first, conda version order) */
+        get: operations["listCondaFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/helm/charts": {
         parameters: {
             query?: never;
@@ -3875,6 +3913,8 @@ export interface components {
         };
         /** @description Cargo (sparse registries): no options yet */
         CargoOptions: Record<string, never>;
+        /** @description Conda (channels): no options yet */
+        CondaOptions: Record<string, never>;
         NugetOptions: {
             /**
              * @description Verify each package downloaded from the upstream against the SHA-512 hash and size its catalog entry publishes, when the upstream has a catalog (nuget.org does). Every package is also checked to be a readable NuGet package whose .nuspec names the requested id and version (proxy repositories)
@@ -3908,7 +3948,7 @@ export interface components {
             source_mode: "keep" | "strip";
         };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["CargoOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["CargoOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"] | components["schemas"]["CondaOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -4497,6 +4537,58 @@ export interface components {
             crate: components["schemas"]["CargoCrate"];
             /** @description Newest first (SemVer) */
             items: components["schemas"]["CargoVersion"][];
+            next_cursor: string | null;
+        };
+        CondaPackage: {
+            name: string;
+            /** @description Highest version listed (conda version order) */
+            latest: string | null;
+            /** @description Subdirs listing the package (noarch, linux-64...) */
+            subdirs: string[];
+            /** @description Package files listed (every build of every version) */
+            file_count: number;
+            summary?: string | null;
+            license?: string | null;
+        };
+        CondaPackagePage: {
+            items: components["schemas"]["CondaPackage"][];
+            next_cursor: string | null;
+        };
+        CondaFile: {
+            filename: string;
+            subdir: string;
+            version: string;
+            build: string;
+            build_number: number;
+            prerelease: boolean;
+            /** @description SHA-256 from the listing (hex) */
+            sha256: string | null;
+            md5?: string | null;
+            size?: number | null;
+            /**
+             * Format: date-time
+             * @description Build time from the listing
+             */
+            timestamp?: string | null;
+            /** @description The checksum comes from a repodata listing (or an upload), not a fetch */
+            verified: boolean;
+            /** @description Hosted: the dependencies of the build */
+            depends: string[];
+            license?: string | null;
+            /** @description The file is held (cached or uploaded) */
+            cached: boolean;
+            /** Format: date-time */
+            cached_at?: string | null;
+            downloads: number;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+            /** @description Hosted: who uploaded it */
+            uploaded_by?: string | null;
+        };
+        CondaFilePage: {
+            package: components["schemas"]["CondaPackage"];
+            /** @description Newest version first (conda version order), then build number */
+            items: components["schemas"]["CondaFile"][];
             next_cursor: string | null;
         };
         HelmChart: {
@@ -8583,6 +8675,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CargoVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCondaPackages: {
+        parameters: {
+            query?: {
+                /** @description Name prefix */
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CondaPackagePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCondaFiles: {
+        parameters: {
+            query: {
+                /** @description Package name */
+                package: string;
+                /** @description Only this subdir (noarch, linux-64...) */
+                subdir?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Files */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CondaFilePage"];
                 };
             };
             404: components["responses"]["NotFound"];

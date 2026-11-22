@@ -39,6 +39,7 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | NuGet | `Package@version` (`Newtonsoft.Json@13.0.3`), `Package` (= the newest stable version, else the newest) | the flat container version list, the version's `.nupkg` (checked and verified against the catalog hash as for a client) and `.nuspec` | version lists (`v3-flatcontainer/<id>/index.json`) and registration indexes (`v3/registration/<id>/index.json`) |
 | Composer | `vendor/name:version` (`monolog/monolog:3.8.1`, any spelling that normalises the same; `dev-main` reads the `~dev` document), `vendor/name` (= the newest stable version, else the newest) | the package's `p2` document, the version's archive when the repository serves it (checked, verified and pinned as for a client) | `p2` documents (tagged and `~dev`, same path) |
 | Cargo | `crate@<exact SemVer version>` (`serde@1.0.228`), `crate` (= highest non-yanked release) | the crate's index file, then the version's `.crate` (verified against the index `cksum`) | index files `index/<prefix>/<crate>` (same path) |
+| Conda | `<subdir>/<name>` (newest version listed), `<subdir>/<name>==<version>` (every build), `<subdir>/<name>==<version>=<build>` (`noarch/tzdata==2025b`, `linux-64/numpy==2.1.3`) | the subdir's `repodata.json.zst` (else `repodata.json`), its indexing awaited, then the matching package files (verified against the listing) | `channeldata.json` (repodata files are revalidated on client requests) |
 
 Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
 below). Left for later: PyPI (`project==version`), Helm (`chart@version`), Galaxy, Terraform, Swift.
@@ -1116,9 +1117,64 @@ Composer version order (`dev-*` branches first, then numbers, `-dev` < alpha < b
 finds packages by name. Prefetch: see "Prefetch". Nexus: `composer-*` repositories (the Composer plugin's) are
 imported with default options; content is kept forever (pinned).
 
-## Conda — Phase 6
-Channel `channeldata.json`, `<subdir>/repodata.json(.zst)` (metadata), `.conda`/`.tar.bz2` (content, sha256 from
-repodata). Proxy only. Clients: conda, mamba, pixi.
+## Conda — Phase 6 (built, T-P6-CONDA)
+Conda channels (`formats/conda/`), proxy and hosted. No groups: conda merges the channels a client lists itself, and
+merging repodata of several channels per request is not worth its cost; creating one is refused, as for apt.
+Clients: conda, mamba / micromamba, pixi (`Operations/clients/conda.md`).
+
+**Layout** (`/repository/<repo>/` is the channel URL): `channeldata.json`; per subdir (`noarch`, `linux-64`,
+`osx-arm64`... any `<platform>-<arch>` name) `repodata.json` and its `.zst` / `.bz2` encodings,
+`current_repodata.json`, `repodata_from_packages.json` (and encodings), and the package files
+`<name>-<version>-<build>.conda` (v2: a zip of zstd tarballs) and `.tar.bz2` (v1). Names are lower case (letters,
+digits, `-_.+`), versions and builds have no `-`, so a file name splits at its last two `-`. `repodata.jlap`
+(incremental) and sharded repodata (`repodata_shards.msgpack.zst`, `shards/`) answer 404 without an upstream request,
+so clients fall back to the full file. Versions follow conda's `VersionOrder` (`waystation_common.conda`: epoch,
+components split at `.`/`_`, `dev` < other strings < numbers < `post`, missing parts 0, `+local` last), used for
+`version_sort`, cleanup, browse and "latest".
+
+**Proxy** (upstream URL: a channel, e.g. `https://conda.anaconda.org/conda-forge`):
+- `channeldata.json`: metadata (≤ 128 MiB, revalidated after the metadata max age; prefetch refreshes it).
+- Repodata files are large (conda-forge `linux-64`: hundreds of MB as JSON), so they are **streamed** to the client
+  while they are stored (a content fill, ≤ 1 GiB, never buffered) and revalidated with `ETag`/`Last-Modified` once
+  older than the repository's metadata max age, as Maven snapshots are (prefetch refresh does not cover them).
+- After a repodata file (any encoding) is stored, a background task scans it with bounded memory
+  (`waystation_common.conda.repodata`: decompressed as a stream, ≤ 2 GiB, decoded one entry at a time, ≤ 64 MiB per
+  value, ≤ 3 M entries, in a thread) and writes its entries to `conda_packages` (`sha256`, `md5`, `size`, name,
+  version, build; unordered bulk upserts, a no-op for unchanged entries) and per-name summaries to `conda_names`.
+  Entries whose file name, name, version, build, digests or size are invalid are skipped. Indexed blobs are
+  remembered per process; a package request for a subdir whose cached repodata was not indexed (a restart) starts it.
+- Packages are content: verified against the listing's sha256 (else md5) and size before they are committed; a
+  mismatch aborts the transfer and caches nothing. A package requested before any indexed listing names it is served
+  and recorded `unverified` (its computed sha256); when a listing arrives it is confirmed, or its cached copy is
+  dropped (compare-and-set on the blob) and the next request fetches and verifies it again, as apt pool files are.
+- Prefetch: see "Prefetch" (an internal `_ws/files/...` lookup, answered only to prefetch requests, waits for the
+  subdir's indexing and lists the matching files).
+
+**Hosted**: `PUT <subdir>/<file>` (`curl --upload-file`) with the package as the body, streamed into the blob store
+after the hard-quota check; then, in a thread, the archive is read without extracting anything (`.conda`: ≤ 16 zip
+members, `metadata.json` with `conda_pkg_format_version` 2, the `info-*.tar.zst` member decompressed as a stream
+≤ 512 MiB; `.tar.bz2`: streamed ≤ 8 GiB; ≤ 200,000 tar members) up to `info/index.json` (a regular file ≤ 1 MiB),
+whose name, version, build and subdir must match the path; the repodata entry keeps the fields conda-index publishes
+(`depends`, `constrains`, `license`, `noarch`, `timestamp`...) plus `md5`, `sha256`, `size`. Write policy:
+`read_only` 403, `disable_redeploy` 409 for other bytes (the same bytes: 200), `allow_redeploy` replaces.
+`DELETE <subdir>/<file>` removes a file. Records and an `index.conda` job are written in one transaction; the worker
+(`waystation_worker.conda`) publishes, per subdir with packages and always `noarch`, `repodata.json` and
+`repodata.json.zst`, then `channeldata.json` and the `conda_names` summaries; subdirs left empty lose their files.
+Before a subdir has published repodata, `<subdir>/repodata.json` answers an empty listing and `channeldata.json` an
+empty channel. Uploads need `write`, deletes `delete`; both audited (`conda_package`).
+
+**Auth**: conda reads `~/.netrc` and credentials in channel URLs (basic, an API token as the password); micromamba
+and mamba take `https://user:token@host/...` channel URLs; pixi `pixi auth login <host> --token` (bearer).
+
+**Browse, search, components, cleanup**: `GET conda/packages` (names, prefix filter) and `GET conda/files?package=
+[&subdir=]` (newest first; checksums, verified, held, downloads; hosted: dependencies, uploader); global search on
+`conda_names`. Components: package files (name, version). Cleanup groups files per name and subdir in conda version
+order, every build of a version sharing its rank; repodata files are each their own group (refetched on demand).
+Nexus: `conda` proxies import (content kept forever: packages are verified by checksum).
+
+Clients verified (harness, recorded conda-forge fixtures trimmed to the entries used): micromamba 2.3 (an
+environment through the proxy; `.conda` and `.tar.bz2` uploads to a hosted channel installed with a token; anonymous
+refused). Not yet: JLAP and sharded repodata, groups, conda and pixi in the harness, the live smoke.
 
 ## Alpine apk — Phase 6
 `<branch>/<repo>/<arch>/APKINDEX.tar.gz` (signed by Alpine keys; pass through) + `.apk` files. Proxy only. Client: apk.

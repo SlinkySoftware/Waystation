@@ -226,6 +226,20 @@ class YumIndex(JobPayload):
         return f'index.yum:{self.repo_id}'
 
 
+class CondaIndex(JobPayload):
+    """Regenerate a hosted conda repository's ``<subdir>/repodata.json`` (and ``.zst``) files and ``channeldata.json``
+    from its ``conda_packages`` records (FORMATS.md "Conda"; ``waystation_worker.conda``). Enqueued through the outbox
+    in the transaction that changed the packages."""
+
+    kind: ClassVar[str] = 'index.conda'
+    queue: ClassVar[Queue] = 'index'
+
+    repo_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'index.conda:{self.repo_id}'
+
+
 class AptRefresh(JobPayload):
     """Refresh apt proxy repositories (FORMATS.md "apt"; ``waystation_worker.apt``): revalidate each cached suite's
     ``Release`` that is older than ``metadata_max_age_s``, fetch and verify the ``Packages`` indexes of the new
