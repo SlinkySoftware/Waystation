@@ -22,6 +22,8 @@ Components and versions come from asset paths (``coordinates``) until components
   run. Layer files no indexed manifest names are left alone.
 
 Only ``content`` assets are candidates for non-docker formats; metadata (indexes, packuments) is never removed.
+Swift release files (source archives, manifests) never are: releases are immutable and a proxy's archive checksums are
+pinned; a Swift proxy's cached Git tag tarballs (``_scm/...``) are, ordered by when they were cached.
 """
 
 from __future__ import annotations
@@ -39,6 +41,9 @@ from waystation_common.cleanup.versions import is_prerelease, sort_key
 from waystation_common.galaxy import parse_artifact_path
 
 DAY = timedelta(days=1)
+# Swift releases are immutable and a proxy's archives are pinned by checksum (rebuilt bytes could differ): only the
+# SCM proxy's cached upstream tarballs are cleanup candidates.
+SWIFT_SCM_PREFIX = '_scm/'
 
 
 @dataclass(frozen=True)
@@ -249,7 +254,7 @@ def plan_assets(fmt: str, criteria: Criteria, assets: Iterable[AssetRow], now: d
         return []
     items: list[tuple[_Item, AssetRow]] = []
     for asset in assets:
-        if asset.kind != 'content':
+        if asset.kind != 'content' or (fmt == 'swift' and not asset.path.startswith(SWIFT_SCM_PREFIX)):
             continue
         coord = coordinates(fmt, asset.path)
         created = _aware(asset.created_at)

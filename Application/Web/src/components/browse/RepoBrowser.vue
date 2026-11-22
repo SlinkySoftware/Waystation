@@ -12,6 +12,7 @@
   <GoBrowser v-else-if="repo.format === 'go'" :repo="repo" />
   <YumBrowser v-else-if="repo.format === 'yum'" :repo="repo" />
   <TerraformBrowser v-else-if="repo.format === 'terraform'" :repo="repo" />
+  <SwiftBrowser v-else-if="repo.format === 'swift'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
@@ -27,6 +28,7 @@ import GoBrowser from './GoBrowser.vue'
 import MavenBrowser from './MavenBrowser.vue'
 import NpmBrowser from './NpmBrowser.vue'
 import PypiBrowser from './PypiBrowser.vue'
+import SwiftBrowser from './SwiftBrowser.vue'
 import YumBrowser from './YumBrowser.vue'
 import TerraformBrowser from './TerraformBrowser.vue'
 

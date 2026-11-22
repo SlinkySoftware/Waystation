@@ -49,6 +49,10 @@ from waystation_server.browse.models import (
     PypiVersionPage,
     PypiYank,
     PypiYankResult,
+    SwiftBrowser,
+    SwiftPackagePage,
+    SwiftReleasePage,
+    SwiftScopePage,
     TerraformBrowser,
     TerraformModulePage,
     TerraformModuleVersionPage,
@@ -386,6 +390,74 @@ async def list_galaxy_versions(
     repo: RepoConfig = request.state.repo
     browser = _galaxy(svc, repo)
     return await browser.versions(_context(svc, repo), namespace=namespace, name=collection, cursor=cursor, limit=limit)
+
+
+# ---------------------------------------------------------------------------- swift
+def _swift(svc: Services, repo: RepoConfig) -> SwiftBrowser:
+    browser = _browser(svc, repo, 'swift')
+    if not isinstance(browser, SwiftBrowser):
+        raise NotFound('not a swift repository')
+    return browser
+
+
+@router.get(
+    '/repositories/{name}/swift/scopes',
+    response_model=SwiftScopePage,
+    operation_id='listSwiftScopes',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_swift_scopes(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=250)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> SwiftScopePage:
+    repo: RepoConfig = request.state.repo
+    return await _swift(svc, repo).scopes(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/swift/packages',
+    response_model=SwiftPackagePage,
+    operation_id='listSwiftPackages',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_swift_packages(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    scope: Annotated[str | None, Query(max_length=39, description='Only this scope')] = None,
+    q: Annotated[str | None, Query(max_length=250)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> SwiftPackagePage:
+    repo: RepoConfig = request.state.repo
+    return await _swift(svc, repo).packages(_context(svc, repo), scope=scope, q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/swift/releases',
+    response_model=SwiftReleasePage,
+    operation_id='listSwiftReleases',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_swift_releases(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    scope: Annotated[str, Query(max_length=39, description='Package scope')],
+    package: Annotated[str, Query(max_length=100, description='Package name')],
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> SwiftReleasePage:
+    repo: RepoConfig = request.state.repo
+    browser = _swift(svc, repo)
+    return await browser.releases(_context(svc, repo), scope=scope, name=package, cursor=cursor, limit=limit)
 
 
 # ---------------------------------------------------------------------------- helm

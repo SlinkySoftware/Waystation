@@ -141,6 +141,11 @@ GitHub release assets behind a redirect for OpenTofu). A provider archive is a G
 smaller real one with plugin protocol 5 exists, so the budget is raised to 11 MiB (5 MiB per file,
 `tests/clients/terraform/format.env`). Both clients accept only `https://` mirrors: `client-terraform` is Alpine with
 terraform, tofu, curl and `go/tlsfront.go` built in.
+swift: fixtures are the github.com ref advertisement of `JohnSundell/Files` and its 4.2.0 tag tarball (with the
+codeload redirect), about 200 KB (budget 1 MiB, `swift/format.env`); the package published to the hosted registry is
+generated at run time. `client-swift` is `swift:6.4.3-noble` with curl, zip and `go/tlsfront.go` (SwiftPM accepts only
+https registries); the anonymous resolve uses an empty netrc and its own cache path, since SwiftPM finds root's
+credentials and caches through the passwd home, not `$HOME`.
 npm: after npm 11, `client-nodepm` runs pnpm, Yarn 1, Yarn 4 and Bun (`npm/pm.sh`): frozen installs of `pinned/` from
 each client's committed lockfile (`pnpm-lock.yaml`, `yarn-classic.lock`, `yarn-berry.lock`, `bun.lock`; Yarn 1's
 `resolved` URLs are pointed at Waystation first, as it fetches them verbatim) and each client's audit command. The

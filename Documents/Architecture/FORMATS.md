@@ -850,6 +850,58 @@ Spec: Swift Package Registry Service (SE-0292, `swift package-registry`). `Accep
   from URLs. Optionally proxy another registry when configured.
 - Hosted: publish via `swift package-registry publish`; signature verification optional (record signer).
 - Clients: Swift 6 toolchain on Linux in tests (`swift package-registry set`, `--replace-scm-with-registry`).
+- Built (T-P5-SWIFT, `formats/swift/`; proxy and hosted, no groups):
+  - Routes under `/repository/<repo>/`: `<scope>/<name>` (`.json` optional) release list, highest first, removed
+    releases with a `410` `problem`, `Link` `latest-version` and `canonical`; `<scope>/<name>/<version>` (`.json`
+    optional) release information (`id`, `version`, `resources[source-archive]` with `checksum` and `signing`,
+    `metadata`, `publishedAt`; `Link` latest/successor/predecessor); `.../<version>/Package.swift` with a `Link`
+    `alternate` per `Package@swift-<v>.swift` (`filename`, `swift-tools-version`), `?swift-version=<v>` → that file or
+    `303` to the unqualified manifest; `.../<version>.zip` (`Digest: sha-256=`, `Content-Disposition`, signature
+    headers, `Cache-Control: public, immutable`); `identifiers?url=`; `POST login` and `POST` on the repository URL
+    (`swift package-registry login` posts to the path it was given): `200` for valid credentials, `401` anonymous.
+    Scopes/names are validated by the SE-0292 patterns and compared case-insensitively (records and asset paths use
+    lower-case keys: `<scope>/<name>/<version>.zip`, `.../<version>/<manifest>`).
+  - Every answer has `Content-Version: 1`; errors are `application/problem+json` (`Content-Language: en`). An
+    `Accept: application/vnd.swift.registry[.vN][+json|zip|swift]` with another version is `415` (malformed: `400`).
+    Errors raised by the router before the plugin (hidden repository, `401` challenge) keep the plain-text shape.
+  - Files are assets served by X-Accel; the web tier re-adds `Content-Version`, `Link`, `Digest` and the signature
+    headers on the internal redirect (`nginx.conf.template`).
+  - SCM proxy: the upstream URL is the Git host; `<scope>.<name>` → `<upstream>/<owner>/<name>` (owner = the
+    `scopes` mapping or the scope; `mapped_scopes_only` allowlists). Tags: `GET <repo>.git/info/refs?service=
+    git-upload-pack` (pkt-lines; peeled annotated tags), stored compact as metadata `_scm/<scope>/<name>/refs`; Git
+    hosts answer `401` for a missing repository, so the spec maps 401/404/410 to "missing" (`AssetSpec.
+    missing_statuses`). Version tags: `1.2.3`, `v1.2.3`, `1.2` (normalised to three parts; the exact tag wins).
+    Tarball per `archive_layout` (`github` `<repo>/archive/refs/tags/<tag>.tar.gz` (redirects to codeload),
+    `gitlab` `<repo>/-/archive/<tag>/<name>-<tag>.tar.gz`, `gitea` `<repo>/archive/<tag>.tar.gz`), cached content
+    `_scm/<scope>/<name>/<tag>.tar.gz` (≤ 256 MiB), repackaged in a thread (`archive.build_from_tarball`): single top
+    folder replaced by `<name>/`, sorted entries, 1980-01-01 timestamps, `0644`/`0755`/symlink modes, DEFLATE level 6,
+    unsafe entries refused, links leaving the package dropped, ≤ 50,000 entries / 512 MiB unpacked. The first
+    request for a release's information, manifest or archive builds it (one build per process: a keyed lock; across
+    processes the unique release record decides) and records the checksum in `swift_releases`; later requests use the
+    record. If the files are gone and the rebuild differs from the pinned checksum: `502`, never other bytes. A tag
+    without a root `Package.swift` is `404` (remembered per tarball).
+  - `/identifiers`: proxy: a URL on the upstream host (https, ssh, scp-like) → `<scope>.<name>` when the repository
+    exists there; hosted: releases whose metadata `repositoryURLs` normalise to the same `host/path` (lower case,
+    no `.git`).
+  - Hosted publish (`formats/swift/hosted.py`): synchronous `201` + `Location` (no async 202); parts
+    `source-archive` (streamed, ≤ 512 MiB, live upload transfer), `source-archive-signature` / `metadata-signature`
+    (≤ 64 KiB), `metadata` (JSON object, ≤ 256 KiB, appendix B types checked: else `422`); the archive is inspected in
+    a thread before commit (`archive.inspect_zip`: readable zip, no encryption, one top folder, safe and unique names,
+    symlinks inside, bounds, root `Package.swift` with a `swift-tools-version`); a signature needs
+    `X-Swift-Package-Signature-Format: cms-1.0.0` and a parseable CMS structure (the first certificate's subject is
+    recorded as the signer; not verified). The version must be new (`409`, re-checked by the unique index).
+    `DELETE` unpublishes: record kept as `removed`, files removed, `410` afterwards. Write policy `read_only` → `403`;
+    hard quota via `HostedStore.admit` before the body; audit `content.upload`/`content.delete` (`swift_release`).
+  - Cleanup never selects release files (archives, manifests); only `_scm/` tarballs. Components: the archive is the
+    component (`<scope>`, `<scope>.<name>`, version, SemVer `version_sort`). Global search source `swift_packages`
+    (name `scope.name`).
+  - Client harness `tests/clients/swift/` (swift 6.4, behind `go/tlsfront.go` because SwiftPM accepts only HTTPS
+    registries): resolve `JohnSundell.Files` 4.2.0 through the proxy by identity and with
+    `--replace-scm-with-registry`, checksum/`compute-checksum`/manifest checks, login with a token (a wrong token
+    refused), publish + duplicate refused, resolve and build against hosted, anonymous resolve refused, a token for
+    other repositories refused, removal answered 410.
+  - Not yet: proxying another registry (only SCM-backed), signature verification, asynchronous publication,
+    groups, release-list pagination, the nightly live smoke for swift.
 
 ## NuGet v3 — Phase 6
 Service index `index.json` (resources: `PackageBaseAddress/3.0.0` flat container, `RegistrationsBaseUrl`,

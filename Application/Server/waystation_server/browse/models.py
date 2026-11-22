@@ -324,6 +324,68 @@ class GalaxyVersionPage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- swift
+class SwiftScope(BaseModel):
+    scope: str
+    package_count: int
+
+
+class SwiftScopePage(BaseModel):
+    items: list[SwiftScope]
+    next_cursor: str | None
+
+
+class SwiftPackage(BaseModel):
+    scope: str
+    name: str
+    id: str = Field(description='The package identity clients use: <scope>.<name>')
+    latest_version: str | None = Field(default=None, description='The highest published version')
+    release_count: int = Field(description='Published releases (a proxy: releases pinned so far)')
+    removed_count: int = 0
+    description: str | None = None
+    repository_url: str | None = Field(default=None, description='Source repository (release metadata)')
+
+
+class SwiftPackagePage(BaseModel):
+    items: list[SwiftPackage]
+    next_cursor: str | None
+
+
+class SwiftManifest(BaseModel):
+    filename: str = Field(description='Package.swift or Package@swift-<version>.swift')
+    swift_version: str | None = None
+    tools_version: str | None = None
+    size_bytes: int | None = None
+    url: str
+
+
+class SwiftRelease(BaseModel):
+    version: str
+    prerelease: bool = False
+    state: Literal['published', 'removed']
+    source: Literal['hosted', 'scm'] = Field(description='hosted: published; scm: built from a Git tag and pinned')
+    published_at: datetime | None = None
+    published_by: str | None = None
+    removed_at: datetime | None = None
+    removed_by: str | None = None
+    checksum: str = Field(description='sha256 of the source archive (hex); pinned, never changes')
+    size_bytes: int | None = None
+    tools_version: str | None = None
+    manifests: list[SwiftManifest] = Field(default_factory=list)
+    signed: bool = False
+    signer: str | None = Field(default=None, description='Subject of the signing certificate (not verified)')
+    tag: str | None = Field(default=None, description='The Git tag the archive was built from (proxy)')
+    commit: str | None = None
+    path: str = Field(description='Path of the source archive in the repository')
+    download_url: str
+
+
+class SwiftReleasePage(BaseModel):
+    package: SwiftPackage
+    items: list[SwiftRelease]
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- maven
 class MavenArtifact(BaseModel):
     group_id: str
@@ -686,6 +748,22 @@ class GalaxyBrowser(Protocol):
         self, ctx: BrowseContext, *, namespace: str, name: str, cursor: str | None, limit: int
     ) -> GalaxyVersionPage:
         """One collection's versions, newest first; raises ``NotFound`` for an unknown collection."""
+
+
+@runtime_checkable
+class SwiftBrowser(Protocol):
+    async def scopes(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> SwiftScopePage:
+        """Scopes with their number of packages."""
+
+    async def packages(
+        self, ctx: BrowseContext, *, scope: str | None, q: str | None, cursor: str | None, limit: int
+    ) -> SwiftPackagePage:
+        """Packages by scope and name (hosted: published; proxy: with a pinned release)."""
+
+    async def releases(
+        self, ctx: BrowseContext, *, scope: str, name: str, cursor: str | None, limit: int
+    ) -> SwiftReleasePage:
+        """One package's releases, newest first; raises ``NotFound`` for an unknown package."""
 
 
 @runtime_checkable

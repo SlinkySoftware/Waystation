@@ -1871,6 +1871,65 @@ paths:
               schema: { $ref: '#/components/schemas/GalaxyVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/swift/scopes:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listSwiftScopes
+      summary: Scopes of a Swift package registry with their number of packages
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 250 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Scopes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SwiftScopePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/swift/packages:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listSwiftPackages
+      summary: Packages of a Swift package registry (hosted publishes, a proxy's pinned releases)
+      parameters:
+        - { name: scope, in: query, description: Only this scope, schema: { type: [string, 'null'], maxLength: 39 } }
+        - { name: q, in: query, schema: { type: string, maxLength: 250 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Packages
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SwiftPackagePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/swift/releases:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listSwiftReleases
+      summary: One Swift package and its releases (newest first, SemVer; removed releases included)
+      parameters:
+        - { name: scope, in: query, required: true, description: Package scope, schema: { type: string, maxLength: 39 } }
+        - { name: package, in: query, required: true, description: Package name, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Releases
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SwiftReleasePage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/terraform/providers:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4401,6 +4460,15 @@ components:
           items: { type: string, minLength: 1, maxLength: 253 }
           default: [github.com]
           description: "Hosts the module registry proxy fetches and caches module archives from: GitHub repositories at a tag (`github.com`, fetched as tag archives) and HTTP(S) or S3 archive URLs on these hosts. Other sources are passed to the client unchanged. The upstream URL's host is always allowed too. Proxy repositories only"
+    SwiftOptions:
+      type: object
+      properties:
+        archive_layout: { type: string, enum: [github, gitlab, gitea], default: github, description: 'How the Git host serves the source tarball of a tag (proxy repositories): `github` (`<repo>/archive/refs/tags/<tag>.tar.gz`), `gitlab` (`<repo>/-/archive/<tag>/<name>-<tag>.tar.gz`) or `gitea` (Gitea and Forgejo: `<repo>/archive/<tag>.tar.gz`)' }
+        scopes:
+          type: object
+          additionalProperties: { type: string }
+          description: 'Scope → owner path on the Git host (proxy repositories), e.g. `{"pointfree": "pointfreeco"}` or a GitLab group path `group/subgroup`. Scopes not listed are the owner name itself, unless `mapped_scopes_only` is set'
+        mapped_scopes_only: { type: boolean, default: false, description: 'Serve only the scopes listed in `scopes` (an allowlist of owners on the Git host; proxy repositories)' }
     FormatOptions:
       description: Format-specific options; the shape follows the repository's `format`
       oneOf:
@@ -4415,6 +4483,7 @@ components:
         - $ref: '#/components/schemas/HelmOptions'
         - $ref: '#/components/schemas/GalaxyOptions'
         - $ref: '#/components/schemas/TerraformOptions'
+        - $ref: '#/components/schemas/SwiftOptions'
     QuotaMode:
       type: string
       enum: [soft, hard]
@@ -5123,6 +5192,82 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/YumVersion' }
+        next_cursor: { type: [string, 'null'] }
+    SwiftScope:
+      type: object
+      required: [scope, package_count]
+      properties:
+        scope: { type: string }
+        package_count: { type: integer }
+    SwiftScopePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SwiftScope' }
+        next_cursor: { type: [string, 'null'] }
+    SwiftPackage:
+      type: object
+      required: [scope, name, id, release_count]
+      properties:
+        scope: { type: string }
+        name: { type: string }
+        id: { type: string, description: 'The package identity clients use: <scope>.<name>' }
+        latest_version: { type: [string, 'null'], description: The highest published version }
+        release_count: { type: integer, description: 'Published releases (a proxy: releases pinned so far)' }
+        removed_count: { type: integer, default: 0 }
+        description: { type: [string, 'null'] }
+        repository_url: { type: [string, 'null'], description: Source repository (release metadata) }
+    SwiftPackagePage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SwiftPackage' }
+        next_cursor: { type: [string, 'null'] }
+    SwiftManifest:
+      type: object
+      required: [filename, url]
+      properties:
+        filename: { type: string, description: 'Package.swift or Package@swift-<version>.swift' }
+        swift_version: { type: [string, 'null'] }
+        tools_version: { type: [string, 'null'] }
+        size_bytes: { type: [integer, 'null'] }
+        url: { type: string }
+    SwiftRelease:
+      type: object
+      required: [version, state, source, checksum, path, download_url]
+      properties:
+        version: { type: string }
+        prerelease: { type: boolean, default: false }
+        state: { type: string, enum: [published, removed] }
+        source: { type: string, enum: [hosted, scm], description: 'hosted: published; scm: built from a Git tag and pinned' }
+        published_at: { type: [string, 'null'], format: date-time }
+        published_by: { type: [string, 'null'] }
+        removed_at: { type: [string, 'null'], format: date-time }
+        removed_by: { type: [string, 'null'] }
+        checksum: { type: string, description: 'sha256 of the source archive (hex); pinned, never changes' }
+        size_bytes: { type: [integer, 'null'] }
+        tools_version: { type: [string, 'null'] }
+        manifests:
+          type: array
+          items: { $ref: '#/components/schemas/SwiftManifest' }
+        signed: { type: boolean, default: false }
+        signer: { type: [string, 'null'], description: Subject of the signing certificate (not verified) }
+        tag: { type: [string, 'null'], description: The Git tag the archive was built from (proxy) }
+        commit: { type: [string, 'null'] }
+        path: { type: string, description: Path of the source archive in the repository }
+        download_url: { type: string }
+    SwiftReleasePage:
+      type: object
+      required: [package, items, next_cursor]
+      properties:
+        package: { $ref: '#/components/schemas/SwiftPackage' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SwiftRelease' }
         next_cursor: { type: [string, 'null'] }
     GalaxyNamespace:
       type: object

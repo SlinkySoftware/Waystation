@@ -44,6 +44,20 @@ describe('repository form model', () => {
     expect([back.galaxyCollectionsPath, back.galaxyRoles]).toEqual(['api/v3/collections/', false])
   })
 
+  it('builds swift SCM proxies (Git host layout, scope mapping) and hosted registries (no groups)', () => {
+    expect(HOSTED_FORMATS).toContain('swift')
+    expect(GROUP_FORMATS).not.toContain('swift')
+    const proxy = toWrite({ ...emptyModel('swift'), ...PRESETS.swift[1]!.apply, swiftScopes: 'pointfree = pointfreeco\n\nbad line\n grp = group/sub ', swiftMappedOnly: true })
+    expect(proxy).toMatchObject({ name: 'swift-gitlab', format: 'swift', type: 'proxy', proxy: { upstream_url: 'https://gitlab.com/' } })
+    expect(proxy.format_options).toEqual({ archive_layout: 'gitlab', scopes: { pointfree: 'pointfreeco', grp: 'group/sub' }, mapped_scopes_only: true })
+    expect(toWrite({ ...emptyModel('swift', 'hosted'), name: 'packages' }).format_options).toEqual({})
+    const back = modelFromRepository({
+      name: 'spm', format: 'swift', type: 'proxy', online: true, status: 'online', url: 'https://registry.example.com/repository/spm/',
+      format_options: { archive_layout: 'gitea', scopes: { a: 'b' }, mapped_scopes_only: true },
+    } as unknown as Repository)
+    expect([back.swiftLayout, back.swiftScopes, back.swiftMappedOnly]).toEqual(['gitea', 'a = b', true])
+  })
+
   it('builds npm hosted repositories and groups with a writable member', () => {
     expect(HOSTED_FORMATS).toContain('npm')
     expect(GROUP_FORMATS).toContain('npm')

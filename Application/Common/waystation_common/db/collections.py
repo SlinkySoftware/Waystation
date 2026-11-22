@@ -46,6 +46,8 @@ YUM_PACKAGES = 'yum_packages'
 HELM_CHARTS = 'helm_charts'
 GALAXY_COLLECTIONS = 'galaxy_collections'
 GALAXY_IMPORTS = 'galaxy_imports'  # hosted collection uploads waiting for (or done with) the import job
+SWIFT_RELEASES = 'swift_releases'  # Swift package releases: published (hosted) or pinned from a Git tag (proxy)
+SWIFT_PACKAGES = 'swift_packages'  # one summary per Swift package (browse, global search)
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -467,6 +469,42 @@ SPECS: tuple[CollectionSpec, ...] = (
                 ],
             ),
             _ix('expires_at_ttl', [('expires_at', ASCENDING)], expireAfterSeconds=0),
+        ),
+    ),
+    CollectionSpec(
+        SWIFT_RELEASES,
+        (
+            # One release per package version and repository; a removed release keeps its record (the version stays
+            # taken: releases are immutable, SE-0292 §4.6).
+            _ix(
+                'repo_pkg_version_unique',
+                [('repo_id', ASCENDING), ('scope_key', ASCENDING), ('name_key', ASCENDING), ('version', ASCENDING)],
+                unique=True,
+            ),
+            # Release lists and browse: a package's releases newest first (SemVer precedence).
+            _ix(
+                'repo_pkg_sort',
+                [
+                    ('repo_id', ASCENDING),
+                    ('scope_key', ASCENDING),
+                    ('name_key', ASCENDING),
+                    ('version_sort', DESCENDING),
+                ],
+            ),
+            # ``GET /identifiers?url=``: the packages whose release metadata names a source repository URL.
+            _ix('repo_urls', [('repo_id', ASCENDING), ('repository_urls', ASCENDING)]),
+        ),
+    ),
+    CollectionSpec(
+        SWIFT_PACKAGES,
+        (
+            # Browse: scopes, then the packages of a scope, by name.
+            _ix(
+                'repo_pkg_unique',
+                [('repo_id', ASCENDING), ('scope_key', ASCENDING), ('name_key', ASCENDING)],
+                unique=True,
+            ),
+            *_search_indexes(base=False),
         ),
     ),
     CollectionSpec(

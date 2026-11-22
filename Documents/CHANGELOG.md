@@ -3,6 +3,19 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-P5-SWIFT: Swift Package Registry repositories (SE-0292, SE-0391). SCM-backed proxies serve packages from a Git
+  host (GitHub, GitLab, Gitea/Forgejo; `archive_layout`, `scopes` mapping, `mapped_scopes_only`): releases are the
+  repository's SemVer tags (smart-HTTP ref advertisement, cached as metadata), each release's archive is built once
+  from the tag's tarball in a server thread (byte-deterministic zip) and its checksum pinned in `swift_releases`; a
+  rebuild that differs is refused (502) and release files are excluded from cleanup. Hosted registries accept
+  `swift package-registry publish` (archive checked before it is stored, metadata validated, signer recorded),
+  versions are immutable and a removal answers 410. Release lists, release information, manifests with alternates,
+  archives (X-Accel; nginx now passes `Content-Version`, `Link`, `Digest` and the signature headers), `/identifiers`,
+  `POST login`, problem details and API version negotiation. New collections `swift_releases`, `swift_packages`;
+  components and global search; browse API `swift/scopes|packages|releases` with a UI renderer; create flow and
+  "Set me up"; the proxy engine's `AssetSpec.missing_statuses` (Git hosts answer 401 for unknown repositories).
+  Real-client harness `tests/clients/swift/` (swift 6.4 behind a TLS front; fixtures about 200 KB);
+  `Documents/Operations/clients/swift.md`.
 - T-P5-TFM: Terraform module registry proxy and the hosted Terraform repository. Proxy repositories also serve the
   Module Registry Protocol (`v1/modules/...`) of their upstream registry: GitHub tag archives and HTTP(S)/S3 archives
   from `module_archive_hosts` (default `github.com`) are cached with their sha256 pinned at the first fetch, other

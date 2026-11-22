@@ -1466,6 +1466,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/swift/scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Scopes of a Swift package registry with their number of packages */
+        get: operations["listSwiftScopes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/swift/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Packages of a Swift package registry (hosted publishes, a proxy's pinned releases) */
+        get: operations["listSwiftPackages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/swift/releases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One Swift package and its releases (newest first, SemVer; removed releases included) */
+        get: operations["listSwiftReleases"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/terraform/providers": {
         parameters: {
             query?: never;
@@ -3548,8 +3605,25 @@ export interface components {
              */
             module_archive_hosts: string[];
         };
+        SwiftOptions: {
+            /**
+             * @description How the Git host serves the source tarball of a tag (proxy repositories): `github` (`<repo>/archive/refs/tags/<tag>.tar.gz`), `gitlab` (`<repo>/-/archive/<tag>/<name>-<tag>.tar.gz`) or `gitea` (Gitea and Forgejo: `<repo>/archive/<tag>.tar.gz`)
+             * @default github
+             * @enum {string}
+             */
+            archive_layout: "github" | "gitlab" | "gitea";
+            /** @description Scope → owner path on the Git host (proxy repositories), e.g. `{"pointfree": "pointfreeco"}` or a GitLab group path `group/subgroup`. Scopes not listed are the owner name itself, unless `mapped_scopes_only` is set */
+            scopes?: {
+                [key: string]: string;
+            };
+            /**
+             * @description Serve only the scopes listed in `scopes` (an allowlist of owners on the Git host; proxy repositories)
+             * @default false
+             */
+            mapped_scopes_only: boolean;
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -4167,6 +4241,79 @@ export interface components {
         YumVersionPage: {
             package: components["schemas"]["YumPackage"];
             items: components["schemas"]["YumVersion"][];
+            next_cursor: string | null;
+        };
+        SwiftScope: {
+            scope: string;
+            package_count: number;
+        };
+        SwiftScopePage: {
+            items: components["schemas"]["SwiftScope"][];
+            next_cursor: string | null;
+        };
+        SwiftPackage: {
+            scope: string;
+            name: string;
+            /** @description The package identity clients use: <scope>.<name> */
+            id: string;
+            /** @description The highest published version */
+            latest_version?: string | null;
+            /** @description Published releases (a proxy: releases pinned so far) */
+            release_count: number;
+            /** @default 0 */
+            removed_count: number;
+            description?: string | null;
+            /** @description Source repository (release metadata) */
+            repository_url?: string | null;
+        };
+        SwiftPackagePage: {
+            items: components["schemas"]["SwiftPackage"][];
+            next_cursor: string | null;
+        };
+        SwiftManifest: {
+            /** @description Package.swift or Package@swift-<version>.swift */
+            filename: string;
+            swift_version?: string | null;
+            tools_version?: string | null;
+            size_bytes?: number | null;
+            url: string;
+        };
+        SwiftRelease: {
+            version: string;
+            /** @default false */
+            prerelease: boolean;
+            /** @enum {string} */
+            state: "published" | "removed";
+            /**
+             * @description hosted: published; scm: built from a Git tag and pinned
+             * @enum {string}
+             */
+            source: "hosted" | "scm";
+            /** Format: date-time */
+            published_at?: string | null;
+            published_by?: string | null;
+            /** Format: date-time */
+            removed_at?: string | null;
+            removed_by?: string | null;
+            /** @description sha256 of the source archive (hex); pinned, never changes */
+            checksum: string;
+            size_bytes?: number | null;
+            tools_version?: string | null;
+            manifests?: components["schemas"]["SwiftManifest"][];
+            /** @default false */
+            signed: boolean;
+            /** @description Subject of the signing certificate (not verified) */
+            signer?: string | null;
+            /** @description The Git tag the archive was built from (proxy) */
+            tag?: string | null;
+            commit?: string | null;
+            /** @description Path of the source archive in the repository */
+            path: string;
+            download_url: string;
+        };
+        SwiftReleasePage: {
+            package: components["schemas"]["SwiftPackage"];
+            items: components["schemas"]["SwiftRelease"][];
             next_cursor: string | null;
         };
         GalaxyNamespace: {
@@ -8088,6 +8235,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GalaxyVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listSwiftScopes: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scopes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwiftScopePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listSwiftPackages: {
+        parameters: {
+            query?: {
+                /** @description Only this scope */
+                scope?: string | null;
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwiftPackagePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listSwiftReleases: {
+        parameters: {
+            query: {
+                /** @description Package scope */
+                scope: string;
+                /** @description Package name */
+                package: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Releases */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwiftReleasePage"];
                 };
             };
             404: components["responses"]["NotFound"];

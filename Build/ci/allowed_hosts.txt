@@ -30,6 +30,9 @@ registry.k8s.io
 mcr.microsoft.com
 githubusercontent.com
 
+# Public upstreams: Git hosts a Swift SCM-backed proxy serves packages from (preset in the create flow, T-P5-SWIFT)
+gitlab.com
+
 # Public upstreams: language package registries
 npmjs.org
 pypi.org

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
+import type { AptOptions, DockerOptions, Format, GalaxyOptions, GoOptions, M0Format, MavenOptions, NpmOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, SwiftOptions, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
 /** Formats the form can hold: the creatable formats. */
@@ -10,7 +10,7 @@ export type FormFormat = M0Format
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
 export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
@@ -73,6 +73,10 @@ export interface RepoFormModel {
   galaxyRoles: boolean
   // terraform (proxy: provider network mirror and module registry proxy)
   tfOrigins: string[]
+  // swift (SCM-backed proxy): how the Git host serves tag tarballs, scope → owner lines, allowlist mode
+  swiftLayout: NonNullable<SwiftOptions['archive_layout']>
+  swiftScopes: string
+  swiftMappedOnly: boolean
   verifySignatures: boolean
   tfArchiveHosts: string[]
   // apt
@@ -141,6 +145,10 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   terraform: [
     { id: 'registries', label: 'Terraform and OpenTofu registries', apply: { name: 'terraform-mirror', upstreamUrl: 'https://registry.terraform.io', tfOrigins: [...DEFAULT_TF_ORIGINS] } },
   ],
+  swift: [
+    { id: 'github', label: 'GitHub', apply: { name: 'swift-github', upstreamUrl: 'https://github.com/', swiftLayout: 'github' } },
+    { id: 'gitlab', label: 'GitLab.com', apply: { name: 'swift-gitlab', upstreamUrl: 'https://gitlab.com/', swiftLayout: 'gitlab' } },
+  ],
   yum: [
     { id: 'rocky', label: 'Rocky Linux', apply: { name: 'rocky', upstreamUrl: 'https://dl.rockylinux.org/pub/rocky/' } },
     { id: 'alma', label: 'AlmaLinux', apply: { name: 'almalinux', upstreamUrl: 'https://repo.almalinux.org/almalinux/' } },
@@ -198,6 +206,9 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     galaxyRoles: true,
     tfOrigins: [...DEFAULT_TF_ORIGINS],
     verifySignatures: true,
+    swiftLayout: 'github',
+    swiftScopes: '',
+    swiftMappedOnly: false,
     tfArchiveHosts: [...DEFAULT_TF_ARCHIVE_HOSTS],
     distribution: '',
     flat: false,
@@ -219,7 +230,7 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
   const h = repo.hosted
   const quotaBytes = repo.storage?.quota_bytes ?? null
   const quotaSize = quotaBytes ? fromBytes(quotaBytes) : { size: m.quotaSize, unit: m.quotaUnit }
-  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions & TerraformOptions
+  const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions & TerraformOptions & SwiftOptions
   return {
     ...m,
     name: repo.name,
@@ -263,6 +274,9 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     galaxyRoles: o.roles ?? true,
     tfOrigins: o.origins ?? [...DEFAULT_TF_ORIGINS],
     verifySignatures: o.verify_signatures ?? true,
+    swiftLayout: o.archive_layout ?? 'github',
+    swiftScopes: Object.entries(o.scopes ?? {}).map(([scope, owner]) => `${scope} = ${owner}`).join('\n'),
+    swiftMappedOnly: o.mapped_scopes_only ?? false,
     tfArchiveHosts: o.module_archive_hosts ?? [...DEFAULT_TF_ARCHIVE_HOSTS],
     distribution: o.distribution ?? '',
     flat: o.flat ?? false,
@@ -315,6 +329,9 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       return m.type === 'proxy' ? { repo_path: m.repoPath.trim(), gpg_key: m.gpgKey?.trim() || null, repomd_keys: m.repomdKeys.trim() || null } : {}
     case 'helm':
       return {}
+    case 'swift':
+      // The Git host settings are proxy settings (the server refuses them on hosted repositories).
+      return m.type === 'proxy' ? { archive_layout: m.swiftLayout, scopes: parseScopes(m.swiftScopes), mapped_scopes_only: m.swiftMappedOnly } : {}
     case 'galaxy':
       // The upstream layout is a proxy setting (the server refuses another value on hosted and group repositories).
       return m.type === 'proxy' ? { collections_path: m.galaxyCollectionsPath.trim() || GALAXY_COLLECTIONS_PATH, roles: m.galaxyRoles } : {}
@@ -325,6 +342,17 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
       // Mutable-path revalidation is a proxy setting (the server refuses it on hosted and group repositories).
       return { metadata_path_regex: m.type === 'proxy' ? m.metadataRegex.trim() || null : null, content_disposition: m.contentDisposition }
   }
+}
+
+/** "scope = owner" lines (blank lines and lines without "=" are ignored) → the swift ``scopes`` option. */
+export function parseScopes(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const [scope, ...rest] = line.split('=')
+    const owner = rest.join('=').trim()
+    if (scope?.trim() && owner) out[scope.trim()] = owner
+  }
+  return out
 }
 
 /** The quota as written: none for groups (they store nothing) or when the limit is off. */
