@@ -1,7 +1,7 @@
 # Waystation architecture
 
 **Enforced rules.** Code that violates a rule here is a bug, even if tests pass. Changing a rule needs an ADR
-(`adr/`) approved by the owner. Section numbers are referenced from code comments and tasks (`ARCH §6.3`).
+(`adr/`) approved by the maintainers. Section numbers are referenced from code comments (`ARCH §6.3`).
 
 ## 1. Components and responsibilities
 
@@ -27,13 +27,13 @@
 - **web**: the only published port. Serves the SPA, proxies dynamic paths to `server`, and serves file bodies
   for cache hits from the blob store via `X-Accel-Redirect` (sendfile, HTTP ranges, `ETag`). Holds no state, no
   credentials, no business logic. The blob store is mounted **read-only**.
-  As implemented (T-P6-DOCKERC, adr/0013 accepted): docker dedicated port connectors are extra web listeners from the
+  Docker dedicated port connectors (adr/0013) are extra web listeners from the
   static list `WAYSTATION_DOCKER_CONNECTORS` (`/v2/` and `/_blobs/` only), which tell the server the port in
   `X-Waystation-Connector`; the web tier never learns which repository owns a port (§7).
 - **server**: stateless. Speaks every format protocol, the REST API, SSE, the Docker token service. Makes every
   authorization decision. Reads/writes MongoDB and Valkey; writes blobs. Never runs long batch work: it enqueues jobs.
 - **worker**: stateless job runner. Owns all batch and scheduled work. No HTTP listener except health.
-  As implemented (T-O12, adr/0012 accepted): prefetch jobs are the one place a worker calls a server, over HTTP
+  Prefetch jobs (adr/0012) are the one place a worker calls a server, over HTTP
   (`WAYSTATION_INTERNAL_URL`, the internal route `POST /_internal/prefetch/<repo id>` with a signed system grant), so
   that format plugins and the proxy engine do the fetching; the worker decides what and when (§7, §10).
 - **MongoDB**: system of record for configuration, metadata, users, stats (time-series), audit, job history.
@@ -79,7 +79,7 @@
      `add_header ETag $upstream_http_x_ws_etag always` /
      `add_header Docker-Content-Digest $upstream_http_docker_content_digest always` (etc.), `internal`, `sendfile on`.
      The server also sets its normal `Content-Type` on the X-Accel response: nginx keeps it across the internal
-     redirect (verified in T-F05; `default_type` cannot take a variable, so `X-Ws-Content-Type` is informational).
+     redirect (`default_type` cannot take a variable, so `X-Ws-Content-Type` is informational).
      Implemented by `waystation_server.dataplane.xaccel.serve_blob` (ETag `"sha256:<hex>"`; `HEAD` is answered by
      the server with `Content-Length`; `Content-Disposition` passes through nginx unchanged).
    - File access: server/worker and web share a GID (`waystation`, default 10001); blob dirs are setgid (2750),
@@ -101,12 +101,12 @@
   - `keys/`: per-repo signing keys, encrypted with `SECRET_KEYS`.
 - A blob is written once; identical content from any repo or format is stored once (refcounted via assets, GC'd
   by mark-and-sweep, SPEC §4.8). Never mutate a blob; never hard-link.
-- Free-space guard checked before opening writers (SPEC §4.8). As implemented (T-O03): the floor is the larger of the
+- Free-space guard checked before opening writers (SPEC §4.8). The floor is the larger of the
   low-disk guard's `min_free_bytes` and `min_free_percent` (settings document `storage`, kept in step on every server
   replica by `repos.quota.GuardKeeper`); a refused proxy fill is passed through to the client uncached, never failed.
   Hard repository quotas are checked by the server before a write (`repos.quota.Quotas`), never on a cache hit.
 
-As implemented (T-O02): mark-and-sweep runs as the worker job `blob.gc` (`waystation_worker.gc`) over the `blobs`
+Mark-and-sweep runs as the worker job `blob.gc` (`waystation_worker.gc`) over the `blobs`
 collection. To make a cache fill racing the sweep safe, `BlobStore.commit` **claims** the blob through
 `BlobStore.guard` (`waystation_common.db.blobs.MongoBlobGuard`) before the rename, also when identical content is
 already in place: the claim sets `claimed_at` and clears the mark, and cannot happen while GC holds the blob in state
@@ -116,7 +116,7 @@ blob. Code that makes a new reference to an existing blob without a commit must 
 a blob GC unlinks: the open file stays readable on POSIX, and a blob served moments ago was referenced, so it is not
 deleted before the grace period ends.
 
-As implemented (T-P2-DOCKERH): uploads that span several requests (OCI chunked blob uploads) are **resumable
+Uploads that span several requests (OCI chunked blob uploads) are **resumable
 uploads** of the same store: `start_upload()` creates `uploads/<id>`, `resume_writer(id, offset=n)` appends to it
 (refusing a wrong offset; `repair` cuts unacknowledged bytes off), `BlobWriter.suspend()` keeps the file for the next
 request, `rollback()` undoes one request's part, `commit` verifies and moves it into place as for any writer. The
@@ -130,16 +130,16 @@ One shared `httpx.AsyncClient` per upstream host (HTTP/2, connection pooling, li
 plug-ins (basic, bearer, docker token negotiation with cached scoped tokens, GHCR), SSRF-checked resolver,
 timeouts (connect 10 s, read 60 s idle), retries only on idempotent requests and only before first byte.
 
-As implemented (T-S07): clients are keyed by origin, SSRF mode, the repository's CA bundle and its outbound proxy
+Clients are keyed by origin, SSRF mode, the repository's CA bundle and its outbound proxy
 (`proxy.http.Network`), so a repository's CA or proxy never applies to another. Through an outbound proxy the proxy
 connects, so the guard resolves and checks every hop's target just before the request instead of at connect time
 (a DNS-rebinding window remains between the two lookups; the proxy itself is administrator-configured). Every
 upstream request first passes the repository's auto-block breaker (`proxy.breaker`, state in the Valkey health hash,
 one probe per ended period across replicas) and reports its outcome to it; Valkey down = no auto-block.
 The guard judges an IPv6 address that stands for an IPv4 one (IPv4-mapped, IPv4-compatible, NAT64 well-known prefix)
-by that IPv4 address, and refuses site-local, 6to4 and Teredo addresses (T-R01).
+by that IPv4 address, and refuses site-local, 6to4 and Teredo addresses.
 The guard itself (`SsrfGuard`, `GuardedBackend`) lives in `waystation_common.ssrf` (re-exported by
-`waystation_server.proxy.ssrf`) so the worker's outbound calls (webhook deliveries, T-O05) apply the same rules.
+`waystation_server.proxy.ssrf`) so the worker's outbound calls (webhook deliveries) apply the same rules.
 The breaker's core (Lua scripts, `AutoBlockBreaker`) lives in `waystation_common.breaker` (the server's
 `proxy.breaker.UpstreamBreaker` adds announcements and the prober): the worker's own upstream requests (the
 `apt.refresh` job, `waystation_worker.upstream`) apply the repository's network settings and credentials the same
@@ -191,7 +191,7 @@ Stale-on-error and offline mode as SPEC §4.1.
   the progress record carries the owner's host id (the kernel boot id, shared by containers on one machine);
   `WAYSTATION_COALESCE_TAIL=auto` (default) tails only when the follower is on the owner's host and the data dir is
   not a network filesystem (detected from `/proc/mounts`), otherwise waits; `local` / `wait` force a mode.
-  Followers that wait still get bytes as soon as the commit lands. T-F07/T-S08 CI covers both modes; followers on a
+  Followers that wait still get bytes as soon as the commit lands. CI covers both modes; followers on a
   second host against an NFS export are not covered yet.
 - Lock lease (`WAYSTATION_COALESCE_LEASE_S`, default 15 s) renewed every third of it while the fill makes progress
   (a fill with no progress for the upstream timeouts plus a lease stops renewing and expires); abort cleans the
@@ -218,7 +218,7 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   Every route declares its required action (decorator); a test enumerates all routes and fails if one lacks it.
 - Grants are materialised per principal (roles ∪ group roles ∪ anonymous) into a compact table cached in Valkey
   keyed by `grant_version` (incremented on any RBAC change; change stream invalidation across replicas).
-  As implemented (T-S03): `security.rbac.RbacState` (`Services.rbac`) holds the custom roles, the groups and the
+  The `security.rbac.RbacState` (`Services.rbac`) holds the custom roles, the groups and the
   anonymous roles of the `grant_version` it loaded; it learns a new version from its own writes at once, from a
   change stream on `rbac_state` within moments, and from a 5 s poll when the stream is down. Authentication
   materialises the principal's effective roles into `Principal.grants` (in-process cache per
@@ -240,23 +240,23 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   `access.check` applies the narrowing, so no route can forget it. Docker registry tokens are short-lived (5 min)
   JWT (EdDSA) signed with a key in `keys/`, scoped per the Docker token spec; one issued for an API token carries
   its id (`tid`) and the API token is re-checked on every `/v2/` request. Refresh tokens (`docker login` identity
-  tokens, OAuth2 `access_type=offline`; T-S12) are 90-day JWTs of the same key marked `use: refresh`, never accepted
+  tokens, OAuth2 `access_type=offline`) are 90-day JWTs of the same key marked `use: refresh`, never accepted
   on `/v2/`, exchanged at `POST /auth/token` after the subject is re-read from MongoDB. Revocation before expiry
   (`security.registry_revocation`): a per-user cut-off, durable in `users.tokens_not_before` and announced in Valkey
   (`regtok:nbf:<user>`, read on every `/v2/` request with a user's token); tokens issued (`iat_ms`) at or before it
   are refused. Set when a user is disabled or deleted, changes or gets a new password, or has sessions revoked.
-- Signed download grants (adr/0010, accepted 2026-11-22, T-P5-TFM): Terraform and OpenTofu fetch the files a registry answer
+- Signed download grants (adr/0010): Terraform and OpenTofu fetch the files a registry answer
   points at without their registry token, so the Terraform format gives a signed-in caller file URLs carrying
   `?ws_grant=<expiry>.<HMAC>` (`security.download_urls`: repository id, exact path, 5 minutes; key derived from
   `SECRET_KEYS`). `access.download_grant` accepts a valid grant as a `GET`/`HEAD` of that one file and nothing else;
   formats obtain grants only through `FormatRequest.download_query`.
-- Docker port connectors (adr/0013 accepted, T-P6-DOCKERC): `X-Waystation-Connector: <port>` is set only by the web
+- Docker port connectors (adr/0013): `X-Waystation-Connector: <port>` is set only by the web
   tier's connector listeners (replacing a client's copy; the main listeners clear it) and read only by
   `routing.connector_port`, which ignores it unless the direct peer is an internal hop (`clientip`, like `X-Real-IP`).
   It only selects the repository a `/v2/` name resolves to, exactly as a `<repository>/` prefix would; the
   `?connector=` realm parameter of the token service does the same for scopes. Neither grants anything by itself:
   RBAC and the registry token's per-repository grants decide.
-- System grants (adr/0012 accepted, T-O12): the worker's prefetch jobs call the server's internal route
+- System grants (adr/0012): the worker's prefetch jobs call the server's internal route
   `POST /_internal/prefetch/<repo id>` with `X-Ws-System-Grant: <expiry>.<HMAC>` (`waystation_common.system_grants`:
   purpose `prefetch`, repository id, 5 minutes; key derived from `SECRET_KEYS`). `access.system_grant` accepts a valid
   grant for an online proxy repository as the principal `system`/`prefetch` holding `browse` + `read` on that
@@ -265,7 +265,7 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   traffic; `refresh` revalidates metadata before it is stale.
 - Credentials for upstreams and LDAP/OIDC secrets are AES-GCM encrypted with `SECRET_KEYS` (first key encrypts,
   all keys decrypt; rotation job re-encrypts).
-  As implemented (T-O11): every stored ciphertext is listed in `waystation_common.db.secrets.ENCRYPTED_FIELDS`
+  Every stored ciphertext is listed in `waystation_common.db.secrets.ENCRYPTED_FIELDS`
   (collection, field, associated data; a test compares it with the owning code and fails when a module starts
   encrypting something new) plus the `keys/` files (`waystation_common.keyfiles`). The worker job `secrets.rotate`
   (`waystation_worker.rotate`; daily, and "Run now" / `run_task` after a key change) selects only values whose
@@ -280,14 +280,14 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   on the request path). Operator procedure: `Documents/Operations/SECRET_KEY_ROTATION.md`.
 - Input hardening: path normalisation in one function (`waystation_common.paths`), size limits on every body and
   every parsed metadata document, XML parsing with `defusedxml`, archive extraction with zip/tar-slip checks,
-  no `eval`/`pickle`/YAML unsafe load. Since T-R01: every untrusted tar is opened with
+  no `eval`/`pickle`/YAML unsafe load. Every untrusted tar is opened with
   `tarinfo=waystation_common.archives.BoundedTarInfo` (extension headers <= 1 MiB, chains <= 16, no sparse files) in a
   file mode (`r:gz`, `r:*`), never a compressed stream mode (`r|gz`); zip members are read through a bounded
   `open().read(limit + 1)`, never `ZipFile.read`; the exceptions in `archives.READ_ERRORS` (and `RecursionError` from
   deeply nested JSON) map to the format's clean refusal, never a 500; duplicate metadata entries in a zip are refused;
   YAML loaders refuse explicit merge keys (`<<`). The hostile-input corpora in `tests/security/` exercise every
   reader, `waystation_common.paths` and `waystation_common.ssrf`.
-- Response headers (T-R01): the web tier adds `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, HSTS with TLS,
+- Response headers: the web tier adds `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, HSTS with TLS,
   a strict CSP on `/ui/` and `Content-Security-Policy: sandbox` on everything else (artifacts are untrusted content
   on the UI's origin); the server adds `Cache-Control: no-store` to `/api/` and `/auth/` answers without their own.
 - Audit records written for SPEC §4.11 actions via `audit.record(...)` only (`waystation_server.audit`; one call per
@@ -329,7 +329,7 @@ Formats without upstream checksums record the computed sha256 and serve consiste
 - SPA: route-level code splitting, virtual scroll for long lists, no blocking third-party scripts, hashed
   immutable assets with long cache lifetime, HTTP/2.
 - Budgets in `Build/ci/budgets.json` (SPEC §5.1) enforced by `make perf` and the bundle check; `make budgets`
-  reports them in CI; since M2 a budget over its limit fails the build.
+  reports them in CI; a budget over its limit fails the build.
 
 ## 10. Workers and jobs
 - Queue transport: Valkey Streams with consumer groups (`jobs:<queue>`), at-least-once delivery, visibility
@@ -347,7 +347,7 @@ Formats without upstream checksums record the computed sha256 and serve consiste
   `prefetch`, `import`. `WORKER_QUEUES` selects which a worker consumes.
 - Job runs, progress and logs are recorded in MongoDB (`job_runs`) and streamed to the UI via events.
 
-As implemented (T-F08): job types are frozen pydantic models subclassing `waystation_common.jobs.JobPayload`
+Job types are frozen pydantic models subclassing `waystation_common.jobs.JobPayload`
 (`kind`, `queue`, `max_attempts`, `dedupe_key()`); the server enqueues through `JobClient` (`Services.jobs`):
 `enqueue_durable(payload, session=s)` writes the outbox inside its transaction, `enqueue(payload)` goes straight to
 Valkey. Every queue transition (enqueue/merge/rerun, start, finish/retry/dead, heartbeat) is one Lua script in
@@ -359,18 +359,18 @@ fire is enqueued once even if two leaders overlap) and promotes delayed jobs. Va
 `jobs:epoch` token. Handlers (`@handles(Payload)`) get a `JobContext` (`progress`, `log`, db, valkey). The stats
 rollup (§8) runs as the scheduled job `stats.rollup` (`@every 10s`, queue `stats`). Graceful stop lets running jobs
 finish for 8 s; abandoned jobs are reclaimed. Liveness: the heartbeat file is withheld when the consumer loop stalls.
-Operators see and steer this through `/api/v1/tasks/*` (T-O04, `admin`): definitions (schedule/enabled edits reset
+Operators see and steer this through `/api/v1/tasks/*` (`admin`): definitions (schedule/enabled edits reset
 `next_run_at`), runs, workers, and dead letters (retry = one Lua step that queues a fresh envelope and deletes the
 entry). A handler that did its work but must fail its run raises `JobFailedError(message, result=..., retry=False)`:
 the run records the result and is dead-lettered at once. `JobContext` progress and log lines are also published on
 `live:jobs`; the SSE hub relays them, plus job and
 worker activity, on the admin-only topic `tasks`.
-Webhooks (T-O05) use the same pieces: the server writes a `webhook.event` job to the outbox for each content or
+Webhooks use the same pieces: the server writes a `webhook.event` job to the outbox for each content or
 repository change an enabled webhook wants (taken from `audit.record`), and the worker's handler records and sends
 the deliveries; retries are scheduled on the delivery documents (`next_attempt_at`) and picked up by the scheduled
 `webhook.sweep`, not by job retries, so a receiver that is down never fills the dead-letter stream.
 
-As implemented (T-O12, adr/0012 accepted): queue `prefetch` runs `prefetch.refresh` (built-in, every 15 minutes:
+Prefetch (adr/0012): queue `prefetch` runs `prefetch.refresh` (built-in, every 15 minutes:
 each proxy repository with `proxy.prefetch.refresh_popular` that is online, not offline and not auto-blocked; its
 most downloaded metadata of the last 7 days, at most 200, that is stale or goes stale before the next run, selected
 with the `prefetch_popular` index) and `prefetch.warm` (per repository: the warm list; scheduled by the
@@ -380,27 +380,24 @@ dedupe key `prefetch:<repo id>`). Both are executed by a server through the inte
 on their descriptor (`warm_item`, `refresh_request`) and plugin (`warm(ctx, item)`, `formats.base.WarmContext`).
 
 ## 11. Format plugin contract
-`waystation_server.formats.base.Format` (protocol) with: `name`, `routes()` (mounted under `/repository/<repo>/`
-and any format-specific roots such as `/v2/`), `resolve(request, repo) -> Resolution`, `proxy_fetch(...)`,
-`hosted_put(...)`, `group_merge(...)` where applicable, `component_from_asset(path, meta) -> ComponentKey | None`,
-`setup_snippets(repo, user) -> list[Snippet]`, `config_schema` (pydantic model for format-specific repo options),
-`ui_descriptor` (icon, labels, browse renderer hints). Shared helpers for metadata rewriting, checksum
-validation and URL building live in `formats/common/`.
+Every format is a plugin package `waystation_server/formats/<format>/` and nothing else in the server knows a
+format's protocol. Shared helpers for metadata rewriting, checksum validation, version ordering and URL building live
+in `formats/common/` and `waystation_common`.
 
-As implemented (M0): a format is a `FormatDescriptor` (name, supported types, `options_model` = `config_schema`,
-probe path, "Set me up" snippets, UI hints) plus a plugin with `handle(req: FormatRequest) -> Response`, registered in
+A format is a `FormatDescriptor` (name, supported types, `options_model` = `config_schema`,
+probe path, "Set me up" snippets, UI hints) plus a `FormatPlugin` with `handle(req: FormatRequest) -> Response`, registered in
 `waystation_server.plugins`. The router has already resolved the repository, normalised the path and authorised the
 request. Proxy formats describe each file as a `proxy.engine.AssetSpec` and return `await req.proxy.serve(req, spec)`
 (`ensure`/`read` give them cached metadata to parse); the engine implements §5, §6.1, §6.2 and §6.4 for them.
-Hosted repositories use `req.hosted` (`waystation_server.hosted.store.HostedStore`, T-P2-DOCKERH): stream a request
+Hosted repositories use `req.hosted` (`waystation_server.hosted.store.HostedStore`): stream a request
 body into a `BlobWriter` as a live upload transfer, record committed blobs as assets, link a blob already in the store
 (claimed against GC first), serve stored assets by X-Accel (the same data plane as cache hits) and remove assets.
 `req.allows(action, other_repo)` asks the decision point about another repository (cross-repository mounts) and
-`req.resolve_name(name)` resolves a `/v2/` name to its repository. Group repositories (T-P2-DOCKERG) answer by
+`req.resolve_name(name)` resolves a `/v2/` name to its repository. Group repositories answer by
 handing the request to a member (`dataclasses.replace(req, repo=member)`); `req.repository(name)` finds members and
 `req.allows_member(action, member)` asks the decision point about a member (RBAC with API-token limits, not the
 registry token's grants, which named the group).
-As implemented (T-P5-NPMH): a descriptor may override the action the router authorises for a request
+A descriptor may override the action the router authorises for a request
 (`request_action(method, path)`, e.g. npm `dist-tag rm` is a `DELETE` that needs `write`) and may declare package-client
 sign-in paths (`client_login(method, path)`: npm `/-/user/...`). For those the router authenticates but authorises
 nothing; the plugin calls `req.sign_in` / `req.sign_out` (`waystation_server.client_login`), which verify the password
@@ -413,7 +410,7 @@ Format endpoints return the format's native error shape (OCI JSON errors, npm JS
 formats). REST API errors use RFC 9457 problem+json. Logs are JSON lines with `request_id`, `principal`,
 `repo`, `format`, `op`, `cache`, `status`, `duration_ms`, `bytes`; never secrets, never tokens, never full
 authorization headers.
-Recent WARNING/ERROR records are also kept for the support bundle (T-O10): `waystation_common.recent_errors.RecentErrors`
+Recent WARNING/ERROR records are also kept for the support bundle: `waystation_common.recent_errors.RecentErrors`
 on the root logger of every server and worker process queues the redacted, bounded record in memory and a background
 task appends it to the Valkey stream `errors:recent`; it never blocks or fails the caller (full buffer or Valkey down
 = dropped and counted; floods of one message summarised).
