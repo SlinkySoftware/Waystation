@@ -1,30 +1,31 @@
 # Waystation specification
 
-Living document: it describes what Waystation does **now** plus the agreed target. §14 tracks build status.
+The product specification of Waystation as built: what it does, how it is deployed and how it is verified.
 Architecture rules are in `Architecture/ARCHITECTURE.md`, per-format protocol detail in `Architecture/FORMATS.md`,
-the UI in `UI_DESIGN.md`, the work breakdown in `TASKS.md`.
+the UI in `UI_DESIGN.md`, day-2 operation in `Operations/ADMIN_GUIDE.md` and the REST API in `API/README.md`.
+How the product was built (task breakdown, build status, notes) is kept under `History/`.
 
 ## 1. Purpose
 
-Waystation is a self-hosted artifact repository for a home lab or small organisation:
+Waystation is a self-hosted artifact repository for a home lab, team or small organisation:
 
 1. **Cache**: a pull-through proxy for public package ecosystems, so every machine pulls packages and images
    once over the internet and then at LAN speed, keeps working through upstream outages and rate limits, and is
    shielded from upstream disappearance of versions.
-2. **Registry**: a private registry for the owner's own container images and packages (Artifactory-style), used
+2. **Registry**: a private registry for your own container images and packages (Artifactory-style), used
    by CI runners and deployments.
 3. **Window**: a fast, live, professional web UI that shows what is being fetched right now, what is cached,
    how much bandwidth it saves and how healthy each upstream is.
 
-It replaces Sonatype Nexus Repository CE (40k-component / 100k-requests-per-day caps, mandatory telemetry) and
-should be a credible open-source alternative to Nexus and Artifactory for small deployments.
+It is an open-source alternative to Sonatype Nexus Repository and JFrog Artifactory for small and medium
+deployments, with no component or request caps and no telemetry.
 
 ## 2. Goals and non-goals
 
 Goals:
-- Feature parity with the owner's existing Nexus setup on day one of cutover (Phase 2, §4.5: the formats configured
-  today are Docker/OCI, apt, yum and npm, plus raw), then PyPI and Maven first, then broad format coverage (Phase 5).
-  PyPI and Maven do not gate cutover (D3, decided).
+- Broad format coverage (§4.5): Docker/OCI, npm, PyPI, Maven, apt, yum, raw, Go, Helm, Terraform/OpenTofu, Ansible
+  Galaxy, Swift, NuGet, Cargo, RubyGems, Composer, Conda, Alpine apk and Hugging Face.
+- A straightforward migration from Nexus: repository configuration is imported from a running Nexus (§4.12).
 - Drop-in URLs: Nexus-compatible path layout `/repository/<repo-name>/...`, so clients switch with no changes.
 - Fast: cache hits served by nginx `sendfile` from disk; the API and UI feel instant (§5.1 budgets).
 - Clean separation: web / server / workers / database / cache as separate containers; workers scale
@@ -33,15 +34,15 @@ Goals:
 - Local, LDAP and OIDC sign-in; RBAC down to repository and action; API tokens for CI and clients.
 - Zero telemetry, no usage caps, no phone-home.
 
-Non-goals (v1): clustering across sites/replication, vulnerability scanning (planned post-v1, §15), S3 storage
-(storage driver interface allows it later), build tooling, a CLI beyond what format clients already provide,
-Windows containers support for the server.
+Out of scope: clustering across sites and replication, vulnerability scanning, S3/object storage for blobs (the
+storage interface is designed to allow a driver), build tooling, a CLI beyond what format clients already provide,
+and Windows containers for the server.
 
 ## 3. Concepts
 
 | Term | Meaning |
 |---|---|
-| **Format** | A package ecosystem protocol (docker, npm, pypi, maven, apt, yum, go, helm, terraform, galaxy, swift, nuget, cargo, rubygems, composer, conda, raw). Implemented as a server plugin. |
+| **Format** | A package ecosystem protocol (docker, npm, pypi, maven, apt, yum, go, helm, terraform, galaxy, swift, nuget, cargo, rubygems, composer, conda, apk, huggingface, raw). Implemented as a server plugin. |
 | **Repository** | A named, configured endpoint of one format and one type. Name: `^[A-Za-z0-9][A-Za-z0-9._-]{1,62}$`, stored as given, unique case-insensitively (so Nexus names import unchanged); URL matching is case-sensitive like Nexus. |
 | **Type** | `proxy` (caches one upstream), `hosted` (stores uploads), `group` (ordered union of members of the same format; reads try members in order; writes go to the configured member). |
 | **Component** | A logical package version (e.g. `nginx:1.27`, `lodash@4.17.21`, `requests 2.32.3`, `curl 8.5.0-2`). Format-specific coordinates. |
@@ -80,7 +81,7 @@ Windows containers support for the server.
   events, activity and metrics; saving the repository clears a block.
 - Upstream credentials per repo (basic, bearer, Docker Hub token login, GHCR PAT), stored encrypted. Tokens an
   upstream registry issues (Docker token realms) are shared by every server replica through Valkey, encrypted with
-  the secret keys and kept no longer than they are valid, so one replica's token serves all (T-P2-DOCKERP).
+  the secret keys and kept no longer than they are valid, so one replica's token serves all.
 - Upstream TLS: verify by default; per-repo custom CA bundle (`ca_pem`, added to the system CAs and
   `WAYSTATION_EXTRA_CA_FILE` for that repo only); optional HTTP proxy per repo (`http_proxy`, no credentials) or
   global (`WAYSTATION_HTTP_PROXY` / `WAYSTATION_NO_PROXY`, credentials allowed). Through a proxy the SSRF guard
@@ -98,10 +99,9 @@ Windows containers support for the server.
   Helm `index.yaml` URLs, Terraform download URLs).
 - SSRF guard: upstream URLs and redirects may not resolve to loopback/link-local/private ranges unless the repo
   sets `allow_private_upstream: true`. IPv6 forms that stand for an IPv4 address (IPv4-mapped, IPv4-compatible,
-  NAT64 `64:ff9b::/96`) are judged by that IPv4 address; 6to4, Teredo and site-local addresses are refused (T-R01).
-- **Prefetch** (T-O12, per proxy repository `proxy.prefetch`; adr/0012 accepted): formats docker, npm, raw, Maven,
-  Go, NuGet (T-P6-NUGET), Composer (T-P6-COMPOSER), Cargo (T-P6-CARGO), RubyGems (T-P6-GEMS), Conda (T-P6-CONDA),
-  Hugging Face (T-P6-HF) and Alpine apk (T-P6-APK) (others refuse the settings).
+  NAT64 `64:ff9b::/96`) are judged by that IPv4 address; 6to4, Teredo and site-local addresses are refused.
+- **Prefetch** (per proxy repository `proxy.prefetch`; adr/0012): formats docker, npm, raw, Maven, Go, NuGet,
+  Composer, Cargo, RubyGems, Conda, Hugging Face and Alpine apk (other formats refuse the settings).
   - *Keep popular metadata fresh* (`refresh_popular`, off by default): the built-in task `prefetch.refresh` (every
     15 minutes, queue `prefetch`) takes the repository's metadata files downloaded in the last 7 days, most downloaded
     first (at most 200), and revalidates those that are stale or go stale before the next run (conditional request;
@@ -126,62 +126,58 @@ Windows containers support for the server.
   curl PUT for raw/apt/yum, swift package-registry publish, ...).
 - **Write policy** per repo: `allow_redeploy` / `disable_redeploy` (default for release repos) / `read_only`.
   SNAPSHOT-style repos (Maven) allow redeploy for snapshot versions only.
-- Docker: tag immutability rules (regex) per repo, multi-arch indexes, cross-repo blob mount, referrers API
-  (signatures/SBOMs attach), delete by tag or digest.
-  Now (T-P2-DOCKERH): docker hosted repositories accept `docker push`/`buildx --push` (multi-platform indexes with
+- **Docker**: hosted repositories accept `docker push`/`buildx --push` (multi-platform indexes with
   attestations), skopeo, crane, oras and cosign: chunked, monolithic and resumable blob uploads verified by sha256,
   cross-repository mounts from any docker repository the client may read (proxy caches included), manifest validation
   (media types, referenced blobs/manifests present with the stated sizes, 4 MiB), write policy (`allow_redeploy`
   default, `disable_redeploy`, `read_only`) and immutable tag patterns, delete by tag, digest and unreferenced blob,
-  the referrers API (with `artifactType` filter; proxies since 2026-11-21: the upstream's referrers API, else its
+  the referrers API (with `artifactType` filter; proxies: the upstream's referrers API, else its
   `sha256-<hex>` tag schema, cached as metadata; groups merge every member's), `tags/list` and `/v2/_catalog`
   (filtered by RBAC). Pushes need
   `write`, deletes `delete`; pushed manifests and deletes are audited. The OCI distribution-spec conformance suite
   passes (pull, push, content discovery, content management). A hard quota (§4.8) refuses blob uploads, mounts and
   manifest pushes with `403 DENIED` and a message naming the quota; the low-disk guard answers `507`.
-- PyPI (T-P5-PYPI): hosted repositories accept twine and `uv publish` (the legacy upload API, `POST` to the repository
+- **PyPI**: hosted repositories accept twine and `uv publish` (the legacy upload API, `POST` to the repository
   URL, multipart streamed into the blob store): wheels and sdists whose core metadata (read from the archive in a
   thread, bounded, zip/tar-slip checked) agrees with the file name and form, `sha256_digest` verified; a wheel's
   `METADATA` is also served as its PEP 658 `.metadata` file. Write policy as for docker (`disable_redeploy` accepts
   the same bytes again and refuses other content with "File already exists"). Project pages (PEP 503 HTML and PEP 691
   JSON) are rendered from the stored files per request; releases can be yanked (PEP 592) from Browse or
   `POST /api/v1/repositories/{name}/pypi/yank` (`write`). Uploads need `write`; uploads and yanks are audited.
-- npm (T-P5-NPMH): hosted repositories accept `npm publish` (one version and its base64 tarball per request, ≤ 100
+- **npm**: hosted repositories accept `npm publish` (one version and its base64 tarball per request, ≤ 100
   MiB; `dist.integrity`/`shasum` and the tarball's own `package.json` checked against the version; the tarball read
   in a thread without extraction, bounded), and generate their packuments (full and abbreviated, `ETag`/`304`) from
   the stored versions after every change. `npm deprecate`, `npm unpublish <pkg>@<version>` and `--force` (needs
   `delete`), `npm dist-tag add/rm/ls` (`write`; `latest` cannot be removed) and `npm search` work. Write policy as for
   docker; `disable_redeploy` answers npm's "You cannot publish over the previously published versions". Publishes
   are audited `content.upload`, deprecations and tag changes `content.update`, unpublishes `content.delete`.
-- Raw: `curl --upload-file` (`PUT`) and `DELETE` on any path; `X-Checksum-Sha256`/`-Sha1`/`-Md5` headers verified
+- **Raw**: `curl --upload-file` (`PUT`) and `DELETE` on any path; `X-Checksum-Sha256`/`-Sha1`/`-Md5` headers verified
   before anything is stored; write policy as above (`disable_redeploy`: a path is written once, 409; deletes stay
-  allowed); directory listings (HTML, or JSON for scripts) at the root and any path ending in `/`.
-  Now (T-P2-RAW): built as described; uploads need `write`, deletes `delete`; both are audited and live in the
-  activity feed.
-- Helm: `curl --upload-file` (`PUT`) and the ChartMuseum API (`POST api/charts`, as `helm cm-push` sends it);
-  provenance files; delete by file or `api/charts/<name>/<version>`.
-  Now (T-P5-HELM): chart packages are checked before they are stored (single top-level directory, no links or
+  allowed); directory listings (HTML, or JSON for scripts) at the root and any path ending in `/`. Uploads need
+  `write`, deletes `delete`; both are audited and appear in the activity feed.
+- **Helm**: `curl --upload-file` (`PUT`) and the ChartMuseum API (`POST api/charts`, as `helm cm-push` sends it);
+  provenance files; delete by file or `api/charts/<name>/<version>`. Chart packages are checked before they are stored (single top-level directory, no links or
   unsafe names, size limits, `Chart.yaml` with a valid name and SemVer version) and stored as
   `<name>-<version>.tgz`; write policy as above; the worker rebuilds `index.yaml` from the stored charts through the
   outbox (seconds after an upload or delete) and publishes it atomically. Uploads and deletes are audited.
-- Ansible Galaxy: `ansible-galaxy collection publish` (multipart to `api/v3/artifacts/collections/`, answered with an
-  import task the client polls at `api/v3/imports/collections/<task>/`); delete a version or a whole collection.
-  Now (T-P5-GALAXY): the upload (`<namespace>-<name>-<version>.tar.gz`, ≤ 256 MiB) streams into the blob store and
+- **Ansible Galaxy**: `ansible-galaxy collection publish` (multipart to `api/v3/artifacts/collections/`, answered
+  with an import task the client polls at `api/v3/imports/collections/<task>/`); delete a version or a whole
+  collection. The upload (`<namespace>-<name>-<version>.tar.gz`, ≤ 256 MiB) streams into the blob store and
   must match its `sha256` field; the import task and its `import.galaxy` job are written in one transaction
   (outbox); the worker validates the archive without extracting it (tar-slip guards, `MANIFEST.json` naming the
   same collection version, `FILES.json` matching the manifest checksum, every file's sha256, no unlisted files) and
   only then lists the version. Versions are immutable (409; delete first); `read_only` refuses (403). Uploads and
   deletes are audited.
-- Swift Package Registry: `swift package-registry publish` (SE-0391: `PUT <scope>/<name>/<version>`, multipart with
-  the source archive, optional release metadata and signature). Now (T-P5-SWIFT): synchronous (`201`); the archive
+- **Swift Package Registry**: `swift package-registry publish` (SE-0391: `PUT <scope>/<name>/<version>`, multipart
+  with the source archive, optional release metadata and signature), answered synchronously (`201`); the archive
   (≤ 512 MiB, hard quota first) is checked in a thread before it is stored (one top-level folder, safe entry names,
   no links leaving the package, bounded size and count, `Package.swift` with a tools version: else `422`); the
   signer's certificate subject is recorded, the signature passed to clients (not verified by Waystation). Releases are
   immutable: a removal (`DELETE`) keeps the version taken (`410` to clients, `409` to a new publish). `read_only`
   refuses (403). Publishing and removals are audited.
-- Index generation for apt and yum hosted repos by workers, signed with a per-repo GPG key (key generated or
-  imported; public key downloadable from the repo root and shown in "Set me up").
-  Now (T-P5-YUMH): hosted yum repositories accept RPMs by `PUT <path>.rpm` (stored at that path) or `POST` to a
+- **apt and yum**: workers generate the indexes of hosted repositories and sign them with a per-repository key
+  (generated on first use; the public key is downloadable from the repository root and shown in "Set me up").
+  Hosted yum repositories accept RPMs by `PUT <path>.rpm` (stored at that path) or `POST` to a
   directory (stored as `<name>-<version>-<release>.<arch>.rpm`), streamed into the blob store after the hard-quota
   check; the header is read in a thread (bounded, offsets checked, header SHA-256 verified) and the package's
   `primary`/`filelists`/`other` entries are rendered then. Write policy: `allow_redeploy` replaces a path,
@@ -194,7 +190,7 @@ Windows containers support for the server.
   key switched in one transaction; the previous generation's files are kept for clients mid-update). The public key
   is served at `RPM-GPG-KEY` and `repodata/repomd.xml.key`. Before the first build `repomd.xml` answers 404. Key
   import/rotation and RPM package signing are not offered.
-  Now (T-P5-APTH): hosted apt repositories publish one distribution (`distribution`, with `components`, default
+  Hosted apt repositories publish one distribution (`distribution`, with `components`, default
   `main`, and `architectures`, default `amd64 arm64`). `.deb` packages are uploaded by `PUT` (`curl --upload-file`)
   or `POST` to the repository (raw body or a multipart file), `?component=` choosing a component; the body streams
   into the blob store after the hard-quota check and the package is read in a thread (ar layout, bounded
@@ -208,15 +204,15 @@ Windows containers support for the server.
   transaction, keeping the previous generation's `by-hash` files. Before the first upload `InRelease` answers 404.
   Uploads need `write`, deletes `delete`; both are audited. Key import/rotation, source packages and several
   distributions per repository are not offered.
-- Quotas per repo (soft warn / hard block) on stored bytes (§4.8).
-  Now (T-P5-MAVEN): Maven hosted repositories accept `mvn deploy`, Gradle `maven-publish` and curl `PUT` (live upload
+- Quotas per repository (soft warn / hard block) on stored bytes (§4.8).
+- **Maven**: hosted repositories accept `mvn deploy`, Gradle `maven-publish` and curl `PUT` (live upload
   transfers after the hard-quota check), with a version policy (`release` / `snapshot` / `mixed`), a layout policy
   (`strict` Maven paths / `permissive`) and the write policy (`disable_redeploy` never replaces a release file;
   SNAPSHOT versions always redeploy); refusals answer `400`, `read_only` `403`. Uploaded checksum files are compared
   with the stored file and not stored (checksums are generated on request); `maven-metadata.xml` is regenerated by
   the server after every deploy and delete, serialised per groupId:artifactId, so concurrent deploys lose nothing.
   Files and version folders can be deleted (`delete`). Uploads and deletes are audited.
-- Terraform (T-P5-TFM): an instance has **one** hosted Terraform repository (a second is refused), announced by
+- **Terraform**: an instance has **one** hosted Terraform repository (a second is refused), announced by
   `/.well-known/terraform.json`: a private module registry (`curl --upload-file module.tar.gz` to
   `v1/modules/<namespace>/<name>/<system>/<version>`; the archive's root must hold the module's `.tf` files; read
   without extracting, bounded) and a private provider registry (a multipart `POST` to
@@ -230,38 +226,40 @@ Windows containers support for the server.
 - Ordered members of the same format (proxy and hosted mixed). Reads resolve first match in order; metadata that
   must be merged is merged (npm packuments, PyPI simple pages, Maven `maven-metadata.xml`, Helm `index.yaml`,
   Go `@v/list`, docker tag lists). apt/yum groups are not supported (index merging + signing is out of scope).
-- Docker group may have a **writable member** so `docker push` to the group lands in that hosted repo.
-  Now (T-P2-DOCKERG): docker groups (up to 50 docker proxy/hosted members, no nested groups) answer manifests from the
+- **Docker**: a group may have a **writable member** so `docker push` to the group lands in that hosted repository.
+  Docker groups (up to 50 docker proxy/hosted members, no nested groups) answer manifests from the
   first member that has them (a proxy member asks its upstream), blobs from any member's stored or cached copy first
   (a blob `HEAD` never goes upstream), merged `tags/list` and referrers; pushes, upload sessions and deletes go to the
   writable member (a hosted repository), which the client must be allowed to write too; without one the group is
   read-only. Reading through a group needs `read` on the group only (its members' content is served through it,
   as in Nexus). A repository that is a group member cannot be deleted until it is removed from the group.
-  Now (T-P5-MAVEN): Maven groups (proxy and hosted members, in order) answer files from the first member that has
+- **Maven**: groups (proxy and hosted members, in order) answer files from the first member that has
   them (404 and failing members skipped; members whose version policy excludes the version not asked) and merge
   `maven-metadata.xml` per request (versions union, `latest`/`release` recomputed in Maven order, newest SNAPSHOT
   build, plugin prefixes; checksum files from the same bytes); they are read-only (405).
-  Now (T-P2-RAW): raw groups (raw proxy/hosted members) answer each file from the first member that has it, list
+- **Raw**: groups (raw proxy/hosted members) answer each file from the first member that has it, list
   folders as the members' listings merged, and send uploads and deletes to the writable member (a hosted raw
   repository the client may also write to); without one the group is read-only.
-  Now (T-P5-HELM): Helm groups serve one `index.yaml` merged from their members' indexes (the first member that
+- **Helm**: groups serve one `index.yaml` merged from their members' indexes (the first member that
   lists a chart version wins it), charts from the first member that has them, and send uploads and deletes to the
   writable member.
-  Now (T-P5-GALAXY): Ansible Galaxy groups merge their members' collection version lists (the first member that has
+- **Ansible Galaxy**: groups merge their members' collection version lists (the first member that has
   a version wins it), answer version documents and artifacts from the first member that has the version and roles
   from the first proxy member, and send publishing (and import-task polling) to the writable member.
-  Now (T-P5-PYPI): PyPI groups merge their members' project pages per request (union by file name, the first member
+- **PyPI**: groups merge their members' project pages per request (union by file name, the first member
   wins; a proxy member's cached page, refreshed as needed), serve files from the first member holding them (else the
   proxy members in order) and send uploads to a hosted writable member.
-  Now (T-P5-GO): Go groups (Go proxy members) merge `@v/list` per request (union, newest first, `ETag`/`304`), answer
+- **Go**: groups (Go proxy members) merge `@v/list` per request (union, newest first, `ETag`/`304`), answer
   `.info`/`.mod`/`.zip` from any member's cached copy first, then `@latest`, queries and misses from the members in
   order, and the checksum database from the first member that proxies it.
-  Now (T-P5-NPMH): npm groups (npm proxy and hosted members) merge packuments in both representations (versions
+- **npm**: groups (npm proxy and hosted members) merge packuments in both representations (versions
   union, the first member that has a version wins it; dist-tags from the first member that has the tag; tarball URLs
   rewritten to the group), kept in the blob store and served with `ETag`/`304` until a member changes; tarballs come
   from the members in order (so the member that won a version serves it); `npm publish`, `deprecate`, `unpublish`
   and `dist-tag` through the group go to the hosted writable member (`?write=true` reads answer that member's own
   packument); without one the group is read-only.
+- NuGet, Cargo, RubyGems and Composer groups are described in FORMATS.md. Conda, apk, Hugging Face, Swift and
+  Terraform have no group repositories.
 
 ### 4.4 Routing and URLs
 - One base URL (`WAYSTATION_BASE_URL`, e.g. `https://registry.example.com`). TLS is terminated by the web tier or
@@ -270,7 +268,7 @@ Windows containers support for the server.
 - **Docker/OCI** additionally answers the registry API at `/v2/`:
   - `/v2/<repo>/<image>` addresses repository `<repo>` (path routing).
   - **Upstream aliases**: a docker proxy can declare aliases (e.g. `docker.io`, `ghcr.io`), so
-    `registry.example.com/ghcr.io/org/app:1` works (the owner's current convention).
+    `registry.example.com/ghcr.io/org/app:1` works.
   - A **default docker repository** (setting) receives unprefixed names, so `registry.example.com/library/nginx`
     and the Docker daemon `registry-mirrors` setting work (mirror mode only ever asks for Docker Hub names).
   - **containerd mirrors**: containerd adds `?ns=<registry>` to requests sent to a mirror. An unprefixed name with
@@ -278,10 +276,9 @@ Windows containers support for the server.
     upstream, else answers `404` (containerd then pulls from the registry itself): a name that also exists on Docker
     Hub is never answered with Docker Hub's image when another registry was asked for. So one
     `[host."https://registry.example.com"]` entry serves every aliased upstream, without `override_path`.
-  - Optional per-repo dedicated port connectors (Nexus style) for clients that need a whole host:port: extra
-    listeners on the **web** container (still the only container publishing ports), each mapped to one docker repo
-    (Phase 6, T-P6-DOCKERC).
-    Now (T-P6-DOCKERC, ADR 0013): a docker repository (proxy, hosted or group) may set `format_options.connector_port`
+  - **Port connectors** (Nexus style, adr/0013) for clients that need a whole host:port: extra listeners on the
+    **web** container (still the only container publishing ports), each mapped to one docker repository. A docker
+    repository (proxy, hosted or group) may set `format_options.connector_port`
     (1024-65535, unique across repositories, not the base URL's port; a clone starts without it). The web container
     listens on every port in its `WAYSTATION_DOCKER_CONNECTORS` (comma/space list, checked at start: 1024-65535, not
     the web ports, no duplicates), HTTPS + HTTP/2 on the same certificate when TLS is on, else plain HTTP; those
@@ -296,7 +293,7 @@ Windows containers support for the server.
     (`Documents/Operations/DEPLOYMENT.md` §8 "Docker port connectors"); "Set me up" shows `<base host>:<port>` snippets.
 - Reserved top-level paths: `/api/`, `/ui/`, `/v2/`, `/repository/`, `/healthz`, `/readyz`, `/metrics`,
   `/.well-known/` (Terraform service discovery), `/auth/` (OIDC callbacks, docker token service).
-  Now (T-P5-TFM): `/.well-known/terraform.json` names the hosted Terraform repository's `modules.v1` and
+  `/.well-known/terraform.json` names the hosted Terraform repository's `modules.v1` and
   `providers.v1` to callers who can see it (public route; terraform and tofu send the host's credentials), `{}`
   otherwise.
 - The UI lives under `/ui/` (SPA history routes `/ui/...`, hashed assets `/ui/assets/...`); `/` redirects to `/ui/`.
@@ -312,109 +309,108 @@ Windows containers support for the server.
   `/repository/`); everything else uses RFC 9457 problem+json (422 with `errors[]` for invalid fields).
   `HEAD` is answered for every API `GET`. Each response carries `X-Request-Id` (the web tier's id when present).
 
-### 4.5 Formats and delivery phases
-Phase 2 = parity with the owner's current Nexus (required for cutover). Detail per format in FORMATS.md.
+### 4.5 Formats
+Protocol detail, limitations and the tested clients per format are in FORMATS.md; client set-up guides are in
+`Operations/clients/`.
 
-| Format | Proxy | Hosted | Group | Phase |
-|---|---|---|---|---|
-| Raw / generic files | yes | yes | yes | 2 |
-| Docker / OCI (images, Helm OCI, any OCI artifact) | yes (Docker Hub, GHCR, Quay, any OCI) | yes | yes | 2 |
-| npm | yes | yes (P5, built) | yes | 2 (proxy) |
-| apt (Debian, Ubuntu, Raspberry Pi) | yes | yes, signed (P5, built) | no | 2 (proxy) |
-| yum / dnf (Rocky, Alma, Oracle, EPEL) | yes | yes, signed (P5, built) | no | 2 (proxy) |
-| PyPI | yes | yes | yes | 5 |
-| Maven / Gradle | yes | yes (+snapshots) | yes | 5 |
-| Go modules (+ sumdb proxy) | yes | no | yes | 5 |
-| Helm (classic index.yaml) | yes | yes | yes | 5 |
-| Terraform / OpenTofu providers (network mirror) and modules | yes | yes (modules, providers) | no | 5 |
-| Ansible Galaxy (collections; roles read-only) | yes | yes (collections) | yes | 5 |
-| Swift Package Registry (SE-0292) | yes (source-archive proxy from git hosts) | yes | no | 5 |
-| NuGet v3 | yes | yes | yes | 6 (built, T-P6-NUGET) |
-| Cargo (sparse index) | yes | yes | yes | 6 (built, T-P6-CARGO) |
-| RubyGems | yes | yes | yes | 6 (built, T-P6-GEMS) |
-| Composer (PHP) | yes | yes | yes | 6 (built, T-P6-COMPOSER) |
-| Conda | yes | yes | no | 6 (built, T-P6-CONDA) |
-| Alpine apk | yes | yes | no | 6 (built, T-P6-APK) |
-| Hugging Face (models/datasets) | yes | no | no | 6 (built, T-P6-HF) |
+| Format | Proxy | Hosted | Group |
+|---|---|---|---|
+| Raw / generic files | yes | yes | yes |
+| Docker / OCI (images, Helm OCI, any OCI artifact) | yes (Docker Hub, GHCR, Quay, any OCI registry) | yes | yes |
+| npm | yes | yes | yes |
+| apt (Debian, Ubuntu, Raspberry Pi OS) | yes | yes, signed | no |
+| yum / dnf (Rocky, Alma, Oracle, EPEL) | yes | yes, signed | no |
+| PyPI | yes | yes | yes |
+| Maven / Gradle | yes | yes (+snapshots) | yes |
+| Go modules (+ sumdb proxy) | yes | no | yes |
+| Helm (classic index.yaml) | yes | yes | yes |
+| Terraform / OpenTofu providers (network mirror) and modules | yes | yes (modules, providers) | no |
+| Ansible Galaxy (collections; roles read-only) | yes | yes (collections) | yes |
+| Swift Package Registry (SE-0292) | yes (source-archive proxy from git hosts) | yes | no |
+| NuGet v3 | yes | yes | yes |
+| Cargo (sparse index) | yes | yes | yes |
+| RubyGems | yes | yes | yes |
+| Composer (PHP) | yes | yes | yes |
+| Conda | yes | yes | no |
+| Alpine apk | yes | yes | no |
+| Hugging Face (models/datasets) | yes | no | no |
 
 ### 4.6 Browse and search
 - Browse any repository as a tree (paths) or as components (format-aware: images → tags → platforms → layers;
   npm packages → versions; apt suites → packages).
-  Now (M0, T-S09 min): `GET /api/v1/repositories/{name}/browse?path=` lists the cached assets of any repository as
+  `GET /api/v1/repositories/{name}/browse?path=` lists the cached assets of any repository as
   folders (first) and files with size, type, sha256 and last-modified, paged by cursor; npm `packages`/`versions`,
   apt `suites`/`packages` (per suite, architecture, component; cached-only filter; `verified` = the cached file
   matches its listing), docker `images`/`tags`/`manifest` (platforms, layers with cached flag and history,
-  labels, pull commands) and Maven `artifacts`/`versions` (T-P5-MAVEN: groupId:artifactId with the highest version,
+  labels, pull commands) and Maven `artifacts`/`versions` (groupId:artifactId with the highest version,
   versions in Maven order with file count and size; the files are the version folder's listing) show what is held.
-  Browsing needs `browse` on the repository (anonymous: proxy repositories); download counts are not recorded yet
-  (0/null). Helm (T-P5-HELM): `helm/charts` and `helm/versions?chart=` list charts (latest version, app version,
+  Browsing needs `browse` on the repository (anonymous: proxy repositories). Helm: `helm/charts` and `helm/versions?chart=` list charts (latest version, app version,
   description) and their versions newest first (created, digest, size, cached) for proxy, hosted and group
-  repositories. Ansible Galaxy (T-P5-GALAXY): `galaxy/namespaces`, `galaxy/collections?namespace=` and
+  repositories. Ansible Galaxy: `galaxy/namespaces`, `galaxy/collections?namespace=` and
   `galaxy/versions?namespace=&collection=` (records in `galaxy_collections`: hosted imports, a proxy's cached version
   lists) show namespaces, collections (latest version, description, `requires_ansible`) and versions newest first by
-  SemVer (sha256, size, dependencies, publisher, cached) for proxy, hosted and group repositories. PyPI (T-P5-PYPI): `pypi/projects` (summaries in
+  SemVer (sha256, size, dependencies, publisher, cached) for proxy, hosted and group repositories. PyPI: `pypi/projects` (summaries in
   `pypi_packages`: latest final release by PEP 440, version count, files held) and `pypi/versions?project=` (versions
   newest first, each with its wheels and sdist: size, sha256, requires-python, yanked, PEP 658 metadata, held or not,
   uploader for hosted files) for proxy and hosted repositories; groups are browsed through their members. Go
-  (T-P5-GO): `go/modules` (summaries in `go_modules`: latest by Go semver, tagged versions, cached versions, zip bytes)
+ : `go/modules` (summaries in `go_modules`: latest by Go semver, tagged versions, cached versions, zip bytes)
   and `go/versions?module=` (cached list and cached files merged, newest first in semver order with pseudo-version,
   pre-release and `+incompatible` flags, commit time from the `.info`, the `.info`/`.mod`/`.zip` files held) for
-  proxy repositories; search finds modules by path. Terraform (T-P5-TFP): `terraform/providers` (summaries in
+  proxy repositories; search finds modules by path. Terraform: `terraform/providers` (summaries in
   `terraform_providers`: provider address, latest release, versions listed, archives cached and their size) and
   `terraform/versions?provider=` (registry-listed and cached versions newest first in SemVer order, with protocols,
   platforms and the archives held: platform, size, sha256, `h1:`, downloads); search finds providers by address
-  (and by type, the last segment). Terraform modules (T-P5-TFM): `terraform/modules` and
+  (and by type, the last segment). Terraform modules: `terraform/modules` and
   `terraform/module-versions?module=` (summaries in `terraform_modules`; proxy: cached version list and the archives
   held with their pinned sha256 and source; hosted: published versions with their publisher) and the hosted
   repository's providers (`<namespace>/<type>`, releases with platforms, `h1:`, signing key ID); search finds modules
   by address.
-  Swift (T-P5-SWIFT): `swift/scopes`, `swift/packages?scope=` and
+  Swift: `swift/scopes`, `swift/packages?scope=` and
   `swift/releases?scope=&package=` (records in `swift_packages`/`swift_releases`: hosted releases, a proxy's pinned
   releases) show scopes, packages (latest version, release counts, description, source URL) and releases newest
   first by SemVer (state, tools version, checksum, size, signature and signer, tag and commit, publisher); search
   finds packages by `scope.name`.
-  NuGet (T-P6-NUGET): `nuget/packages` (summaries in `nuget_packages`: id as spelled, latest stable version, version
+  NuGet: `nuget/packages` (summaries in `nuget_packages`: id as spelled, latest stable version, version
   count, description, authors) and `nuget/versions?package=` (newest first in NuGet version order: listed or unlisted,
   prerelease, cached, size, published, pusher) for proxy, hosted and group repositories (a group shows its members',
   first member wins); `POST nuget/listing` unlists or relists a hosted version (`write`); search finds packages by id.
-  Composer (T-P6-COMPOSER): `composer/packages` (summaries in `composer_packages`: name, newest stable version,
+  Composer: `composer/packages` (summaries in `composer_packages`: name, newest stable version,
   version count, description, type) and `composer/versions?package=vendor/name` (newest first in Composer version
   order: version as published and normalised, stability, cached, size, published, uploader, source reference) for
   proxy, hosted and group repositories (a group shows its members', first member wins); search finds packages by name.
-  RubyGems (T-P6-GEMS): `rubygems/gems` (summaries in `rubygems_gems`: name, newest release, version count, summary)
+  RubyGems: `rubygems/gems` (summaries in `rubygems_gems`: name, newest release, version count, summary)
   and `rubygems/versions?gem=` (newest first in `Gem::Version` order, one row per platform: prerelease, checksum, Ruby
   requirement, runtime dependencies, cached, size, published, pusher) for proxy, hosted and group repositories (a
   group shows its members', first member wins); search finds gems by name.
-  Alpine apk (T-P6-APK): `apk/packages` (from `apk_packages`: name, newest version, architectures, version count,
+  Alpine apk: `apk/packages` (from `apk_packages`: name, newest version, architectures, version count,
   description, origin) and `apk/versions?package=` (newest first in apk version order: branch, repository,
   architecture, `C:` checksum, verified, cached, size, installed size, license, origin, dependencies, build time,
   uploader) for proxy (the cached APKINDEX listings) and hosted repositories; search finds packages by name.
-  Hugging Face (T-P6-HF): `huggingface/models` (summaries in `huggingface_repos`: model or dataset, the default
+  Hugging Face: `huggingface/models` (summaries in `huggingface_repos`: model or dataset, the default
   branch's commit, revisions asked for, cached files and bytes, downloads), `huggingface/revisions?model=` (revisions
   and the commit each resolved to; commits with cached files) and `huggingface/files?model=&commit=` (cached files by
   path); search finds models and datasets by id.
 - Global search across repositories the principal can read: name (prefix and substring), version, format,
   repository, digest/checksum lookup ("where is this sha256 used?"), with facets (format, repo, type).
-  Target: results in < 150 ms p95 for 1M assets.
-  Now (T-U06, 2026-11-09): `GET /api/v1/search?q=&format=&repository=&kind=&type=&cached=&cursor=&limit=` searches
+  `GET /api/v1/search?q=&format=&repository=&kind=&type=&cached=&cursor=&limit=` searches
   only the repositories the principal may `browse` (`access.filter_repos`; a hidden repository never appears in a
   hit, a facet value or a count, and naming it as a filter yields an empty result). `q` is
   `<name>[ <version prefix>]`, case-insensitive, matched as a prefix of the full name or of its last `/` segment
   (`nginx` finds `library/nginx`, `node` finds `@types/node`) and, from three characters on, anywhere in the name
-  (2026-11-21, adr/0009: `setup` finds `nginx-setup.sh`); prefix matches come first (by name), then substring matches
+  (adr/0009: `setup` finds `nginx-setup.sh`); prefix matches come first (by name), then substring matches
   (by the name from the match on); empty lists everything. Sources: docker tags (kind `image`),
   npm packages, PyPI projects and apt/yum index listings (kind `package`; `cached` says whether the listed file is in the cache),
   Maven components (kind `package`, one per groupId:artifactId:version, matched on the artifactId and named
-  `groupId:artifactId`; 2026-11-22) and cached files of every format but docker (kind `file`; Maven files link to their
+  `groupId:artifactId`) and cached files of every format but docker (kind `file`; Maven files link to their
   artifact version in Browse). `cached=true` leaves out the apt/yum listings. A digest
   (`sha256:<8-64 hex>` or 64 hex digits) finds every cached file with that blob and the docker tags pointing at it,
   in any visible repository. Results come straight from per-collection `(name_lc, repo_id, _id)` indexes (substring
   matches: the multikey `(name_sfx, repo_id, _id)` index of name suffixes), merged
   with exact keyset cursor paging; facet counts (format, repository, kind, repository type) are disjunctive (each
   ignores its own filter), on the first page only, and lower bounds when `capped`. Every hit carries a Browse deep
-  link. Substring (non-prefix) matching and the 1M-asset p95 measurement are still to do.
+  link. The API list/search budget (§5.1) is measured at 1M assets.
 - Component pages show: coordinates, versions/tags, size, digests, created/last downloaded/last modified,
-  download count and sparkline, which repos hold it, upstream URL, uploader (hosted), install/pull snippet.
+  download count, which repositories hold it, upstream URL, uploader (hosted), install/pull snippet.
 
 ### 4.7 Stats and live activity
 - **Live transfers**: every in-flight download and upload with repo, asset, client (user/IP), bytes done/total,
@@ -428,8 +424,8 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   repositories counts 1/n in each), growth over time (hourly storage snapshots).
 - **Top N**: most downloaded components (all time or over 24 h / 7 d / 30 d), most bytes served, largest components,
   recently added, busiest repositories. Components are package versions, Maven GAVs, docker tags and raw files,
-  indexed by the worker from the cached files (content cached before is indexed the same way). Most active clients:
-  not yet.
+  indexed by the worker from the cached files (content cached before is indexed the same way). A "most active
+  clients" ranking is not provided; per-client figures are available from the activity log and its export.
 - **Where used**: the assets holding a blob and the docker manifests referencing a digest.
 - **Upstream health**: per proxy repo status (ok/degraded/blocked/offline), error rate, latency, rate-limit headroom.
 - Retention: minute resolution 7 days, hourly 90 days, daily 2 years, storage snapshots 2 years, daily download
@@ -457,9 +453,8 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   file is missing are counted (proxies re-fetch them; the `blob.verify` task, §8.5, names the affected assets and
   reports hosted losses). Freed bytes show in the activity feed and `/metrics`.
 - Docker: untagged manifest cleanup through cleanup policies; layer GC via blob GC.
-- Quotas per repo (§4.2) and a global low-disk guard (refuse new cache writes below a free-space threshold,
-  keep serving hits, alert).
-  Now (T-O03):
+- Quotas per repository and a global low-disk guard (refuse new cache writes below a free-space threshold, keep
+  serving hits, alert):
   - **Quota** per proxy or hosted repository (`storage{quota_bytes, quota_mode}` in the REST API and the repository
     form; groups store nothing, so a quota on a group is a 422 field error). **Usage** is the sum of the sizes of the
     repository's assets: a blob shared with other repositories counts in **each** of them (de-duplication saves disk,
@@ -484,8 +479,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
     edits the guard.
 
 ### 4.9 Authentication
-- **Local** users (argon2id), optional TOTP 2FA.
-  Now (T-O08): a local account with a password can turn on two-factor sign-in (RFC 6238 TOTP: HMAC-SHA1, 6
+- **Local** users (argon2id) with optional TOTP two-factor sign-in. A local account with a password can turn on two-factor sign-in (RFC 6238 TOTP: HMAC-SHA1, 6
   digits, 30 s steps, one step of clock drift either way). Set-up (profile page; needs an interactive session and
   the current password): `POST /auth/me/totp/setup` returns a new 160-bit secret once, as base32 and as an
   `otpauth://totp/<instance>:<username>` URI that the UI draws as a QR code in the browser; it stays pending
@@ -511,8 +505,8 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   (`totp_setup_required`). A pending one-time password is changed first.
 - **LDAP / LDAPS / StartTLS**: multiple servers with failover, service bind, user search base + filter, attribute
   mapping (uid, name, email), group discovery (memberOf or group search), nested groups optional,
-  "require group" gate, custom CA file. Tested against FreeIPA and Active Directory schemas.
-  Now: providers are configured under Administration → Authentication providers (`/api/v1/auth-providers`, needs
+  "require group" gate, custom CA file. Tested against FreeIPA-style (OpenLDAP) and Active Directory (Samba AD)
+  directories. Providers are configured under Administration → Authentication providers (`/api/v1/auth-providers`, needs
   `settings-admin`), several allowed, tried in `order`. Servers are `host[:port]` or `ldap(s)://` URLs, tried in
   order; one that cannot be reached or fails TLS is skipped for 30 s. Security `ldaps`, `starttls` or `none` (clear
   text, testing only); certificates and host names are always verified (custom CA bundle in PEM, else the system
@@ -529,8 +523,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   sign-in) under an HMAC of provider, configuration version, username and password (the password is never stored).
 - **OIDC**: authorization code + PKCE, discovery URL, client secret, scopes, claim mapping (username, email,
   groups), group claim → Waystation groups, auto-provision on first login (configurable), RP-initiated logout.
-  Multiple providers allowed; login page shows a button per provider.
-  Now: OIDC providers sit next to LDAP under Administration → Authentication providers (kind `oidc`): issuer
+  Multiple providers allowed; the sign-in page shows a button per provider. OIDC providers sit next to LDAP under Administration → Authentication providers (kind `oidc`): issuer
   (discovery at `<issuer>/.well-known/openid-configuration`, which must name exactly that issuer; cached an hour),
   client id, write-only encrypted client secret (`client_secret_basic`, `client_secret_post` or a public client),
   scopes (default `openid profile email`), username / display name / email / groups claims (dotted paths), an
@@ -551,7 +544,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   redirects, size bounds and the provider timeout. OIDC users use API tokens for package clients. Tested against
   Keycloak (`make test-integration`) and authentik (opt-in, `make test-integration-authentik`).
 - Identity linking: one Waystation user per username across providers (never link to an account that has a
-  usable local password). Now: a local account with a password is checked only against that password, whatever
+  usable local password). A local account with a password is checked only against that password, whatever
   provider the client picks; a successful external sign-in creates the user when there is none (`source`
   `ldap:<provider>` / `oidc:<provider>`; OIDC only when its auto-provision toggle is on), links a password-less local account (which takes the
   provider as source) or a user of another provider (`identities[]` lists every linked external account), and
@@ -571,14 +564,14 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   address (`TOKEN_FAILURE_LIMIT` per 5 min, then 429). Presented but invalid credentials are refused (401), never
   downgraded to anonymous: any `Authorization` header outside `/v2/` that does not resolve to a principal (a value
   not shaped like an API token, an unknown scheme, a password instead of a token) gets the 401 challenge, also on a
-  repository anonymous may read (2026-11-21). Creating a token needs an interactive session (a token cannot mint tokens).
+  repository anonymous may read. Creating a token needs an interactive session (a token cannot mint tokens).
 - **Service accounts**: non-human principals holding built-in roles, managed by `user-admin`
   (`/api/v1/service-accounts`, tokens under `/service-accounts/{id}/tokens`); they authenticate only with API
   tokens. Only administrators may give a service account `admin`. `/api/v1/tokens` lists and revokes every token
   (incident response).
 - **API token transport** for format clients on `/repository/*` and the API: `Authorization: Bearer <token>`,
   `Authorization: Token <token>`, a bare `Authorization: <token>` (no scheme; format routes `/repository/*` only:
-  Cargo sends its registry token that way, T-P6-CARGO, and RubyGems its API key for `gem push`/`yank`, T-P6-GEMS),
+  Cargo sends its registry token that way, and RubyGems its API key for `gem push`/`yank`),
   or HTTP basic with the token as the password (any username). Basic credentials
   whose password is not an API token are refused: account passwords (local or LDAP) are accepted only by the UI sign-in,
   `docker login` and `npm login` (which exchanges them for an API token).
@@ -586,14 +579,14 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   username + local password or an API token as the password, any username; a registry token issued for an API token
   carries its id and is re-checked on every request, so revocation is immediate. `/v2/` accepts only these
   5-minute EdDSA tokens and answers everything else with the `401` Bearer challenge naming the scope; a token's
-  grants are re-checked against RBAC on every request. Since T-S12: `docker login` (`offline_token=true`) also gets a
+  grants are re-checked against RBAC on every request. `docker login` (`offline_token=true`) also gets a
   90-day refresh token, which the Docker CLI stores instead of the password; `POST /auth/token` is the token spec's
   OAuth2 endpoint (`grant_type=password`, with `access_type=offline` for a refresh token, as containerd tries first;
   `grant_type=refresh_token`, which re-checks the user or the API token). Issued tokens are revoked before they
   expire when the user is disabled or deleted, their password changes or their sessions are revoked (signing out
   everywhere else included): `/v2/` and the refresh grant refuse every registry token of the user issued until then,
   on every replica at once; tokens issued for an API token live as long as that API token), npm (`npm login --auth-type=legacy` and `_authToken` = API token;
-  now (T-P5-NPMH): the legacy login exchanges the password, checked like `docker login`, for a new API token of the
+  now: the legacy login exchanges the password, checked like `docker login`, for a new API token of the
   user with the repository scopes they hold, no repository pattern and no expiry, listed and revocable on the profile;
   it needs `read` on the repository and a repository the caller could not see answers any failure like a missing
   repository (404, or the 401 challenge without credentials);
@@ -620,11 +613,11 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   answer too. An authenticated request keeps `404` for a repository it cannot see; a request whose credentials are
   not valid gets the same `401` challenge for every repository (hidden, missing or visible) before any lookup. `/v2/` (Bearer challenge), the
   REST API, search and browse are unchanged.
-- Anonymous access: a configurable `anonymous` principal with its own roles (default: read on proxy repos only).
-  Now: `GET/PUT /api/v1/anonymous-access` (`user-admin`) sets its roles: the built-in `anonymous` role and/or roles
+- Anonymous access: a configurable `anonymous` principal with its own roles (default: browse and read on proxy
+  repositories only). `GET/PUT /api/v1/anonymous-access` (`user-admin`) sets its roles: the built-in `anonymous` role and/or roles
   holding repository permissions only (no global action); empty = no anonymous access. Applies to the REST API,
   format routes and Docker's anonymous registry tokens on every replica within moments.
-  **Signing in never reduces access** (2026-11-11): every authenticated principal (users of any source, service
+  **Signing in never reduces access**: every authenticated principal (users of any source, service
   accounts, whatever the credential) also receives the anonymous grants on top of its own, so the same change
   applies to them at once too. The narrowing of the credential still bounds everything (an API token limited to
   repository X cannot use the anonymous grants on Y; a registry token only what it grants), and the anonymous grants
@@ -660,18 +653,17 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   one exception, §4.9 "Challenge on format routes": a request without credentials on `/repository/<repo>/...` gets
   the 401 Basic challenge, for a missing repository too).
 - **Roles** bundle permissions; built-ins: `admin`, `reader` (browse+read all), `deployer` (read+write on scope),
-  `viewer` (browse + stats), `anonymous` (browse + read on `type:proxy`). Custom roles via UI/API.
-  Now: built-in roles are read-only; custom roles (`/api/v1/roles`, `user-admin`) have a slug id (lower-case letters,
+  `viewer` (browse + stats), `anonymous` (browse + read on `type:proxy`). Built-in roles are read-only; custom roles (`/api/v1/roles`, `user-admin`) have a slug id (lower-case letters,
   digits, `-`), a name, a description and 1-100 permissions `(action, scope)` (global actions only on `*`). A role
   still held by a user, group or service account cannot be deleted (409); `GET /roles/{id}` shows who holds it.
   `GET /roles` (any signed-in principal) lists the grantable roles with their permissions.
 - **Groups** (local, or mapped from LDAP groups / OIDC claims) hold roles; users hold roles directly or via groups.
-  Now: a provider's group mapping (external group DN or name → roles) is stored as one group per row; a user gets
+  A provider's group mapping (external group DN or name → roles) is stored as one group per row; a user gets
   the roles of the mapped groups among those reported at its last sign-in through that provider. Mapping changes
   apply to signed-in users within seconds; membership changes on the next sign-in. Local groups are managed under
   `/api/v1/groups` (`user-admin`: create, rename, describe, roles, delete; members added and removed with
   `/groups/{id}/members`); mapped groups are listed there read-only except for their roles (the same documents as
-  the provider's group mapping). Administration → Groups manages both (T-U08).
+  the provider's group mapping). Administration → Groups manages both.
 - **Users** (`/api/v1/users`, `user-admin`): list (username prefix, source, disabled, local group, direct role;
   keyset paging), detail (source, linked identities, local and mapped groups, the groups a provider last reported,
   effective roles, lockout), create a local user (with a password, or without one so that an LDAP/OIDC sign-in of
@@ -688,15 +680,14 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
   their own account, and the last enabled administrator (direct role or local group) cannot be disabled, deleted,
   demoted or removed from its group (409).
 - Effective permissions are computed per request from a cached, versioned grant table (ARCHITECTURE §7) and
-  checked in one place. Content listings and search are filtered, never just hidden.
-  Now: every RBAC change bumps `grant_version`; the replica that made it applies it at once, the others within
+  checked in one place. Content listings and search are filtered, never just hidden. Every RBAC change bumps `grant_version`; the replica that made it applies it at once, the others within
   moments (MongoDB change stream; a 5 s poll if the stream is down).
 - **Refusals**: a principal that is not signed in gets 401 where one is needed; a signed-in principal lacking a
   permission gets 403 with problem code `permission_required` (CSRF and pending sign-in steps keep their own codes);
   a hidden repository is 404. `GET /auth/me` lists coarse UI capabilities: `admin`, `repositories.create`,
   `repositories.manage` (manage on some repository), `repositories.browse` (browse or read on some repository),
   `stats.read`, `audit.read`, `users.admin`, `settings.admin`.
-- **What a user without roles sees** (T-U10; updated 2026-11-11): signing in only needs the provider's required
+- **What a user without roles sees**: signing in only needs the provider's required
   group, so a user may hold no role at all (no mapped group roles, no direct roles). It still receives the anonymous
   grants (§4.9: signing in never reduces access), so with the default anonymous access it sees exactly what anonymous
   may: proxies browsable and readable, capability `repositories.browse`, the dashboard listing those repositories,
@@ -713,7 +704,7 @@ Phase 2 = parity with the owner's current Nexus (required for cutover). Detail p
 
 ### 4.11 Audit
 Append-only audit log of security-relevant actions: sign-in/out/failure, token create/revoke/use-refused,
-user/group/role/provider changes, repo create/update/delete, uploads and deletes on hosted repos, cleanup runs, task changes,
+user/group/role/provider changes, repo create/update/delete, uploads and deletes on hosted repos, task changes,
 settings changes, webhook changes, secret-key rotation, support bundle downloads. Searchable in the UI, exported via API; retention configurable (default 400 days).
 - **Record**: time, action (`<category>.<verb>`, catalog `waystation_common.audit.AuditAction`), outcome
   (`success`/`failure`) and for failures a reason code (`bad_credentials`, `unknown_user`, `locked`, `disabled`,
@@ -754,9 +745,9 @@ settings changes, webhook changes, secret-key rotation, support bundle downloads
   configured key decrypts, with counts per store, never values; outcome `failure`, reason `undecryptable` for the
   latter; quiet runs are not recorded); changes made by
   the provisioning file (§9) carry `details.source = provisioning`; `system.support_bundle` (a support bundle downloaded,
-  with its size and file count); an administrator signing a user out everywhere is `session.revoke` on the user with `details.by_admin`. Not yet (the feature does
-  not exist): cleanup runs (T-O01); `PENDING`
-  in the catalog names them and the acceptance test fails when one is emitted without a test.
+  with its size and file count); an administrator signing a user out everywhere is `session.revoke` on the user
+  with `details.by_admin`. Cleanup runs are not audit records: they are job runs with their result and log on the
+  Tasks page (§4.12); the catalog keeps `cleanup.run` reserved.
 - **Writing never fails or slows a request**: records go to a bounded in-process queue (10 000) drained by one task
   with batched inserts (retried with backoff); on overflow or a lost batch the records are counted and logged at
   ERROR (`AUDIT RECORDS DROPPED`, at most every 10 s with the running total).
@@ -808,10 +799,9 @@ settings changes, webhook changes, secret-key rotation, support bundle downloads
     usual dedupe applies) and removes the dead letter in one step; a repeated retry answers with the job the first
     one queued. Discard deletes it; discarding a missing one is a no-op. Malformed entries can only be discarded.
   - Schedule edits, run now, retry and discard are audited (§4.11).
-- System: storage path usage/free, MongoDB/Valkey health, version, licence, support bundle download (redacted).
-  Now: `GET /api/v1/system` (`admin`): version, Python, when the answering server process started, MongoDB and
+- **System**: `GET /api/v1/system` (`admin`): version, Python, when the answering server process started, MongoDB and
   Valkey (ping round trip and server version, 2 s limit each; a failure reports only the error class) and the data
-  directory (size, used, free, and `MIN_FREE_GB` below which writes stop). **Support bundle** (T-O10):
+  directory (size, used, free, and `MIN_FREE_GB` below which writes stop). **Support bundle**:
   `GET /api/v1/system/support-bundle` (`admin`; audited `system.support_bundle`; the System page's "Download support
   bundle" button) answers a zip `waystation-support-<instance>-<UTC time>.zip` for a support request: `README.txt`
   (what is inside; review before sharing), `manifest.json`, `versions.json` (Waystation, Python, OS and kernel, MongoDB
@@ -857,10 +847,10 @@ settings changes, webhook changes, secret-key rotation, support bundle downloads
     `autoBlock` → `auto_block.enabled`, a blocked Nexus repository → `offline`. Docker: index `HUB` (or a Docker Hub
     remote) → `docker_hub`; the upstream host becomes an alias (`docker.io` for Docker Hub, `ghcr.io`, ...; option
     `docker_aliases`, default on; an alias already routed or equal to a repository name is dropped); a connector port
-    (`httpsPort`, else `httpPort`) → `connector_port` (T-P6-DOCKERC; dropped with a difference when another repository
+    (`httpsPort`, else `httpPort`) → `connector_port` (dropped with a difference when another repository
     or an earlier import has it, or it is the base URL's port; the other port, ports below 1024 and subdomain
     connectors are differences), with a note to list it in the web container's `WAYSTATION_DOCKER_CONNECTORS`. apt `distribution`/`flat`; raw `contentDisposition`; maven
-    `versionPolicy`/`layoutPolicy` (T-P5-MAVEN); hosted
+    `versionPolicy`/`layoutPolicy`; hosted
     `writePolicy` and group members/writable member when this server has hosted/group repositories of that format.
     Upstream credentials cannot be imported (Nexus never returns passwords): the repository is created without
     authentication and the report says so. Settings without an equivalent (cleanup policies, routing rules, blob
@@ -876,7 +866,7 @@ settings changes, webhook changes, secret-key rotation, support bundle downloads
     (all by default) members before groups, each audited as `repository.create` with `details.source`
     `nexus_import`, and reports each outcome (`created`, `exists`, `failed` with the field errors, `not_selected`,
     ...). Idempotent: a name that exists by then is reported `exists` and left alone.
-  - **Cutover** (T-M02): `Documents/Operations/MIGRATING_FROM_NEXUS.md` (import, credentials, hosted content, client
+  - **Cutover**: `Documents/Operations/MIGRATING_FROM_NEXUS.md` (import, credentials, hosted content, client
     switch per format, reverse-proxy cutover, rollback) and `Build/migration/nexus_compare.py`, which sends the same
     read-only requests (a TOML list per format) to Nexus and Waystation and compares status, size, sha256, docker
     digest, media type and chosen JSON values (report table/Markdown/JSON; exit 0 = all match).
@@ -929,16 +919,18 @@ settings changes, webhook changes, secret-key rotation, support bundle downloads
 `make perf` (k6, `tests/perf/README.md`) measures every budget except the dashboard paint against a throwaway stack
 with a synthetic upstream: a CI profile (a few minutes, 100 000 seeded assets, 100 concurrent clients) and a full
 profile with the sizes above (1M assets, 500 concurrent downloads, server limited to 4 vCPUs). Latency budgets are
-measured at a steady request rate, not at saturation. Since milestone M2 (2026-11-22) a budget over its limit fails the build (`Build/ci/budgets.json`).
+measured at a steady request rate, not at saturation. A budget over its limit fails the build
+(`Build/ci/budgets.json`).
 
 ### 5.2 Availability and scale
 - Server and workers are stateless; run N replicas behind the web tier. Single-node MongoDB replica set by default;
   external replica set supported. Valkey loss degrades live stats and coalescing, never correctness of downloads.
-- Graceful shutdown: in-flight downloads finish (configurable grace), uploads resumable (OCI chunked uploads).
+- Graceful shutdown: in-flight requests finish within the container's stop grace period; OCI chunked uploads are
+  resumable.
 
 ### 5.3 Security
-OWASP ASVS L2 as the target. CSP without `unsafe-inline`; strict cookies; dependency audit in CI (`pip-audit`,
-`npm audit`); containers run as non-root, read-only root filesystem where possible, `cap_drop: [ALL]`,
+Reviewed against OWASP ASVS 4.0.3 Level 2 (`Security/ASVS_L2.md`). CSP without inline scripts; strict cookies; dependency and image audit with
+`make security-scan` (`pip-audit`, `npm audit`, Trivy; `Security/DEPENDENCIES.md`); containers run as non-root, read-only root filesystem where possible, `cap_drop: [ALL]`,
 `no-new-privileges`; secrets via env or `*_FILE`; encryption at rest for stored credentials (AES-GCM, key rotation
 with multiple keys: the first key encrypts, all decrypt, and the `secrets.rotate` task (daily, or run now) re-encrypts
 every stored credential and `keys/` file made with an older key and reports the API tokens and recovery codes still
@@ -950,7 +942,7 @@ WCAG 2.2 AA. Keyboard navigable, command palette. No external CDNs or fonts (wor
 
 ### 5.5 Observability
 Structured JSON logs (request id, principal, repo), Prometheus metrics, health/readiness endpoints per container,
-OpenTelemetry tracing hooks (off by default). Zabbix 7 template and Grafana dashboard in `Build/monitoring/`
+Zabbix 7 template and Grafana dashboard in `Build/monitoring/`
 (`Documents/Operations/MONITORING.md`).
 
 ## 6. User interface
@@ -959,11 +951,13 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
 (users, groups, roles, auth providers, tokens, audit, settings).
 
 ## 7. API
-- REST JSON under `/api/v1/`, described by OpenAPI 3.1 generated from the server (FastAPI + pydantic v2).
-  The UI uses only this API. Pagination by opaque cursor; filtering and sorting params documented.
+- REST JSON under `/api/v1/`, described by OpenAPI 3.1 generated from the server (FastAPI + pydantic v2) and served
+  at `/api/v1/openapi.json`. The UI uses only this API. Pagination by opaque cursor. The static reference is
+  `Documents/API/` (`README.md`: authentication, errors, paging, events; `REFERENCE.md`: every operation and schema),
+  generated by `make api-docs` and checked against the code by a unit test.
 - **Event stream**: `GET /api/v1/events/stream` (Server-Sent Events) with topic filters (`transfers`, `stats`,
   `repo:<name>`, `tasks`, `workers`); RBAC-filtered per subscriber; heartbeat 15 s; resumable with `Last-Event-ID`.
-  Now: topics `transfers`, `stats`, `activity`, `tasks` (jobs and workers; also needs `admin`), `repo:<name>` (comma-separated `topics`; needs `stats-read`); on
+  topics `transfers`, `stats`, `activity`, `tasks` (jobs and workers; also needs `admin`), `repo:<name>` (comma-separated `topics`; needs `stats-read`); on
   connect `retry: 3000` and a `transfers.snapshot`; `activity` events carry the stream id as `id:` and are replayed
   after `Last-Event-ID` (header or `last_event_id` query parameter, up to 1000); `stats.tick` at 1 Hz (rates over the
   last 10 s from the live counters). Stats endpoints (`/stats/*`, `/transfers`, `/activity`) need `stats-read` and
@@ -982,15 +976,15 @@ pages with pull/install snippets, activity log, storage, cleanup policies, tasks
   token: `POST /auth/login` and `GET /auth/me` return `csrf_token` (also set in the readable `ws_csrf` cookie);
   unsafe methods must echo it in `X-CSRF-Token`. Bearer requests are exempt.
 - Versioned: breaking changes only in `/api/v2/`.
-- **Contract (M0)**: the API the UI depends on is written contract-first in
-  `Application/Web/openapi/waystation-m0.yaml` (OpenAPI 3.1): config, auth/session, repositories (CRUD for proxy
-  repos with format options, clone, test-upstream, Set me up snippets), stats (summary with sparklines, traffic series by
-  range `15m|1h|24h|7d|30d` split hit/upstream or by format, storage, upstream health incl. Docker Hub rate limit),
-  live transfers, activity, browse (generic folder listing, docker images/tags/manifest, npm packages/versions, apt
-  suites/packages) and the SSE event schemas (`LiveEvent`: `transfers.snapshot`, `transfer.started|progress|finished|failed`,
-  `stats.tick`, `upstream.state`, `activity`). Errors are RFC 9457 problem+json with field-level `errors[]` and the stable error `code` (`not_found`, `password_change_required`, `totp_setup_required`, `second_factor_expired`...).
-  `make gen-api` regenerates the UI's TypeScript types (`src/api/schema.d.ts`); CI fails if they are stale. Once
-  the server generates its own document, a contract test keeps it compatible with this file.
+- **UI contract**: the UI's API client is typed from the contract document
+  `Application/Web/openapi/waystation-m0.yaml` (OpenAPI 3.1; the file name is historical): config, auth/session,
+  repositories, stats, live transfers, activity, browse, search, administration and the SSE event schemas
+  (`LiveEvent`: `transfers.snapshot`, `transfer.started|progress|finished|failed`, `stats.tick`, `upstream.state`,
+  `activity`, job and worker events). `make gen-api` regenerates the UI's TypeScript types (`src/api/schema.d.ts`);
+  CI fails if they are stale. A contract test (`test_contract.py`) keeps the server's generated document compatible
+  with the contract for every operation the server implements.
+- **Errors** are RFC 9457 problem+json with field-level `errors[]` and a stable error `code` (`not_found`,
+  `permission_required`, `password_change_required`, `totp_setup_required`, `second_factor_expired`, ...).
 - EventSource cannot set headers, so a client that reopens the stream itself passes `last_event_id` as a query
   parameter (same meaning as `Last-Event-ID`). On (re)connect the server first sends `transfers.snapshot`.
 
@@ -1021,7 +1015,7 @@ as root with `CHOWN`, `FOWNER`, `DAC_OVERRIDE`, `SETUID`, `SETGID` to fix data-d
   atomicity required).
 - MongoDB data in its own volume (`WAYSTATION_MONGO_DIR`), not on the blob path.
 
-### 8.3 Compose conventions (match the owner's existing stacks)
+### 8.3 Compose conventions
 - One `compose.yaml` per deployable unit in `Build/Containers/`: `compose.yaml` (all-in-one reference stack) and
   `compose.standalone.{web,server,worker}.yaml` for split hosts, `compose.dev.yaml` (source bind-mounted).
   Split hosts: the server file runs `init` and the server (port published on `WAYSTATION_SERVER_BIND`, for the web
@@ -1065,7 +1059,7 @@ the two paths set or a file unreadable. Docker port connectors (`WAYSTATION_DOCK
 `server` each, HTTPS on the same certificate when TLS is on; the proxy settings and the `/_blobs/` location are shared
 include files (`waystation-proxy.inc.template`, `waystation-blobs.inc.template`); `make web-config-test` renders every
 combination in the official nginx image and checks the connector header and the security headers live. Security
-headers (T-R01, rendered by the start script into `waystation-headers.inc` / `waystation-ui-headers.inc`): every
+headers (rendered by the start script into `waystation-headers.inc` / `waystation-ui-headers.inc`): every
 answer carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` and, with
 TLS on, `Strict-Transport-Security: max-age=31536000`; the UI gets a strict CSP (`default-src 'self'`, scripts and
 connections same-origin only, inline style attributes allowed for Quasar, `frame-ancestors 'none'`), everything else
@@ -1150,7 +1144,8 @@ See §5.5. `/metrics` on the server exports two kinds of metric (the full list w
 
 The Grafana dashboard (`Build/monitoring/grafana/`) and the Zabbix 7 template (`Build/monitoring/zabbix/`) cover all
 of them plus `/healthz` and `/readyz` (low-disk, guard, workers, scheduler, job age, dead letters, upstream state and
-rate limit, API latency triggers). Not exported yet: process CPU/memory, sign-in failures.
+rate limit, API latency triggers). Process CPU and memory are left to the container runtime's own metrics
+(cAdvisor, node exporter); sign-in failures are in the audit log (§4.11), not in `/metrics`.
 
 ## 11. Testing strategy
 - Unit tests next to code (pytest, Vitest). Property-based tests (hypothesis) for path normalisation, version
@@ -1191,24 +1186,19 @@ rate limit, API latency triggers). Not exported yet: process CPU/memory, sign-in
 - The forbidden-strings check (`make forbidden-strings`, in `make check`) keeps environment details out of the
   public repository: host names outside `Build/ci/allowed_hosts.txt`, non-documentation IPs, keys and tokens fail.
 - `VERSION` file at the root is the single source; `make set-version V=X.Y.Z` updates everything.
-- Semantic versioning; CHANGELOG kept by hand per task.
+- Semantic versioning; `Documents/CHANGELOG.md` records every change, dated.
 
-## 13. Repository layout and bootstrap
+## 13. Repository layout and source control
 
-### 13.1 Git initialisation (task T-F01)
-```bash
-cd ~/development/Waystation
-git init -b main
-git remote add origin https://github.com/SlinkySoftware/Waystation.git
-git add -A && git commit -m "T-F01: plan and repository skeleton"
-git push -u origin main
-```
-The remote repository must exist first (the owner creates it; empty, no README/licence).
+### 13.1 Source control
+The source is at `https://github.com/SlinkySoftware/Waystation` (default branch `main`). Releases are `vX.Y.Z`
+tags matching the `VERSION` file; each tag publishes multi-arch images to GHCR (§12). Commit messages lead with a
+task or change identifier and use the imperative mood.
 
 ### 13.2 Layout
 ```
 Waystation/
-  CLAUDE.md  README.md  VERSION  LICENSE  Makefile  pyproject.toml (uv workspace)  uv.lock
+  README.md  CLAUDE.md  AGENTS.md  VERSION  LICENSE  Makefile  pyproject.toml (uv workspace)  uv.lock
   .env.example  .gitignore  .dockerignore  .github/workflows/  .gitea/workflows/
   Application/
     Common/   waystation_common/   settings, logging, ids, crypto, events schema, job protocol, storage API, errors
@@ -1216,116 +1206,34 @@ Waystation/
                                     proxy/ (fetch, coalesce, freshness), dataplane/ (x-accel, ranges), stats/, sse/
     Worker/   waystation_worker/   runner, jobs/ (cleanup, gc, index_apt, index_yum, rollups, prefetch, import)
     Web/      Quasar SPA (src/api, components, composables, layouts, pages, stores, router, css, mocks/),
-              src/assets/brand/ (brand geometry + master SVGs; public/ holds the generated favicon set)
+              openapi/ (the UI's API contract), src/assets/brand/ (brand geometry + master SVGs)
   Build/
-    Containers/  compose*.yaml, web/ (Dockerfile, nginx.conf.template), server/, worker/, dev/ (dev image), examples/,
+    Containers/  compose*.yaml, web/ (Dockerfile, nginx templates), server/, worker/, dev/ (dev image), examples/,
                  backup/ (waystation-backup.sh: backup, restore, verify)
     githooks/    pre-commit hook (`make hooks`)
-    ci/          budgets.json, scripts used by workflows
+    ci/          budgets.json, forbidden-strings check, API reference generator, scripts used by workflows
     monitoring/  zabbix/ (Zabbix 7 template), grafana/ (dashboard)
     migration/   nexus_compare.py (side-by-side Nexus/Waystation checks, `make nexus-compare`), checks.example.toml
-  tests/  clients/<format>/  fixtures/upstreams/<format>/  perf/  security/  e2e/  backup/ (`make backup-test`)
-  Documents/  SPECIFICATION.md  TASKS.md  CHANGELOG.md  UI_DESIGN.md
-              Architecture/ ARCHITECTURE.md DATA_MODEL.md FORMATS.md adr/
-              Operations/  DEPLOYMENT.md  BACKUP.md  REVERSE_PROXIES.md  MIGRATING_FROM_NEXUS.md
+  tests/  clients/<format>/  fixtures/upstreams/<format>/  perf/  security/  e2e/  backup/  deploy/  web/
+  Documents/  SPECIFICATION.md  CHANGELOG.md  UI_DESIGN.md
+              Architecture/  ARCHITECTURE.md  DATA_MODEL.md  FORMATS.md  adr/
+              API/           README.md  REFERENCE.md  openapi.json
+              Operations/    ADMIN_GUIDE.md  DEPLOYMENT.md  BACKUP.md  MONITORING.md  ...  clients/<format>.md
+              Security/      ASVS_L2.md  DEPENDENCIES.md
+              History/       how the product was built (tasks, build status, notes)
 ```
 
-## 14. Build status
-| Area | Status |
-|---|---|
-| Plan and documents | Drafted 2026-11-08 |
-| Repository bootstrap (T-F01) | Done 2026-11-08: skeleton, LICENSE (GPL-3.0-or-later), VERSION 0.1.0; pushed to both remotes |
-| Dev tooling (T-F02) | Done 2026-11-08: dev image (Python 3.14, uv, Node 26 LTS), Makefile, uv workspace (`waystation_common`, `waystation_server`, `waystation_worker`), ruff, mypy strict, import-linter contracts (ARCH §3), pre-commit hook |
-| CI (T-F03) | Done 2026-11-22 (implemented 2026-11-08; GitHub `ci.yml` green 2026-11-15). 2026-11-22: `make test-nfs` in `make check` and Gitea `check.yml`. 2026-11-11: Gitea check, UI smoke, perf and server/worker image jobs pass on the runners; `release.yml` publishes every `vX.Y.Z` tag (first public release 0.2.0 to GHCR). Details: GitHub `ci.yml` (`make check`, generated-client check, budget report, client tests in replay; major release tags and manual only), `release.yml` (tagged multi-arch images to GHCR with SBOM and provenance), Gitea `check.yml` (2026-11-10: `make check` without integration tests on every push to main and pull request; `make test-integration` in a second job on push to main and manual runs, skippable with the org variable `WAYSTATION_CI_INTEGRATION=false`), Gitea `images.yml` (images to the Gitea registry from org variables/secrets); repository-wide forbidden-strings check with `Build/ci/allowed_hosts.txt`; `Build/ci/budgets.json` and `make budgets` (warnings until M2); `make workflow-lint` (actionlint) |
-| Performance suite (T-P2-PERF) | Done 2026-11-10: `make perf` (k6, `tests/perf/`): throwaway stack with production images and a synthetic upstream (raw, npm, PyPI, Maven, apt, yum, Go, Helm, OCI), one scenario per §5.1 budget plus an SSE probe, CI and full profiles, results in `tests/perf/.results/` (`measured.json` read by `make budgets`, `report.md`), `STRICT=1`, Gitea `perf.yml` (CI profile on push to main, full nightly). Measured on the dev box: CI profile within every budget (content hit p95 TTFB 4 ms, metadata 3.7 ms, manifests 3.8 ms, miss +3.6 ms and no throughput loss at 100 MiB/s, API 21 ms at 100 000 assets, live events 245 ms); full profile: API p95 35 ms at 1M assets, 1-2 failed downloads per run with 500 concurrent clients (a MongoDB connection closed under the asset lookup, not retried: warning). Dashboard paint not measured (browser) Findings fixed 2026-11-10: 500s under 500 concurrent clients (mongod refused connections past its open-file limit; compose raises it, hot-path reads retry once on `AutoReconnect`), Docker tokens granting nothing for up to 5 s after a repository was created on another process (catalog change stream and reload on a miss), the repository list p95/p99 at 1M assets (storage figures from `repo_usage` counters, refreshed in the background) and folder browse round trips. 2026-11-22: budgets enforced (`"fail"`, milestone M2); the child counts of a folder page share 64 index reads (browse root p95 5.9 s → 37 ms, API list/search p95 3.1 s → 33 ms in the CI profile). |
-| Common core (T-F04) | Done 2026-11-08: `waystation_common.settings` (env `WAYSTATION_*`, `<NAME>_FILE` for secrets, generated `.env.example`), `logs` (JSON lines + contextvars request context, redaction), `ids` (ULID), `errors`, `paths.normalise`, `crypto` (AES-256-GCM keyring, rotation) |
-| Containers and compose (T-F05) | M0 slice 2026-11-08: server/worker/web images, `compose.yaml` + dev override, `make dev-up` brings web, server, worker, mongodb (rs0), valkey and init up healthy; server answers only `/healthz` and `/readyz`; web serves a placeholder page until the SPA is built. Done 2026-11-22: TLS in `web` (`compose.tls.yaml`: HTTPS with HTTP/2 on 8443, plain HTTP redirects with 308, refuses half a configuration), split hosts (`compose.standalone.{web,server,worker}.yaml`: several server hosts behind the web tier, external MongoDB and Valkey, shared blob store), the web access log names the upstream server; `make deploy-test` (two server hosts with concurrent `init`, worker host, TLS web host: redirect, HTTP/2, 64 MiB upload/download, proxied file, worker job, one server host stopped) |
-| MongoDB layer (T-F06) | Done 2026-11-22: every DATA_MODEL §1 collection in the registry, kept in step by a unit test (names, unique and TTL indexes). M0 slice 2026-11-08: async client factory, collection registry and indexes for the M0 collections, declarative schema + forward-only migrations run by `init` (idempotent; since 2026-11-15 under a lease lock, so concurrent `init` runs apply each migration once), `make test-integration` against real MongoDB/Valkey |
-| Blob store (T-F07) | M0 slice 2026-11-08: local-filesystem `BlobStore` (streaming sha256, size limits, verified atomic commit, X-Accel paths, orphan sweeper, free-space guard). Done 2026-11-22: identical commits from several processes or hosts place the blob once (hard-link placement, rename fallback; adr/0011 accepted); `make test-nfs` runs the blob store tests on an NFSv4.1 mount (NFS-Ganesha container) in `make check` and Gitea CI |
-| Events and live stats (T-F09) | M0 slice 2026-11-08: event schema and non-blocking emitter (live transfers, activity stream, per-minute counters and latency histograms in Valkey); the worker rolls closed minutes into `stats_minute` exactly once (the scheduled job `stats.rollup`, every 10 s, since T-F08). Done 2026-11-21: closed hours and days rolled into `stats_hour` (90 d) and `stats_day` (2 y) exactly once, hourly `storage_snapshots` (per repository incl. de-duplication savings, and instance-wide), component download counters and `downloads_daily` in the batched flush, upstream latency histograms, `upstream.state` on upstream failures and recoveries; the 10k events/s emitter check is an integration test |
-| Job system (T-F08) | Done 2026-11-08: typed jobs (`waystation_common.jobs`), `JobClient` for the server (`Services.jobs`: durable outbox enqueue inside a transaction, or direct), Valkey Streams queues with consumer groups, dirty-flag dedupe (pending merges, running → exactly one rerun), outbox dispatcher with re-dispatch after Valkey data loss, heartbeated jobs reclaimed from lost workers, retries with backoff, dead letters after `max_attempts`, scheduler leader lease + cron/`@every` schedules from `job_definitions`, `job_runs` progress/log/result, `workers` presence, `job.*`/`worker.*` activity events, liveness watchdog. The stats rollup runs as the scheduled job `stats.rollup`. Chaos tests: killed worker, flushed Valkey, uploads during a rebuild, one fire with three workers. Job API and Tasks page: T-O04 (2026-11-09) |
-| Server app factory (T-S01) | Done 2026-11-08: routing for `/repository/<repo>/` (case-sensitive names, normalised paths) and `/v2/` (repo prefix → upstream alias → default docker repo), request context (request id, client address, JSON access log), native vs problem+json errors, `HEAD` for API routes, `/healthz`, `/readyz` (MongoDB + Valkey), `/metrics` (Prometheus, CIDR-restricted), start-up `check_schema`, in-process repository catalog (5 s refresh) |
-| Local authentication (T-S02) | Done 2026-11-09: bootstrap admin via `init`, argon2id, sessions with idle/absolute timeouts, CSRF, login rate limit and lockout, `/api/v1/config`, `/api/v1/auth/{providers,login,logout,me,me/preferences}`; one-time passwords enforced (only `/auth/me`, the password change and sign-out until changed; `docker login` refused), own password change, profile update, own sessions list/revoke (one, or every other), effective permissions; UI password card on the profile page and a router guard for one-time passwords |
-| Two-factor sign-in (T-O08) | Done 2026-11-10: TOTP (RFC 6238) for local accounts: enrolment with a QR code drawn in the browser, 10 recovery codes, two-step sign-in with replay protection (Valkey + MongoDB), lockout and rate limits, `docker login` with the password refused for such accounts (API tokens instead), turn off, administrator reset, "require for local administrators" setting enforced like one-time passwords; LDAP/OIDC unaffected; audited |
-| Audit (T-S10) | Done 2026-11-09: audit catalog and records (actor, target, outcome/reason, client address, request id, details, redacted before/after changes), non-blocking batched writer, TTL retention (`WAYSTATION_AUDIT_RETENTION_DAYS`), `GET /api/v1/audit` (filters, cursor paging) and streamed CSV/NDJSON export, Audit log page. Actions whose features are pending (cleanup) are emitted by those tasks; password change, session revoke and user/group/role admin since 2026-11-09 (T-S02/T-S03); `content.upload`/`content.delete` since T-P2-DOCKERH (docker hosted); `settings.update` since T-U08 |
-| RBAC (T-S03) | Done 2026-11-09: one decision point (`security.access`: `check`, `filter_repos`, `filter_query`), built-in and custom roles, scopes incl. `type:`, hidden = 404 (2026-11-10, ADR 0005: the 401 Basic challenge instead for requests without credentials on `/repository/<repo>/...`, identical for missing repositories; `access.hidden_repo`), every route declares its rule, CSRF enforced app-wide for session requests; groups (local and provider-mapped) holding roles; materialised grants cached per `grant_version` (in-process and Valkey) with change-stream invalidation across replicas; configurable anonymous access, whose grants every signed-in principal also receives (2026-11-11: own + anonymous in `access.check`, bounded by token narrowing, ignored by delegation); delegation bounded by the caller's own powers, last-administrator guard. Admin APIs: users, groups and members, roles, anonymous access, effective permissions (UI: T-U08). Tests: route enumeration over included routers (it had silently seen none since a FastAPI upgrade), route × {anonymous, reader, deployer, admin} matrix for every REST route plus the format-route matrix (2026-11-11: no-role users with and without anonymous access, a token-narrowed principal, delegation, `/anonymous-access` changes reaching sessions and cached tokens, `docker login` pulls), cross-replica role change |
-| API tokens and service accounts (T-S04) | Done 2026-11-08: personal and service-account API tokens (keyed hash, shown once, scopes and repository patterns that only narrow RBAC, expiry, batched last used, revocation on every replica within 1 s, failure rate limit); Bearer, `Token` and basic-with-token auth for format clients and the API; `docker login` with a token; `/metrics` with a `metrics` token; REST for own tokens, all tokens and service accounts; profile page "API tokens" card (create with scopes/repositories/expiry, copy-once dialog, list, revoke). Audited (T-S10); the service-account admin UI (T-U08) pending |
-| Repositories (T-S05) | M0 slice 2026-11-08: proxy repositories of docker, npm, apt and raw: REST CRUD, validation with field errors, write-only encrypted upstream secrets, test upstream, "Set me up" snippets, per-format options in OpenAPI. Audited since T-S10. Hosted repositories (`hosted{write_policy, immutable_tag_patterns}`, per-type option rules) since T-P2-DOCKERH and group repositories (`group{members, writable_member}`) since T-P2-DOCKERG, then for every format the §4.5 table lists them for (each format's descriptor `types`). Done 2026-11-22: all 12 registered formats' options are in OpenAPI (`FormatOptions` oneOf, contract test) with field errors tested. Clone since 2026-11-21 (`POST /repositories/{name}/clone`: configuration only, upstream secret re-encrypted server-side, docker aliases/default stay with the source; contract, MSW, "Clone" action on the repository page); status `ok`/`degraded`/`blocked`/`offline` from the upstream health hash (auto-block) |
-| Real-client harness (T-P2-HARNESS) | M0 slice 2026-11-08: `make clients-test FORMAT=<f> MODE=replay\|record\|live` runs client containers against a per-format compose project with a record/replay fake upstream (impersonates public upstream hosts via `extra_hosts` + throwaway CA; replay fails on any miss; record scrubs and stores fixtures under `tests/fixtures/upstreams/<format>/`); `make clients-check` (in `make check`) rejects non-allowlisted hosts, non-documentation IPs, keys/tokens and oversize fixtures. Formats: `echo` (self-test), `raw`, `npm` and `apt` (Debian 13 + Ubuntu 26.04 clients in one run: `CLIENT` may list several; `lib.sh` falls back to bash `/dev/tcp` where the image has no curl; apt fixture budget 32 MiB); `setup.sh` creates repositories through the API as a per-run bootstrap admin (`ws_login`/`ws_api` in `lib.sh`). 2026-11-21: pnpm/Yarn 1/Yarn 4/Bun (`client-nodepm`), podman and containerd clients; `SERVICES` (OpenLDAP and Keycloak for the `auth` format), `STACK_ENV`, a per-run directory shared by the clients; opt-in arm64 clients (`CLIENT_ARM64`, `ARM64=1`, skipped with a message where the host cannot run linux/arm64 containers); nightly live smoke on Gitea (`.gitea/workflows/clients-live.yml`, arm64 clients behind `WAYSTATION_CI_ARM64`), the GitHub one manual |
-| M0 API contract + mocks (T-V01) | Done 2026-11-08: OpenAPI 3.1 contract (`Application/Web/openapi/waystation-m0.yaml`), generated TS types + `openapi-fetch` client, MSW handlers with seeded fixtures (11 proxy repos: Docker Hub, GHCR, Quay, registry.k8s.io, npmjs, Debian, Debian security, Ubuntu, Raspberry Pi OS, two raw) and a live-event generator (bursty docker pulls, npm installs, apt runs, raw downloads, coalescing, failures); `npm run dev:mock` / `make frontend-mock`. Server-side contract test: `Application/Server/tests/test_contract.py` compares the server's generated OpenAPI with it for every implemented operation (T-S05, T-S11) |
-| Web shell (T-F10) | Done 2026-11-08: Quasar 2 / Vue 3 / TS strict SPA under `/ui/` (build output `Application/Web/dist/spa`), light/dark/system themes, self-hosted Inter + JetBrains Mono, SVG Material Symbols (no icon font), collapsible rail, top bar with live indicator, router + auth guard, local sign-in, shared live store (one stream, topic ref-counting, reconnect + Last-Event-ID, 4 Hz flush), `make frontend-build` with bundle budget (initial route 158 kB gzip of 250) |
-| Brand (T-U02) | Done 2026-11-09: original mark (hexagon-headed waypoint marker holding a stack) and monoline wordmark, one geometry source (`src/assets/brand/geometry.ts`) for `BrandMark` and the master SVGs; `make brand` generates the favicon set (SVG that follows the browser theme, PNG 16/32/48/180/192/512, ICO, maskable icon, web manifest) with resvg in the dev image, `make brand-check` in CI; seven theme-aware empty-state illustrations used by `EmptyState` (no repositories, nothing cached, no results, no activity, error, not found, coming soon); the repository page now tells a load failure (retry) from a missing repository |
-| Design system (T-U01) | Done 2026-11-21: tokens, themes, format icon sprite, base components, SVG charts (sparkline, stacked area, donut, bar list, gauge); density toggle (comfortable/compact, saved per user); dev-only showcase route `/dev/showcase` with every base component in both themes |
-| Dashboard (T-U03) | Done 2026-11-21: KPIs, live transfers, traffic chart, storage donut, upstream health (Docker Hub limit as a gauge), activity feed, all live from the event stream; Top artifacts (downloads/bytes, window) and Recently added cards, 90d/1y ranges, p95 latency on the Requests tile, on the real API (`/stats/top/artifacts`) and mocks; real-server wiring test (`test_ui_wiring.py`) and 60 fps with 200 live transfers measured in Playwright |
-| Repositories UI (T-U04) | Done 2026-11-21: list with filters and a table/card-grid toggle, create flow for every type each format serves (proxy; hosted and group where the server's format descriptor allows them), test upstream, field errors, detail page with Overview, Packages, Browse, Activity, Cleanup, Members and Settings tabs, Set me up panel with Linux/macOS/Windows variants (snippets with a `<your-api-token>` placeholder) |
-| Browse UI (T-U05) | Done 2026-11-21: format package views (docker, npm, apt, yum, Maven, PyPI, Go, Helm, Galaxy, Terraform) and the generic two-pane file tree for every format (virtualised, keyboard accessible, measured on a 100,000-file folder), docker referrers (`GET /repositories/{name}/docker/referrers`), npm READMEs rendered as safe Markdown (`NpmVersionPage.readme`). Screenshot tour of the real server: `Documents/Notes/UI_TOUR_M0.md` |
-| Browse API (T-S09 min) | M0 slice 2026-11-08: generic folder listing of cached assets for every format, npm packages/versions, apt suites/packages, docker images/tags/manifest, to the M0 contract; indexing in the background after cache fills (`npm_packages`, `apt_packages`, `docker_tags`/`docker_manifests`); every browse query index-backed (explain test); the raw, npm, apt and docker real-client harness runs check it. Done 2026-11-21: the component index (worker; every format's package files, docker tags, raw files; backfills content cached before), the `version_sort` contract (`waystation_common.versionsort`), download counters in browse, folder `child_count` (up to 100), digest "where used" (`GET /digests/{digest}/usage`) and the request-path index-coverage check (every query the server issues while handling a request in the integration suite is explained)
-| Data plane (T-S06) | Done 2026-11-10 (implemented 2026-11-08): cached blobs served by nginx via `X-Accel-Redirect` (sendfile, ranges), conditional requests and HEAD answered by the server, digest ETags and format headers preserved; verified through the dev stack's nginx. Perf acceptance (k6, T-P2-PERF): a cached 10 GiB file served at about 1.3 GiB/s (the dev box's Docker bridge) with the server at 5% of one core |
-| Proxy engine (T-S07) | M0 slice 2026-11-08: fetch with tee streaming, digest/size validation before commit, metadata freshness and conditional revalidation, stale-on-error, offline mode, negative cache, SSRF-guarded pooled HTTP/2 upstream clients, live transfers/activity/counters/upstream health; verified against a public mirror through the dev stack. 2026-11-09: auto-block with exponential backoff, probes and automatic resume (shared across replicas), per-repo CA bundle and HTTP proxy (SSRF guard still applied through the proxy), all exposed in the repository form and upstream health. 2026-11-10 (T-O03): fills the low-disk guard or a hard quota refuses are passed through to the client verified and uncached (followers fetch on their own). 2026-11-11: streaming fills run as background tasks of the engine and finish after their client disconnects (committed, indexed, followers served, next request a hit; bounded by timeouts, a stall limit and 64 client-less fills per process; shutdown cancels them cleanly); used by every proxy format |
-| Request coalescing (T-S08) | Done 2026-11-08: Valkey single-flight per asset (`proxy.coalesce`: Lua claim, renewed lease, progress, outcome, follower count on the owner's live transfer); followers tail the owner's upload file on the same host and a local filesystem (`fdatasync`-aware `synced` offset for other hosts in `local` mode), else wait and are served by X-Accel; metadata fetches and revalidations coalesced; failures and mismatches fail followers (nothing unverified completes); owner abort or death (lease expiry) → a follower takes over after a prefix check of what it already sent; Valkey down → no coalescing. Tests: 200 clients over two real replicas → one upstream fetch, identical bytes; owner replica SIGKILLed mid-transfer → takeover; mismatch; wait mode. Lease renewal independent of `fdatasync` (2026-11-09 fix for a second fetch under disk load). Followers on a second host against NFS not covered by CI yet |
-| Stats and live APIs (T-S11) | M0 slice 2026-11-08: KPI summary with sparklines, traffic series (cache/format split), storage summary, upstream health, live transfers, activity feed, repository 24 h stats and degraded status; SSE event stream with snapshot, RBAC filtering, resume and 1 Hz stats ticks; verified through nginx. Done 2026-11-21: 7d/30d from the hourly rollups and new 90d/1y ranges from the daily ones, p50/p95 request latency and upstream p95, top artifacts and repositories, storage history, per-repository de-duplication, `upstream.state` on failures and recoveries, multi-replica SSE fan-out and resume tested; 15m stays at one-minute buckets (§7) |
-| Activity and Storage pages (T-U07) | 2026-11-09: Activity page (live tail with pause and scroll-hold, filters in the URL incl. user, cache state, outcome and time window, history paging, detail drawer, CSV export through the new streaming `/activity/export`); Storage page (stored/free/de-duplication/blob KPIs, data volume bar, by-format donut, largest repositories, sortable repository table). 2026-11-21: storage growth chart (hourly snapshots, 7d to 1y), largest artifacts with "where used", per-repository de-duplication column; GC status in the Blob GC card (admins, T-O02). The repository detail Activity tab arrived with T-U04 (2026-11-21) |
-| Profile, accessibility, E2E (T-U09) | Done 2026-11-21: profile (display name and e-mail, appearance, password, two-factor, API tokens, sessions); axe (WCAG 2.2 AA rules) on every page in both themes and at phone width: zero serious or critical; `make e2e` (part of `make check`): Playwright E2E flows, axe, visual-regression baseline (9 pages × 2 themes × 3 widths, `make e2e-update` to regenerate) and UI performance checks on the mock build |
-| Docker token service (T-S12) | M0 slice 2026-11-08: `/auth/token` (anonymous and local-password tokens, scope grammar, RBAC grants), `/v2/` Bearer challenges with scopes and `insufficient_scope`; real `docker login` verified; `docker login` with an API token (T-S04); `registry:catalog:*` for everyone with a RBAC-filtered `/v2/_catalog`, `push`/`delete` grants carry `browse` (T-P2-DOCKERH). Done 2026-11-21: refresh tokens (`offline_token=true`, 90 days; the Docker CLI stores them instead of the password) and the OAuth2 `POST /auth/token` (`grant_type=password`/`refresh_token`, `access_type=offline`, containerd's `ns`); revocation of issued registry tokens before expiry (per-user cut-off `users.tokens_not_before` + Valkey `regtok:nbf:`, checked per `/v2/` request and per refresh) when a user is disabled or deleted, a password changes or sessions are revoked; tokens issued for an API token follow it. Real `docker login` + pull with the stored refresh token, refused after revocation, in the client harness |
-| Raw format (T-P2-RAW) | M0 slice 2026-11-08: raw proxy repositories serve `GET`/`HEAD /repository/<repo>/<path>` through the proxy engine (cache by path, metadata regex → revalidated metadata, extension-based Content-Type, `Content-Disposition` + `nosniff`, native 404 with negative cache). 2026-11-10: raw hosted (streaming `PUT` with size limit and `X-Checksum-Sha256/Sha1/Md5` verification, write policy, `DELETE`, audit + activity + live upload transfers) and group repositories (members in order, uploads to the writable member), directory listings (HTML/JSON) for every type, "Set me up" for curl/wget upload and download, the repository form's Hosted/Group tiles for raw; curl and wget pass the real-client harness in replay (proxy, hosted upload/download/delete, group reads and upload). Nexus import creates raw hosted and group repositories; the harness also passes in live mode |
-| apt format (T-P2-APT) | M0 slice 2026-11-08: apt proxy repositories pass `InRelease`/`Release` through untouched, serve index files only by the SHA256 the cached `Release` lists (by-hash fetch, one `Release` revalidation on mismatch, then 502), accept self-validating `by-hash` paths, index cached `Packages` files into `apt_pool_index` and validate pool files against it (or record them `unverified`); several suites per repository, including multi-segment suites such as `bookworm/mongodb-org/8.0` and package files listed under `dists/` (2026-11-11). apt on Debian 13 and Ubuntu 26.04 passes the real-client harness in replay (`*-updates` and `*-security` suites). 2026-11-21: a Raspberry Pi OS arm64 client (Debian 13 arm64 + the Raspberry Pi archive) in the harness, opt-in (`ARM64=1`) and skipped without arm64 emulation (its fixtures are not recorded yet); `auth.conf` covered by the client-auth matrix (T-A04). Worker job `apt.refresh` since 2026-11-21 (Release revalidation, `Packages` refresh, re-verification of unverified pool files). Hosted: T-P5-APTH (below). Done 2026-11-22: the nightly live run also uses the full base suites (`trixie`, `resolute`) with translations and every compression type and installs a package only they have (passed live on Debian 13 and Ubuntu 26.04); the Raspberry Pi OS arm64 client is recorded and passes in replay (key from the `raspberrypi-archive-keyring` package) |
-| npm proxy (T-P2-NPM) | M0 slice 2026-11-08: packuments (full and abbreviated, cached separately, revalidated; scoped names in every spelling) with tarball URLs rewritten to the repository; tarballs verified against `dist.integrity`/`dist.shasum` before they are cached; `npm ping`, search (5-minute cache) and audit relayed uncached (`audit_passthrough`). Per-version documents (2026-11-11): `/<pkg>/<version>` and `/<pkg>/<dist-tag>` (scoped, both encodings) from the cached full packument (proxy), the generated one (hosted) or the merged one (group), unknown = 404 `version not found`; what corepack fetches. Real npm 11 installs (lockfile-pinned and lockfile-free, scoped packages, `npm audit`, `npm view <pkg>@<version>`, corepack-style version fetches) pass in the harness. Hosted and group: see T-P5-NPMH. 2026-11-21: pnpm 12, Yarn 1, Yarn 4 and Bun pass too (frozen installs from their own lockfiles, lockfiles unchanged, `pnpm audit`/`yarn audit`/`yarn npm audit`/`bun audit`); Yarn 1 fetches lockfile URLs verbatim (clients/npm.md) |
-| npm hosted + group (T-P5-NPMH) | Done 2026-11-10: hosted publish (bounded, verified, tarball inspected in a thread), packuments generated from `npm_versions` and stored as metadata assets (compare-and-set on `npm_packages.rev`), deprecate, unpublish (version and package), dist-tags endpoints, search; `npm login --auth-type=legacy` issuing an API token and `npm logout` (`waystation_server.client_login`, descriptor `client_login`/`request_action`); groups merging packuments of proxy and hosted members with tarballs from the winning member and writes to the writable member; UI create flow for hosted/group, hosted browse, "Set me up" (`.npmrc` `_authToken`, `npm login`, `publishConfig`, publish/tag/deprecate/unpublish). Harness: npm 11 login, publish (group and hosted), install through the group with a proxied dependency, dist-tag, deprecate, unpublish, logout. pnpm/Yarn/Bun publish not in the harness |
-| PyPI (T-P5-PYPI) | Done 2026-11-10: proxy (PEP 503 HTML and PEP 691 JSON pages negotiated by `Accept` and cached per representation, normalised-name and trailing-slash redirects, file URLs rewritten into the repository with hashes, requires-python, yanked and core-metadata kept; files and PEP 658 `.metadata` files verified against the page's hashes before they are cached; legacy JSON API pass-through), hosted (twine / `uv publish` upload API streamed into the blob store, metadata read from wheels and sdists in a thread with zip/tar-slip checks, write policy, `.metadata` for wheels, yank API), group (merged pages, files from members, uploads to the writable member); browse (`pypi/projects`, `pypi/versions`) and search on `pypi_packages`; PEP 440 version order for cleanup; UI create flow, options, browse with yank, "Set me up" (pip, uv, Poetry, PDM, twine, uv publish). Harness: pip 26, uv 0.13, twine 7 against recorded pypi.org fixtures. Poetry/PDM harness runs pending |
-| Go modules (T-P5-GO) | Done 2026-11-10: proxy (GOPROXY protocol: `@v/list` and `@latest` as metadata, canonical `.info`/`.mod`/`.zip` as content, `.info` queries as metadata; module paths and versions case-decoded, validated and re-encoded; upstream `404`/`410` → `404`; size limits), `.mod`/`.zip` verified against the checksum database's `go.sum` lines (`h1:` dirhash in a thread, bounded) before they are cached (`verify_checksums`, `nosumdb` patterns), checksum database proxy at `sumdb/<name>/` (`supported`, `latest`, `lookup`, tiles: full tiles immutable, hash tiles size-checked), group (merged `@v/list`, files from the first member holding them, sumdb from the first proxying member); `go_modules` browse (`go/modules`, `go/versions`) and search; Go semver order for cleanup; UI create flow, options, Go browser, "Set me up" (GOPROXY, GONOSUMDB, `.netrc`). Harness: go 1.25 `go mod download`/`go run` through a proxy of proxy.golang.org with sum.golang.org verified through the proxy, and through a group with `.netrc` over TLS, recorded and replayed. Cached version lists and `@latest` are measured by the k6 metadata scenario (T-P2-PERF) |
-| Docker hosted (T-P2-DOCKERH) | Done 2026-11-09: docker hosted repositories (REST/UI type `hosted` with write policy and immutable tag patterns): chunked/monolithic/resumable uploads into the blob store (sha256-verified, `upload_sessions`), cross-repository mounts with RBAC on the source, manifest validation, tags with immutability, deletes, referrers API, `tags/list`, `/v2/_catalog` for proxies and hosted (RBAC-filtered), audit `content.upload`/`content.delete`, live upload transfers, browse of pushed images, "Set me up" for push/buildx/crane/oras/cosign. docker push and buildx multi-platform, skopeo, crane, oras and cosign 3 (offline, signatures via referrers) pass the client harness, and so does the OCI distribution-spec conformance suite v1.1.1. Quotas (T-O03): hard quotas refuse pushes with `403 DENIED` |
-| Docker group (T-P2-DOCKERG) | Done 2026-11-09: docker group repositories (REST/UI type `group`: ordered members, optional hosted writable member): reads in member order, blobs from any member's copy first, merged tags and referrers, pushes/uploads/deletes to the writable member with RBAC on it, read-only groups `405`; client harness push through a group, member order and merged tags; the OCI conformance suite passes through a group as well |
-| Docker port connectors (T-P6-DOCKERC) | Done 2026-11-22 (ADR 0013): `format_options.connector_port` on docker proxy, hosted and group repositories (validated, unique, not the base URL port, not cloned); web container listeners from `WAYSTATION_DOCKER_CONNECTORS` (`/v2/` only, HTTPS + HTTP/2 with TLS, `X-Waystation-Connector` set by nginx, cleared on the main listeners); server routing, challenge realm `?connector=`, token service (GET and OAuth2 POST) and unprefixed `/v2/_catalog` through the connector, header honoured only from internal hops; Nexus import maps connector ports; repository form field, "Set me up" connector snippets, Docker routing card, MSW mocks. Tests: unit, integration (routing, tokens, push/pull/mount/catalog, a spoofed header from outside ignored), `make web-config-test` (nginx -t for plain/TLS/connectors, refused lists, live header checks), client harness (docker pull through a connector port, buildx push to a hosted connector, challenge realm, spoofed header on the main port ignored), `make deploy-test` (HTTPS connector) |
-| Docker proxy (T-P2-DOCKERP) | M0 slice 2026-11-08: the pull side of the registry API for docker proxy repositories at `/v2/<repo\|alias\|default>/...` and `/repository/<repo>/v2/...`: tag manifests as metadata (one asset per Accept variant, stale tags re-checked with an upstream `HEAD`, bytes checked against the upstream `Docker-Content-Digest`, never converted), digest manifests and blobs as content verified against the digest (blobs shared per repository), tags/list with `n`/`last` and rewritten `Link` (5-minute cache), `HEAD` misses answered by an upstream `HEAD`; Docker Hub (`library/`, `auth.docker.io` tokens, `ratelimit-*` recorded for upstream health) and any `WWW-Authenticate` registry (GHCR) with tokens cached per repository; OCI error codes. Docker daemon (mirror mode, prefix, alias) and skopeo pass the real-client harness against Docker Hub and GHCR in replay. Hosted and `_catalog` since T-P2-DOCKERH, groups since T-P2-DOCKERG; 2026-11-21: containerd's `?ns=` routes unprefixed names by upstream alias (404 for a registry nothing proxies, never the default repository's image of the same name); podman 6 (registries.conf mirror, prefix, alias) and containerd 2.4 (`hosts.toml` mirror with `?ns=`, prefix, alias) pass the harness (2026-11-21); referrers API for proxies (upstream referrers API, else the `sha256-<hex>` tag schema; cached as metadata, sanitised OCI index, `artifactType` filter; groups merge every member's) and upstream registry tokens/challenges shared by every server process through Valkey (encrypted, expiring with the token). Done 2026-11-22 |
-| Deployment docs (T-M03) | 2026-11-09: `Operations/DEPLOYMENT.md` (single-host compose as it works today, env reference, TLS options, scaling status, backups, upgrades) and `Operations/REVERSE_PROXIES.md` (nginx, Traefik labels + file provider, Caddy, HAProxy, Synology DSM) with example files checked in containers by `make proxies-check`. 2026-11-10: `Operations/BACKUP.md` (T-O07). 2026-11-22: a fresh-host run from the docs alone (0.2.7 images, clean Docker-in-Docker host) passed; the gaps it found are fixed; the owner runs Waystation in place of Nexus. DEPLOYMENT.md covers TLS in `web` and split hosts (T-F05) |
-| Monitoring (T-O06) | 2026-11-09: Grafana dashboard (`Build/monitoring/grafana/waystation-dashboard.json`: request rate, cache hit ratio, bytes served from cache / fetched, upstream errors and latency, coalescing, per-repository table) and Zabbix 7 template (`Build/monitoring/zabbix/waystation_by_http.yaml`: HTTP agent items on `/healthz`, `/readyz`, `/metrics`, repository discovery, down/degraded upstream, error-ratio and availability triggers), both checked by loading them into Grafana 12.2 / Zabbix 7.0; `Operations/MONITORING.md`. 2026-11-09 (gaps): upstream state and consecutive failures, upstream rate limits, job queues (waiting, running, delayed, oldest waiting age), dead letters, live workers and scheduler leaders, blob store used/free/size and the free-space guard (cluster figures read on scrape, 10 s cache), free-space guard refusals, HTTP latency per route template, event-stream clients; multi-process aggregation for `SERVER_WORKERS > 1` (`PROMETHEUS_MULTIPROC_DIR`); dashboard rows and Zabbix items, discovery and triggers (low disk, guard, workers, scheduler, job age, dead letters, upstream state, rate limit, API latency) for all of them, re-validated in Grafana 12.2 / Zabbix 7.0; cleanup and blob GC totals exported as cluster figures (also with several server processes), with dashboard panels, Zabbix items and a GC-not-run trigger; 2026-11-10: quota and low-disk panels, items, discovery and triggers (T-O03); a unit test checks both files against the exported metric names |
-| LDAP provider (T-A01) | Done 2026-11-09: several LDAP providers with server failover, LDAPS/StartTLS/clear, custom CA (host names verified), encrypted service bind, user search + attribute mapping, groups by memberOf or group search with optional nesting, require-group gate, bind cache for `docker login`; admin API + "Authentication providers" page with test-connection/test-user and group-mapping table; provider choice on the sign-in page. Tested against OpenLDAP (FreeIPA-style tree) and Samba AD containers |
-| OIDC provider (T-A02) | Done 2026-11-09: several OIDC providers (discovery, code + PKCE S256, state + nonce bound to the browser, ID token checks with JWKS rotation and an asymmetric alg allowlist, optional userinfo, claim and group-claim mapping, require-group, auto-provision toggle, RP-initiated logout), write-only encrypted client secret, IdP calls on the pooled client + SSRF guard; admin form with test discovery; "Sign in with" buttons. Tested against Keycloak and (opt-in) authentik. JOSE library: `joserfc` (ADR 0004, accepted 2026-11-09) |
-| Client-auth matrix (T-A04) | Done 2026-11-21: harness format `auth` (OpenLDAP + Keycloak next to the stack, private repositories, no anonymous access): `docker login` with an LDAP password and with an OIDC user's API token (push, pull), `npm login --auth-type=legacy` with an LDAP password and `_authToken` with an OIDC user's token (publish, install, logout), apt `auth.conf`, dnf `.repo` basic auth and curl basic/bearer with LDAP and OIDC users' tokens; refused: anonymous, wrong passwords, account passwords where only tokens are accepted, unknown and revoked tokens (at once, also mid-session for docker), a signed-in LDAP user without a mapped group. A Bearer value that is not shaped like an API token on `/repository/...` is treated as no credentials (404 for a hidden repository, ADR 0005), not 401 |
-| Identity linking and group sync (T-A03) | Done 2026-11-09: provider-neutral linking (same-username rules), group sync on sign-in, group → role mapping as `groups` documents applied per request (`security.groups`), LDAP and OIDC provider admin forms; Users/Groups admin pages (T-U08) |
-| yum format (T-P2-YUM) | Proxy done 2026-11-10: yum proxy repositories keep the upstream layout (every `repodata/` directory below the upstream URL, `$releasever/$basearch` kept), pass `repomd.xml` (+ `.asc`) through untouched after a defused, bounded parse, serve repomd-listed files only by the checksum the cached `repomd.xml` lists (one revalidation on mismatch, then 502), accept self-validating by-checksum names, index cached `primary.xml` files (gz/xz/zst/bz2, bounded, in a thread) into `yum_packages` with RPM version order (`version_sort`) and validate packages against them (or record them `unverified` until a listing arrives); optional verification of `repomd.xml.asc` against configured upstream keys (`repomd_keys`, in-house OpenPGP `waystation_common.openpgp`); mirrorlist/metalink not proxied (documented); "Set me up" `.repo` files for Rocky, AlmaLinux, Oracle, EPEL, Fedora and generic upstreams; package browse (`/yum/packages`, `/yum/versions`, UI packages/files views); create dialog with presets. Real clients in replay: dnf 4 on Rocky Linux 10 (`extras` verified by Waystation, EPEL 10, API token in the `.repo`), AlmaLinux 10, Oracle Linux 9 (`addons`), dnf 5 (Fedora 43) and zypper (Leap 16) smoke. Hosted: T-P5-YUMH; groups not supported |
-| yum hosted (T-P5-YUMH) | Done 2026-11-10: hosted yum repositories: RPM upload (`PUT`/`POST`, header read safely in a thread), write policy, delete; repodata built by the worker job `index.yum` through the outbox (dirty-flag dedupe; cleanup runs trigger it too) and published atomically; `repomd.xml.asc` signed with a per-repository key (`waystation_common.signing`, in-house OpenPGP on `cryptography`; adr/0007, accepted 2026-11-11), public key at `RPM-GPG-KEY`; browse (packages → files, upload time); "Set me up" (`.repo` with `repo_gpgcheck=1`, gpgkey, credentials; curl upload/delete); create flow (hosted tile). Real clients: rpmbuild + curl upload, dnf install/upgrade with `repo_gpgcheck=1` and an API token on Rocky Linux 10. Groups not supported (§4.3) |
-| apt hosted (T-P5-APTH) | Done 2026-11-22: hosted apt repositories: `.deb` upload (`PUT`, `POST` raw or multipart; package read safely in a thread: ar/tar/compression bounds, control file checked), components and architectures, write policy, delete; `dists/<distribution>/` built by the worker job `index.apt` through the outbox (dirty-flag dedupe; cleanup runs trigger it too): `Packages`/`.gz`/`.xz` per component and architecture with by-hash copies, `Release`, clearsigned `InRelease` and `Release.gpg` signed with the per-repository key (`waystation_common.signing` gained cleartext signing; adr/0007), switched atomically keeping the previous generation's by-hash files; public key at `public.asc`/`public.gpg`; browse through the apt browser (published indexes in `apt_packages`) and the component index (dpkg order); "Set me up" (key install, deb822 with `Signed-By`, `auth.conf`, curl upload/delete); create flow (hosted tile, components, architectures); Nexus import of apt hosted. Real clients: dpkg-deb + upload, apt update verifying `InRelease` with the served key, install, upgrade, wrong key refused, delete, with an API token on Debian 13. Groups not supported (§4.3) |
-| Cleanup policies (T-O01) | Done 2026-11-09: named policies (criteria per SPEC §4.8, per-format version order, docker tag cascade), dry-run preview API (same planning code as runs), `cleanup.run` worker job with progress, per-policy cron schedules, attachment per repository, REST + UI (`/cleanup` page with live impact count, candidate preview and run history; repository Cleanup tab); downloads recorded off the hot path into `assets.last_downloaded_at`/`download_count`. Audit records pending (T-S10) |
-| Blob GC (T-O02) | Done 2026-11-09: `blob.gc` worker job (every 6 h, 24 h grace): orphan uploads, adoption of untracked files, mark-and-sweep with a claim protocol that makes a racing cache fill safe (property test + real fill-vs-sweep race test), missing referenced blobs reported; GC status/run API and UI card; freed bytes as activity events and Prometheus counters (`waystation_gc_*`, `waystation_cleanup_*`) |
-| Backup and restore (T-O07) | Done 2026-11-10: `Build/Containers/backup/waystation-backup.sh` (bash + Docker; `make backup` / `restore` / `verify-blobs`): dump-then-blobs backups with manifest, hard-linked incremental snapshots, retention, `--hosted-only`; restore (archive check, database replace, blobs and keys, ownership, Valkey emptied); `blob.verify` worker job (weekly + on demand; `waystation_worker.run_task` CLI): missing/damaged blobs, proxied assets marked and re-fetched, hosted losses reported (log, result, activity event, `waystation_assets_blob_missing` gauge, `waystation_verify_*` counters), Tasks page labels; `make backup-test` end to end (seed with real clients, backup, wipe, restore, verify, re-fetch, hosted loss); `Operations/BACKUP.md` (procedures, NAS targets, cron and systemd timer). Grafana panels (assets missing their blob, verify findings) and Zabbix items with a "hosted content lost" trigger. Left: deep verify and report-only mode are reachable only through the task parameters (no UI editor yet, T-O04), panels not yet loaded into a live Grafana/Zabbix |
-| Quotas and low-disk guard (T-O03) | Done 2026-11-10: per-repository quotas (soft warns, hard refuses new writes) on stored asset bytes (`repo_usage`, incremental + hourly `quota.reconcile`; shared blobs count in each repository), 80 %/100 % alerts in the activity feed and on `/metrics`, docker hosted pushes refused with `403 DENIED`, proxy fills over quota or below the low-disk floor served verified and uncached; low-disk guard settings API (`/api/v1/storage/guard`, bytes and percent), `storage.check` alerts, UI form section, usage meters, shell banner and Storage page card; client harness pushes to a hard-quota docker hosted repository. 2026-11-10: Grafana "Quotas and disk" row and Zabbix quota items, discovery and triggers (hard quota reached, over soft quota, near quota), not yet loaded into Grafana/Zabbix |
-| Maven format (T-P5-MAVEN) | Done 2026-11-22. Proxy, hosted and group 2026-11-10: Maven proxies (Central or any Maven 2 layout; `maven-metadata.xml` revalidated and refused unless it parses, artifacts verified against the upstream `.sha1`/`.sha256` while streaming, checksum files generated from stored digests, `.asc` passed through), hosted repositories (`mvn deploy`/Gradle publish, version, layout and write policies, server-side `maven-metadata.xml` regeneration serialised per artifact, file and version deletes, audited) and groups (first member wins, merged `maven-metadata.xml`, read-only); components in Maven version order; browse API and UI (artifacts → versions → files); create flow and Set me up for Maven, Gradle and sbt. Real mvn 3.9, Maven 4, Gradle 8 and 9 and sbt resolve through a proxy and a group with checksum verification, publish releases and SNAPSHOTs and consume them through the group in the harness (replay and the nightly live run). Maven components are found by artifactId in global search (2026-11-22). The Nexus import maps `maven2` repositories |
-| Secret-key rotation (T-O11) | Done 2026-11-22: worker job `secrets.rotate` (built-in schedule daily 04:23 UTC; Tasks page "Run now"; `python -m waystation_worker.run_task secrets.rotate --wait`): re-encrypts with the first key of `WAYSTATION_SECRET_KEYS` every stored value made with another key (upstream credentials, LDAP bind password, OIDC client secret, webhook secret and headers, TOTP secrets enrolled and pending, sessions' OIDC ID tokens; catalogue `waystation_common.db.secrets.ENCRYPTED_FIELDS`, checked against the owning code) with a compare-and-set per value, and the `keys/` files (signing keys, registry token key) atomically; values no key decrypts are reported per store with ids and fail the run after the rest is rotated; result per store `{rotated, already_current, conflicts, undecryptable}` + active key id + key count + a report of live API tokens and recovery codes by hashing key (`hash_kid`, `totp_recovery_kid`, new fields); API tokens used under an older key are re-hashed lazily through Valkey `rehash:tokens` and the rollup; audited `secrets.rotate`; Tasks page and audit labels; `Operations/SECRET_KEY_ROTATION.md` |
-| Tasks and workers (T-O04) | Done 2026-11-09: REST `/api/v1/tasks/*` (admin): scheduled tasks with last/next run, schedule edit (validated cron/macro/`@every` ≥ 10 s; restarts the timer; cleanup-policy schedules stay with the policy) and pause/resume, run now; job runs with filters, keyset cursor and detail with the capped log (`trigger` schedule/manual/retry on runs); workers (heartbeat health, running jobs with run ids, leader) and queue figures; dead letters with atomic, idempotent retry (`jobs:dead:retried`) and discard; all changes audited (`task.*`). Live: the worker publishes `job.progress`/`job.log` on `live:jobs`; SSE topic `tasks` (admin only) carries those plus `job.update`/`worker.update`. UI `/tasks`: summary strip, tabs Scheduled / Runs / Workers / Dead letters, schedule dialog, run drawer with live log viewer, mobile cards; contract + MSW mock job system with live events; Vitest + API integration tests. Later: GC grace/parameter editor, retry-all, per-kind retry metrics (T-O06) |
-| Webhooks (T-O05) | Done 2026-11-10: signed webhooks (REST `/api/v1/webhooks`, admin): definitions with event filter (content and repository events, categories, `*`), repository globs, write-only secret and custom headers (AES-GCM), timeout and attempt limits, private-target exception; events taken from the audit records of content/repository changes into the durable outbox; worker deliveries (`webhook.event`, `webhook.deliver`, `webhook.sweep` every 15 s) at least once with leases, HMAC-SHA256 `Waystation-Signature` over timestamp + body, idempotency key, exponential retries to a dead delivery, SSRF guard at connect time (guard moved to `waystation_common.ssrf`), no redirects, bounded answers; delivery log (30 days) with test event and redelivery; audited `webhook.*`; metrics by outcome and pending. UI Administration → Webhooks (table, editor with generated secret, delivery drawer with attempts, request and redeliver; phone cards); contract + MSW mocks; unit (signature, filters, payloads, backoff), integration (fake receiver: real uploads → signed delivery, retry → dead → redeliver, SSRF refusal, timeout, metrics, audit acceptance) and Vitest tests; `Operations/WEBHOOKS.md` with verification snippets. Later: events of worker-side deletes (cleanup runs), Grafana/Zabbix panels for the webhook metrics |
-| Search and command palette (T-U06) | 2026-11-09: `GET /api/v1/search` (name/version prefix and digest search over docker tags, npm packages, apt/yum listings and cached files; disjunctive facets; keyset cursor paging; RBAC-filtered incl. counts; Browse deep links) on new partial `search_name`/`search_base` indexes with migration `0002_search_keys` backfilling existing content, and an integration test that explains every query (index used, no in-memory sort). UI: Search page (search box, facet sidebar, result rows with format icons, keyboard navigation, state in the URL, empty states) and the `Ctrl/⌘ K` command palette (ARIA combobox/listbox: quick search, recent items, repositories, pages, actions; lazy-loaded). Done 2026-11-21: substring matching from 3 characters on (multikey name-suffix index `search_sfx`, adr/0009, accepted 2026-11-22; prefix matches first); at 1M assets the slowest query's p95 is 32 ms (benchmark `test_search_bench_integration.py`, query cost straight against MongoDB) |
-| Import from Nexus (T-M01) | 2026-11-09: `POST /api/v1/import/nexus/preview` (dry run) and `/apply` (admin): reads a Nexus 3 configuration over its REST API (SSRF-guarded, optional CA bundle, bounded; credentials used per request, never stored or logged), maps names, formats, types, upstreams, ages, negative cache, auto-block, docker Hub/aliases/default repository, apt distribution, raw disposition, hosted write policy and group members (where Waystation has those types: docker and, since T-P2-RAW, raw hosted and group), reports create / exists / unsupported / invalid with field-level differences, applies the selection idempotently with a `repository.create` audit record per repository; UI page Repositories → "Import from Nexus" (connect, plan table with differences, selection, apply), MSW mocks. Tested against hand-written Nexus 3 REST fixtures (`Application/Server/tests/fixtures/nexus3`); 2026-11-11: run against a live Nexus 3 (CE) with docker, apt, yum, npm, maven and nuget repositories (docker, apt, yum and npm proxies imported with aliases and the default docker repository detected from the connector; nuget reported unsupported), then compared side by side with `nexus_compare.py`; 2026-11-21: opt-in `make test-nexus` runs the importer against a real `sonatype/nexus3` CE container seeded with the fixture repositories and requires the same plan as from the fixtures, then applies it (passed; not in `make check` or CI, ~3 GB of memory) |
-| Declarative provisioning (T-O09) | Done 2026-11-10: YAML provisioning file (`WAYSTATION_PROVISION_FILE`; schema from pydantic models, JSON Schema committed and checked; safe bounded YAML without aliases or duplicate keys) declaring repositories (every format, type and option, cleanup attachments, group members created by the same file), cleanup policies, custom roles, local groups, service accounts, LDAP/OIDC providers with group → role mapping, webhooks and settings (instance name, 2FA policy, anonymous access, default docker repository, low-disk guard); secrets only as file/env references; plan (create / update with field diffs, secrets redacted / unchanged / prune) and apply with the API's own validation, all-or-nothing on validation, idempotent; applied by `init` at start (fails `init` when invalid), on demand from Administration → Provisioning (`/api/v1/provisioning`, admin) and `python -m waystation_server.provisioning`; `managed_by: provisioning` tags with adoption, release or guarded prune; audited with `details.source = provisioning` (cleanup policy changes are now audited too: `cleanup_policy.*`); "Managed" label and read-only forms in the UI; `make provision-check|plan|schema`; `Operations/PROVISIONING.md` with a full example |
-| Support bundle (T-O10) | Done 2026-11-22: `GET /api/v1/system/support-bundle` (`admin`, audited `system.support_bundle`) and the System page's "Download support bundle" card: a zip (built in a thread) with README, manifest, versions (Waystation, Python, OS/kernel, MongoDB and its feature compatibility version, Valkey, workers, migrations), effective environment settings with every secret redacted and URIs without credentials, stored instance settings, repository and auth provider configuration (encrypted secrets as `*_set`, CA bundles as fingerprints), health (MongoDB/Valkey, data volume, low-disk guard, workers and queues, upstream health and auto-block), the newest failed/dead/interrupted job runs with log tails and dead letters, and recent errors; every value scrubbed and bounded, files capped at 8 MiB, an unreadable section reported in its file. Recent errors: `waystation_common.recent_errors.RecentErrors` on the root logger of every server and worker process (WARNING+, redacted, bounded, floods summarised) flushed in the background to the Valkey stream `errors:recent` (MAXLEN ~1000, TTL 7 d; Valkey down = dropped and counted, never blocking). Contract + MSW mock (a real zip), unit tests (planted secrets absent from the zip bytes, capture bounds, flood summary, Valkey down), integration (admin bundle contents and no secrets, 403/401, audit, Valkey failure) and Vitest tests |
-| Nexus migration guide + validation (T-M02) | 2026-11-10: `Documents/Operations/MIGRATING_FROM_NEXUS.md` (inventory, import, credentials and access, hosted content copy with skopeo/crane and a raw asset loop, cache warm-up, side-by-side validation with expected differences, client switch per format, reverse-proxy cutover per repository and docker connector ports, rollback from the audit log, decommission); `Build/migration/nexus_compare.py` (standard library only; checks from TOML; docker Bearer challenge, redirects without credentials to other hosts, base-URL and JSON normalisation, JSON Pointer comparisons; table/Markdown/JSON report; exit 0/1/2), `checks.example.toml` (docker, npm, apt, yum, raw, pypi), `make nexus-compare`; tested against two fake servers in `make test` (no real Nexus) |
-| Administration UI (T-U08) | Done 2026-11-09: Users (list, filters, keyset paging, create/edit, reset password, unlock, disable, sign out everywhere, delete) and a page per user (identities, groups, effective permissions, sessions, tokens); Groups (local + members, mapped roles); Roles (permission matrix editor, held by) and Anonymous access; API tokens (all tokens, revoke) and Service accounts (tokens shown once, permissions); Settings (instance name, docker default repository, environment limits); System (version, MongoDB/Valkey health, data volume). New API `GET/DELETE /users/{id}/sessions`, `GET/PUT /settings`, `GET /system`; MSW mocks for every admin endpoint. Editable retention and UI defaults pending; support bundle since T-O10 |
-| Ansible Galaxy format (T-P5-GALAXY) | Done 2026-11-10: Galaxy v3 proxy, hosted and group repositories (FORMATS.md "Ansible Galaxy"): discovery, collection, version list (every upstream page) and version documents cached as metadata, validated and rendered with this repository's URLs (pagination links, `download_url`), Galaxy NG `plugin/ansible/content/.../collections/index` paths accepted (and used upstream: `collections_path` option), artifacts verified against `artifact.sha256` and size; hosted `ansible-galaxy collection publish` (multipart, `sha256` checked) with the `import.galaxy` worker job through the outbox (archive read safely: tar-slip guards, `MANIFEST.json`/`FILES.json`, per-file sha256) and import-task polling, immutable versions, delete; groups merge version lists (first member wins) and publish to the writable member; legacy v1 roles proxied read-only (archives cached unverified); `galaxy_collections`/`galaxy_imports` with SemVer `version_sort`; browse namespaces → collections → versions with a UI renderer, create flow and "Set me up" (`ansible.cfg` server list with a token, install, publish); cleanup by collection in SemVer order; real-client harness `tests/clients/galaxy/` (ansible-core 2.22: install from galaxy.ansible.com through the proxy, role install, build + publish to hosted and through the group, install through the group and with `ansible.cfg`, delete; replay passing); `Documents/Operations/clients/galaxy.md` |
-| Helm format (T-P5-HELM) | Done 2026-11-10: Helm proxy, hosted and group repositories (FORMATS.md "Helm"): proxy `index.yaml` validated with a safe YAML loader and rewritten (relative chart URLs, `_ext/<scheme>/<host>/...` for charts hosted elsewhere, served as JSON), charts fetched only when the cached index lists them and verified against its sha256 `digest`, `.prov` pass-through; hosted uploads by `PUT` and the ChartMuseum API (`api/charts`, multipart), chart packages read safely (tar-slip guards, size limits, `Chart.yaml` validation), write policy, deletes, `index.yaml` regenerated by the worker job `index.helm` through the outbox and published atomically (cleanup runs trigger it too); group index merged (first member wins per version) and served by X-Accel; `helm_charts` with SemVer `version_sort`; browse `helm/charts` and `helm/versions` with a UI renderer, create flow (proxy presets, hosted, group) and "Set me up"; real-client harness `tests/clients/helm/` (helm 3.19 and 4.0: repo add/search/pull/template through proxy and group, curl and ChartMuseum uploads, index rebuild, delete; replay passing); `Documents/Operations/clients/helm.md` |
-| Minimal-permission users (T-U10) | Done 2026-11-10 (2026-11-11: a user without roles now also receives the anonymous grants, so it sees what anonymous may; the "no access yet" landing shows when anonymous access is off): a signed-in user without roles (or with only a reader or the anonymous grants) gets consistent answers (403 `permission_required`, filtered listings, hidden = 404, never 401) and a calm UI: rail, routes and palette by capability (new `repositories.browse`), "No access to this page", the dashboard landing ("Your repositories" / "no access yet"), no event stream without `stats-read`. Tests: no-role/anonymous-grants/reader columns in the route matrix (unit + integration), Vitest for navigation, guard, live store, landing, mock rules; `make ui-smoke` (Playwright on the mock build, zero console errors) |
-| Terraform provider mirror (T-P5-TFP) | Done 2026-11-10: provider network mirror (proxy) repositories (FORMATS.md "Terraform / OpenTofu"): `index.json` and `<version>.json` rendered per request from cached origin metadata (`zh:` per platform from the signed `SHA256SUMS`, `h1:` for cached archives), archives cached as content; the origin is reached through service discovery and the provider registry protocol, archives from wherever the registry points (redirects and SSRF guard per hop); `SHA256SUMS` cached only after its OpenPGP signature verified with the registry's signing keys (`waystation_common.openpgp`, adr/0006 proposed) and archives verified against it; origin allowlist per repository; `terraform_providers` browse (`terraform/providers`, `terraform/versions`) and search; SemVer cleanup; UI create flow, options, browse renderer, "Set me up" (CLI configuration, credentials block); real-client harness `tests/clients/terraform/` (terraform 1.17 and tofu 1.13 init + apply through a TLS front, both registries, bearer token; replay passing); `Documents/Operations/clients/terraform.md`. Modules and the hosted repository: T-P5-TFM |
-| Swift Package Registry format (T-P5-SWIFT) | 2026-11-22: SE-0292 registry API (FORMATS.md "Swift Package Registry"): release lists, release information (`resources` checksum and signature, `Link` neighbours), manifests with `Link` alternates and `?swift-version=` (303 fallback), source archives (`Digest`, signature headers) by X-Accel, `/identifiers`, `POST login`, `Content-Version: 1`, problem details, `Accept` version negotiation (400/415). SCM-backed proxy (GitHub, GitLab, Gitea/Forgejo; scope → owner mapping, optional allowlist): tags from the smart-HTTP ref advertisement, the tag's tarball repackaged byte-deterministically in a thread, the checksum pinned in `swift_releases` (a rebuild that differs is refused; release files are never cleaned up), `/identifiers` from repository URLs. Hosted: SE-0391 publish (archive checks, metadata, signer recorded), immutable versions, removal as `410`, write policy, quotas, audit; `swift_packages` summaries, components with SemVer `version_sort`, global search source; browse API + UI renderer, create flow with the host options, "Set me up" (registry set, login, resolve, publish); OpenAPI, generated client and MSW mocks; unit + integration tests; real-client harness `tests/clients/swift/` (swift 6.4); `Documents/Operations/clients/swift.md` |
-| Terraform modules and hosted repository (T-P5-TFM) | Done 2026-11-22 (adr/0010 accepted 2026-11-22): module registry proxy (`v1/modules/...` on proxy repositories: version list, download answer kept, GitHub tag archives and HTTP(S)/S3 archives from `module_archive_hosts` cached with their sha256 pinned at the first fetch, other sources passed through; relative `X-Terraform-Get` naming the module's directory), the instance's one hosted Terraform repository (module uploads with bounded archive checks, provider releases with SHA256SUMS + signature verified against the uploaded key, immutable versions, deletes, both registry protocols), `/.well-known/terraform.json` (visibility-filtered), signed download grants for files (`security.download_urls`), browse (`terraform/modules`, `terraform/module-versions`, hosted providers), search, components, UI (create flow with the hosted type, options, Providers / Modules / Files views), "Set me up" (`host` block for the proxy, credentials, sources and publishing for the hosted repository), Nexus import note; harness: terraform 1.17 and tofu 1.13 with `hashicorp/subnets/cidr` through both registries' module proxies and a private module and provider from the hosted repository with a bearer token, negative auth (recorded, replay passing). Left: k6 perf budgets (T-P2-PERF) |
-| Prefetch (T-O12) | Done 2026-11-22 (adr/0012 accepted): per proxy repository `proxy.prefetch` (refresh popular metadata, warm list, schedule) for docker, npm, raw, Maven, Go, (T-P6-NUGET) NuGet, (T-P6-COMPOSER) Composer, (T-P6-CARGO) Cargo, (T-P6-GEMS) RubyGems, (T-P6-CONDA) Conda, (T-P6-HF) Hugging Face and (T-P6-APK) Alpine apk; jobs `prefetch.refresh` (built-in, every 15 min) and `prefetch.warm` (`prefetch:<repo id>`, "Warm now") on queue `prefetch`, executed by a server through `POST /_internal/prefetch/<repo id>` with a signed system grant; never counted as downloads; `WAYSTATION_INTERNAL_URL`; repository form section, overview card, Tasks page owner. Left: PyPI, Helm, Galaxy, Terraform, Swift warm items |
-| NuGet v3 format (T-P6-NUGET) | Done 2026-11-22: proxy, hosted and group repositories (FORMATS.md "NuGet v3"): per-request service index pointing at the repository; proxy of a v3 service index (version lists and registrations, gzip-encoded and paged, cached as metadata with every URL rewritten; packages cached as content after a bounded zip/nuspec check (zip-slip and zip-bomb guards, defusedxml) and, with `verify_catalog`, the catalog SHA-512 and size; search passed through); hosted push with `X-NuGet-ApiKey` = an API token (or basic credentials), write policy, quota, unlist (default) or delete per `delete_mode`, relist, local search, registrations rendered per request; groups merge version lists, registrations and search and take pushes for their writable member; NuGet version order for `version_sort`, cleanup and components; `nuget_packages` summaries for browse and global search; prefetch warm items `Package@version`; Nexus `nuget-*` import; browse API + UI renderer with Unlist/Relist, create flow and options, "Set me up" (dotnet CLI, `nuget.config`, NuGet.exe); OpenAPI, generated client, MSW mocks; unit + integration tests; real-client harness `tests/clients/nuget/` (.NET 10 SDK against recorded api.nuget.org fixtures); `Operations/clients/nuget.md`. Left: NuGet.exe in the harness, symbol packages, autocomplete, the live smoke |
-| Composer format (T-P6-COMPOSER) | Done 2026-11-22: proxy, hosted and group Composer 2 repositories (FORMATS.md "Composer"): per-request `packages.json` with `metadata-url` (no `providers`); proxy of a Composer 2 repository (`packages.json` and minified `p2` documents cached as metadata, validated, bounded and rewritten: archives on allowed hosts (`dist_hosts`) served through the repository, `source` kept or stripped (`source_mode`)); archives fetched (GitHub API zipballs from codeload.github.com), checked (zip-slip/zip-bomb guards), verified against `shasum` and a SHA-256 pinned at the first fetch; hosted upload `PUT packages/upload/<vendor>/<name>/<version>` (bounded zip, `composer.json` validated, version normalised, write policy, quota) and delete, `p2` rendered per request; group merges `p2` per package (first member wins per version) and serves archives from its members; Composer version order (`waystation_common.composer`) for `version_sort`, cleanup and components; `composer_packages` summaries and pins (browse, global search); prefetch warm items `vendor/name[:version]`; Nexus `composer-*` import; browse API + UI renderer, create flow and options, "Set me up" (composer config, auth.json, composer.json, upload); OpenAPI, generated client, MSW mocks; unit + integration tests; real-client harness `tests/clients/composer/` (composer 2.11 against recorded repo.packagist.org / codeload.github.com fixtures); `Operations/clients/composer.md`. Left: Composer 1 `providers`, the `search`/`list` API and security advisories, a writable group member, the live smoke |
-| Cargo format (T-P6-CARGO) | Done 2026-11-22: sparse registries (FORMATS.md "Cargo"): proxy of crates.io (`config.json` generated with `dl`/`api` on the repository and `auth-required` for authenticated requests; index files checked line by line and revalidated as metadata; `.crate` files fetched from the upstream `dl` template and verified against the index `cksum`), hosted (`cargo publish` length-prefixed payload bounded and streamed, `.crate` inspected in a thread, index entries made from the metadata as crates.io does, crates.io name rules, write policy, yank/unyank, owners listed; bare API tokens in `Authorization`), group (merged index files, first member wins, publishes to the writable member); prefetch (`crate@version`, index refresh); `cargo search`; browse (`cargo/crates`, `cargo/versions`), global search, components, SemVer cleanup; Set me up (source replacement, named registry, login, publish); Nexus `cargo` repositories import; UI browser and create flow; real-client harness with cargo 1.99 (`tests/clients/cargo/`, recorded crates.io fixtures); `Operations/clients/cargo.md` |
-| Conda format (T-P6-CONDA) | Done 2026-11-23: channels (FORMATS.md "Conda"): proxy of a channel (`channeldata.json` as metadata; `<subdir>/repodata.json` and its `.zst`/`.bz2`, `current_repodata.json`, `repodata_from_packages.json` streamed like content (bounded, 1 GiB) and revalidated after the metadata max age; JLAP and sharded repodata 404 so clients fall back), repodata scanned in the background with bounded memory into `conda_packages` / `conda_names`, `.conda`/`.tar.bz2` packages verified against the listed sha256 (or md5) and size, packages fetched before any listing recorded unverified and checked when one arrives; hosted (`PUT`/`DELETE <subdir>/<file>`, `info/index.json` read safely from the archive, write policy, quota), repodata, `.zst` and `channeldata.json` generated by the worker job `index.conda` through the outbox (`noarch` always, an empty listing before the first run); no groups (conda merges channels itself); prefetch (`subdir/name[==version[=build]]`, `channeldata.json` refresh); browse (`conda/packages`, `conda/files`), global search, components, conda VersionOrder (`waystation_common.conda`) for version sort and cleanup; Set me up (`.condarc` channels or `custom_channels`, micromamba, pixi, curl upload); Nexus `conda` proxies import; UI browser and create flow; real-client harness with micromamba 2.3 (`tests/clients/conda/`, recorded conda-forge fixtures, trimmed); `Operations/clients/conda.md` |
-| RubyGems format (T-P6-GEMS) | Done 2026-11-23: proxy, hosted and group repositories (FORMATS.md "RubyGems"): compact index (`versions`, `info/<gem>`, `names`) cached as metadata and served by X-Accel with `Repr-Digest`, so Bundler's `Range` appends are checked (nginx serves the range; the blob location re-adds `Repr-Digest`); `.gem` files cached forever after their SHA-256 matched the info checksum; gemspecs and the legacy `specs` indexes passed through as opaque bytes (zlib/gzip checked; Ruby Marshal never read); the dependency API answers 404; hosted `gem push` (the API token as the whole `Authorization` value, accepted on `/repository/...`; bounded tar walk, safe YAML specification, `checksums.yaml.gz` checked, write policy, quota) writes the `quick/Marshal.4.8` gemspec with a Marshal 4.8 writer, `gem yank`, compact index and legacy indexes rendered per request; group merges `versions`/`names` (stored blob per member state, info MD5 of merged gems) and `info/<gem>`, gems from the first member that has them; `Gem::Version` order (`waystation_common.rubygems`) for `version_sort`, cleanup and components; `rubygems_gems` summaries (browse, global search); prefetch warm items `gem[:version[-platform]]` and index refresh; Nexus `rubygems-*` import; browse API + UI renderer, create flow, "Set me up" (gem sources, Bundler source/mirror/credentials, `~/.gem/credentials`, push, yank); OpenAPI, generated client, MSW mocks; unit + integration tests; real-client harness `tests/clients/rubygems/` (Ruby 3.4, RubyGems 3.6, Bundler 2.6 against recorded rubygems.org fixtures, the versions file reduced with the new harness `KEEP_LINES`); `Operations/clients/rubygems.md`. Left: the live smoke, gem signatures (`*.sig`) are stored but not verified, Bundler before 2.5 (MD5 ETags), a writable group member |
-| Hugging Face format (T-P6-HF) | Done 2026-11-23: Hub proxy for huggingface_hub (`HF_ENDPOINT`; FORMATS.md "Hugging Face"): models and datasets; info documents (`api/<kind>s/<id>[/revision/<rev>]`, fetched with `blobs=true`) cached as metadata (branches revalidated after the metadata max age, commits kept) and used to resolve revisions to commits and list files; files cached as content keyed by commit and path, fetched through the Hub's redirects only to its own host and the repository's `cdn_hosts` (engine `AssetSpec.redirect_allowed`), verified against the LFS sha256 or the git blob id and size before commit, streamed (coalescing, fills outlive the client); `HEAD` answered from the info document (`X-Repo-Commit`, `ETag`/`X-Linked-Etag`, `X-Linked-Size`, `Content-Length`, no redirect); tree listings cached per query with `Link` pages rewritten; `xetHash` stripped and no `X-Xet-Hash`, so hf_xet clients download over HTTP through Waystation; upstream bearer token (Hub token for gated and private models) sent only to the upstream host; proxy only (hosted and group refused); prefetch warm items `repo_id[@revision][:path]` (bounded) and info refresh; `huggingface_repos` summaries; browse API (`huggingface/models`, `revisions`, `files`) and UI browser, global search, components (repo id at a commit), cleanup (commits by when cached); Set me up (`HF_ENDPOINT`, `HF_TOKEN`, `hf download`, `huggingface-cli`, Python, transformers); Nexus `huggingface-proxy` import; OpenAPI, generated client, MSW mocks; unit + integration tests; real-client harness `tests/clients/huggingface/` (huggingface_hub 2.4 with hf_xet, recorded `julien-c/dummy-unknown` fixtures); `Operations/clients/huggingface.md`. Left: hosted (Hub upload API), groups, Spaces, Xet passthrough, `paths-info`, the live smoke |
-| Security review (T-R01) | Done 2026-11-23: OWASP ASVS 4.0.3 L2 checklist mapped to code and tests (`Documents/Security/ASVS_L2.md`); auth bypass matrix over every route and every format's descriptor (`test_security_matrix.py`); hostile-input corpora in `tests/security/` (SSRF, paths, every archive reader); `make security-scan` (pip-audit, npm audit, Trivy; `Documents/Security/DEPENDENCIES.md`). Fixed: SSRF bypass through NAT64/IPv4-compatible/site-local IPv6 addresses; tar extension-header and stream-mode memory bombs (`waystation_common.archives.BoundedTarInfo`), `.conda` lying-header zip bomb, RPM file-list amplification, YAML merge-key CPU bombs, uncaught archive errors and deep JSON answering 500, duplicate zip entries, Swift symlinks through symlinks; apk tar readers and number parsing; missing CSP/frame/nosniff/HSTS headers and `no-store` on API answers; image HIGH findings with fixes (OS upgrades at build, pip removed from the runtime images) |
-| Alpine apk format (T-P6-APK) | Done 2026-11-23: proxy and hosted repositories (FORMATS.md "Alpine apk"): `<branch>/<repo>/<arch>/APKINDEX.tar.gz` cached as metadata (structure checked, bounded) and passed through untouched (apk verifies the Alpine signature), parsed in the background into `apk_packages`; `.apk` files verified before commit against the index (`S:` size, `C:` = SHA-1 of the control segment found by inflating the gzip streams, bounded; the data segment through the `.PKGINFO` `datahash`), unverified-then-verified for packages no index lists, one index revalidation on a mismatch; hosted `PUT <branch>/<repo>/<arch>/<file>.apk` (v2 packages read in a thread, architecture checked, stored as `<pkgname>-<pkgver>.apk`, write policy, quota, audit `apk_package`), worker job `index.apk` (outbox) building every directory's `APKINDEX.tar.gz` signed `.SIGN.RSA256.<repo>-<id>.rsa.pub` with the repository RSA key (adr/0007 amendment) and publishing the PEM key under `keys/`; apk version order (`waystation_common.apk`) for `version_sort`, cleanup and components; browse API + UI renderer, global search, prefetch warm items `[<branch>/<repo>/<arch>/]name[=version]` and index refresh, Nexus `apk` import, create flow and options (`branch`, `repositories`, `architectures`), "Set me up" (`/etc/apk/repositories`, key install, upload, delete); OpenAPI, generated client, MSW mocks; unit + integration tests; real-client harness `tests/clients/apk/` (Alpine 3.22 apk-tools against recorded dl-cdn fixtures: proxy `apk add`, hosted upload + signed index + `apk add`/upgrade/delete, untrusted key refused); `Operations/clients/apk.md`. Left: group repositories (signed index merging), apk v3 (`.adb`) packages and indexes, verification of upstream index signatures by Waystation, the live smoke |
-| Everything else | Not started |
-| M0 feedback build (T-V02) | Done 2026-11-09, tagged `v0.1.0-m0`: `make e2e-m0` runs real docker, npm, apt (Debian 13) and raw clients through a running stack and checks the live stream, stats, activity and browse; `Documents/Operations/TRY_IT.md` (fresh host from images and an env file); real-server screenshot tour `Documents/Notes/UI_TOUR_M0.md`; feedback log `Documents/Notes/UI_FEEDBACK.md` |
+## 14. Implementation history
+The build-status table that tracked the implementation task by task is kept, unchanged, in
+`History/IMPLEMENTATION_STATUS.md`. This specification describes the product as built.
 
-## 15. Open decisions (owner)
-| # | Question | Proposal |
+## 15. Product decisions
+| # | Question | Decision |
 |---|---|---|
-| D1 | Licence | **Decided 2026-11-08 (owner):** GPL-3.0-or-later (same as DeviceVault). |
-| D2 | Bundled MongoDB vs an existing shared MongoDB | Bundled single-node replica set by default; external URI supported. |
-| D3 | Format priority after Phase 2; do PyPI/Maven gate cutover? | **Decided 2026-11-08 (owner):** cutover needs only today's Nexus formats (docker, apt, yum, npm, raw); PyPI and Maven come after, then Helm, Go, Terraform, Galaxy, Swift, then Phase 6 formats. |
-| D4 | Vulnerability scanning (Trivy/Grype on cached images and packages) | Post-v1 (Phase 7) as an optional `scanner` worker queue. |
-| D5 | S3/MinIO blob storage driver | Post-v1; the storage API is designed for it (ARCHITECTURE §5). |
-| D6 | Docker Hub default route name | Setting `default_docker_repo`, initially the Docker Hub proxy. |
-| D7 | Product name/brand | "Waystation", logo/icon designed in T-U02. |
-
+| D1 | Licence | GPL-3.0-or-later. |
+| D2 | Bundled MongoDB vs an existing shared MongoDB | Bundled single-node replica set by default; an external replica set is supported. |
+| D3 | Which formats a Nexus cutover needs | Docker, apt, yum, npm and raw; every other format is additional. |
+| D4 | Vulnerability scanning (Trivy/Grype on cached images and packages) | Out of scope for v1; a candidate for an optional `scanner` worker queue. |
+| D5 | S3/MinIO blob storage driver | Out of scope for v1; the storage API is designed for it (ARCHITECTURE §5). |
+| D6 | Docker Hub default route name | Setting `default_docker_repo` (the default docker repository), usually the Docker Hub proxy. |
+| D7 | Product name and brand | "Waystation", with its own logo and icon set (UI_DESIGN.md). |
