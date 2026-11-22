@@ -1070,6 +1070,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/prefetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Prefetch status of a proxy repository (needs `manage`)
+         * @description What the repository's format supports, its prefetch settings in brief, when its warm list runs next and its
+         *     last warm run (a `prefetch.warm` job; the run id opens it on the Tasks page). Proxy repositories only (409).
+         */
+        get: operations["getRepositoryPrefetch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/prefetch/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Warm the repository's list now (a worker job; needs `manage`) */
+        post: operations["runRepositoryPrefetch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/stats/traffic": {
         parameters: {
             query?: {
@@ -3412,6 +3454,55 @@ export interface components {
             /** @description Outbound HTTP proxy for this upstream (`http://host:port`, no credentials); null = the server-wide proxy */
             http_proxy?: string | null;
             auto_block?: components["schemas"]["AutoBlockConfig"];
+            prefetch?: components["schemas"]["PrefetchConfig"];
+        };
+        /** @description Prefetch (SPEC §4.1): keep popular metadata fresh, warm a list of packages or images */
+        PrefetchConfig: {
+            /**
+             * @description Revalidate the most downloaded metadata (tags, package indexes) before it goes stale, so clients get fresh cache hits
+             * @default false
+             */
+            refresh_popular: boolean;
+            /** @description Items to keep cached, one per entry, in the format's syntax: docker `nginx:1.27` (optionally followed by platforms, `nginx:1.27 linux/amd64,linux/arm64`), npm `lodash@4.17.21`, a raw file path... */
+            warm?: string[];
+            /** @description When the warm list runs: 5-field UTC cron, a macro such as `@daily`, or `@every <n>m|h`; null = only when run by hand */
+            schedule?: string | null;
+        };
+        /** @description A warm run of the repository (`prefetch.warm` job) */
+        PrefetchRun: {
+            /** @description The job run (Tasks page, `/tasks/runs/{run_id}`) */
+            id: string;
+            /** @enum {string} */
+            status: "running" | "succeeded" | "failed" | "dead" | "interrupted";
+            /** @enum {string} */
+            trigger: "schedule" | "manual";
+            started_at: components["schemas"]["Timestamp"];
+            /** Format: date-time */
+            finished_at: string | null;
+            /** @description Warm items attempted */
+            items: number;
+            /** @description Items that failed */
+            failed: number;
+            /** @description Files requested */
+            files: number;
+            /** @description Files fetched or revalidated upstream (the rest were already cached) */
+            fetched: number;
+            error: string | null;
+        };
+        PrefetchStatus: {
+            /** @description The format can warm items */
+            warm_supported: boolean;
+            /** @description The format's popular metadata can be refreshed */
+            refresh_supported: boolean;
+            warm_items: number;
+            refresh_popular: boolean;
+            schedule: string | null;
+            /**
+             * Format: date-time
+             * @description When the warm list runs next (null: no schedule)
+             */
+            next_run_at: string | null;
+            last_run: components["schemas"]["PrefetchRun"] | null;
         };
         /** @description Stop calling a failing upstream for a while (SPEC §4.1): after `failures` consecutive failures (connection, timeout, 5xx, 429) block it for `initial_s`, doubling after every failed probe up to `max_s` */
         AutoBlockConfig: {
@@ -5169,8 +5260,11 @@ export interface components {
             next_cursor: string | null;
         };
         TaskOwner: {
-            /** @constant */
-            kind: "cleanup_policy";
+            /**
+             * @description `repository`: a proxy repository's warm schedule (edit it in the repository's prefetch settings)
+             * @enum {string}
+             */
+            kind: "cleanup_policy" | "repository";
             id: string;
             name: string | null;
         };
@@ -7653,6 +7747,54 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    getRepositoryPrefetch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Prefetch status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrefetchStatus"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    runRepositoryPrefetch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued (or merged into a pending or running warm run of the repository) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     getRepositoryTraffic: {

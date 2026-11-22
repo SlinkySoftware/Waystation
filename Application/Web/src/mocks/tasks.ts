@@ -9,7 +9,9 @@ import type { AuditActor, CleanupRunSummary, DeadLetter, GcRun, JobAccepted, Job
 
 import { recordAudit } from './audit'
 import { cleanupTasks, gcTask, startTaskRun } from './cleanup'
+import { prefetchOf, prefetchRuns, repositoryId, scheduledWarmRepos, startWarm, warmProgress } from './prefetch'
 import { between, GiB, hash, MiB, rng } from './rng'
+import { nextFireOf } from './schedule'
 import type { MockHelpers } from './tokens'
 import { world } from './world'
 
@@ -60,6 +62,11 @@ function logFor(run: JobRunSummary): string[] {
   if (run.kind === 'blob.gc') {
     lines.push(`${at(200)} mark: scanning ${(148_220).toLocaleString('en')} blobs against assets and manifests`, `${at(4100)} mark: ${Math.round(between(40, 1300, next))} blobs newly unreferenced`, `${at(6400)} sweep: blobs unreferenced for over 24 h`, `${at(8800)} removed ${Math.round(between(0, 4, next))} orphan uploads older than 24 h`)
     if (run.status === 'succeeded') lines.push(`${at(9100)} freed ${String(run.result.freed_blobs ?? 0)} blobs, marked ${String(run.result.marked ?? 0)}, 0 referenced blobs missing`)
+  } else if (run.kind === 'prefetch.warm') {
+    const repo = world.repos.find((r) => repositoryId(r.name) === String(run.result.repository_id ?? ''))
+    const warm = repo ? (prefetchOf(repo).warm ?? []) : []
+    warm.forEach((item, i) => lines.push(`${at(300 + i * 1100)} ${repo!.name}: ${item}: ${i % 3 === 0 ? 'fetched' : 'already cached'}`))
+    if (run.status === 'succeeded') lines.push(`${at(8800)} warmed ${String(run.result.items ?? warm.length)} items, ${String(run.result.fetched ?? 0)} of ${String(run.result.files ?? 0)} files fetched upstream`)
   } else if (run.kind === 'cleanup.run') {
     repos.slice(0, 3).forEach((repo, i) => lines.push(`${at(600 + i * 2400 + between(0, 2000, next))} ${repo}: ${Math.round(between(0, 90, next))} candidates (${between(1, 900, next).toFixed(1)} MiB)`))
     if (run.status === 'succeeded') lines.push(`${at(9000)} removed ${String(run.result.removed ?? 0)} items`)
@@ -76,6 +83,12 @@ function fromCleanup(policyId: string, r: CleanupRunSummary): JobRunSummary {
 function fromGc(r: GcRun): JobRunSummary {
   const done = r.finished_at ? Date.parse(r.finished_at) - Date.parse(r.started_at) : null
   return { id: r.id, job_id: `job-${r.id}`, kind: 'blob.gc', queue: 'maintenance', task_id: 'blob.gc', trigger: r.trigger, attempt: 1, status: r.status, started_at: r.started_at, finished_at: r.finished_at, duration_ms: done, progress: r.progress, worker_id: WORKERS[0]!.id, error: r.error, result: r.status === 'succeeded' ? { freed_blobs: r.freed_blobs, freed_bytes: r.freed_bytes, marked: r.marked, uploads_removed: r.uploads_removed } : {} }
+}
+
+function fromWarm({ repoId, run }: ReturnType<typeof prefetchRuns>[number], now: number): JobRunSummary {
+  const done = run.finished_at ? Date.parse(run.finished_at) - Date.parse(run.started_at) : null
+  const result = { repository_id: repoId, ...(run.status === 'running' ? {} : { items: run.items, failed: run.failed, files: run.files, fetched: run.fetched }) }
+  return { id: run.id, job_id: `job-${run.id}`, kind: 'prefetch.warm', queue: 'prefetch', task_id: `prefetch:${repoId}`, trigger: run.trigger, attempt: 1, status: run.status, started_at: run.started_at, finished_at: run.finished_at, duration_ms: done, progress: warmProgress(run, now), worker_id: WORKERS[1]!.id, error: run.error, result }
 }
 
 /** The 10 s rollup's recent runs, derived from the clock (routine: hidden unless asked for). */
@@ -106,7 +119,7 @@ function advanceRetries(now: number): void {
 
 export function allRuns(now: number = Date.now(), includeRoutine = true): JobRunSummary[] {
   advanceRetries(now)
-  const runs = [...cleanupTasks(now).flatMap((p) => p.runs.map((r) => fromCleanup(p.id, r))), ...gcTask(now).runs.map(fromGc), ...retries.map((s) => ({ ...s.run }))]
+  const runs = [...cleanupTasks(now).flatMap((p) => p.runs.map((r) => fromCleanup(p.id, r))), ...gcTask(now).runs.map(fromGc), ...retries.map((s) => ({ ...s.run })), ...prefetchRuns(now).map((p) => fromWarm(p, now))]
   if (includeRoutine) runs.push(...rollupRuns(now))
   return runs.sort((a, b) => (a.started_at < b.started_at ? 1 : a.started_at > b.started_at ? -1 : a.id < b.id ? 1 : -1))
 }
@@ -123,26 +136,14 @@ export function scheduledTasks(now: number = Date.now()): ScheduledTask[] {
     ...cleanupTasks(now).map((p) => ({ id: `cleanup:${p.id}`, kind: 'cleanup.run', queue: 'maintenance', schedule: p.schedule, enabled: p.enabled, routine: false, params: { policy_id: p.id }, next_run_at: nextOf(p.schedule, p.enabled), last_fired_at: null, last_run: lastOf(`cleanup:${p.id}`), owner: { kind: 'cleanup_policy' as const, id: p.id, name: p.name } })),
     { id: 'blob.verify', kind: 'blob.verify', queue: 'maintenance', schedule: verify.schedule, enabled: verify.enabled, routine: false, params: { deep: false, repair: true }, next_run_at: nextOf(verify.schedule, verify.enabled), last_fired_at: null, last_run: null, owner: null },
     { id: 'secrets.rotate', kind: 'secrets.rotate', queue: 'maintenance', schedule: rotateSecrets.schedule, enabled: rotateSecrets.enabled, routine: false, params: {}, next_run_at: nextOf(rotateSecrets.schedule, rotateSecrets.enabled), last_fired_at: null, last_run: null, owner: null },
+    ...scheduledWarmRepos().map((repo) => {
+      const id = `prefetch:${repositoryId(repo.name)}`
+      const schedule = prefetchOf(repo).schedule!
+      return { id, kind: 'prefetch.warm', queue: 'prefetch', schedule, enabled: true, routine: false, params: { repository_id: repositoryId(repo.name) }, next_run_at: nextFireOf(schedule, now), last_fired_at: null, last_run: lastOf(id), owner: { kind: 'repository' as const, id: repositoryId(repo.name), name: repo.name } }
+    }),
     { id: 'stats.rollup', kind: 'stats.rollup', queue: 'stats', schedule: rollup.schedule, enabled: rollup.enabled, routine: true, params: {}, next_run_at: nextOf(rollup.schedule, rollup.enabled), last_fired_at: lastOf('stats.rollup')?.started_at ?? null, last_run: lastOf('stats.rollup'), owner: null },
   ]
   return tasks.sort((a, b) => a.id.localeCompare(b.id))
-}
-
-function nextFireOf(schedule: string, now: number): string {
-  const every = /^@every (\d+)([smh])$/.exec(schedule)
-  if (every) {
-    const step = Number(every[1]) * { s: 1000, m: MINUTE, h: 60 * MINUTE }[every[2] as 's' | 'm' | 'h']
-    return iso((Math.floor(now / step) + 1) * step)
-  }
-  const [mi, hr] = schedule.replace('@daily', '0 0 * * *').replace('@hourly', '0 * * * *').split(' ')
-  const at = new Date(now)
-  at.setUTCSeconds(0, 0)
-  for (let i = 0; i < 60 * 24 * 8; i++) {
-    at.setUTCMinutes(at.getUTCMinutes() + 1)
-    const ok = (field: string | undefined, value: number) => !field || field === '*' || (field.startsWith('*/') ? value % Number(field.slice(2)) === 0 : field.split(',').includes(String(value)))
-    if (ok(mi, at.getUTCMinutes()) && ok(hr, at.getUTCHours())) return at.toISOString()
-  }
-  return iso(now + 86_400_000)
 }
 
 export function workerOverview(now: number = Date.now()): { workers: Worker[]; queues: QueueFigures[]; dead_letters: number } {
@@ -235,6 +236,7 @@ export function tasksHandlers(h: MockHelpers) {
       await h.latency()
       const task = scheduledTasks().find((x) => x.id === params.id)
       if (!task) return h.notFound()
+      if (task.owner?.kind === 'repository') return h.problem(409, 'Conflict', "this schedule belongs to the repository's prefetch settings: change it there", [{ field: 'schedule', message: 'Owned by a repository', code: 'conflict' }])
       if (task.owner) return h.problem(409, 'Conflict', 'this schedule belongs to a cleanup policy: change it on the Cleanup page', [{ field: 'schedule', message: 'Owned by a cleanup policy', code: 'conflict' }])
       const body = (await request.json()) as ScheduledTaskUpdate
       const error = validate(body)
@@ -257,7 +259,10 @@ export function tasksHandlers(h: MockHelpers) {
       let accepted: JobAccepted | null = null
       if (id === 'blob.gc') accepted = startTaskRun('gc')
       else if (id.startsWith('cleanup:')) accepted = startTaskRun(id.slice('cleanup:'.length))
-      else if (id === 'stats.rollup' || id === 'blob.verify' || id === 'secrets.rotate') accepted = { job_id: `job-${id}-${Date.now()}`, status: 'enqueued' }
+      else if (id.startsWith('prefetch:')) {
+        const repo = scheduledWarmRepos().find((r) => `prefetch:${repositoryId(r.name)}` === id)
+        accepted = repo ? startWarm(repo, 'manual') : null
+      } else if (id === 'stats.rollup' || id === 'blob.verify' || id === 'secrets.rotate') accepted = { job_id: `job-${id}-${Date.now()}`, status: 'enqueued' }
       if (!accepted) return h.notFound()
       recordAudit({ action: 'task.run', outcome: 'success', actor: ADMIN, target: { kind: 'task', id, name: id }, details: { job_id: accepted.job_id, status: accepted.status } })
       return HttpResponse.json(accepted, { status: 202 })

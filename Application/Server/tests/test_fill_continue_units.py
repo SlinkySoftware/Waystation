@@ -339,6 +339,7 @@ def request() -> Any:
         principal=SimpleNamespace(display='anonymous'),
         client_ip='192.0.2.10',
         request=SimpleNamespace(headers={}),
+        prefetch=None,
         log=lambda **fields: None,
     )
 

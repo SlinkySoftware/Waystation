@@ -1427,6 +1427,41 @@ paths:
               schema: { $ref: '#/components/schemas/SetupGuide' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/prefetch:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [repositories]
+      operationId: getRepositoryPrefetch
+      summary: Prefetch status of a proxy repository (needs `manage`)
+      description: |
+        What the repository's format supports, its prefetch settings in brief, when its warm list runs next and its
+        last warm run (a `prefetch.warm` job; the run id opens it on the Tasks page). Proxy repositories only (409).
+      responses:
+        '200':
+          description: Prefetch status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PrefetchStatus' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /repositories/{name}/prefetch/run:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    post:
+      tags: [repositories]
+      operationId: runRepositoryPrefetch
+      summary: Warm the repository's list now (a worker job; needs `manage`)
+      responses:
+        '202':
+          description: Queued (or merged into a pending or running warm run of the repository)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /repositories/{name}/stats/traffic:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4318,6 +4353,47 @@ components:
         ca_pem: { type: [string, 'null'], maxLength: 262144, description: 'Extra CA certificates (PEM) trusted for this upstream, in addition to the system ones' }
         http_proxy: { type: [string, 'null'], maxLength: 2048, description: 'Outbound HTTP proxy for this upstream (`http://host:port`, no credentials); null = the server-wide proxy' }
         auto_block: { $ref: '#/components/schemas/AutoBlockConfig' }
+        prefetch: { $ref: '#/components/schemas/PrefetchConfig' }
+    PrefetchConfig:
+      type: object
+      description: 'Prefetch (SPEC §4.1): keep popular metadata fresh, warm a list of packages or images'
+      properties:
+        refresh_popular: { type: boolean, default: false, description: 'Revalidate the most downloaded metadata (tags, package indexes) before it goes stale, so clients get fresh cache hits' }
+        warm:
+          type: array
+          maxItems: 200
+          description: "Items to keep cached, one per entry, in the format's syntax: docker `nginx:1.27` (optionally followed by platforms, `nginx:1.27 linux/amd64,linux/arm64`), npm `lodash@4.17.21`, a raw file path..."
+          items: { type: string, minLength: 1, maxLength: 512 }
+        schedule: { type: [string, 'null'], maxLength: 100, description: 'When the warm list runs: 5-field UTC cron, a macro such as `@daily`, or `@every <n>m|h`; null = only when run by hand' }
+    PrefetchRun:
+      type: object
+      description: A warm run of the repository (`prefetch.warm` job)
+      required: [id, status, trigger, started_at, finished_at, items, failed, files, fetched, error]
+      properties:
+        id: { type: string, description: 'The job run (Tasks page, `/tasks/runs/{run_id}`)' }
+        status: { type: string, enum: [running, succeeded, failed, dead, interrupted] }
+        trigger: { type: string, enum: [schedule, manual] }
+        started_at: { $ref: '#/components/schemas/Timestamp' }
+        finished_at: { type: [string, 'null'], format: date-time }
+        items: { type: integer, description: Warm items attempted }
+        failed: { type: integer, description: Items that failed }
+        files: { type: integer, description: Files requested }
+        fetched: { type: integer, description: Files fetched or revalidated upstream (the rest were already cached) }
+        error: { type: [string, 'null'] }
+    PrefetchStatus:
+      type: object
+      required: [warm_supported, refresh_supported, warm_items, refresh_popular, schedule, next_run_at, last_run]
+      properties:
+        warm_supported: { type: boolean, description: The format can warm items }
+        refresh_supported: { type: boolean, description: "The format's popular metadata can be refreshed" }
+        warm_items: { type: integer }
+        refresh_popular: { type: boolean }
+        schedule: { type: [string, 'null'] }
+        next_run_at: { type: [string, 'null'], format: date-time, description: 'When the warm list runs next (null: no schedule)' }
+        last_run:
+          oneOf:
+            - $ref: '#/components/schemas/PrefetchRun'
+            - type: 'null'
     AutoBlockConfig:
       type: object
       description: 'Stop calling a failing upstream for a while (SPEC §4.1): after `failures` consecutive failures (connection, timeout, 5xx, 429) block it for `initial_s`, doubling after every failed probe up to `max_s`'
@@ -6219,7 +6295,7 @@ components:
       type: object
       required: [kind, id, name]
       properties:
-        kind: { type: string, const: cleanup_policy }
+        kind: { type: string, enum: [cleanup_policy, repository], description: '`repository`: a proxy repository''s warm schedule (edit it in the repository''s prefetch settings)' }
         id: { type: string }
         name: { type: [string, 'null'] }
     ScheduledTask:

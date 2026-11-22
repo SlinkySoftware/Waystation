@@ -324,3 +324,39 @@ class WebhookSweep(JobPayload):
 
     def dedupe_key(self) -> str | None:
         return 'webhook.sweep'
+
+
+class PrefetchRefresh(JobPayload):
+    """Refresh the popular metadata of proxy repositories (T-O12, SPEC §4.1 "Prefetch"; ``waystation_worker.prefetch``):
+    per online, unblocked proxy repository with ``proxy.prefetch.refresh_popular``, the metadata assets downloaded in
+    the last ``window_days`` with the most downloads (at most ``top_n``) whose copy is older than the repository's
+    ``metadata_max_age_s`` less ``ahead_s`` are revalidated through the server (so the next client gets a fresh
+    hit). ``repo_id`` None = every such repository (the built-in schedule)."""
+
+    kind: ClassVar[str] = 'prefetch.refresh'
+    queue: ClassVar[Queue] = 'prefetch'
+    max_attempts: ClassVar[int] = 2
+
+    repo_id: str | None = None
+    window_days: int = 7
+    top_n: int = 200
+    ahead_s: int = 900
+
+    def dedupe_key(self) -> str | None:
+        return f'prefetch.refresh:{self.repo_id or "*"}'
+
+
+class PrefetchWarm(JobPayload):
+    """Warm a proxy repository's configured list (``proxy.prefetch.warm``; T-O12, ``waystation_worker.prefetch``):
+    each item (a docker image, an npm package, a raw path...) is fetched through the server, which expands it the way
+    the format's clients would and caches what it finds. Scheduled by the ``job_definitions`` entry
+    ``prefetch:<repo id>`` and run from the repository page; both share the dedupe key."""
+
+    kind: ClassVar[str] = 'prefetch.warm'
+    queue: ClassVar[Queue] = 'prefetch'
+    max_attempts: ClassVar[int] = 2
+
+    repo_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'prefetch:{self.repo_id}'

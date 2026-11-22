@@ -42,9 +42,9 @@ from starlette.responses import JSONResponse, Response
 
 from waystation_common.errors import InsufficientStorage, NotFound, PayloadTooLarge, ValidationFailed, WaystationError
 from waystation_server.db import npm as npm_db
-from waystation_server.formats.base import FormatDescriptor, FormatRequest
+from waystation_server.formats.base import FormatDescriptor, FormatRequest, WarmContext
 from waystation_server.formats.common.background import Background
-from waystation_server.formats.npm import metadata, publish
+from waystation_server.formats.npm import metadata, prefetch, publish
 from waystation_server.formats.npm.browse import NpmBrowse, parse_packument
 from waystation_server.formats.npm.descriptor import DESCRIPTOR, NpmOptions
 from waystation_server.formats.npm.group import NpmGroup
@@ -100,6 +100,10 @@ class NpmPlugin:
         except WaystationError as exc:
             headers = getattr(exc, 'headers', None)
             return npm_error(exc.status, exc.detail, headers=dict(headers) if headers else None)
+
+    async def warm(self, ctx: WarmContext, item: str) -> None:
+        """Prefetch (T-O12): the abbreviated packument and the item's tarball (``formats.npm.prefetch``)."""
+        await prefetch.warm(ctx, item)
 
     @staticmethod
     def wants_abbreviated(req: FormatRequest) -> bool:

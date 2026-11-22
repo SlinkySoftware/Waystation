@@ -328,6 +328,7 @@ async def test_ensure_and_read(services: Services, upstream: FakeUpstream, repo:
         is_head = False
         method = 'GET'
         request = type('R', (), {'headers': {}})()
+        prefetch = None
 
         def log(self, **fields: Any) -> None:
             pass

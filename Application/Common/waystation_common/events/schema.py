@@ -76,6 +76,7 @@ class Transfer(_Model):
     component: str | None = None  # component coordinates when known, e.g. 'nginx:1.27'
     error: str | None = None  # set on transfer.failed
     followers: int = 0  # FETCHING: requests coalesced onto this fetch (ARCHITECTURE §6.3)
+    prefetch: bool = False  # the worker's prefetch (T-O12): shown live, not counted as client traffic
     bytes_done: int = 0
     bytes_total: int | None = None
     rate_bps: float = 0.0

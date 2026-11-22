@@ -36,9 +36,9 @@ from starlette.responses import Response
 
 from waystation_common.errors import DigestMismatch, NotFound, UpstreamError, WaystationError
 from waystation_server.db import go as go_db
-from waystation_server.formats.base import FormatDescriptor, FormatRequest
+from waystation_server.formats.base import FormatDescriptor, FormatRequest, WarmContext
 from waystation_server.formats.common.background import Background
-from waystation_server.formats.go import gosum, modpath, sumdb
+from waystation_server.formats.go import gosum, modpath, prefetch, sumdb
 from waystation_server.formats.go.browse import GoBrowse
 from waystation_server.formats.go.common import (
     JSON,
@@ -107,6 +107,10 @@ class GoPlugin:
     def options(self, req: FormatRequest) -> GoOptions:
         options = self.descriptor.parse_options(req.repo.format_options)
         return options if isinstance(options, GoOptions) else GoOptions()
+
+    async def warm(self, ctx: WarmContext, item: str) -> None:
+        """Prefetch (T-O12): ``formats.go.prefetch``."""
+        await prefetch.warm(ctx, item)
 
     async def handle(self, req: FormatRequest) -> Response:
         try:

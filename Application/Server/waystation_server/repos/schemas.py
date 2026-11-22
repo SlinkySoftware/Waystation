@@ -86,6 +86,33 @@ class AutoBlockConfig(BaseModel):
     )
 
 
+WARM_ITEMS_MAX = 200
+
+
+class PrefetchConfig(BaseModel):
+    """Prefetch (SPECIFICATION §4.1): keep popular metadata fresh, warm a list of packages or images."""
+
+    model_config = ConfigDict(extra='forbid', json_schema_serialization_defaults_required=True)
+
+    refresh_popular: bool = Field(
+        default=False,
+        description='Revalidate the most downloaded metadata (tags, package indexes) before it goes stale, so clients '
+        'get fresh cache hits',
+    )
+    warm: list[Annotated[str, StringConstraints(min_length=1, max_length=512)]] = Field(
+        default_factory=list,
+        max_length=WARM_ITEMS_MAX,
+        description="Items to keep cached, one per entry, in the format's syntax: docker `nginx:1.27` (optionally "
+        'followed by platforms, `nginx:1.27 linux/amd64,linux/arm64`), npm `lodash@4.17.21`, a raw file path...',
+    )
+    schedule: str | None = Field(
+        default=None,
+        max_length=100,
+        description='When the warm list runs: 5-field UTC cron, a macro such as `@daily`, or `@every <n>m|h`; '
+        'null = only when run by hand',
+    )
+
+
 class ProxyConfig(BaseModel):
     model_config = ConfigDict(extra='forbid', json_schema_serialization_defaults_required=True)
 
@@ -108,6 +135,7 @@ class ProxyConfig(BaseModel):
         description='Outbound HTTP proxy for this upstream (`http://host:port`); null = the server-wide proxy',
     )
     auto_block: AutoBlockConfig = Field(default_factory=AutoBlockConfig)
+    prefetch: PrefetchConfig = Field(default_factory=PrefetchConfig)
 
 
 class HostedConfig(BaseModel):

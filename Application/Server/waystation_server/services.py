@@ -26,6 +26,7 @@ from waystation_common.jobs import JobClient
 from waystation_common.recent_errors import RecentErrors
 from waystation_common.settings import Settings
 from waystation_common.storage import BlobStore
+from waystation_common.system_grants import SystemGrants
 from waystation_common.valkey import create_valkey
 from waystation_server.db import auth_providers as auth_providers_db
 from waystation_server.db import repositories as repos_db
@@ -96,6 +97,7 @@ class Services:
     download_urls: DownloadUrls = field(default_factory=lambda: DownloadUrls([]))  # adr/0010
     # WARNING/ERROR log records -> Valkey ``errors:recent`` for the support bundle (T-O10)
     recent_errors: RecentErrors = field(default_factory=lambda: RecentErrors('server'))
+    system_grants: SystemGrants = field(default_factory=lambda: SystemGrants([]))  # adr/0012 (worker prefetch)
     mongo_client: Client | None = None
     check_schema_on_start: bool = True
     _started: bool = field(default=False, repr=False)
@@ -185,6 +187,7 @@ class Services:
             hosted=HostedStore(db=db, blobs=blobs, emitter=emitter, metrics=metrics, quotas=quotas, jobs=jobs),
             keyring=keyring,
             download_urls=DownloadUrls.from_settings(settings),
+            system_grants=SystemGrants.from_secret_keys([v.get_secret_value() for v in settings.secret_keys]),
             mongo_client=client,
             check_schema_on_start=check_schema_on_start,
         )

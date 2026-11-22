@@ -41,6 +41,8 @@
       </dl>
     </PageCard>
 
+    <PrefetchCard v-if="repo.type === 'proxy' && canManage" class="overview__prefetch" :repo="repo" />
+
     <ActivityFeed v-if="stats" class="overview__activity" :repository="repo.name" :limit="6" />
   </div>
 </template>
@@ -63,12 +65,16 @@ import { useAuthStore } from '@/stores/auth'
 import { useLiveStore } from '@/stores/live'
 import { formatDuration, formatLatency, formatPercent } from '@/utils/format'
 
+import PrefetchCard from './PrefetchCard.vue'
+
 const props = defineProps<{ repo: Repository }>()
 
 const range = ref<StatsRange>('24h')
 const live = useLiveStore()
 // Live transfers, activity and upstream health need `stats.read` (the server refuses them otherwise, SPEC §4.10).
 const stats = computed(() => useAuthStore().can('stats.read'))
+// Prefetch status and "Warm now" need `manage` (a hint: the server decides).
+const canManage = computed(() => useAuthStore().can('repositories.manage'))
 const upstreams = useAsync(() => (stats.value ? call(api.GET('/stats/upstreams')) : Promise.resolve(null)), [stats])
 const health = computed(() => live.upstreams[props.repo.name] ?? upstreams.data.value?.find((u) => u.repository === props.repo.name) ?? null)
 const aliases = computed(() => (props.repo.format === 'docker' ? ((props.repo.format_options as DockerOptions | undefined)?.aliases ?? []) : []))
@@ -124,6 +130,7 @@ const behaviour = computed(() => {
   grid-column: span 5;
 }
 
+.overview__prefetch,
 .overview__activity {
   grid-column: span 12;
 }

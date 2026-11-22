@@ -22,6 +22,8 @@ from waystation_common.jobs.model import (
     GalaxyImport,
     HelmIndex,
     JobEnvelope,
+    PrefetchRefresh,
+    PrefetchWarm,
     QuotaReconcile,
     SecretsRotate,
     StatsRollup,
@@ -34,6 +36,7 @@ from waystation_common.jobs.model import (
 from waystation_common.keyfiles import KEYS_DIR
 from waystation_common.signing import KeyStore
 from waystation_common.storage import BlobStore
+from waystation_common.system_grants import SystemGrants
 from waystation_worker import (
     apt,
     apt_index,
@@ -41,6 +44,7 @@ from waystation_worker import (
     galaxy,
     gc,
     helm,
+    prefetch,
     quota,
     rollup,
     rotate,
@@ -71,6 +75,8 @@ BUILTIN_DEFINITIONS: tuple[Definition, ...] = (
     # Secret-key rotation (T-O11): daily at a quiet hour; a few empty queries when nothing uses an older key. After
     # changing WAYSTATION_SECRET_KEYS, run it now (Tasks page or run_task) instead of waiting.
     Definition(id='secrets.rotate', kind=SecretsRotate.kind, schedule='23 4 * * *'),
+    # Prefetch (T-O12): popular metadata of the proxies that ask for it, revalidated before it goes stale.
+    Definition(id='prefetch.refresh', kind=PrefetchRefresh.kind, schedule='*/15 * * * *'),
 )
 log = logging.getLogger('waystation.worker.jobs')
 
@@ -346,3 +352,50 @@ async def webhook_sweep(job: WebhookSweep, ctx: JobContext) -> dict[str, Any]:
     """Attempt the deliveries whose retry is due."""
     async with webhooks.Sender(ctx.settings) as sender:
         return await webhooks.deliverer(ctx.db, ctx.valkey, ctx.settings, sender, ctx.now).sweep()
+
+
+def _prefetch_client(ctx: JobContext) -> prefetch.ServerClient | None:
+    settings = ctx.settings
+    if settings is None or not settings.secret_keys:
+        return None
+    grants = SystemGrants.from_secret_keys([value.get_secret_value() for value in settings.secret_keys])
+    return prefetch.ServerClient(settings.internal_url, grants)
+
+
+@handles(PrefetchRefresh)
+async def prefetch_refresh(job: PrefetchRefresh, ctx: JobContext) -> dict[str, Any]:
+    """Revalidate popular proxy metadata through the server (``waystation_worker.prefetch``, adr/0012)."""
+    client = _prefetch_client(ctx)
+    if client is None:
+        await ctx.log('skipped: prefetch needs WAYSTATION_SECRET_KEYS')
+        return {'skipped': 'prefetch needs WAYSTATION_SECRET_KEYS'}
+    try:
+        return await prefetch.refresh(
+            ctx.db,
+            ctx.valkey,
+            client,
+            repo_id=job.repo_id,
+            window_days=job.window_days,
+            top_n=job.top_n,
+            ahead_s=job.ahead_s,
+            now=ctx.now(),
+            log_line=ctx.log,
+            progress=ctx.progress,
+        )
+    finally:
+        await client.aclose()
+
+
+@handles(PrefetchWarm)
+async def prefetch_warm(job: PrefetchWarm, ctx: JobContext) -> dict[str, Any]:
+    """Warm a proxy repository's configured list through the server (``waystation_worker.prefetch``)."""
+    client = _prefetch_client(ctx)
+    if client is None:
+        await ctx.log('skipped: prefetch needs WAYSTATION_SECRET_KEYS')
+        return {'repo_id': job.repo_id, 'skipped': 'prefetch needs WAYSTATION_SECRET_KEYS'}
+    try:
+        return await prefetch.warm(
+            ctx.db, ctx.valkey, client, repo_id=job.repo_id, log_line=ctx.log, progress=ctx.progress
+        )
+    finally:
+        await client.aclose()

@@ -418,6 +418,22 @@
     </q-expansion-item>
 
     <q-expansion-item
+      v-if="model.type === 'proxy' && PREFETCH_FORMATS.includes(model.format)"
+      v-model="prefetchOpen"
+      dense
+      dense-toggle
+      switch-toggle-side
+      :label="t('prefetch.section')"
+      class="repo-form__advanced"
+      header-class="section-label"
+      data-test="prefetch-section"
+    >
+      <div class="repo-form__section repo-form__section--inner">
+        <PrefetchFields v-model="model" :errors="errors" />
+      </div>
+    </q-expansion-item>
+
+    <q-expansion-item
       v-if="model.type !== 'group'"
       v-model="quotaOpen"
       dense
@@ -504,7 +520,8 @@ import { useRepositoriesStore } from '@/stores/repositories'
 import { typeMeta } from '@/utils/domain'
 import { QUOTA_UNITS } from '@/utils/quota'
 
-import { NAME_PATTERN, type Preset, PRESETS, type RepoFormModel, WRITABLE_GROUP_FORMATS } from './form'
+import { NAME_PATTERN, PREFETCH_FORMATS, type Preset, PRESETS, type RepoFormModel, WRITABLE_GROUP_FORMATS } from './form'
+import PrefetchFields from './PrefetchFields.vue'
 import UpstreamTest from './UpstreamTest.vue'
 
 const props = withDefaults(defineProps<{ mode?: 'create' | 'edit'; errors?: Record<string, string> }>(), { mode: 'create', errors: () => ({}) })
@@ -561,6 +578,7 @@ const dispositionOptions = computed(() => [
 const cachingOpen = ref(false)
 const networkOpen = ref(Boolean(model.value.caPem || model.value.httpProxy))
 const quotaOpen = ref(model.value.quotaEnabled)
+const prefetchOpen = ref(Boolean(model.value.refreshPopular || model.value.warmText.trim() || model.value.prefetchSchedule.trim()))
 const quotaModeOptions = computed(() => [
   { label: t('repoForm.quotaModeSoft'), value: 'soft' },
   { label: t('repoForm.quotaModeHard'), value: 'hard' },
@@ -571,6 +589,7 @@ watch(
     const fields = Object.keys(errors)
     if (fields.some((f) => f === 'proxy.ca_pem' || f === 'proxy.http_proxy')) networkOpen.value = true
     if (fields.some((f) => f.startsWith('storage.'))) quotaOpen.value = true
+    if (fields.some((f) => f.startsWith('proxy.prefetch'))) prefetchOpen.value = true
     if (fields.some((f) => f.startsWith('proxy.auto_block.') || f.endsWith('_age_s') || f === 'proxy.negative_ttl_s')) cachingOpen.value = true
   },
   { immediate: true },

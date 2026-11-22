@@ -33,6 +33,7 @@ from waystation_common.jobs import CleanupRun
 from waystation_common.jobs.schedule import parse_schedule
 from waystation_server import audit
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.job_views import JobAccepted, RunStatus, run_trigger
 from waystation_server.api.repositories import managed
 from waystation_server.audit import AuditAction
 from waystation_server.problems import FieldError, FieldErrors
@@ -72,7 +73,6 @@ CleanupFormat = Literal[
     'apk',
     'huggingface',
 ]
-RunStatus = Literal['running', 'succeeded', 'failed', 'dead', 'interrupted']
 
 
 # ---------------------------------------------------------------------------- schemas
@@ -194,26 +194,9 @@ class RepositoryCleanupUpdate(BaseModel):
     policy_ids: list[Annotated[str, Field(max_length=64)]] = Field(max_length=MAX_ATTACHED)
 
 
-class JobAccepted(BaseModel):
-    job_id: str
-    status: Literal['enqueued', 'merged', 'rerun', 'running']
-
-
 # ---------------------------------------------------------------------------- helpers
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
-def run_trigger(doc: Document) -> Literal['schedule', 'manual', 'retry']:
-    """Why a ``job_runs`` document ran (runs recorded before the trigger existed: from ``definition_id``)."""
-    match doc.get('trigger'):
-        case 'schedule':
-            return 'schedule'
-        case 'manual':
-            return 'manual'
-        case 'retry':
-            return 'retry'
-    return 'schedule' if doc.get('definition_id') else 'manual'
 
 
 def run_view(doc: Document) -> CleanupRunSummary:

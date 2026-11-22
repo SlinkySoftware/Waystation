@@ -50,7 +50,7 @@
     <template #body-cell-enabled="{ row }">
       <q-td>
         <q-toggle :model-value="row.enabled" dense :disable="Boolean(row.owner)" :aria-label="taskLabel(row)" @update:model-value="(on: boolean) => emit('toggle', row, on)">
-          <q-tooltip v-if="row.owner">{{ t('tasks.scheduled.ownedHelp') }}</q-tooltip>
+          <q-tooltip v-if="row.owner">{{ t(row.owner.kind === 'repository' ? 'tasks.scheduled.ownedRepoHelp' : 'tasks.scheduled.ownedHelp') }}</q-tooltip>
         </q-toggle>
       </q-td>
     </template>

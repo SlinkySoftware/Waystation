@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime
+import contextlib
+import time
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from waystation_common.errors import ValidationFailed
+from waystation_common.db import prefetch as prefetch_db
+from waystation_common.errors import Conflict, ValidationFailed
+from waystation_common.jobs.model import PrefetchWarm
+from waystation_common.jobs.schedule import parse_schedule
 from waystation_server import audit
 from waystation_server.api.auth import registry_host
 from waystation_server.api.deps import ServicesDep
+from waystation_server.api.job_views import JobAccepted, RunStatus, run_trigger
 from waystation_server.audit import AuditAction
-from waystation_server.formats.base import SetupClient, SetupContext
+from waystation_server.formats.base import SetupClient, SetupContext, WarmingPlugin
 from waystation_server.problems import FieldErrors
 from waystation_server.proxy import probe as probe_mod
 from waystation_server.proxy.http import Network
@@ -28,6 +34,7 @@ from waystation_server.repos.schemas import (
     Format,
     GroupConfig,
     HostedConfig,
+    PrefetchConfig,
     ProxyConfig,
     RepositoryStatus,
     RepositoryWrite,
@@ -154,6 +161,9 @@ def proxy_view(repo: RepoConfig) -> ProxyConfig | None:
         ca_pem=p.ca_pem,
         http_proxy=p.http_proxy,
         auto_block=AutoBlockConfig(**p.auto_block.model_dump()),
+        prefetch=PrefetchConfig(
+            refresh_popular=p.prefetch.refresh_popular, warm=list(p.prefetch.warm), schedule=p.prefetch.schedule
+        ),
     )
 
 
@@ -439,3 +449,104 @@ async def get_setup_guide(name: str, request: Request, svc: ServicesDep) -> Setu
     if svc.formats.plugin(repo.format) is None:
         notes.append(f'The {repo.format} protocol is not served yet: these snippets work once its plugin lands.')
     return SetupGuide(repository=repo.name, format=repo.format, clients=clients, notes=notes)
+
+
+# ---------------------------------------------------------------------------- prefetch (T-O12)
+class PrefetchRun(BaseModel):
+    """A warm run of the repository (``prefetch.warm`` job): what it did, from the run's result."""
+
+    id: str = Field(description='The job run (Tasks page, `/tasks/runs/{run_id}`)')
+    status: RunStatus
+    trigger: Literal['schedule', 'manual']
+    started_at: datetime
+    finished_at: datetime | None
+    items: int = Field(description='Warm items attempted')
+    failed: int = Field(description='Items that failed')
+    files: int = Field(description='Files requested')
+    fetched: int = Field(description='Files fetched or revalidated upstream (the rest were already cached)')
+    error: str | None
+
+
+class PrefetchStatus(BaseModel):
+    warm_supported: bool = Field(description='The format can warm items')
+    refresh_supported: bool = Field(description="The format's popular metadata can be refreshed")
+    warm_items: int
+    refresh_popular: bool
+    schedule: str | None
+    next_run_at: datetime | None = Field(description='When the warm list runs next (null: no schedule)')
+    last_run: PrefetchRun | None
+
+
+def _prefetch_run(doc: dict[str, Any]) -> PrefetchRun:
+    result = doc.get('result') or {}
+    return PrefetchRun(
+        id=str(doc['_id']),
+        status=doc.get('status', 'running'),
+        trigger='schedule' if run_trigger(doc) == 'schedule' else 'manual',
+        started_at=doc['started_at'],
+        finished_at=doc.get('finished_at'),
+        items=int(result.get('items') or 0),
+        failed=int(result.get('failed') or 0),
+        files=int(result.get('files') or 0),
+        fetched=int(result.get('fetched') or 0),
+        error=doc.get('error'),
+    )
+
+
+def _proxy_or_409(repo: RepoConfig) -> None:
+    if repo.type is not RepoType.PROXY or repo.proxy is None:
+        raise Conflict('only proxy repositories prefetch')
+
+
+@router.get('/repositories/{name}/prefetch', response_model=PrefetchStatus, operation_id='getRepositoryPrefetch')
+@access.requires_repo(Action.MANAGE)
+async def get_prefetch(name: str, request: Request, svc: ServicesDep) -> PrefetchStatus:
+    """The repository's prefetch settings in brief, the next scheduled warm run and the last one."""
+    repo: RepoConfig = request.state.repo
+    _proxy_or_409(repo)
+    assert repo.proxy is not None
+    descriptor = svc.formats.descriptor(repo.format)
+    plugin = svc.formats.plugin(repo.format)
+    definition = await prefetch_db.schedule(svc.db, repo.id)
+    next_run: datetime | None = None
+    if definition is not None and definition.get('enabled', True):
+        with contextlib.suppress(ValueError):
+            next_run = datetime.fromtimestamp(
+                parse_schedule(str(definition.get('schedule') or '')).next_after(time.time()), UTC
+            )
+    last = await prefetch_db.last_run(svc.db, repo.id)
+    warm_supported = descriptor is not None and descriptor.warm_item is not None and isinstance(plugin, WarmingPlugin)
+    return PrefetchStatus(
+        warm_supported=warm_supported,
+        refresh_supported=descriptor is not None and descriptor.refresh_request is not None,
+        warm_items=len(repo.proxy.prefetch.warm),
+        refresh_popular=repo.proxy.prefetch.refresh_popular,
+        schedule=repo.proxy.prefetch.schedule,
+        next_run_at=next_run,
+        last_run=_prefetch_run(last) if last is not None else None,
+    )
+
+
+@router.post(
+    '/repositories/{name}/prefetch/run',
+    status_code=202,
+    response_model=JobAccepted,
+    operation_id='runRepositoryPrefetch',
+    responses={409: PROBLEM},
+)
+@access.requires_repo(Action.MANAGE)
+async def run_prefetch(name: str, request: Request, svc: ServicesDep) -> JobAccepted:
+    """Warm the repository's list now (job ``prefetch.warm``; merged with a pending or running one)."""
+    repo: RepoConfig = request.state.repo
+    _proxy_or_409(repo)
+    assert repo.proxy is not None
+    if not repo.proxy.prefetch.warm:
+        raise Conflict('the repository has no warm items')
+    result = await svc.jobs.enqueue(PrefetchWarm(repo_id=repo.id))
+    task_id = prefetch_db.definition_id(repo.id)
+    audit.record(
+        AuditAction.TASK_RUN,
+        target=audit.target('task', task_id, task_id),
+        details={'kind': PrefetchWarm.kind, 'repository': repo.name, 'job_id': result.job_id, 'status': result.status},
+    )
+    return JobAccepted(job_id=result.job_id, status=result.status)

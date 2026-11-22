@@ -18,6 +18,28 @@ cited specs while implementing; when this file is wrong, fix it in the same chan
 Common rules: all format routes live under `/repository/<repo>/` (Nexus-compatible). Paths are normalised by
 `waystation_common.paths.normalise` before any lookup. Group repos merge metadata only where noted.
 
+## Prefetch (T-O12, adr/0012 proposed; SPEC §4.1 "Prefetch")
+Proxy repositories only. A format opts in on its descriptor and plugin; the worker never learns a format (it calls
+the server's internal prefetch route, `waystation_server.prefetch`):
+- `FormatDescriptor.warm_item(item) -> str | None`: checks a warm item of the format's syntax (the message is the
+  repository form's field error); None on the descriptor = the format cannot warm (items refused).
+- `plugin.warm(ctx, item)` (`formats.base.WarmContext`): expands the item with `ctx.get(path, headers)` (a `GET` of
+  the repository's own path, handled by the plugin as for a client: proxy engine, validation, coalescing, indexing;
+  4xx/5xx raise) and `ctx.read(fetched, max_bytes=...)` (the body of a metadata answer). Never counted as downloads.
+- `FormatDescriptor.refresh_request(asset_key) -> RefreshRequest | None`: the client request that re-reads a cached
+  metadata asset (None: not refreshable). The engine revalidates it even before it is stale.
+
+| Format | Warm item | Warm fetches | Refresh |
+|---|---|---|---|
+| docker | `image[:tag\|@digest] [platforms]`: `library/nginx:1.27`, `nginx:1.27 linux/amd64,linux/arm64/v8`, `nginx@sha256:<hex> all`; tag default `latest`, platforms default `linux/amd64` (a platform without variant matches every variant; `all` = every platform except attestations) | the tag's manifest (full `Accept` list), for an index each chosen platform's manifest by digest, each image's config and layers (layers with `urls` skipped) | tag manifests (`<name>/manifests/<tag>`, also `@accept=` variants; stale ones re-checked by upstream `HEAD`), `tags/list` |
+| npm | `package`, `package@<version>`, `package@<dist-tag>`, `@scope/name@1.2.3` (no ranges) | abbreviated packument, the version's tarball (verified against `dist.integrity`) | packuments (full and abbreviated, each with its `Accept`) |
+| raw | a file path of the repository | that file | metadata paths (`metadata_path_regex`) |
+| Maven | `groupId:artifactId:version[:extension[:classifier]]` (no snapshots) | the POM, then the artifact: the given extension/classifier, else what `<packaging>` implies (`pom`: nothing more; `war`, `ear`, `aar`, `rar`, `zip`: that; otherwise `jar`) | `maven-metadata.xml` (same path) |
+| Go | `module@<canonical version>`, `module@latest`, `module` (= latest) | `@latest` when asked, then the version's `.info`, `.mod`, `.zip` (checked against the checksum database) | `@v/list`, `@latest` (same path) |
+
+Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
+below). Left for later: PyPI (`project==version`), Helm (`chart@version`), Galaxy, Terraform, Swift.
+
 ---
 
 ## Raw (generic) — Phase 2

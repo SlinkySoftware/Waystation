@@ -44,6 +44,7 @@ _KINDS = {
     PrincipalKind.USER: ActorKind.USER,
     PrincipalKind.SERVICE_ACCOUNT: ActorKind.SERVICE_ACCOUNT,
     PrincipalKind.ANONYMOUS: ActorKind.ANONYMOUS,
+    PrincipalKind.SYSTEM: ActorKind.SYSTEM,
 }
 
 

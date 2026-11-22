@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Row actions of a scheduled task: run now, its runs, and edit schedule (or open the owning cleanup policy).
+<!-- Row actions of a scheduled task: run now, its runs, and edit schedule (or open the owning cleanup policy or
+     repository settings).
      Labelled icon buttons, touch targets ≥ 40 px. -->
 <template>
   <span class="task-actions">
@@ -10,7 +11,19 @@
       <q-tooltip>{{ t('tasks.scheduled.history') }}</q-tooltip>
     </q-btn>
     <q-btn
-      v-if="task.owner"
+      v-if="task.owner?.kind === 'repository'"
+      flat
+      round
+      dense
+      :icon="iconExternal"
+      :to="{ name: 'repository', params: { name: task.owner.name ?? task.owner.id, tab: 'settings' } }"
+      :aria-label="`${t('tasks.scheduled.openRepository')}: ${label}`"
+      data-test="task-open-repository"
+    >
+      <q-tooltip>{{ t('tasks.scheduled.openRepository') }}</q-tooltip>
+    </q-btn>
+    <q-btn
+      v-else-if="task.owner"
       flat
       round
       dense

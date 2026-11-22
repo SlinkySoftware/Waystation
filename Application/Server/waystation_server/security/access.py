@@ -57,7 +57,9 @@ from typing import Any, Literal, TypeVar
 from starlette.requests import Request
 
 from waystation_common.errors import Forbidden, NotFound, Unauthorized, WaystationError
-from waystation_server.repos.model import RepoConfig
+from waystation_common.system_grants import HEADER as SYSTEM_GRANT_HEADER
+from waystation_common.system_grants import PREFETCH, SystemGrants
+from waystation_server.repos.model import RepoConfig, RepoType
 from waystation_server.security.actions import GLOBAL_ACTIONS, Action, Grants, Permission, TokenScope
 from waystation_server.security.authn import authenticate, current_session
 from waystation_server.security.download_urls import PARAM as DOWNLOAD_PARAM
@@ -439,6 +441,28 @@ def download_grant(request: Request, repo: RepoConfig, path: str, urls: Download
     if not grant or request.method not in ('GET', 'HEAD') or not repo.online:
         return None
     return DOWNLOAD_GRANT if urls.verify(grant, repo.id, path) else None
+
+
+def system_grant(request: Request, repo: RepoConfig, grants: SystemGrants | None) -> Principal | None:
+    """The worker's prefetch (adr/0012, T-O12): a request to the internal prefetch route carrying a valid system grant
+    (``waystation_common.system_grants``) for ``repo``, an online proxy repository. Returns the ``prefetch`` system
+    principal, which may browse and read that one repository and nothing else (no write, no other repository, no
+    global action); None otherwise. Only ``waystation_server.prefetch`` asks: the format routes, ``/v2/`` and the REST
+    API never look at the header."""
+    grant = request.headers.get(SYSTEM_GRANT_HEADER)
+    if not grant or grants is None or repo.type is not RepoType.PROXY or not repo.online:
+        return None
+    if not grants.verify(grant, PREFETCH, repo.id):
+        return None
+    scope = repo.name
+    return Principal(
+        PrincipalKind.SYSTEM,
+        'prefetch',
+        'prefetch',
+        roles=(),
+        method=AuthMethod.SYSTEM_GRANT,
+        grants=Grants(is_admin=False, permissions=_perms((Action.BROWSE, scope), (Action.READ, scope))),
+    )
 
 
 async def authorize_repo(request: Request, repo: RepoConfig | None, action: Action) -> Principal:

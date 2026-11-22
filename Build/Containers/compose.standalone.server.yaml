@@ -8,7 +8,7 @@
 #                           same filesystem on every web, server and worker host
 #   WAYSTATION_SERVER_BIND  the address to publish the server port on. The server treats peers on private addresses
 #                           as the web tier (their X-Real-IP is taken as the client address): firewall this port so
-#                           that only the web hosts reach it.
+#                           that only the web hosts (and the worker hosts, for prefetch jobs) reach it.
 # The x-app-env list is the same in compose.yaml and the standalone files (test_compose_files.py checks it).
 name: waystation
 
@@ -61,6 +61,7 @@ x-app-env: &app-env
   WAYSTATION_SERVER_WORKERS:
   WAYSTATION_WORKER_QUEUES:
   WAYSTATION_WORKER_CONCURRENCY:
+  WAYSTATION_INTERNAL_URL:
 
 x-data-rw: &data-rw
   type: ${WAYSTATION_DATA_MOUNT_TYPE:-bind}

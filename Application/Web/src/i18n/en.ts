@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // English catalogue. Plurals: "one|other", chosen by the `count` parameter.
 import { admin } from './admin'
+import { prefetch } from './prefetch'
 import { provisioning } from './provisioning'
 import { ui } from './ui'
 import { webhooks } from './webhooks'
@@ -1419,6 +1420,7 @@ export const en = {
       storage_check: 'Low-disk check',
       apt_refresh: 'apt refresh',
       secrets_rotate: 'Secret-key rotation',
+      prefetch_warm: 'Warm list',
     },
     kindHelp: {
       stats_rollup: 'Rolls live counters into the statistics every few seconds',
@@ -1429,6 +1431,7 @@ export const en = {
       storage_check: 'Compares free disk space with the low-disk guard and raises alerts',
       apt_refresh: 'Revalidates stale apt Release files, refreshes the Packages indexes clients use and re-verifies unverified package files',
       secrets_rotate: 'Re-encrypts stored credentials and key files with the first key in WAYSTATION_SECRET_KEYS, and reports what still depends on older keys',
+      prefetch_warm: 'Fetches a proxy repository\'s warm list from its upstream ahead of clients (cached items are only checked)',
     },
     queue: {
       index: 'Index',
@@ -1456,6 +1459,9 @@ export const en = {
       routineHelp: 'Housekeeping that runs every few seconds; its runs are hidden from the run list unless you ask for them.',
       ownedBy: 'Policy {name}',
       ownedHelp: 'This schedule belongs to the cleanup policy; change it on the Cleanup page.',
+      warmOf: 'Warm {name}',
+      ownedRepoHelp: 'This schedule belongs to the repository\'s prefetch settings; change it there.',
+      openRepository: 'Open the repository settings',
       never: 'Never ran',
       paused: 'Paused',
       runNow: 'Run now',
@@ -1517,6 +1523,7 @@ export const en = {
         rotate: 'Re-encrypted {n} secret|Re-encrypted {n} secrets',
         rotateUndecryptable: '{n} secret no key decrypts|{n} secrets no key decrypts',
         cleanup: 'Removed {n} item · {size}|Removed {n} items · {size}',
+        warm: 'Warmed {n} item · {fetched} files fetched|Warmed {n} items · {fetched} files fetched',
         done: 'Done',
       },
       emptyTitle: 'No runs yet',
@@ -2053,6 +2060,7 @@ export const en = {
   admin,
   webhooks,
   provisioning,
+  prefetch,
   ui,
   nexusImport: {
     open: 'Import from Nexus',

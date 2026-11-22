@@ -7,7 +7,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from waystation_server.formats.base import FormatDescriptor, SetupClient, SetupContext, UiHints
+from waystation_server.formats.common.prefetch import same_path
 from waystation_server.formats.common.setup import TOKEN, USERNAME, snippet
+from waystation_server.formats.maven import prefetch
 from waystation_server.repos.model import RepoType
 
 PREEMPTIVE = '-Daether.connector.http.preemptiveAuth=true'
@@ -240,4 +242,6 @@ DESCRIPTOR = FormatDescriptor(
     ui=UiHints(icon='maven', browse='maven'),
     probe_path=_probe,
     setup_snippets=_snippets,
+    warm_item=prefetch.check_item,
+    refresh_request=same_path,
 )

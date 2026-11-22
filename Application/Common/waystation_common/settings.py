@@ -200,6 +200,13 @@ class Settings(BaseSettings):
         description='Comma-separated job queues this worker consumes.',
     )
     worker_concurrency: int = Field(4, ge=1, description='Concurrent jobs per worker.')
+    internal_url: str = Field(
+        'http://waystation-server:8000',
+        description=(
+            'Where workers reach a server for prefetch jobs (the server port, not the web tier). '
+            'Split hosts: a server host address.'
+        ),
+    )
 
     @field_validator('trusted_proxies', 'metrics_allow_cidrs', 'ssrf_allow_cidrs', 'worker_queues', mode='before')
     @classmethod
@@ -211,7 +218,7 @@ class Settings(BaseSettings):
     def _split_secret(cls, value: Any) -> Any:
         return _split_list(value)
 
-    @field_validator('base_url')
+    @field_validator('base_url', 'internal_url')
     @classmethod
     def _strip_slash(cls, value: str) -> str:
         return value.rstrip('/')

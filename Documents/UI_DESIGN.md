@@ -101,6 +101,14 @@ All widgets update live via SSE; no page refresh, no polling except as SSE fallb
   CA certificates as PEM). The overview's upstream card shows "Auto-blocked: next probe in m:ss" while blocked.
   **Storage quota** (proxy and hosted; T-O03): on/off, size with a MiB/GiB/TiB unit, mode soft (warn) / hard (refuse
   new writes), field errors from the server.
+  **Prefetch** (proxies of docker, npm, raw, Maven and Go; T-O12): "Keep popular metadata fresh" toggle, the warm
+  list (textarea, one item per line, per-format placeholder and syntax help, "N of 200 items"; blank lines and
+  repeats dropped) and the schedule (cron/macro/`@every` read back in words, clickable examples, empty = run by hand
+  only); a server error on one item names that item. The repository overview (with `repositories.manage`) has a
+  **Prefetch** card: refresh on/off, warm items, schedule and next run, the last run (status pill, time, items /
+  failed / fetched of files, "View run" for administrators: `/tasks?run=<id>`), "Warm now" (says whether it queued or
+  joined a running warm; polls while one runs). The Tasks page labels a repository-owned schedule "Warm <repository>"
+  and sends schedule edits to the repository's settings.
 - Quotas (T-O03): a repository with a quota shows a usage meter (bar with an 80 % mark, "used of quota", a state
   badge: ok / warning from 80 % / over quota; icon and label, not colour alone) in the list's Size cell (compact,
   tooltip) and as a strip under the detail page's KPI row (with the mode explained and the note that shared blobs

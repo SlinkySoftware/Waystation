@@ -36,6 +36,8 @@ describe('task labels', () => {
     expect(kindLabel('apt.refresh')).toBe('apt refresh')
     expect(kindLabel('secrets.rotate')).toBe('Secret-key rotation')
     expect(taskLabel({ kind: 'cleanup.run', owner: { kind: 'cleanup_policy', id: 'p1', name: 'npm-unused-90d' } })).toBe('Policy npm-unused-90d')
+    expect(taskLabel({ kind: 'prefetch.warm', owner: { kind: 'repository', id: '01JCREPO0000ABCD', name: 'dockerhub-proxy' } })).toBe('Warm dockerhub-proxy')
+    expect(kindLabel('prefetch.warm')).toBe('Warm list')
     expect(queueLabel('maintenance')).toBe('Maintenance')
     expect(queueLabel('custom')).toBe('custom')
   })
@@ -55,6 +57,11 @@ describe('run summaries', () => {
     expect(runSummary({ kind: 'secrets.rotate', result: { rotated: 12, undecryptable: 0 } })).toBe('Re-encrypted 12 secrets')
     expect(runSummary({ kind: 'secrets.rotate', result: { rotated: 3, undecryptable: 1 } })).toBe('1 secret no key decrypts')
     expect(runSummary({ kind: 'secrets.rotate', result: { skipped: 'no keys' } })).toBe(runSummary({ kind: 'x', result: {} }))
+  })
+
+  it('summarises a warm run', () => {
+    expect(runSummary({ kind: 'prefetch.warm', result: { items: 4, failed: 0, files: 38, fetched: 7 } })).toBe('Warmed 4 items · 7 files fetched')
+    expect(runSummary({ kind: 'prefetch.warm', result: { items: 1, fetched: 0 } })).toBe('Warmed 1 item · 0 files fetched')
   })
 })
 
