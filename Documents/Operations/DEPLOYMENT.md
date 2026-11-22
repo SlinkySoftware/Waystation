@@ -155,7 +155,8 @@ external MongoDB) and remove or fill in every line you do not need.
 
 `WAYSTATION_SECRET_KEYS` encrypts stored upstream credentials and the registry token signing key. **Back it up with
 the database; losing it makes those secrets unreadable.** To rotate, prepend a new key (`new,old`): the first key
-encrypts, all keys decrypt.
+encrypts, all keys decrypt; the `secrets.rotate` task re-encrypts what is stored, then the old key can go
+([SECRET_KEY_ROTATION.md](SECRET_KEY_ROTATION.md)).
 
 ### Secrets from files
 

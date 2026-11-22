@@ -5,10 +5,19 @@ reclaim) + ``Coordinator`` (leader: outbox dispatcher, scheduler, delayed jobs) 
 
 from waystation_worker.jobs import builtin
 from waystation_worker.jobs.config import JobConfig
-from waystation_worker.jobs.context import JobContext
+from waystation_worker.jobs.context import JobContext, JobFailedError
 from waystation_worker.jobs.registry import HANDLERS, Handler, handles
 from waystation_worker.jobs.system import JobSystem
 
 BUILTIN_DEFINITIONS = builtin.BUILTIN_DEFINITIONS
 
-__all__ = ['BUILTIN_DEFINITIONS', 'HANDLERS', 'Handler', 'JobConfig', 'JobContext', 'JobSystem', 'handles']
+__all__ = [
+    'BUILTIN_DEFINITIONS',
+    'HANDLERS',
+    'Handler',
+    'JobConfig',
+    'JobContext',
+    'JobFailedError',
+    'JobSystem',
+    'handles',
+]

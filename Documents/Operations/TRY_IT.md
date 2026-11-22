@@ -158,7 +158,7 @@ After `down -v` the next start is a fresh install with a new one-time admin pass
   profile page, not your password. The proxies in this guide allow anonymous reads, so the examples need none.
 - **HTTPS**: the web tier speaks plain HTTP; put a reverse proxy in front ([REVERSE_PROXIES.md](REVERSE_PROXIES.md)).
 - **Production**: [DEPLOYMENT.md](DEPLOYMENT.md), [BACKUP.md](BACKUP.md), [MONITORING.md](MONITORING.md),
-  [PROVISIONING.md](PROVISIONING.md); moving from Nexus: [MIGRATING_FROM_NEXUS.md](MIGRATING_FROM_NEXUS.md).
+  [PROVISIONING.md](PROVISIONING.md), [SECRET_KEY_ROTATION.md](SECRET_KEY_ROTATION.md); moving from Nexus: [MIGRATING_FROM_NEXUS.md](MIGRATING_FROM_NEXUS.md).
 - Menu items marked "soon" are placeholders.
 
 Send feedback in `Documents/Notes/UI_FEEDBACK.md`.

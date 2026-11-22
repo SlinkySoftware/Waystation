@@ -7,9 +7,9 @@ import { type MessageKey, t } from '@/i18n'
 import { formatBytes, formatCount, formatDuration } from '@/utils/format'
 import { iconError, iconOk, iconWarning } from '@/utils/icons'
 
-const KNOWN_KINDS = ['stats.rollup', 'blob.gc', 'blob.verify', 'cleanup.run', 'quota.reconcile', 'storage.check', 'apt.refresh'] as const
+const KNOWN_KINDS = ['stats.rollup', 'blob.gc', 'blob.verify', 'cleanup.run', 'quota.reconcile', 'storage.check', 'apt.refresh', 'secrets.rotate'] as const
 type KnownKind = (typeof KNOWN_KINDS)[number]
-type KindKey = 'stats_rollup' | 'blob_gc' | 'blob_verify' | 'cleanup_run' | 'quota_reconcile' | 'storage_check' | 'apt_refresh'
+type KindKey = 'stats_rollup' | 'blob_gc' | 'blob_verify' | 'cleanup_run' | 'quota_reconcile' | 'storage_check' | 'apt_refresh' | 'secrets_rotate'
 
 const isKnown = (kind: string): kind is KnownKind => (KNOWN_KINDS as readonly string[]).includes(kind)
 const kindKey = (kind: KnownKind): KindKey => kind.replace('.', '_') as KindKey
@@ -149,6 +149,10 @@ export function runSummary(run: Pick<JobRunSummary, 'kind' | 'result'>): string 
   if (run.kind === 'blob.verify') {
     if (num('hosted_lost')) return t('tasks.runs.summary.verifyLost', { count: num('hosted_lost'), n: formatCount(num('hosted_lost')) })
     return t('tasks.runs.summary.verify', { count: num('proxy_marked'), n: formatCount(num('proxy_marked')), assets: formatCount(num('assets')) })
+  }
+  if (run.kind === 'secrets.rotate' && 'rotated' in r) {
+    if (num('undecryptable')) return t('tasks.runs.summary.rotateUndecryptable', { count: num('undecryptable'), n: formatCount(num('undecryptable')) })
+    return t('tasks.runs.summary.rotate', { count: num('rotated'), n: formatCount(num('rotated')) })
   }
   if (run.kind === 'cleanup.run') return t('tasks.runs.summary.cleanup', { count: num('removed'), n: formatCount(num('removed')), size: formatBytes(num('bytes')) })
   return t('tasks.runs.summary.done')

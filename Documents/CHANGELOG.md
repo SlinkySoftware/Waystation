@@ -3,6 +3,26 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-O11: secret-key rotation. New worker job `secrets.rotate` (`waystation_worker.rotate`; built-in task, daily at
+  04:23 UTC, "Run now" on the Tasks page, `python -m waystation_worker.run_task secrets.rotate --wait`) re-encrypts
+  with the first key of `WAYSTATION_SECRET_KEYS` every stored value made with another key: repository upstream
+  secrets, LDAP bind passwords, OIDC client secrets, webhook secrets and custom headers, TOTP secrets (enrolled and
+  pending) and the OIDC ID tokens of sessions (catalogue `waystation_common.db.secrets.ENCRYPTED_FIELDS`, a test
+  checks it against the owning code and fails when a module starts encrypting something new). Only values whose
+  ciphertext names another key are read; each is written with a compare-and-set on the old ciphertext, so an edit
+  made meanwhile wins (`conflicts`). The `keys/` files (hosted apt/yum signing keys, the registry token signing key)
+  are rewritten atomically after the new content is checked to decrypt (`waystation_common.keyfiles`; mode kept;
+  the keys themselves do not change). Values no configured key decrypts are counted per store with their ids
+  (never values), logged at ERROR and fail the run once everything else is rotated: the new `JobFailedError` records
+  the result on the run and dead-letters it without retries. Result: per store `rotated`, `already_current`,
+  `conflicts`, `undecryptable`, the active key id, the number of keys, and how many live API tokens and unused
+  recovery codes are hashed with the active key, an older key or an unrecorded one: tokens now store `hash_kid` and
+  users `totp_recovery_kid`. An API token that authenticates under an older key (or without `hash_kid`) gets its
+  new hash queued in Valkey `rehash:tokens`; the rollup stores it with a compare-and-set (no MongoDB write per
+  request). Runs that changed something are audited as `secrets.rotate` (actor `system`; new SPEC §4.11 phrase,
+  reason `undecryptable`). UI: Tasks page label, description and run summary; audit category "Secret keys"; MSW
+  mock task. Docs: `Operations/SECRET_KEY_ROTATION.md` (procedure, what depends on old keys, when to remove one),
+  linked from DEPLOYMENT, BACKUP and TRY_IT; ARCHITECTURE §7/§10, DATA_MODEL and SPECIFICATION updated.
 - T-M04 dropped (owner): no Nexus hosted-content migration job; MIGRATING_FROM_NEXUS.md and SPECIFICATION say
   hosted content is copied with client tools.
 - T-F03: no scheduled CI any more (owner): the Gitea `clients-live` and `perf` workflows lost their nightly runs.

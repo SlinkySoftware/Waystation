@@ -126,7 +126,7 @@ async def _main(args: argparse.Namespace) -> int:  # pragma: no cover - process 
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - process entry point
     parser = argparse.ArgumentParser(prog='python -m waystation_worker.run_task', description=__doc__.split('\n')[0])
-    parser.add_argument('task', help='scheduled task id, e.g. blob.verify or blob.gc')
+    parser.add_argument('task', help='scheduled task id, e.g. blob.verify, blob.gc or secrets.rotate')
     parser.add_argument('--wait', action='store_true', help='wait for the run to finish and print its result')
     parser.add_argument('--timeout', type=float, default=3600.0, help='seconds to wait (default 3600)')
     return asyncio.run(_main(parser.parse_args(argv)))

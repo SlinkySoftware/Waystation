@@ -34,6 +34,7 @@ describe('task labels', () => {
     expect(kindLabel('index.apt')).toBe('index.apt')
     expect(kindLabel('blob.verify')).toBe('Blob verify')
     expect(kindLabel('apt.refresh')).toBe('apt refresh')
+    expect(kindLabel('secrets.rotate')).toBe('Secret-key rotation')
     expect(taskLabel({ kind: 'cleanup.run', owner: { kind: 'cleanup_policy', id: 'p1', name: 'npm-unused-90d' } })).toBe('Policy npm-unused-90d')
     expect(queueLabel('maintenance')).toBe('Maintenance')
     expect(queueLabel('custom')).toBe('custom')
@@ -51,6 +52,9 @@ describe('run summaries', () => {
     expect(runSummary({ kind: 'blob.verify', result: { assets: 1200, proxy_marked: 3, hosted_lost: 0 } })).toBe('1,200 assets checked · 3 to re-fetch')
     expect(runSummary({ kind: 'blob.verify', result: { assets: 1200, proxy_marked: 3, hosted_lost: 2 } })).toBe('2 hosted assets lost')
     expect(runSummary({ kind: 'blob.verify', result: { hosted_lost: 1 } })).toBe('1 hosted asset lost')
+    expect(runSummary({ kind: 'secrets.rotate', result: { rotated: 12, undecryptable: 0 } })).toBe('Re-encrypted 12 secrets')
+    expect(runSummary({ kind: 'secrets.rotate', result: { rotated: 3, undecryptable: 1 } })).toBe('1 secret no key decrypts')
+    expect(runSummary({ kind: 'secrets.rotate', result: { skipped: 'no keys' } })).toBe(runSummary({ kind: 'x', result: {} }))
   })
 })
 

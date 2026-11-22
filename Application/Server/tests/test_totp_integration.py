@@ -146,6 +146,7 @@ async def test_enrolment(services: Services, rita: httpx.AsyncClient, clock: lis
     assert state['enabled'] is True and state['recovery_codes_left'] == 10 and state['enabled_at']
     doc = await services.db[USERS].find_one({'_id': 'id-rita'})
     assert doc is not None and doc['totp_pending_enc'] is None and doc['totp_enc'].startswith('ws1.')
+    assert services.keyring is not None and doc['totp_recovery_kid'] == services.keyring.active_kid  # T-O11
     stored = repr(doc)
     assert secret not in stored and not any(c in stored or c.replace('-', '') in stored for c in codes)
     assert (await rita.post(f'{API}/auth/me/totp/setup', json={'password': PASSWORD})).status_code == 409

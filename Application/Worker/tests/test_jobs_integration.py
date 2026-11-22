@@ -27,7 +27,15 @@ from waystation_common.db.schema import ensure_schema
 from waystation_common.events import CacheState, EventEmitter
 from waystation_common.events import keys as event_keys
 from waystation_common.jobs import JobClient, JobEnvelope, JobPayload, JobQueue, Queue, StatsRollup, keys
-from waystation_worker.jobs import BUILTIN_DEFINITIONS, HANDLERS, Handler, JobConfig, JobContext, JobSystem
+from waystation_worker.jobs import (
+    BUILTIN_DEFINITIONS,
+    HANDLERS,
+    Handler,
+    JobConfig,
+    JobContext,
+    JobFailedError,
+    JobSystem,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -312,6 +320,28 @@ async def test_failures_retry_then_dead_letter(db: Database, valkey: Redis) -> N
     assert dead['error'] == 'RuntimeError: boom 2'
     assert (dead['job']['id'], dead['job']['attempt']) == (job_id, 2)
     assert await queue_empty(valkey, f'id:{job_id}')
+
+
+async def test_job_failed_is_dead_lettered_at_once_with_its_result(db: Database, valkey: Redis) -> None:
+    attempts: list[int] = []
+
+    async def gives_up(job: Flaky, ctx: JobContext) -> None:
+        attempts.append(ctx.attempt)
+        raise JobFailedError('2 values undecryptable', result={'rotated': 3, 'undecryptable': 2})
+
+    jobs = JobClient(valkey, db)
+    outbox_id = await jobs.enqueue_durable(Flaky())
+    async with worker(db, {Flaky.kind: gives_up}, 'w-jf'):
+        await until(lambda: _done(db, outbox_id))
+        doc = await jobs_db.outbox_get(db, outbox_id)
+        assert doc is not None
+        await until(lambda: _eq(statuses(db, doc['job']['id']), ['dead']))
+    (run,) = await jobs_db.runs_for_job(db, doc['job']['id'])
+    assert attempts == [1]  # max_attempts is 2: JobFailedError does not retry
+    assert (run['status'], run['result']) == ('dead', {'rotated': 3, 'undecryptable': 2})
+    assert run['error'] == 'JobFailedError: 2 values undecryptable'
+    (dead,) = await JobQueue(valkey).dead_letters()
+    assert dead['error'] == 'JobFailedError: 2 values undecryptable'
 
 
 async def test_worker_lost_too_often_is_dead_lettered(db: Database, valkey: Redis) -> None:

@@ -16,7 +16,9 @@ asset still has its content. Examples use the single-host stack of [DEPLOYMENT.m
 | Valkey | `waystation_valkey` volume | not backed up | Yes: it holds live state only; job schedules and the job outbox are in MongoDB |
 
 Back up the env file and the secret files separately from the data backups, and keep a copy of
-`WAYSTATION_SECRET_KEYS` somewhere safe and offline: a data backup without it is only partly usable.
+`WAYSTATION_SECRET_KEYS` somewhere safe and offline: a data backup without it is only partly usable. After a key
+rotation ([SECRET_KEY_ROTATION.md](SECRET_KEY_ROTATION.md)) keep the old key as long as you keep backups made before
+it: they are encrypted with it.
 
 ## 2. How a backup stays consistent
 

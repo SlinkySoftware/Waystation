@@ -81,6 +81,7 @@ const TEMPLATES: Template[] = [
   { action: 'webhook.update', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'ci-release-builds', WEBHOOK_ID), changes: [change('repositories', [], ['raw-*'])] }) },
   { action: 'webhook.delete', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'old-chat-hook', '01JCWEBHOOK0000000000000OLD') }) },
   { action: 'webhook.test', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'ci-release-builds', WEBHOOK_ID), details: { delivery_id: '01JCDELIVERY00000000000001' } }) },
+  { action: 'secrets.rotate', weight: 1, make: () => ({ actor: ACTORS.system, target: target('secret_keys', 'WAYSTATION_SECRET_KEYS', '3f9a1c27'), details: { active_kid: '3f9a1c27', keys: 2, rotated: 14, conflicts: 0, undecryptable: 0, stores: { 'repositories.proxy.auth.secret_enc': { rotated: 9, undecryptable: 0 }, 'keys/': { rotated: 5, undecryptable: 0 } } } }) },
   { action: 'webhook.redeliver', weight: 1, make: () => ({ actor: ACTORS.admin, target: target('webhook', 'chat-notifications', '01JCWEBHOOK0000000000000CHT'), details: { delivery_id: '01JCDELIVERY00000000000003', redelivery_of: '01JCDELIVERY00000000000002', event: 'content.upload' } }) },
 ]
 

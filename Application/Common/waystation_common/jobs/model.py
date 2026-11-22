@@ -186,6 +186,20 @@ class QuotaReconcile(JobPayload):
         return 'quota.reconcile'
 
 
+class SecretsRotate(JobPayload):
+    """Re-encrypt every stored credential that was not encrypted with the active (first) secret key, and the files
+    in ``keys/``, after a ``WAYSTATION_SECRET_KEYS`` rotation; report the keyed hashes (API tokens, recovery codes)
+    still made with an older key (T-O11, ``waystation_worker.rotate``). A value no configured key decrypts fails the
+    run at once (retrying cannot help); everything else is still rotated."""
+
+    kind: ClassVar[str] = 'secrets.rotate'
+    queue: ClassVar[Queue] = 'maintenance'
+    max_attempts: ClassVar[int] = 3
+
+    def dedupe_key(self) -> str | None:
+        return 'secrets.rotate'
+
+
 class HelmIndex(JobPayload):
     """Regenerate a hosted Helm repository's ``index.yaml`` from its ``helm_charts`` (FORMATS.md "Helm";
     ``waystation_worker.helm``). Enqueued through the outbox in the transaction that changed the charts."""

@@ -31,7 +31,7 @@ from waystation_common.jobs.model import JOB_TYPES, ROUTINE_RUN_DAYS, RUN_DAYS, 
 from waystation_common.jobs.queue import Delivery, JobQueue
 from waystation_common.settings import Settings
 from waystation_worker.jobs.config import JobConfig
-from waystation_worker.jobs.context import Clock, JobContext, quietly
+from waystation_worker.jobs.context import Clock, JobContext, JobFailedError, quietly
 from waystation_worker.jobs.registry import Handler
 
 log = logging.getLogger('waystation.worker.jobs')
@@ -272,24 +272,33 @@ class Runner:
         exc: Exception,
     ) -> None:
         error = f'{type(exc).__name__}: {exc}'[:2000]
+        result = exc.result if isinstance(exc, JobFailedError) else None
         log.warning('job failed', extra={'job_id': env.id, 'kind': env.kind, 'attempt': attempt, 'error': error})
-        if attempt >= max_attempts:
-            await self._dead(delivery, env, run_id, attempt, outbox_ids, error)
+        if attempt >= max_attempts or (isinstance(exc, JobFailedError) and not exc.retry):
+            await self._dead(delivery, env, run_id, attempt, outbox_ids, error, result=result)
             return
         retry_at = self._now() + timedelta(seconds=self.config.backoff_s(attempt))
         await self.queue.finish(
             delivery, 'retry', envelope=env.model_copy(update={'attempt': attempt}), retry_at=retry_at
         )
-        await quietly(jobs_db.run_finish(self.db, run_id, status='failed', now=self._now(), error=error))
+        await quietly(jobs_db.run_finish(self.db, run_id, status='failed', now=self._now(), error=error, result=result))
         self._event(EventType.JOB_FAILED, env, run_id, attempt, status='failed', error=error)
 
     async def _dead(
-        self, delivery: Delivery, env: JobEnvelope, run_id: str, attempt: int, outbox_ids: list[str], error: str
+        self,
+        delivery: Delivery,
+        env: JobEnvelope,
+        run_id: str,
+        attempt: int,
+        outbox_ids: list[str],
+        error: str,
+        *,
+        result: dict[str, Any] | None = None,
     ) -> None:
         log.error('job dead-lettered', extra={'job_id': env.id, 'kind': env.kind, 'attempt': attempt, 'error': error})
         await self.queue.finish(delivery, 'dead', envelope=env.model_copy(update={'attempt': attempt}), error=error)
         await quietly(jobs_db.outbox_mark_done(self.db, outbox_ids, now=self._now()))
-        await quietly(jobs_db.run_finish(self.db, run_id, status='dead', now=self._now(), error=error))
+        await quietly(jobs_db.run_finish(self.db, run_id, status='dead', now=self._now(), error=error, result=result))
         self._event(EventType.JOB_FAILED, env, run_id, attempt, status='dead', error=error)
 
     def _event(

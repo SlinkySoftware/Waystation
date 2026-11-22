@@ -227,6 +227,7 @@ _TOTP_CLEARED: dict[str, Any] = {
     'totp_enabled_at': None,
     'totp_last_step': None,
     'totp_recovery': [],
+    'totp_recovery_kid': None,
     'totp_pending_enc': None,
     'totp_pending_expires_at': None,
 }
@@ -242,7 +243,14 @@ async def set_totp_pending(db: Database, user_id: str, secret_enc: str, expires_
 
 
 async def enable_totp(
-    db: Database, user_id: str, *, pending_enc: str, recovery: list[str], step: int, now: datetime
+    db: Database,
+    user_id: str,
+    *,
+    pending_enc: str,
+    recovery: list[str],
+    recovery_kid: str,
+    step: int,
+    now: datetime,
 ) -> UserRecord | None:
     """Turn the pending secret ``pending_enc`` into the user's second factor (only that one, only once)."""
     doc = await db[USERS].find_one_and_update(
@@ -253,6 +261,7 @@ async def enable_totp(
                 'totp_enabled_at': now,
                 'totp_last_step': step,
                 'totp_recovery': recovery,
+                'totp_recovery_kid': recovery_kid,
                 'totp_pending_enc': None,
                 'totp_pending_expires_at': None,
             }
@@ -285,9 +294,10 @@ async def use_recovery_code(db: Database, user_id: str, candidates: list[str]) -
     return len(doc.get('totp_recovery') or []) if doc else None
 
 
-async def set_recovery_codes(db: Database, user_id: str, recovery: list[str]) -> bool:
+async def set_recovery_codes(db: Database, user_id: str, recovery: list[str], *, recovery_kid: str) -> bool:
     result = await db[USERS].update_one(
-        {'_id': user_id, 'totp_enc': {'$ne': None}}, {'$set': {'totp_recovery': recovery}}
+        {'_id': user_id, 'totp_enc': {'$ne': None}},
+        {'$set': {'totp_recovery': recovery, 'totp_recovery_kid': recovery_kid}},
     )
     return result.matched_count == 1
 

@@ -23,6 +23,7 @@ from waystation_common.jobs.model import (
     HelmIndex,
     JobEnvelope,
     QuotaReconcile,
+    SecretsRotate,
     StatsRollup,
     StorageCheck,
     WebhookDeliver,
@@ -30,10 +31,25 @@ from waystation_common.jobs.model import (
     WebhookSweep,
     YumIndex,
 )
+from waystation_common.keyfiles import KEYS_DIR
 from waystation_common.signing import KeyStore
 from waystation_common.storage import BlobStore
-from waystation_worker import apt, apt_index, cleanup, galaxy, gc, helm, quota, rollup, upstream, verify, webhooks, yum
-from waystation_worker.jobs.context import JobContext
+from waystation_worker import (
+    apt,
+    apt_index,
+    cleanup,
+    galaxy,
+    gc,
+    helm,
+    quota,
+    rollup,
+    rotate,
+    upstream,
+    verify,
+    webhooks,
+    yum,
+)
+from waystation_worker.jobs.context import JobContext, JobFailedError
 from waystation_worker.jobs.registry import handles
 
 BUILTIN_DEFINITIONS: tuple[Definition, ...] = (
@@ -52,6 +68,9 @@ BUILTIN_DEFINITIONS: tuple[Definition, ...] = (
     # apt proxies (FORMATS.md "apt"): stale Release files revalidated, their Packages indexes refreshed, unverified
     # pool files re-verified, hourly.
     Definition(id='apt.refresh', kind=AptRefresh.kind, schedule='41 * * * *'),
+    # Secret-key rotation (T-O11): daily at a quiet hour; a few empty queries when nothing uses an older key. After
+    # changing WAYSTATION_SECRET_KEYS, run it now (Tasks page or run_task) instead of waiting.
+    Definition(id='secrets.rotate', kind=SecretsRotate.kind, schedule='23 4 * * *'),
 )
 log = logging.getLogger('waystation.worker.jobs')
 
@@ -193,6 +212,30 @@ async def storage_check(job: StorageCheck, ctx: JobContext) -> dict[str, Any]:
         now=ctx.now(),
     )
     return state.as_dict()
+
+
+@handles(SecretsRotate)
+async def secrets_rotate(job: SecretsRotate, ctx: JobContext) -> dict[str, Any]:
+    """Re-encrypt stored credentials and key files with the active secret key (``waystation_worker.rotate``)."""
+    if ctx.settings is None:
+        raise RuntimeError('the secret-key rotation needs the worker settings (secret keys, data directory)')
+    if not ctx.settings.secret_keys:
+        return {'skipped': 'WAYSTATION_SECRET_KEYS is not set: nothing is stored encrypted'}
+    keyring = Keyring.from_settings(ctx.settings.secret_keys)
+    result = await rotate.rotate(
+        ctx.db, keyring, ctx.settings.data_dir / KEYS_DIR, now=ctx.now(), progress=ctx.progress, log_line=ctx.log
+    )
+    await ctx.log(result.summary())
+    await rotate.audit(ctx.db, result, retention_days=ctx.settings.audit_retention_days)
+    undecryptable = result.total('undecryptable')
+    if undecryptable:
+        stores = ', '.join(f'{name} ({c.undecryptable})' for name, c in result.stores.items() if c.undecryptable)
+        raise JobFailedError(
+            f'{undecryptable} stored values cannot be decrypted with any configured secret key: {stores}; '
+            'everything else was re-encrypted (see the run log)',
+            result=result.as_dict(),
+        )
+    return result.as_dict()
 
 
 @handles(HelmIndex)

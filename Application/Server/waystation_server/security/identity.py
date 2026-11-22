@@ -58,6 +58,7 @@ class UserRecord(BaseModel):
     totp_enabled_at: datetime | None = None
     totp_last_step: int | None = None
     totp_recovery: list[str] = Field(default_factory=list)
+    totp_recovery_kid: str | None = None  # the secret key that hashed the recovery codes (None: before T-O11)
     totp_pending_enc: str | None = None  # enrolment started, not yet confirmed with a code
     totp_pending_expires_at: datetime | None = None
     failed_logins: int = 0
@@ -87,6 +88,7 @@ class ApiTokenRecord(BaseModel):
     name: str
     prefix: str
     hash: str
+    hash_kid: str | None = None  # the secret key that made ``hash`` (None: unkeyed, or made before T-O11)
     scopes: list[str] = Field(default_factory=list)
     repo_globs: list[str] = Field(default_factory=list)
     expires_at: datetime | None = None

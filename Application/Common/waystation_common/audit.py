@@ -97,6 +97,7 @@ class AuditAction(StrEnum):
     WEBHOOK_DELETE = 'webhook.delete'
     WEBHOOK_TEST = 'webhook.test'  # a test event sent
     WEBHOOK_REDELIVER = 'webhook.redeliver'  # a delivery sent again from the delivery log
+    SECRETS_ROTATE = 'secrets.rotate'  # stored credentials re-encrypted with the active secret key (worker, system)
 
     @property
     def category(self) -> str:
@@ -140,7 +141,11 @@ SPEC_ACTIONS: dict[str, tuple[AuditAction, ...]] = {
     'task changes': (A.TASK_UPDATE, A.TASK_RUN, A.TASK_RETRY, A.TASK_DISCARD),
     'settings changes': (A.SETTINGS_UPDATE,),
     'webhook changes': (A.WEBHOOK_CREATE, A.WEBHOOK_UPDATE, A.WEBHOOK_DELETE, A.WEBHOOK_TEST, A.WEBHOOK_REDELIVER),
+    'secret-key rotation': (A.SECRETS_ROTATE,),
 }
+
+# Actions only the workers record (actor ``system``): their tests are the worker's, not the server's acceptance test.
+WORKER_ACTIONS: frozenset[AuditAction] = frozenset({A.SECRETS_ROTATE})
 
 # Actions whose feature does not exist yet → the task that adds the feature (and emits the action).
 PENDING: dict[AuditAction, str] = {
