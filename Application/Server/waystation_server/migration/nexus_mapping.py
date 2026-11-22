@@ -54,6 +54,7 @@ FORMATS: dict[str, str | None] = {
     'huggingface': 'huggingface',
     'terraform': 'terraform',
     'swift': 'swift',
+    'apk': 'apk',
     'r': None,
     'conan': None,
     'cocoapods': None,
@@ -63,10 +64,24 @@ FORMATS: dict[str, str | None] = {
 }
 # Content of these formats is addressed or verified by checksum (Go: module versions are immutable and checked
 # against the checksum database; Cargo: crates against the index cksum; conda: packages against the repodata sha256;
-# Hugging Face: files keyed by commit and verified against the LFS sha256 or git blob id):
+# Hugging Face: files keyed by commit and verified against the LFS sha256 or git blob id; apk: against the APKINDEX):
 # it never changes, so it is cached forever.
 IMMUTABLE_CONTENT = frozenset(
-    {'docker', 'npm', 'apt', 'yum', 'pypi', 'go', 'nuget', 'composer', 'cargo', 'rubygems', 'conda', 'huggingface'}
+    {
+        'docker',
+        'npm',
+        'apt',
+        'yum',
+        'pypi',
+        'go',
+        'nuget',
+        'composer',
+        'cargo',
+        'rubygems',
+        'conda',
+        'huggingface',
+        'apk',
+    }
 )
 DOCKER_HUB_HOSTS = frozenset({'registry-1.docker.io', 'docker.io', 'index.docker.io', 'registry.hub.docker.com'})
 WRITE_POLICIES = {'ALLOW': 'allow_redeploy', 'ALLOW_ONCE': 'disable_redeploy', 'DENY': 'read_only'}

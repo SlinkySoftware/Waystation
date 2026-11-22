@@ -21,7 +21,8 @@ Components and versions come from asset paths (``coordinates``) until components
   ``Gem::Version`` order, both files share a rank); conda ``<subdir>/<name>-<version>-<build>.conda|.tar.bz2`` (per name
   and subdir, conda VersionOrder; every build of a version shares its rank); huggingface
   ``[datasets/]<repo_id>/resolve/<commit>/<path>`` (per model or dataset, the commit is the version: commits ordered
-  by when their newest file was cached, every file of a commit shares its rank); every other format
+  by when their newest file was cached, every file of a commit shares its rank); apk
+  ``<branch>/<repo>/<arch>/<name>-<version>.apk`` (per directory and package, apk version order); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -44,6 +45,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
 
+from waystation_common.apk import split_file_name as split_apk_file
 from waystation_common.cleanup.model import Candidate, Criteria
 from waystation_common.cleanup.versions import is_prerelease, sort_key
 from waystation_common.conda import parse_path as conda_path
@@ -141,6 +143,11 @@ def coordinates(fmt: str, path: str) -> Coord:
         parts = path.split('/')
         if len(parts) == 4 and parts[1] and parts[2]:  # v3-flatcontainer/<id>/<version>/<file>
             return Coord(parts[1], parts[2], parts[1], True)
+    if fmt == 'apk' and path.endswith('.apk'):  # <branch>/<repository>/<arch>/<name>-<version>.apk
+        directory, _, file = path.rpartition('/')
+        apk_file = split_apk_file(file)
+        if apk_file:
+            return Coord(apk_file[0], apk_file[1], f'{directory}/{apk_file[0]}', True)
     if fmt == 'rubygems':
         for prefix, suffix in GEM_FILES:
             if path.startswith(prefix) and path.endswith(suffix) and path.count('/') == prefix.count('/'):

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // "Set me up" snippets per format (FORMATS.md), as the server's format plugins will generate them
 // (`setup_snippets(repo, user)`). {{TOKEN}} / {{USERNAME}} are placeholders the UI masks and can fill.
-import type { AptOptions, DockerOptions, Repository, SetupClient, SetupGuide, SetupSnippet } from '@/api/types'
+import type { ApkOptions, AptOptions, DockerOptions, Repository, SetupClient, SetupGuide, SetupSnippet } from '@/api/types'
 
 import { BASE_URL, REGISTRY_HOST } from './fixtures/repositories'
 
@@ -560,6 +560,29 @@ function composer(repo: Repository): SetupClient[] {
   return [{ id: 'composer', label: 'Composer', snippets }]
 }
 
+/** Alpine apk: /etc/apk/repositories lines for the configured branch and repositories; hosted: the index signing
+ *  key and uploads. */
+function apk(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const o = (repo.format_options ?? {}) as ApkOptions
+  const branch = o.branch ?? 'latest-stable'
+  const repos = o.repositories ?? ['main', 'community']
+  const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupClient['snippets'][number] => ({ id, title, description, language, filename, os: 'linux', content })
+  const lines = repos.map((r) => `${url}${branch}/${r}`).join('\n')
+  const snippets: SetupClient['snippets'] = [
+    s('repositories', 'Repository list', lines, 'text', '/etc/apk/repositories', repo.type === 'hosted' ? 'Add these lines; the index is signed with this repository\'s own key (next step).' : 'Replace the dl-cdn lines. Packages stay signed by Alpine: apk verifies them with the keys it already has.'),
+    s('auth', 'Credentials (when anonymous reads are off)', repos.map((r) => `${url.replace('://', '://{{USERNAME}}:{{TOKEN}}@')}${branch}/${r}`).join('\n'), 'text', '/etc/apk/repositories', 'An API token is the password; keep the file readable by root only.'),
+  ]
+  if (repo.type === 'hosted') {
+    const keyName = `${repo.name}-7k2m9q4x.rsa.pub` // the server: <name>-<last 8 characters of the repository id>
+    snippets.push(s('key', 'Trust the signing key', `wget -O /etc/apk/keys/${keyName} ${url}keys/${keyName}`, 'shell', null, 'apk checks the APKINDEX signature with this public key (published after the first upload).'))
+    snippets.push(s('upload', 'Upload a package', `curl -fS -u {{USERNAME}}:{{TOKEN}} --upload-file mypackage-1.0-r0.apk ${url}${branch}/${repos[0] ?? 'main'}/x86_64/mypackage-1.0-r0.apk`, 'shell', null, 'Needs the write permission. The index is rebuilt and signed within seconds.'))
+    snippets.push(s('delete', 'Delete a package', `curl -fS -u {{USERNAME}}:{{TOKEN}} -X DELETE ${url}${branch}/${repos[0] ?? 'main'}/x86_64/mypackage-1.0-r0.apk`))
+  }
+  snippets.push(s('install', 'Update and install', repo.type === 'hosted' ? 'apk update && apk add mypackage' : 'apk update && apk add curl'))
+  return [{ id: 'apk', label: 'apk', snippets }]
+}
+
 /** RubyGems: Bundler (Gemfile source, credentials), the gem CLI; gem push for hosted repositories. */
 function rubygems(repo: Repository): SetupClient[] {
   const url = `${BASE_URL}/repository/${repo.name}/`
@@ -690,7 +713,7 @@ function terraformHosted(repo: Repository, host: string, s: Snip): SetupClient[]
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'conda' ? conda(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : repo.format === 'rubygems' ? rubygems(repo) : repo.format === 'huggingface' ? huggingface(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'conda' ? conda(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : repo.format === 'rubygems' ? rubygems(repo) : repo.format === 'huggingface' ? huggingface(repo) : repo.format === 'apk' ? apk(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {

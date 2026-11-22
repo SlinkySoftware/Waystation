@@ -8,6 +8,7 @@ format's version order, so "latest N" and "versions newest first" are index sort
 - composer: Composer version order (``waystation_common.composer.sort_string``: stability suffixes, branches first);
 - conda: conda ``VersionOrder`` (``waystation_common.conda.sort_string``: epoch, ``dev`` < text < numbers < ``post``);
 - rubygems: ``Gem::Version`` order (``waystation_common.rubygems.sort_string``: letter segments are prereleases);
+- apk: apk-tools order (``waystation_common.apk.sort_string``: ``_rc`` before the release, ``_p`` after it);
 - maven: Maven ``ComparableVersion`` (``versionsort.maven.sort_key``);
 - yum: RPM ``rpmvercmp`` on ``version-release`` (``versionsort.rpm``; an ``epoch:`` prefix is honoured);
 - apt: dpkg order (``dpkg_sort_string``);
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import re
 
+from waystation_common.apk import sort_string as apk_sort_string
 from waystation_common.cleanup.versions import pep440_sort_string
 from waystation_common.composer import sort_string as composer_sort_string
 from waystation_common.conda import sort_string as conda_sort_string
@@ -109,6 +111,8 @@ def version_sort(fmt: str, version: str | None) -> str:
         return conda_sort_string(version)
     if fmt == 'rubygems':
         return rubygems_sort_string(version)[:MAX_KEY]
+    if fmt == 'apk':
+        return apk_sort_string(version)[:MAX_KEY]
     if fmt == 'maven':
         return maven.sort_key(version)
     if fmt == 'yum':

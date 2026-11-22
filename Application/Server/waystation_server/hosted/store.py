@@ -232,7 +232,7 @@ class HostedStore:
             sha256=asset.blob_sha256,
             size=asset.size,
             content_type=asset.content_type,
-            last_modified=asset.created_at,
+            last_modified=asset.updated_at,  # when the content at this path last changed (republished indexes)
             headers={**asset.headers, **(headers or {})},
         )
         response = serve_blob(req.request, blob, cache=CacheState.HIT.value)

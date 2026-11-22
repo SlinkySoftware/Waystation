@@ -196,6 +196,13 @@ Format-aware views are on the Packages tab:
   instance's host name. Create flow: the Hosted tile is enabled for Terraform (one per instance; a second is refused
   with the server's message); proxy options add module archive hosts (chips); the hosted form explains discovery.
 - **apt / yum**: suites/components/arches tree → package list with versions and arch.
+- **Alpine apk** (T-P6-APK, `ApkBrowser.vue`): a Packages / Files toggle like yum. Packages table (name over its
+  description, latest version, architectures, version count; search) → the package page (`?package=<name>`) with an
+  `apk add` copy field and the files newest first in apk version order: version (uploaded by), arch badge,
+  branch/repository (directory in a tooltip), build time, license, dependency count (list in a tooltip), size
+  (installed size below), the APKINDEX `C:` checksum shortened with copy, verified / unverified badge, cached state,
+  copy URL and download when the .apk is stored. The repository form (proxy and hosted; no groups) edits the branch
+  (text) and the repositories and architectures (chips).
 - **Raw**: folder listing.
 
 ### 4.5 Search

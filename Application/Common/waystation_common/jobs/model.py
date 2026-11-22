@@ -226,6 +226,20 @@ class YumIndex(JobPayload):
         return f'index.yum:{self.repo_id}'
 
 
+class ApkIndex(JobPayload):
+    """Regenerate a hosted apk repository's signed ``APKINDEX.tar.gz`` files (one per ``<branch>/<repo>/<arch>``)
+    from its ``apk_packages`` records (FORMATS.md "Alpine apk"; ``waystation_worker.apk``). Enqueued through the
+    outbox in the transaction that changed the packages."""
+
+    kind: ClassVar[str] = 'index.apk'
+    queue: ClassVar[Queue] = 'index'
+
+    repo_id: str
+
+    def dedupe_key(self) -> str | None:
+        return f'index.apk:{self.repo_id}'
+
+
 class CondaIndex(JobPayload):
     """Regenerate a hosted conda repository's ``<subdir>/repodata.json`` (and ``.zst``) files and ``channeldata.json``
     from its ``conda_packages`` records (FORMATS.md "Conda"; ``waystation_worker.conda``). Enqueued through the outbox

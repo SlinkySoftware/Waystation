@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Repository form model: a flat, form-friendly shape that maps to and from the API's RepositoryWrite.
-import type { AptOptions, ComposerOptions, DockerOptions, Format, GalaxyOptions, GoOptions, HuggingfaceOptions, M0Format, MavenOptions, NpmOptions, NugetOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, SwiftOptions, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
+import type { ApkOptions, AptOptions, ComposerOptions, DockerOptions, Format, GalaxyOptions, GoOptions, HuggingfaceOptions, M0Format, MavenOptions, NpmOptions, NugetOptions, PypiOptions, QuotaMode, RawOptions, Repository, RepositoryWrite, SwiftOptions, TerraformOptions, WritePolicy, YumOptions } from '@/api/types'
 import { t } from '@/i18n'
 import { fromBytes, type QuotaUnit, toBytes } from '@/utils/quota'
 
@@ -11,7 +11,7 @@ export type FormFormat = M0Format
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift', 'nuget', 'composer', 'cargo', 'conda', 'rubygems']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'apk']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
 export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'nuget', 'composer', 'cargo', 'rubygems']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
@@ -103,6 +103,10 @@ export interface RepoFormModel {
   // maven
   versionPolicy: NonNullable<MavenOptions['version_policy']>
   layoutPolicy: NonNullable<MavenOptions['layout_policy']>
+  // apk: the branch, repositories and architectures "Set me up" and prefetch items without a path use
+  apkBranch: string
+  apkRepositories: string[]
+  apkArchitectures: string[]
   // yum (proxy)
   repoPath: string
   gpgKey: string | null
@@ -127,6 +131,10 @@ export const DEFAULT_TF_ARCHIVE_HOSTS: readonly string[] = ['github.com']
 export const DEFAULT_COMPOSER_DIST_HOSTS: readonly string[] = ['github.com', 'codeload.github.com', 'api.github.com', 'gitlab.com']
 /** The server's HuggingfaceOptions.cdn_hosts default: hosts the Hub redirects file downloads to. */
 export const DEFAULT_HF_CDN_HOSTS: readonly string[] = ['huggingface.co', '*.huggingface.co', '*.hf.co']
+/** The server's ApkOptions defaults. */
+export const DEFAULT_APK_BRANCH = 'latest-stable'
+export const DEFAULT_APK_REPOSITORIES: readonly string[] = ['main', 'community']
+export const DEFAULT_APK_ARCHITECTURES: readonly string[] = ['x86_64']
 
 export interface Preset {
   id: string
@@ -162,6 +170,7 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   pypi: [{ id: 'pypi', label: 'pypi.org', apply: { name: 'pypi-proxy', upstreamUrl: 'https://pypi.org' } }],
   composer: [{ id: 'packagist', label: 'repo.packagist.org', apply: { name: 'composer-proxy', upstreamUrl: 'https://repo.packagist.org' } }],
   rubygems: [{ id: 'rubygems', label: 'rubygems.org', apply: { name: 'rubygems-proxy', upstreamUrl: 'https://rubygems.org' } }],
+  apk: [{ id: 'alpine', label: 'Alpine Linux (dl-cdn)', apply: { name: 'alpine-proxy', upstreamUrl: 'https://dl-cdn.alpinelinux.org/alpine/' } }],
   nuget: [{ id: 'nugetorg', label: 'nuget.org', apply: { name: 'nuget-proxy', upstreamUrl: 'https://api.nuget.org/v3/index.json' } }],
   go: [{ id: 'goproxy', label: 'proxy.golang.org', apply: { name: 'go-proxy', upstreamUrl: 'https://proxy.golang.org' } }],
   cargo: [{ id: 'crates', label: 'crates.io', apply: { name: 'cargo-proxy', upstreamUrl: 'https://index.crates.io/' } }],
@@ -250,6 +259,9 @@ export function emptyModel(format: FormFormat, type: FormType = 'proxy'): RepoFo
     contentDisposition: 'attachment',
     versionPolicy: 'release',
     layoutPolicy: 'strict',
+    apkBranch: DEFAULT_APK_BRANCH,
+    apkRepositories: [...DEFAULT_APK_REPOSITORIES],
+    apkArchitectures: [...DEFAULT_APK_ARCHITECTURES],
     repoPath: '',
     gpgKey: null,
     repomdKeys: '',
@@ -266,6 +278,8 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
   const quotaBytes = repo.storage?.quota_bytes ?? null
   const quotaSize = quotaBytes ? fromBytes(quotaBytes) : { size: m.quotaSize, unit: m.quotaUnit }
   const o = (repo.format_options ?? {}) as DockerOptions & NpmOptions & Partial<AptOptions> & RawOptions & YumOptions & MavenOptions & PypiOptions & GoOptions & GalaxyOptions & TerraformOptions & SwiftOptions & NugetOptions & ComposerOptions & Partial<HuggingfaceOptions>
+  // apk and apt both have `architectures`: read apk's own options only for an apk repository.
+  const apk = (repo.format === 'apk' ? (repo.format_options ?? {}) : {}) as ApkOptions
   return {
     ...m,
     name: repo.name,
@@ -327,6 +341,9 @@ export function modelFromRepository(repo: Repository): RepoFormModel {
     contentDisposition: o.content_disposition ?? 'attachment',
     versionPolicy: o.version_policy ?? 'release',
     layoutPolicy: o.layout_policy ?? 'strict',
+    apkBranch: apk.branch ?? DEFAULT_APK_BRANCH,
+    apkRepositories: apk.repositories ?? [...DEFAULT_APK_REPOSITORIES],
+    apkArchitectures: apk.architectures ?? [...DEFAULT_APK_ARCHITECTURES],
     repoPath: o.repo_path ?? '',
     gpgKey: o.gpg_key ?? null,
     repomdKeys: o.repomd_keys ?? '',
@@ -373,6 +390,18 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
     }
     case 'yum':
       return m.type === 'proxy' ? { repo_path: m.repoPath.trim(), gpg_key: m.gpgKey?.trim() || null, repomd_keys: m.repomdKeys.trim() || null } : {}
+    case 'apk': {
+      // Empty lists fall back to the defaults (the server needs at least one of each).
+      const list = (values: string[], fallback: readonly string[]) => {
+        const out = values.map((v) => v.trim()).filter(Boolean)
+        return out.length ? out : [...fallback]
+      }
+      return {
+        branch: m.apkBranch.trim() || DEFAULT_APK_BRANCH,
+        repositories: list(m.apkRepositories, DEFAULT_APK_REPOSITORIES),
+        architectures: list(m.apkArchitectures, DEFAULT_APK_ARCHITECTURES),
+      }
+    }
     case 'rubygems':
     case 'helm':
     case 'cargo':
@@ -471,7 +500,7 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
 // ---------------------------------------------------------------- prefetch (T-O12)
 
 /** Formats whose proxies can warm a list of items and keep popular metadata fresh. */
-export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'huggingface']
+export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'huggingface', 'apk']
 /** Server limits of the warm list (PrefetchConfig). */
 export const WARM_MAX_ITEMS = 200
 export const WARM_MAX_LENGTH = 512

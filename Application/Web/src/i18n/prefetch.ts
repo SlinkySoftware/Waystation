@@ -20,6 +20,7 @@ export const prefetch = {
     composer: 'One package per line: vendor/name or vendor/name:1.2.3.',
     rubygems: 'One gem per line: name (the newest release), name:version or name:version-platform.',
     huggingface: 'One item per line: <repo_id>[@<revision>] (every file of the revision, default main; at most 2000 files / 200 GiB) or <repo_id>[@<revision>]:<path> (one file); datasets as datasets/<repo_id>...',
+    apk: 'One package per line: name=version (in every configured repository and architecture of the default branch), name (the version the index lists), or branch/repository/arch/name=version.',
   },
   warmPlaceholder: {
     docker: 'library/nginx:1.27\nnginx:1.27 linux/amd64,linux/arm64',
@@ -33,6 +34,7 @@ export const prefetch = {
     composer: 'monolog/monolog:3.9.0\npsr/log',
     rubygems: 'rake:13.2.1\nnokogiri:1.18.8-x86_64-linux\nrack',
     huggingface: 'julien-c/dummy-unknown\nopenai-community/gpt2@main:config.json',
+    apk: 'busybox=1.37.0-r19\ncurl\nv3.22/main/x86_64/musl=1.2.5-r10',
   },
   schedule: 'Warm schedule (optional)',
   scheduleHint: 'UTC cron, a macro such as @daily, or @every 6h (at least 15 minutes). Empty: only when run by hand.',

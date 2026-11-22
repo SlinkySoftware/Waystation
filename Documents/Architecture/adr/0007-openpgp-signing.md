@@ -64,3 +64,17 @@ canonical-text signature, type 0x01, over the lines with trailing blanks removed
 excluded) for apt `InRelease`; `Release.gpg` is the existing detached signature; `RepoKey.certificate_binary` serves
 the same certificate without armor (`public.gpg`). Read back by `waystation_common.openpgp` in the unit tests and
 verified by apt on Debian 13 in the client harness (`tests/clients/apt/hosted.sh`).
+
+## Amendment: apk index signatures (T-P6-APK, 2026-11-23)
+Status: accepted (2026-11-23, owner: pre-approved for the v1.0 build).
+
+Hosted apk repositories sign their `APKINDEX.tar.gz` the way `abuild-sign` does: a raw RSA PKCS#1 v1.5 signature
+over the SHA-256 of the index tar.gz, stored as `.SIGN.RSA256.<key name>` in a gzip'd tar segment in front of it, and
+verified by apk with a PEM public key of the same name in `/etc/apk/keys/`. No new key type is needed: the repository
+key of this ADR is RSA 3072, so `RepoKey.sign_pkcs1_sha256` signs with it and `RepoKey.public_pem` exports its
+`SubjectPublicKeyInfo`; the key file format, its encryption, creation on first use and the rotation job are unchanged.
+The key is used outside OpenPGP only for this repository's apk indexes (a repository has one format, so an apk
+repository's key never signs OpenPGP data that clients rely on; its unused certificate stays in the key file). SHA-1
+`.SIGN.RSA.` signatures are not written (apk-tools 2.12 and later, every supported Alpine release, read RSA256).
+Verified with `cryptography` in the unit and integration tests and by apk-tools on Alpine 3.22 in the client harness
+(`tests/clients/apk/`).
