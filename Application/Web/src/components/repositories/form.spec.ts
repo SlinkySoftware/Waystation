@@ -269,6 +269,24 @@ describe('repository form model', () => {
     expect(toWrite({ ...emptyModel('conda', 'hosted'), name: 'conda-hosted' })).toMatchObject({ type: 'hosted', format_options: {} })
   })
 
+  it('builds Hugging Face proxies of huggingface.co (proxy only) with their download hosts', () => {
+    expect([HOSTED_FORMATS.includes('huggingface'), GROUP_FORMATS.includes('huggingface'), PREFETCH_FORMATS.includes('huggingface')]).toEqual([false, false, true])
+    const proxy = toWrite({ ...emptyModel('huggingface'), ...PRESETS.huggingface[0]!.apply, warmText: 'julien-c/dummy-unknown' })
+    expect(proxy).toMatchObject({
+      name: 'huggingface',
+      format: 'huggingface',
+      type: 'proxy',
+      proxy: { upstream_url: 'https://huggingface.co', prefetch: { warm: ['julien-c/dummy-unknown'] } },
+      format_options: { cdn_hosts: ['huggingface.co', '*.huggingface.co', '*.hf.co'] },
+    })
+    const edited = toWrite({ ...emptyModel('huggingface'), name: 'hf', upstreamUrl: 'https://huggingface.co', hfCdnHosts: [' CDN.Example.com ', '*.hf.co', ''] })
+    expect(edited.format_options).toEqual({ cdn_hosts: ['cdn.example.com', '*.hf.co'] })
+    const repo = { name: 'hf', format: 'huggingface', type: 'proxy', online: true, proxy: { upstream_url: 'https://huggingface.co' }, format_options: { cdn_hosts: ['cdn.example.com'] } } as unknown as Repository
+    expect(modelFromRepository(repo).hfCdnHosts).toEqual(['cdn.example.com'])
+    expect(toWrite(modelFromRepository(repo)).format_options).toEqual({ cdn_hosts: ['cdn.example.com'] })
+    expect(modelFromRepository({ ...repo, format_options: {} } as Repository).hfCdnHosts).toEqual(['huggingface.co', '*.huggingface.co', '*.hf.co'])
+  })
+
   it('maps raw hosted and group repositories', () => {
     const hosted = { ...emptyModel('raw'), type: 'hosted' as const, name: 'files', metadataRegex: '^/x', writePolicy: 'disable_redeploy' as const }
     const w = toWrite(hosted)
@@ -372,7 +390,7 @@ describe('repository form model', () => {
   })
 
   it('writes prefetch for the formats that support it and reads it back', () => {
-    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'conda', 'rubygems'])
+    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'huggingface'])
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', refreshPopular: true, warmText: 'lodash@4.17.21\n\n @types/node@latest ', prefetchSchedule: '  0  3 * * * ' }
     const w = toWrite(m)
     expect(w.proxy?.prefetch).toEqual({ refresh_popular: true, warm: ['lodash@4.17.21', '@types/node@latest'], schedule: '0 3 * * *' })

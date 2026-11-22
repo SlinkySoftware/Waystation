@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://huggingface.co/api/resolve-cache/models/julien-c/dummy-unknown/60b8d3fe22aebb024b573f1cca224db3126d10f3/README.md?%2Fjulien-c%2Fdummy-unknown%2Fresolve%2F60b8d3fe22aebb024b573f1cca224db3126d10f3%2FREADME.md=&etag=%22dd72d529da9961224818c8e9e7abbe8a57748d18%22"
+  },
+  "response": {
+    "body_sha256": "08fd675f54b79c1a753f1775797f0fc93363ab7bc02ca28cbb93a6eeb657cb86",
+    "body_size": 1114,
+    "headers": [
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "content-length",
+        "1114"
+      ],
+      [
+        "etag",
+        "\"dd72d529da9961224818c8e9e7abbe8a57748d18\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''README.md; filename=\"README.md\";"
+      ],
+      [
+        "vary",
+        "Origin"
+      ]
+    ],
+    "status": 200
+  }
+}

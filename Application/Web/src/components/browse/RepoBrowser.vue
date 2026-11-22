@@ -18,6 +18,7 @@
   <NugetBrowser v-else-if="repo.format === 'nuget'" :repo="repo" />
   <ComposerBrowser v-else-if="repo.format === 'composer'" :repo="repo" />
   <RubygemsBrowser v-else-if="repo.format === 'rubygems'" :repo="repo" />
+  <HuggingfaceBrowser v-else-if="repo.format === 'huggingface'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
@@ -32,6 +33,7 @@ import DockerBrowser from './DockerBrowser.vue'
 import FolderBrowser from './FolderBrowser.vue'
 import GalaxyBrowser from './GalaxyBrowser.vue'
 import HelmBrowser from './HelmBrowser.vue'
+import HuggingfaceBrowser from './HuggingfaceBrowser.vue'
 import GoBrowser from './GoBrowser.vue'
 import MavenBrowser from './MavenBrowser.vue'
 import NpmBrowser from './NpmBrowser.vue'

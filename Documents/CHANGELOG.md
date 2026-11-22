@@ -3,6 +3,27 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-23
+- T-P6-HF: Hugging Face Hub proxy (FORMATS.md "Hugging Face"; `formats/huggingface/`,
+  `Operations/clients/huggingface.md`). huggingface_hub, transformers and the `hf` CLI use a proxy repository as
+  `HF_ENDPOINT`: info documents (`api/<kind>s/<id>[/revision/<rev>]`, fetched with `blobs=true`) are cached as
+  metadata (branches revalidated after the metadata max age, commits kept) and resolve revisions to commits and list
+  every file's size, git blob id and LFS sha256; files (`[datasets/]<id>/resolve/<rev>/<path>`) are cached as content
+  keyed by commit and path, fetched through the Hub's redirects only to its own host and the repository's new option
+  `cdn_hosts` (default `huggingface.co`, `*.huggingface.co`, `*.hf.co`; the proxy engine's new
+  `AssetSpec.redirect_allowed`), verified against the LFS sha256 or git blob id and size before commit, and streamed
+  (coalescing, fills outlive the client). `HEAD` is answered from the info document the way huggingface_hub expects
+  (`X-Repo-Commit`, `ETag`/`X-Linked-Etag`, `X-Linked-Size`, `Content-Length`, no redirect); the nginx blob location
+  re-adds the three `X-` headers on cache hits. Tree listings are cached per query with `Link` pages rewritten;
+  `xetHash` is removed from cached documents, so clients with hf_xet download over HTTP through Waystation. The
+  repository's bearer credential (a Hub token for gated and private models) goes to the upstream host only. Proxy
+  repositories only (hosted and group refused). New collection `huggingface_repos` (browse, global search); browse API
+  `huggingface/models`, `huggingface/revisions`, `huggingface/files` (contract, regenerated client, MSW mocks, UI
+  browser, create flow with download hosts); components (repo id at a commit), cleanup (commits ordered by when
+  cached), prefetch warm items `repo_id[@revision][:path]` and info refresh, Set me up (`HF_ENDPOINT`, `HF_TOKEN`,
+  `hf download`, `huggingface-cli`, Python, transformers), Nexus `huggingface-proxy` import (content kept forever).
+  Real-client harness `tests/clients/huggingface/` (huggingface_hub 2.4 with hf_xet, recorded
+  `julien-c/dummy-unknown` fixtures). `test_repositories_integration.py::test_field_errors` now uses an unsupported
+  repository type (a hosted Hugging Face repository) instead of an unsupported format.
 - T-P6-CONDA: conda channels (FORMATS.md "Conda"; `formats/conda/`, `Operations/clients/conda.md`). **Proxy** of a
   channel (preset conda-forge): `channeldata.json` as metadata; `<subdir>/repodata.json`, its `.zst`/`.bz2`
   encodings, `current_repodata.json` and `repodata_from_packages.json` streamed to the client while cached (content

@@ -53,6 +53,7 @@ from waystation_common.db.collections import (
     CONDA_NAMES,
     DOCKER_TAGS,
     GO_MODULES,
+    HUGGINGFACE_REPOS,
     NPM_PACKAGES,
     NUGET_PACKAGES,
     PYPI_PACKAGES,
@@ -63,6 +64,7 @@ from waystation_common.db.collections import (
     YUM_PACKAGES,
 )
 from waystation_common.errors import ValidationFailed
+from waystation_common.huggingface import parse_file_key
 from waystation_common.rubygems import split_full_name
 from waystation_common.searchkeys import MIN_TERM, fold
 from waystation_server.browse.models import decode_cursor, encode_cursor
@@ -272,6 +274,15 @@ SOURCES: tuple[Source, ...] = (
         'cargo',
         ('name_lc',),
         {'name': 1, 'display_name': 1, 'latest': 1, 'updated_at': 1},
+        version_field='latest',
+    ),
+    Source(
+        'huggingface',
+        HUGGINGFACE_REPOS,
+        'package',
+        'huggingface',
+        ('name_lc', 'base_lc'),
+        {'name': 1, 'latest': 1, 'updated_at': 1},
         version_field='latest',
     ),
     Source('file', ASSETS, 'file', None, ('name_lc',), {'path': 1, 'size': 1, 'blob_sha256': 1, 'updated_at': 1}),
@@ -558,6 +569,8 @@ def file_link(repo: RepoConfig, path: str) -> dict[str, str]:
         return {'crate': path.split('/')[1]}
     if repo.format == 'conda' and (found := conda_path(path)) is not None:
         return {'package': found[1].name}
+    if repo.format == 'huggingface' and (hf := parse_file_key(path)) is not None:
+        return {'model': hf.name, 'commit': hf.commit}
     if repo.format == 'swift' and path.count('/') >= 2 and not path.startswith('_scm/'):
         scope, package = path.split('/', 2)[:2]
         return {'scope': scope, 'package': package}
@@ -668,6 +681,19 @@ def _hit(entry: _Entry, repo: RepoConfig) -> SearchHit:
                 sha256=None,
                 cached=True,
                 browse=SearchBrowseLink(repository=repo.name, query={'crate': str(doc['name'])}),
+            )
+        case 'huggingface':
+            latest = doc.get('latest')
+            return SearchHit(
+                **common,
+                name=str(doc['name']),
+                version=str(latest)[:12] if latest else None,
+                qualifier=None,
+                path=None,
+                size=None,
+                sha256=None,
+                cached=True,
+                browse=SearchBrowseLink(repository=repo.name, query={'model': str(doc['name'])}),
             )
         case 'conda':
             return SearchHit(

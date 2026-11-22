@@ -3,7 +3,7 @@
 // two-pane file tree (Browse tab). Keep in step with RepoBrowser.vue.
 import type { Format } from '@/api/types'
 
-export const PACKAGE_VIEW_FORMATS: readonly Format[] = ['docker', 'npm', 'apt', 'helm', 'galaxy', 'maven', 'pypi', 'go', 'yum', 'terraform', 'swift', 'nuget', 'composer', 'cargo', 'conda', 'rubygems']
+export const PACKAGE_VIEW_FORMATS: readonly Format[] = ['docker', 'npm', 'apt', 'helm', 'galaxy', 'maven', 'pypi', 'go', 'yum', 'terraform', 'swift', 'nuget', 'composer', 'cargo', 'conda', 'rubygems', 'huggingface']
 
 export function hasPackageView(format: Format): boolean {
   return PACKAGE_VIEW_FORMATS.includes(format)

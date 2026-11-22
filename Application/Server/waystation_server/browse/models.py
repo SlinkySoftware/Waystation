@@ -614,6 +614,63 @@ class CondaFilePage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- huggingface
+class HuggingfaceModel(BaseModel):
+    name: str = Field(description='The model id, `datasets/<id>` for a dataset')
+    repo_id: str = Field(description='The Hub repo id')
+    kind: Literal['model', 'dataset']
+    latest_commit: str | None = Field(description='The commit the default branch resolved to last')
+    revisions: int = Field(description='Revisions clients asked for (branches, tags)')
+    files: int = Field(description='Files cached (every commit)')
+    size_bytes: int
+    downloads: int = 0
+    last_downloaded_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class HuggingfaceModelPage(BaseModel):
+    items: list[HuggingfaceModel]
+    next_cursor: str | None
+
+
+class HuggingfaceRef(BaseModel):
+    revision: str = Field(description='Branch, tag or refs/pr/<n> a client asked for')
+    commit: str
+    resolved_at: datetime | None = None
+
+
+class HuggingfaceCommit(BaseModel):
+    commit: str
+    revisions: list[str] = Field(description='Revisions that resolved to this commit when last checked')
+    files: int = Field(description='Files of this commit cached')
+    size_bytes: int
+    cached_at: datetime | None = Field(default=None, description='First file cached')
+    downloads: int = 0
+    last_downloaded_at: datetime | None = None
+
+
+class HuggingfaceRevisionList(BaseModel):
+    model: HuggingfaceModel
+    refs: list[HuggingfaceRef] = Field(description='Most recently resolved first')
+    commits: list[HuggingfaceCommit] = Field(description='Commits with cached files, most recently cached first')
+
+
+class HuggingfaceFile(BaseModel):
+    path: str = Field(description='Path in the Hub repository')
+    size: int
+    sha256: str = Field(description='SHA-256 of the cached file (hex)')
+    cached_at: datetime | None = None
+    downloads: int = 0
+    last_downloaded_at: datetime | None = None
+
+
+class HuggingfaceFilePage(BaseModel):
+    model: str
+    commit: str
+    items: list[HuggingfaceFile] = Field(description='By path')
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- pypi
 class PypiProject(BaseModel):
     name: str = Field(description='Normalised project name (PEP 503)')
@@ -867,6 +924,22 @@ class CondaBrowser(Protocol):
         self, ctx: BrowseContext, *, package: str, subdir: str | None, cursor: str | None, limit: int
     ) -> CondaFilePage:
         """One package's files (newest version first); raises ``NotFound`` for an unknown package."""
+
+
+@runtime_checkable
+class HuggingfaceBrowser(Protocol):
+    async def models(
+        self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int
+    ) -> HuggingfaceModelPage:
+        """Hub models and datasets the repository has served, by name."""
+
+    async def revisions(self, ctx: BrowseContext, *, model: str) -> HuggingfaceRevisionList:
+        """One model's resolved revisions and cached commits; raises ``NotFound`` for an unknown model."""
+
+    async def files(
+        self, ctx: BrowseContext, *, model: str, commit: str, cursor: str | None, limit: int
+    ) -> HuggingfaceFilePage:
+        """One commit's cached files, by path."""
 
 
 @runtime_checkable

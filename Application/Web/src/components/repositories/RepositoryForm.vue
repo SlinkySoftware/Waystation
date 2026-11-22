@@ -209,6 +209,22 @@
         />
         <q-toggle v-model="model.galaxyRoles" :label="t('repoForm.galaxyRoles')" />
       </template>
+      <template v-else-if="model.format === 'huggingface'">
+        <q-select
+          v-model="model.hfCdnHosts"
+          outlined
+          dense
+          multiple
+          use-chips
+          use-input
+          new-value-mode="add-unique"
+          hide-dropdown-icon
+          :label="t('repoForm.hfCdnHosts')"
+          :hint="t('repoForm.hfCdnHostsHint')"
+          :error="!!errors['format_options.cdn_hosts']"
+          :error-message="errors['format_options.cdn_hosts']"
+        />
+      </template>
       <template v-else-if="model.format === 'composer'">
         <q-select
           v-model="model.composerDistHosts"

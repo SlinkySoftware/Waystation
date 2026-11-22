@@ -251,6 +251,19 @@ services:
             && rm -rf /var/lib/apt/lists/*
         USER $$MAMBA_USER
     image: waystation-harness-micromamba:2.3.3-1  # bump the suffix when the Dockerfile above changes
+  client-huggingface:  # huggingface_hub (Python API and the hf CLI, with hf_xet) and curl (huggingface format)
+    <<: *client
+    build:
+      dockerfile_inline: |
+        FROM python:3.14-slim
+        RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
+            && pip install --no-cache-dir --root-user-action=ignore huggingface_hub==2.4.0
+    image: waystation-harness-huggingface:2.4.0-1  # bump the suffix when the Dockerfile above changes
+    environment:
+      <<: *client-env
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
   client-terraform:  # terraform, tofu, curl, gnupg and the TLS front of the go harness (terraform format)
     <<: *client
     build:

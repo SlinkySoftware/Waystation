@@ -19,7 +19,9 @@ Components and versions come from asset paths (``coordinates``) until components
   ``crates/<crate>/<crate>-<version>.crate`` (per crate, SemVer); rubygems
   ``gems/<name>-<version>[-<platform>].gem`` and its ``quick/Marshal.4.8/<same>.gemspec.rz`` (per gem and platform,
   ``Gem::Version`` order, both files share a rank); conda ``<subdir>/<name>-<version>-<build>.conda|.tar.bz2`` (per name
-  and subdir, conda VersionOrder; every build of a version shares its rank); every other format
+  and subdir, conda VersionOrder; every build of a version shares its rank); huggingface
+  ``[datasets/]<repo_id>/resolve/<commit>/<path>`` (per model or dataset, the commit is the version: commits ordered
+  by when their newest file was cached, every file of a commit shares its rank); every other format
   (raw...): the name is the path,
   the version the file name, grouped by folder and ordered by when it was cached.
 * docker works on tags (name = image, version = tag; newest tags by ``updated_at``). Removing a tag also removes the
@@ -46,6 +48,7 @@ from waystation_common.cleanup.model import Candidate, Criteria
 from waystation_common.cleanup.versions import is_prerelease, sort_key
 from waystation_common.conda import parse_path as conda_path
 from waystation_common.galaxy import parse_artifact_path
+from waystation_common.huggingface import parse_file_key
 from waystation_common.rubygems import RUBY, split_full_name
 
 DAY = timedelta(days=1)
@@ -177,6 +180,8 @@ def coordinates(fmt: str, path: str) -> Coord:
             subdir, pkg = found
             return Coord(pkg.name, pkg.version, f'{pkg.name}/{subdir}', True)
         return Coord(path, filename, path, False)  # repodata files: each on its own
+    if fmt == 'huggingface' and (hf := parse_file_key(path)) is not None:
+        return Coord(hf.name, hf.commit, hf.name, False)  # per model, commits ordered by when they were cached
     if fmt == 'cargo' and path.startswith('crates/') and path.count('/') == 2 and filename.endswith('.crate'):
         crate = path.split('/')[1]
         if filename.startswith(crate + '-') and len(filename) > len(crate) + 7:

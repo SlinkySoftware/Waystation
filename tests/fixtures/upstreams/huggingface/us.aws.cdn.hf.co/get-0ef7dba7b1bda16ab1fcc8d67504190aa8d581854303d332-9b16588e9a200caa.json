@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://us.aws.cdn.hf.co/xet-bridge-us/621ffdc136468d709f17cec7/0ef7dba7b1bda16ab1fcc8d67504190aa8d581854303d332ba3d0f1b42aefc5a?xip=7ZgiZoz3VOs&X-Xet-Cas-Uid=public&user_id=public&response-content-type=application/octet-stream&response-content-disposition=inline%3B+filename%2A%3DUTF-8%27%27pytorch_model.bin%3B+filename%3D%22pytorch_model.bin%22%3B&Expires=harness-redacted&Policy=harness-redacted&Signature=harness-redacted&Key-Pair-Id=harness-redacted&Hash-Algorithm=SHA256"
+  },
+  "response": {
+    "body_sha256": "4b243c475af8d0a7754e87d7d096c92e5199ec2fe168a2ee7998e3b8e9bcb1d3",
+    "body_size": 65074,
+    "headers": [
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''pytorch_model.bin; filename=\"pytorch_model.bin\";"
+      ],
+      [
+        "etag",
+        "\"0ef7dba7b1bda16ab1fcc8d67504190aa8d581854303d332ba3d0f1b42aefc5a\""
+      ],
+      [
+        "content-length",
+        "65074"
+      ],
+      [
+        "vary",
+        "origin, access-control-request-method, access-control-request-headers"
+      ]
+    ],
+    "status": 200
+  }
+}
