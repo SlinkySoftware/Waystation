@@ -305,3 +305,25 @@ def test_pypi_coordinates_and_versions_keep_all_files_of_a_release() -> None:
         'packages/six/six-1.16.0-py2.py3-none-any.whl',
         'packages/six/six-1.16.0.tar.gz',
     ]
+
+
+def test_cargo_coordinates_and_semver_order() -> None:
+    crate = coordinates('cargo', 'crates/serde_json/serde_json-1.0.140.crate')
+    assert (crate.name, crate.version, crate.group, crate.ordered_by_version) == (
+        'serde_json',
+        '1.0.140',
+        'serde_json',
+        True,
+    )
+    assert coordinates('cargo', 'crates/itoa/itoa-1.0.0-rc.1.crate').version == '1.0.0-rc.1'
+    assert not coordinates('cargo', 'index/it/oa/itoa').ordered_by_version
+    assert is_prerelease('cargo', '1.0.0-rc.1') and not is_prerelease('cargo', '1.0.0+build')
+    files = [
+        asset('crates/itoa/itoa-1.0.9.crate'),
+        asset('crates/itoa/itoa-1.0.10.crate'),
+        asset('crates/itoa/itoa-1.0.11-alpha.crate'),
+    ]
+    assert plan('cargo', Criteria(keep_latest_n_versions=1), files) == [
+        'crates/itoa/itoa-1.0.10.crate',
+        'crates/itoa/itoa-1.0.9.crate',
+    ]

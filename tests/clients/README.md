@@ -148,6 +148,11 @@ codeload redirect), about 200 KB (budget 1 MiB, `swift/format.env`); the package
 generated at run time. `client-swift` is `swift:6.4.3-noble` with curl, zip and `go/tlsfront.go` (SwiftPM accepts only
 https registries); the anonymous resolve uses an empty netrc and its own cache path, since SwiftPM finds root's
 credentials and caches through the passwd home, not `$HOME`.
+cargo: fixtures are crates.io's `config.json`, the index files of `cfg-if` and `itoa` from index.crates.io and their
+1.0.0 / 1.0.11 `.crate` files from static.crates.io (budget 512 KiB, `cargo/format.env`); the crate published to the
+hosted registry is generated at run time. `client-cargo` is `rust:1.99.1-slim-trixie` with curl; every scenario uses
+its own `CARGO_HOME`, so registry caches and credentials never leak between them. The group also asks index.crates.io for the hosted crate
+(a recorded 404), as every group with a proxy member does for names only a hosted member has.
 nuget: fixtures are api.nuget.org's service index, the version list, registration (about 95 KB) and catalog leaf of
 `Ardalis.GuardClauses` and its 5.0.0 package (about 165 KB), plus the 404 for the hosted package's id that the group's
 proxy member asks about (about 280 KB, budget 1 MiB, `nuget/format.env`); the library pushed to the hosted repository

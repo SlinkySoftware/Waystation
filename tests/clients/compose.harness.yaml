@@ -230,6 +230,15 @@ services:
   client-go:  # the go command and curl (go format)
     <<: *client
     image: golang:1.25-trixie
+  client-cargo:  # cargo from the official Rust image, and curl (cargo format)
+    <<: *client
+    build:
+      context: ${HARNESS_CLIENTS_DIR}/cargo
+      dockerfile_inline: |
+        FROM rust:1.99.1-slim-trixie
+        RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+            && rm -rf /var/lib/apt/lists/*
+    image: waystation-harness-cargo:1.99.1-1  # bump the suffix when the Dockerfile above changes
   client-terraform:  # terraform, tofu, curl, gnupg and the TLS front of the go harness (terraform format)
     <<: *client
     build:

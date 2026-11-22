@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://static.crates.io/crates/cfg-if/1.0.0/download"
+  },
+  "response": {
+    "body_sha256": "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd",
+    "body_size": 7934,
+    "headers": [
+      [
+        "content-length",
+        "7934"
+      ],
+      [
+        "etag",
+        "\"74634128440dbc3766bda76fdf0aaa05\""
+      ],
+      [
+        "last-modified",
+        "Sun, 28 Jun 2026 16:58:06 GMT"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-type",
+        "application/gzip"
+      ],
+      [
+        "cache-control",
+        "public,max-age=31536000,immutable"
+      ]
+    ],
+    "status": 200
+  }
+}

@@ -1400,6 +1400,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/cargo/crates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Crates cached (proxy) or published (hosted) in a Cargo repository; groups are browsed through their members */
+        get: operations["listCargoCrates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/cargo/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One crate and its versions from the index (newest first, SemVer) */
+        get: operations["listCargoVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/helm/charts": {
         parameters: {
             query?: never;
@@ -3835,6 +3873,8 @@ export interface components {
              */
             mapped_scopes_only: boolean;
         };
+        /** @description Cargo (sparse registries): no options yet */
+        CargoOptions: Record<string, never>;
         NugetOptions: {
             /**
              * @description Verify each package downloaded from the upstream against the SHA-512 hash and size its catalog entry publishes, when the upstream has a catalog (nuget.org does). Every package is also checked to be a readable NuGet package whose .nuspec names the requested id and version (proxy repositories)
@@ -3868,7 +3908,7 @@ export interface components {
             source_mode: "keep" | "strip";
         };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["CargoOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -4411,6 +4451,52 @@ export interface components {
             module: components["schemas"]["GoModule"];
             /** @description Newest first (semantic version order) */
             items: components["schemas"]["GoVersion"][];
+            next_cursor: string | null;
+        };
+        CargoCrate: {
+            /** @description Crate name as published */
+            name: string;
+            description?: string | null;
+            /** @description Highest non-yanked release (SemVer), else the highest version */
+            latest: string | null;
+            /** @description Versions in the index */
+            version_count: number;
+            /** @description .crate files held: cached (proxy) or published (hosted) */
+            cached_versions: number;
+            size_bytes: number;
+        };
+        CargoCratePage: {
+            items: components["schemas"]["CargoCrate"][];
+            next_cursor: string | null;
+        };
+        CargoVersion: {
+            version: string;
+            prerelease: boolean;
+            yanked: boolean;
+            /** @description SHA-256 of the .crate (hex) */
+            cksum: string;
+            rust_version?: string | null;
+            /** @description Number of dependencies */
+            dependencies: number;
+            /** @description Feature names */
+            features: string[];
+            /** @description The .crate is held */
+            cached: boolean;
+            size?: number | null;
+            /** @description Hosted: who published it */
+            published_by?: string | null;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: date-time */
+            cached_at?: string | null;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+            downloads: number;
+        };
+        CargoVersionPage: {
+            crate: components["schemas"]["CargoCrate"];
+            /** @description Newest first (SemVer) */
+            items: components["schemas"]["CargoVersion"][];
             next_cursor: string | null;
         };
         HelmChart: {
@@ -8440,6 +8526,63 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GoVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCargoCrates: {
+        parameters: {
+            query?: {
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Crates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CargoCratePage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listCargoVersions: {
+        parameters: {
+            query: {
+                /** @description Crate name (any case) */
+                crate: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CargoVersionPage"];
                 };
             };
             404: components["responses"]["NotFound"];

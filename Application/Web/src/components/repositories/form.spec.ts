@@ -240,6 +240,15 @@ describe('repository form model', () => {
     expect(WRITABLE_GROUP_FORMATS).toContain('pypi')
   })
 
+  it('builds Cargo proxies of the crates.io sparse index, hosted registries and groups with a writable member', () => {
+    expect([HOSTED_FORMATS.includes('cargo'), GROUP_FORMATS.includes('cargo'), WRITABLE_GROUP_FORMATS.includes('cargo')]).toEqual([true, true, true])
+    const proxy = toWrite({ ...emptyModel('cargo'), ...PRESETS.cargo[0]!.apply, warmText: 'serde@1.0.228\nitoa' })
+    expect(proxy).toMatchObject({ name: 'cargo-proxy', format: 'cargo', type: 'proxy', proxy: { upstream_url: 'https://index.crates.io/', prefetch: { warm: ['serde@1.0.228', 'itoa'] } }, format_options: {} })
+    expect(toWrite({ ...emptyModel('cargo', 'hosted'), name: 'cargo-hosted' })).toMatchObject({ type: 'hosted', format_options: {} })
+    const group = toWrite({ ...emptyModel('cargo', 'group'), name: 'cargo-group', members: ['cargo-hosted', 'cargo-proxy'], writableMember: 'cargo-hosted' })
+    expect(group).toMatchObject({ type: 'group', group: { members: ['cargo-hosted', 'cargo-proxy'], writable_member: 'cargo-hosted' } })
+  })
+
   it('maps raw hosted and group repositories', () => {
     const hosted = { ...emptyModel('raw'), type: 'hosted' as const, name: 'files', metadataRegex: '^/x', writePolicy: 'disable_redeploy' as const }
     const w = toWrite(hosted)
@@ -343,7 +352,7 @@ describe('repository form model', () => {
   })
 
   it('writes prefetch for the formats that support it and reads it back', () => {
-    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer'])
+    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo'])
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', refreshPopular: true, warmText: 'lodash@4.17.21\n\n @types/node@latest ', prefetchSchedule: '  0  3 * * * ' }
     const w = toWrite(m)
     expect(w.proxy?.prefetch).toEqual({ refresh_popular: true, warm: ['lodash@4.17.21', '@types/node@latest'], schedule: '0 3 * * *' })

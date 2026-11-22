@@ -70,6 +70,7 @@ const FORMATS: { format: Format; available: boolean; phase?: number }[] = [
   { format: 'yum', available: true },
   { format: 'terraform', available: true },
   { format: 'swift', available: true },
+  { format: 'cargo', available: true },
   { format: 'nuget', available: true },
   { format: 'composer', available: true },
 ]

@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://index.crates.io/config.json"
+  },
+  "response": {
+    "body_sha256": "5b943a2c6f7eb743f7308aba07bdbb47d9ae44aafecd832d7f15df186afbafb3",
+    "body_size": 76,
+    "headers": [
+      [
+        "content-length",
+        "76"
+      ],
+      [
+        "last-modified",
+        "Tue, 12 Mar 2024 07:31:15 GMT"
+      ],
+      [
+        "etag",
+        "\"652b69f181634dbf60fc8c3ec9f776e5\""
+      ],
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

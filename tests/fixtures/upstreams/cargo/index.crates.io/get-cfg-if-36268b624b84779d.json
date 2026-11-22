@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://index.crates.io/cf/g-/cfg-if"
+  },
+  "response": {
+    "body_sha256": "093922503d2239eb28afdcc1d3c334aac7abc9d9269f96907d5ff1144e841010",
+    "body_size": 4972,
+    "headers": [
+      [
+        "content-length",
+        "4972"
+      ],
+      [
+        "last-modified",
+        "Wed, 16 Sep 2026 17:36:12 GMT"
+      ],
+      [
+        "etag",
+        "\"6080fbc76b90d35eeb6603653b6330ef\""
+      ],
+      [
+        "cache-control",
+        "public,max-age=600"
+      ],
+      [
+        "content-type",
+        "text/plain"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

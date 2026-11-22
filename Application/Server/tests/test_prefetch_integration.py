@@ -256,6 +256,24 @@ async def test_warm_raw_npm_and_docker_without_counting_downloads(
     await no_downloads(services)
 
 
+async def test_warm_cargo_crates(services: Services, server: prefetch.ServerClient, upstream: FakeUpstream) -> None:
+    lines = [
+        {'name': 'itoa', 'vers': v, 'deps': [], 'cksum': sha(TGZ + v.encode()), 'features': {}, 'yanked': v == '1.1.0'}
+        for v in ('1.0.0', '1.0.1', '1.1.0')
+    ]
+    upstream.routes['/config.json'] = Respond(200, {}, json.dumps({'dl': f'{upstream.url}dl'}).encode())
+    upstream.routes['/it/oa/itoa'] = Respond(200, {}, b''.join(json.dumps(e).encode() + b'\n' for e in lines))
+    for version in ('1.0.0', '1.0.1', '1.1.0'):
+        upstream.routes[f'/dl/itoa/{version}/download'] = Respond(200, {}, TGZ + version.encode())
+    crates = await add(services, 'repo-crates', 'cargo', upstream.url)
+    await set_warm(services, crates, 'itoa', 'itoa@1.0.0', 'itoa@9.9.9')
+    result = await prefetch.warm(services.db, services.valkey, server, repo_id=crates)
+    assert (result['items'], result['ok'], result['failed']) == (3, 2, 1), result
+    paths = {d['path'] async for d in services.db[ASSETS].find({'repo_id': crates}, {'path': 1})}
+    assert {'crates/itoa/itoa-1.0.1.crate', 'crates/itoa/itoa-1.0.0.crate', 'index/it/oa/itoa'} <= paths
+    assert 'crates/itoa/itoa-1.1.0.crate' not in paths  # yanked: not the latest
+
+
 async def test_a_client_shares_the_warm_fill(
     client: httpx.AsyncClient, services: Services, server: prefetch.ServerClient, upstream: FakeUpstream
 ) -> None:

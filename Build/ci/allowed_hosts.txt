@@ -46,6 +46,8 @@ registry.terraform.io
 registry.opentofu.org
 releases.hashicorp.com
 galaxy.ansible.com
+# Rust crates (T-P6-CARGO): crates.io, its sparse index (index.crates.io) and download host (static.crates.io)
+crates.io
 # NuGet (T-P6-NUGET): the gallery and its v3 API (api.nuget.org), the package-content and search hosts it names
 nuget.org
 # The .nuspec XML namespace (http://schemas.microsoft.com/packaging/.../nuspec.xsd) in NuGet package tests

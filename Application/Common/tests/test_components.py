@@ -73,6 +73,8 @@ def test_version_sort_per_format() -> None:
     assert sorted(shuffled(npm), key=lambda v: version_sort('npm', v)) == npm
     go = ['v0.0.0-20191109021931-daa7c04131f5', 'v0.1.0', 'v1.10.0']
     assert sorted(shuffled(go), key=lambda v: version_sort('go', v)) == go
+    cargo = ['0.9.0', '1.0.0-alpha.1', '1.0.0-beta', '1.0.0', '1.0.1+build.5', '1.10.0']
+    assert sorted(shuffled(cargo), key=lambda v: version_sort('cargo', v)) == cargo
     pypi = ['1.0.dev1', '1.0a1', '1.0', '1.0.post1', '2.0']
     assert sorted(shuffled(pypi), key=lambda v: version_sort('pypi', v)) == pypi
     maven = ['1.0-alpha-1', '1.0-SNAPSHOT', '1.0', '1.0.1', '1.10']
@@ -108,6 +110,9 @@ def test_version_sort_per_format() -> None:
         ('pypi', 'packages/requests/requests-2.32.3-py3-none-any.whl.metadata', None),
         ('go', 'golang.org/x/mod/@v/v0.20.0.zip', ComponentKey('go', '', 'golang.org/x/mod', 'v0.20.0')),
         ('go', 'golang.org/x/mod/@v/v0.20.0.mod', None),
+        ('cargo', 'crates/serde_json/serde_json-1.0.140.crate', ComponentKey('cargo', '', 'serde_json', '1.0.140')),
+        ('cargo', 'crates/itoa/itoa-1.0.0-rc.1.crate', ComponentKey('cargo', '', 'itoa', '1.0.0-rc.1')),
+        ('cargo', 'index/it/oa/itoa', None),
         ('helm', 'charts/nginx-18.1.0.tgz', ComponentKey('helm', '', 'nginx', '18.1.0')),
         ('raw', 'tools/v1/tool.tar.gz', ComponentKey('raw', 'tools/v1', 'tool.tar.gz', '')),
         ('docker', 'library/nginx/manifests/1.27', None),

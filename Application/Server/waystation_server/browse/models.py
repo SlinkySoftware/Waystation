@@ -494,6 +494,44 @@ class MavenVersionPage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- cargo
+class CargoCrate(BaseModel):
+    name: str = Field(description='Crate name as published')
+    description: str | None = None
+    latest: str | None = Field(description='Highest non-yanked release (SemVer), else the highest version')
+    version_count: int = Field(description='Versions in the index')
+    cached_versions: int = Field(description='.crate files held: cached (proxy) or published (hosted)')
+    size_bytes: int
+
+
+class CargoCratePage(BaseModel):
+    items: list[CargoCrate]
+    next_cursor: str | None
+
+
+class CargoVersion(BaseModel):
+    version: str
+    prerelease: bool
+    yanked: bool
+    cksum: str = Field(description='SHA-256 of the .crate (hex)')
+    rust_version: str | None = None
+    dependencies: int
+    features: list[str]
+    cached: bool = Field(description='The .crate is held')
+    size: int | None = None
+    published_by: str | None = Field(default=None, description='Hosted: who published it')
+    published_at: datetime | None = None
+    cached_at: datetime | None = None
+    last_downloaded_at: datetime | None = None
+    downloads: int
+
+
+class CargoVersionPage(BaseModel):
+    crate: CargoCrate
+    items: list[CargoVersion] = Field(description='Newest first (SemVer)')
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- pypi
 class PypiProject(BaseModel):
     name: str = Field(description='Normalised project name (PEP 503)')
@@ -727,6 +765,15 @@ class AptBrowser(Protocol):
         limit: int,
     ) -> AptPackagePage:
         """Packages listed by the suite's cached ``Packages`` indexes."""
+
+
+@runtime_checkable
+class CargoBrowser(Protocol):
+    async def crates(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> CargoCratePage:
+        """Crates the repository has (cached index file or publishes), by lower-case name."""
+
+    async def versions(self, ctx: BrowseContext, *, crate: str, cursor: str | None, limit: int) -> CargoVersionPage:
+        """One crate's versions (newest first); raises ``NotFound`` for an unknown crate or a group."""
 
 
 @runtime_checkable

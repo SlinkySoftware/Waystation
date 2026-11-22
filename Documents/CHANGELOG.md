@@ -3,6 +3,22 @@
 All notable changes, newest first. Each entry: date, task ID, summary.
 
 ## 2026-11-22
+- T-P6-CARGO: Cargo registries with the sparse protocol (FORMATS.md "Cargo"; `formats/cargo/`). Proxy of
+  crates.io: `index/config.json` generated (`dl` and `api` on the repository, `auth-required` when the request was
+  authenticated), index files cached as metadata once every line is a valid entry for the crate (bounded) and
+  revalidated with ETag/Last-Modified, `.crate` files fetched from the upstream `config.json` `dl` template and
+  verified against the index `cksum` before commit. Hosted: `cargo publish` (`PUT api/v1/crates/new`, the
+  length-prefixed JSON + crate, bounded, streamed as a live upload; the crate inspected in a thread: safe paths,
+  bounds, `Cargo.toml` name and version), index entries made from the metadata as crates.io does (deps, renamed
+  deps, `features2`), crates.io name rules (case and `-`/`_`), write policy, yank/unyank, owners listed (changes
+  refused: RBAC). Group: merged index files (first member wins per version), downloads from any member's copy
+  first, publishes to the writable member. Cargo's bare `Authorization: <token>` is accepted as an API token
+  (`security.authn`). Prefetch warm items `crate@version` / `crate`, index refresh; `cargo search` over the
+  repository's crates; new collection `cargo_crates`, browse API `cargo/crates` and `cargo/versions` (OpenAPI,
+  MSW mocks, Cargo browser in the UI), global search, components, SemVer cleanup and version sort, Set me up
+  snippets (source replacement, named registry, login, publish), Nexus `cargo` repositories import with content
+  kept forever. Real-client harness `tests/clients/cargo/` (cargo 1.99, recorded crates.io fixtures) and
+  `Documents/Operations/clients/cargo.md`.
 - T-P6-COMPOSER: Composer 2 repositories (FORMATS.md "Composer", `Operations/clients/composer.md`). Every Composer
   repository serves its own `packages.json` (`metadata-url` = `<repo>/p2/%package%.json`; no Composer 1 `providers`).
   **Proxy** of a Composer 2 repository (preset repo.packagist.org): `packages.json` and the minified `p2` documents
