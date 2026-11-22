@@ -5,8 +5,8 @@
 #
 # Real clients against real public upstreams (Docker Hub, registry.npmjs.org, deb.debian.org, github.com): this needs
 # internet access and is not part of `make check`. It uses the host's Docker daemon; client containers run with
-# --network host so they reach the stack at WAYSTATION_URL. Docker treats localhost registries as insecure-allowed,
-# so prefix pulls need no daemon configuration.
+# --network host so they reach the stack at WAYSTATION_URL (host tools: bash, curl, jq, docker). Docker treats
+# localhost registries as insecure-allowed, so prefix pulls need no daemon configuration.
 #
 # Env:
 #   WAYSTATION_URL                 stack base URL (default http://localhost:8080)
@@ -182,8 +182,14 @@ api GET '/repositories/npm/npm/packages' | jq -e '.items[] | select(.name == "ch
 ok 'browse npm: chalk'
 api GET '/repositories/debian/apt/suites' | jq -e '.[] | select(.suite == "trixie")' >/dev/null \
   || fail 'browse: trixie suite missing'
-api GET '/repositories/debian/apt/packages?suite=trixie&q=jq' | jq -e '.items[] | select(.name == "jq")' >/dev/null \
-  || fail 'browse: jq not in the trixie package list'
+# The listing is indexed in the background after apt fetched it: a full suite takes a while on a small host.
+listed=
+for _ in $(seq 1 60); do
+  if api GET '/repositories/debian/apt/packages?suite=trixie&q=jq' | jq -e '.items[] | select(.name == "jq")' \
+    >/dev/null; then listed=1; break; fi
+  sleep 2
+done
+[ -n "$listed" ] || fail 'browse: jq not in the trixie package list'
 ok 'browse apt: trixie suite, package jq'
 api GET '/repositories/raw-releases/browse?path=jqlang/jq/releases/download/jq-1.8.1' \
   | jq -e '.entries[] | select(.name == "jq-linux-amd64")' >/dev/null || fail 'browse: raw file missing'
