@@ -35,7 +35,7 @@ Collect these answers before touching anything. Suggested defaults are in bracke
 |---|---|---|
 | 1 | Which host runs Waystation, and how do you reach it (SSH user, sudo/root)? | Docker host, VM or NAS (Synology Container Manager works) |
 | 2 | Which host name will clients use? [`registry.<their domain>`] | Becomes `WAYSTATION_BASE_URL`; one name for the UI and every format |
-| 3 | How is TLS terminated? An existing reverse proxy (nginx, Traefik, Caddy, HAProxy, Synology DSM) or a new one? Where does the certificate come from? | The web tier speaks plain HTTP only (DEPLOYMENT.md section 8) |
+| 3 | How is TLS terminated? An existing reverse proxy (nginx, Traefik, Caddy, HAProxy, Synology DSM), or the web container itself? Where does the certificate come from? | The web container can terminate TLS (`compose.tls.yaml`) or run plain HTTP behind a proxy (DEPLOYMENT.md section 8) |
 | 4 | Who manages DNS for that name, and how do you change it? | Cutover is a DNS change |
 | 5 | Where does the data live, and how much disk can it use? [local disk on the host, 100 GB+] | Blob store and MongoDB; SSD preferred for MongoDB |
 | 6 | Sign-in: local accounts only, LDAP / Active Directory, OIDC (Keycloak, authentik, Entra ID, ...)? Which directory groups become administrators and readers? | Providers and group mapping (section 7) |
@@ -72,16 +72,16 @@ Released images are public on GitHub Container Registry, for `linux/amd64` and `
 signed build provenance:
 
 ```sh
-for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:0.2.7; done
+for role in server worker web; do docker pull ghcr.io/slinkysoftware/waystation-$role:0.2.8; done
 ```
 
-Use them in the env file (`WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware`, `WAYSTATION_IMAGE_TAG=0.2.7`). Pin an
+Use them in the env file (`WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware`, `WAYSTATION_IMAGE_TAG=0.2.8`). Pin an
 exact release, never `latest`, so an upgrade is always an explicit change. To check the provenance:
-`gh attestation verify oci://ghcr.io/slinkysoftware/waystation-server:0.2.7 --owner SlinkySoftware`.
+`gh attestation verify oci://ghcr.io/slinkysoftware/waystation-server:0.2.8 --owner SlinkySoftware`.
 
 You also need `Build/Containers/compose.yaml` (and for backups `Build/Containers/backup/waystation-backup.sh`) from
 the same release: take them from the release's source archive or the tag
-(`https://github.com/SlinkySoftware/Waystation/tree/v0.2.7`).
+(`https://github.com/SlinkySoftware/Waystation/tree/v0.2.8`).
 
 **Build from source instead** (an unreleased commit, a fork, or a host without access to GHCR). Build on the target
 if it has the CPU and network for it, otherwise on any machine with Docker and copy the images over (about 650 MB):
@@ -136,7 +136,7 @@ and a database backup is only partly usable without it (BACKUP.md).
 
 ```sh
 WAYSTATION_IMAGE_PREFIX=ghcr.io/slinkysoftware   # waystation for images built from source
-WAYSTATION_IMAGE_TAG=0.2.7
+WAYSTATION_IMAGE_TAG=0.2.8
 WAYSTATION_HTTP_BIND=127.0.0.1        # 127.0.0.1 when the reverse proxy runs on this host; else the host's address
 WAYSTATION_HTTP_PORT=8080
 WAYSTATION_DATA_MOUNT_TYPE=bind
@@ -216,7 +216,10 @@ sudo docker logs waystation-init 2>&1 | tail -5                       # "init co
 curl -s http://127.0.0.1:8080/readyz                                  # {"status":"ok"}
 ```
 
-Then configure the reverse proxy for `registry.example.com` → `http://127.0.0.1:8080` with the settings in
+Without a reverse proxy, let the web container terminate TLS instead: DEPLOYMENT.md section 8, "TLS in the web
+container" (`compose.tls.yaml`, the certificate and key in `WAYSTATION_TLS_DIR`), and skip the rest of this section.
+
+Otherwise configure the reverse proxy for `registry.example.com` → `http://127.0.0.1:8080` with the settings in
 [REVERSE_PROXIES.md](REVERSE_PROXIES.md): no request body limit, no request or response buffering, read and send
 timeouts of at least 900 s, HTTP/1.1 to the backend, `X-Forwarded-For` and `X-Forwarded-Proto` set.
 
