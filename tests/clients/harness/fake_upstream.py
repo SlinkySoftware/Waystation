@@ -11,7 +11,8 @@ Modes (``HARNESS_MODE``):
 
 Other settings: ``HARNESS_HOSTS`` (space separated impersonated hosts), ``HARNESS_ORIGINS`` (optional
 ``host=scheme://addr:port`` overrides for where record/live mode really connects), ``HARNESS_FIXTURES`` (fixture
-root), ``HARNESS_CA_DIR`` (certificates), ``HARNESS_MAX_BODY_MB`` (default 64), ``HARNESS_DROP_JSON_KEYS`` (space
+root), ``HARNESS_CA_DIR`` (certificates), ``HARNESS_MAX_BODY_MB`` (default 64), ``HARNESS_KEEP_LINES`` (record mode:
+``<path>=<regex>`` text documents reduced to the matching lines), ``HARNESS_DROP_JSON_KEYS`` (space
 separated JSON keys removed from recorded JSON bodies).
 
 This is test infrastructure: a small threaded stdlib server, not production code.
@@ -28,7 +29,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from upstream_store import Exchange, FixtureStore, RequestKey, identity_body, scrub_response
+from upstream_store import (
+    Exchange,
+    FixtureStore,
+    RequestKey,
+    identity_body,
+    keep_lines,
+    parse_keep_lines,
+    scrub_response,
+)
 
 HOP_BY_HOP = frozenset(
     {
@@ -63,6 +72,7 @@ class Config:
         self.ca_dir = Path(os.environ.get('HARNESS_CA_DIR', '/harness-ca'))
         self.max_body = int(os.environ.get('HARNESS_MAX_BODY_MB', '64')) * 1024 * 1024
         self.drop_keys = frozenset(os.environ.get('HARNESS_DROP_JSON_KEYS', '').split())
+        self.keep_lines = parse_keep_lines(os.environ.get('HARNESS_KEEP_LINES', ''))
         self.lock = threading.Lock()
 
     def note(self, kind: str, text: str) -> None:
@@ -147,7 +157,11 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(f'upstream error: {exc}')
             return
         if self.config.mode == 'record':
-            self.config.store.save(key, scrub_response(live.status, live.headers, live.body, self.config.drop_keys))
+            stored = scrub_response(live.status, live.headers, live.body, self.config.drop_keys)
+            lines = self.config.keep_lines.get(urlsplit(self.path).path)
+            if lines is not None:  # the reduced document is what the client gets too (replay serves the same)
+                stored = live = keep_lines(stored, lines)
+            self.config.store.save(key, stored)
         self._respond(live, f'{self.config.mode.upper()} ' + key.describe())
 
     def _forward(self, host: str, body: bytes) -> Exchange:

@@ -46,6 +46,19 @@ describe('repository form model', () => {
     expect([defaults.composerDistHosts.length, defaults.composerSourceMode]).toEqual([4, 'keep'])
   })
 
+  it('builds rubygems proxy, hosted and group repositories without format options', () => {
+    expect(HOSTED_FORMATS).toContain('rubygems')
+    expect(GROUP_FORMATS).toContain('rubygems')
+    expect(WRITABLE_GROUP_FORMATS).not.toContain('rubygems')
+    const proxy = toWrite({ ...emptyModel('rubygems'), ...PRESETS.rubygems[0]!.apply })
+    expect(proxy).toMatchObject({ name: 'rubygems-proxy', format: 'rubygems', type: 'proxy', proxy: { upstream_url: 'https://rubygems.org' } })
+    expect(proxy.format_options).toEqual({})
+    expect(toWrite({ ...emptyModel('rubygems', 'hosted'), name: 'rubygems-hosted' }).format_options).toEqual({})
+    const group = toWrite({ ...emptyModel('rubygems', 'group'), name: 'rubygems-group', members: ['rubygems-hosted', 'rubygems-proxy'] })
+    expect(group.group).toEqual({ members: ['rubygems-hosted', 'rubygems-proxy'], writable_member: null })
+    expect(group.format_options).toEqual({})
+  })
+
   it('builds nuget proxy (catalog verification), hosted (delete mode) and group repositories', () => {
     expect(HOSTED_FORMATS).toContain('nuget')
     expect(GROUP_FORMATS).toContain('nuget')
@@ -352,7 +365,7 @@ describe('repository form model', () => {
   })
 
   it('writes prefetch for the formats that support it and reads it back', () => {
-    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo'])
+    expect([...PREFETCH_FORMATS]).toEqual(['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'rubygems'])
     const m = { ...emptyModel('npm'), name: 'npm-proxy', upstreamUrl: 'https://registry.npmjs.org', refreshPopular: true, warmText: 'lodash@4.17.21\n\n @types/node@latest ', prefetchSchedule: '  0  3 * * * ' }
     const w = toWrite(m)
     expect(w.proxy?.prefetch).toEqual({ refresh_popular: true, warm: ['lodash@4.17.21', '@types/node@latest'], schedule: '0 3 * * *' })

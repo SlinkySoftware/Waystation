@@ -1974,6 +1974,48 @@ paths:
               schema: { $ref: '#/components/schemas/ComposerVersionPage' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /repositories/{name}/rubygems/gems:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listRubygemsGems
+      summary: Gems of a RubyGems repository (hosted pushes, a proxy's cached metadata, a group's members)
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Gems
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RubygemsGemPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /repositories/{name}/rubygems/versions:
+    parameters:
+      - $ref: '#/components/parameters/RepoName'
+    get:
+      tags: [browse]
+      operationId: listRubygemsVersions
+      summary: One gem and its versions (newest first, RubyGems version order)
+      parameters:
+        - name: gem
+          in: query
+          required: true
+          description: Gem name
+          schema: { type: string, maxLength: 200 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Versions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RubygemsVersionPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /repositories/{name}/yum/packages:
     parameters:
       - $ref: '#/components/parameters/RepoName'
@@ -4740,6 +4782,12 @@ components:
           enum: [keep, strip]
           default: keep
           description: "`keep` leaves each version's `source` (VCS) entry in the metadata; `strip` removes it so clients can only install the cached archives (dev branches without an archive become uninstallable). Proxy repositories only"
+    RubygemsOptions:
+      title: RubygemsOptions
+      type: object
+      additionalProperties: false
+      description: 'RubyGems: no options yet'
+      properties: {}
     FormatOptions:
       description: Format-specific options; the shape follows the repository's `format`
       oneOf:
@@ -4758,6 +4806,7 @@ components:
         - $ref: '#/components/schemas/CargoOptions'
         - $ref: '#/components/schemas/NugetOptions'
         - $ref: '#/components/schemas/ComposerOptions'
+        - $ref: '#/components/schemas/RubygemsOptions'
     QuotaMode:
       type: string
       enum: [soft, hard]
@@ -5564,6 +5613,58 @@ components:
           type: array
           description: Newest first (Composer version order)
           items: { $ref: '#/components/schemas/ComposerVersion' }
+        next_cursor: { type: [string, 'null'] }
+    RubygemsGem:
+      type: object
+      required: [name, version_count]
+      properties:
+        name: { type: string, description: 'Gem name as published (case-sensitive)' }
+        latest_version: { type: [string, 'null'], default: null, description: 'Newest release version, else the newest version' }
+        version_count: { type: integer }
+        summary: { type: [string, 'null'], default: null }
+        updated_at: { type: [string, 'null'], format: date-time, default: null }
+    RubygemsGemPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/RubygemsGem' }
+        next_cursor: { type: [string, 'null'] }
+    RubygemsDependency:
+      type: object
+      required: [name, requirement]
+      properties:
+        name: { type: string }
+        requirement: { type: string, description: "Version requirement, e.g. '>= 1.0, < 2'" }
+    RubygemsVersion:
+      type: object
+      required: [version, platform, prerelease, cached, dependencies, path, download_url]
+      properties:
+        version: { type: string }
+        platform: { type: string, description: "'ruby' for pure-Ruby gems, else the platform, e.g. x86_64-linux" }
+        prerelease: { type: boolean }
+        cached: { type: boolean, description: 'The .gem file is stored' }
+        size_bytes: { type: [integer, 'null'], default: null }
+        sha256: { type: [string, 'null'], default: null }
+        published_at: { type: [string, 'null'], format: date-time, default: null }
+        uploaded_by: { type: [string, 'null'], default: null }
+        ruby_requirement: { type: [string, 'null'], default: null, description: "Required Ruby version, e.g. '>= 3.0'" }
+        dependencies:
+          type: array
+          description: Runtime dependencies
+          items: { $ref: '#/components/schemas/RubygemsDependency' }
+        path: { type: string, description: "The .gem file's repository path: gems/<name>-<version>[-<platform>].gem" }
+        download_url: { type: string }
+    RubygemsVersionPage:
+      type: object
+      required: [gem, items, next_cursor]
+      properties:
+        gem: { $ref: '#/components/schemas/RubygemsGem' }
+        items:
+          type: array
+          description: Newest first (RubyGems version order)
+          items: { $ref: '#/components/schemas/RubygemsVersion' }
         next_cursor: { type: [string, 'null'] }
     YumPackage:
       type: object

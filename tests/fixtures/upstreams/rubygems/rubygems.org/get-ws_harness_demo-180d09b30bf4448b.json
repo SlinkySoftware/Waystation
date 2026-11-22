@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://rubygems.org/info/ws_harness_demo"
+  },
+  "response": {
+    "body_sha256": "e9fa8172b77ab691ead1c3dea24f92b0d2e808bc538f77171f49ea01f49e24b0",
+    "body_size": 27,
+    "headers": [
+      [
+        "content-length",
+        "27"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "cache-control",
+        "max-age=60, public"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "vary",
+        "Accept,X-Requested-With,Accept-Encoding"
+      ]
+    ],
+    "status": 404
+  }
+}

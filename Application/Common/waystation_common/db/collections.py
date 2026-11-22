@@ -51,6 +51,7 @@ SWIFT_PACKAGES = 'swift_packages'  # one summary per Swift package (browse, glob
 CARGO_CRATES = 'cargo_crates'  # one summary per crate a Cargo repository has (browse, global search)
 NUGET_PACKAGES = 'nuget_packages'  # one summary per NuGet package id a repository has (browse, global search, hosted)
 COMPOSER_PACKAGES = 'composer_packages'  # one summary per Composer package a repository has (browse, search, pins)
+RUBYGEMS_GEMS = 'rubygems_gems'  # one summary per gem a repository has (browse, search)
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -540,6 +541,15 @@ SPECS: tuple[CollectionSpec, ...] = (
         (
             # One summary per package name (vendor/name, lower case) a repository has: cached metadata (proxy) or
             # uploads (hosted); browse lists them by name; a proxy's archive digests are pinned here.
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        RUBYGEMS_GEMS,
+        (
+            # One summary per gem name (case-sensitive) a repository has: cached info file (proxy) or pushed gems
+            # (hosted); browse lists them by name.
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=False),
         ),

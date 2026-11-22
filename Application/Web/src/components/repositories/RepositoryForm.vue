@@ -124,7 +124,7 @@
     </section>
 
     <section
-      v-if="!(model.format === 'yum' && model.type !== 'proxy') && model.format !== 'helm' && model.format !== 'cargo' && !(model.format === 'maven' && model.type === 'group') && !(model.format === 'nuget' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy' || model.format === 'swift' || model.format === 'composer') && model.type !== 'proxy')"
+      v-if="!(model.format === 'yum' && model.type !== 'proxy') && model.format !== 'helm' && model.format !== 'cargo' && model.format !== 'rubygems' && !(model.format === 'maven' && model.type === 'group') && !(model.format === 'nuget' && model.type === 'group') && !((model.format === 'pypi' || model.format === 'go' || model.format === 'npm' || model.format === 'galaxy' || model.format === 'swift' || model.format === 'composer') && model.type !== 'proxy')"
       class="repo-form__section"
     >
       <h3 class="section-label">{{ t(`repoForm.options.${model.format}`) }}</h3>

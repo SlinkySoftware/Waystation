@@ -16,6 +16,7 @@
   <CargoBrowser v-else-if="repo.format === 'cargo'" :repo="repo" />
   <NugetBrowser v-else-if="repo.format === 'nuget'" :repo="repo" />
   <ComposerBrowser v-else-if="repo.format === 'composer'" :repo="repo" />
+  <RubygemsBrowser v-else-if="repo.format === 'rubygems'" :repo="repo" />
   <FolderBrowser v-else :repo="repo" />
 </template>
 
@@ -34,6 +35,7 @@ import MavenBrowser from './MavenBrowser.vue'
 import NpmBrowser from './NpmBrowser.vue'
 import NugetBrowser from './NugetBrowser.vue'
 import PypiBrowser from './PypiBrowser.vue'
+import RubygemsBrowser from './RubygemsBrowser.vue'
 import SwiftBrowser from './SwiftBrowser.vue'
 import YumBrowser from './YumBrowser.vue'
 import TerraformBrowser from './TerraformBrowser.vue'

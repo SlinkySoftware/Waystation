@@ -17,6 +17,7 @@ export const prefetch = {
     cargo: 'One crate per line: crate@version, or crate alone for the latest release.',
     nuget: 'One package per line: Package or Package@version.',
     composer: 'One package per line: vendor/name or vendor/name:1.2.3.',
+    rubygems: 'One gem per line: name (the newest release), name:version or name:version-platform.',
   },
   warmPlaceholder: {
     docker: 'library/nginx:1.27\nnginx:1.27 linux/amd64,linux/arm64',
@@ -27,6 +28,7 @@ export const prefetch = {
     cargo: 'serde@1.0.228\nitoa',
     nuget: 'Newtonsoft.Json@13.0.4\nSerilog',
     composer: 'monolog/monolog:3.9.0\npsr/log',
+    rubygems: 'rake:13.2.1\nnokogiri:1.18.8-x86_64-linux\nrack',
   },
   schedule: 'Warm schedule (optional)',
   scheduleHint: 'UTC cron, a macro such as @daily, or @every 6h (at least 15 minutes). Empty: only when run by hand.',

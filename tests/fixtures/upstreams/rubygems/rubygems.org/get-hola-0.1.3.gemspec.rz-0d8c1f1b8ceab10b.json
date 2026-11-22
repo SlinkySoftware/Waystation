@@ -1,0 +1,41 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://rubygems.org/quick/Marshal.4.8/hola-0.1.3.gemspec.rz"
+  },
+  "response": {
+    "body_sha256": "ae042ef55d64e88e06189e0ea18105121c99c79cf9034a8b7af3b8eaa0c5db2a",
+    "body_size": 258,
+    "headers": [
+      [
+        "content-length",
+        "258"
+      ],
+      [
+        "last-modified",
+        "Tue, 02 Feb 2016 08:37:19 GMT"
+      ],
+      [
+        "etag",
+        "\"5f760572be90f752f06435bc3be7021c\""
+      ],
+      [
+        "content-type",
+        "binary/octet-stream"
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ]
+    ],
+    "status": 200
+  }
+}

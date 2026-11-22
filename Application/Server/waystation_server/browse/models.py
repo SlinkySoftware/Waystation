@@ -320,6 +320,46 @@ class ComposerVersionPage(BaseModel):
     next_cursor: str | None
 
 
+# ---------------------------------------------------------------------------- rubygems
+class RubygemsGem(BaseModel):
+    name: str = Field(description='Gem name as published (case-sensitive)')
+    latest_version: str | None = Field(default=None, description='Newest release version, else the newest version')
+    version_count: int
+    summary: str | None = None
+    updated_at: datetime | None = None
+
+
+class RubygemsGemPage(BaseModel):
+    items: list[RubygemsGem]
+    next_cursor: str | None
+
+
+class RubygemsDependency(BaseModel):
+    name: str
+    requirement: str = Field(description='Version requirement, e.g. >= 1.0, < 2')
+
+
+class RubygemsVersion(BaseModel):
+    version: str
+    platform: str = Field(description='ruby for pure-Ruby gems, else e.g. x86_64-linux')
+    prerelease: bool
+    cached: bool = Field(description='The .gem file is stored')
+    size_bytes: int | None = None
+    sha256: str | None = None
+    published_at: datetime | None = None
+    uploaded_by: str | None = None
+    ruby_requirement: str | None = Field(default=None, description='Required Ruby version, e.g. >= 3.0')
+    dependencies: list[RubygemsDependency] = Field(description='Runtime dependencies')
+    path: str = Field(description='Repository path gems/<name>-<version>[-<platform>].gem')
+    download_url: str
+
+
+class RubygemsVersionPage(BaseModel):
+    gem: RubygemsGem
+    items: list[RubygemsVersion]
+    next_cursor: str | None
+
+
 # ---------------------------------------------------------------------------- yum
 class YumPackage(BaseModel):
     name: str
@@ -866,6 +906,15 @@ class ComposerBrowser(Protocol):
         self, ctx: BrowseContext, *, package: str, cursor: str | None, limit: int
     ) -> ComposerVersionPage:
         """One package's versions, newest first; raises ``NotFound`` for an unknown package."""
+
+
+@runtime_checkable
+class RubygemsBrowser(Protocol):
+    async def gems(self, ctx: BrowseContext, *, q: str | None, cursor: str | None, limit: int) -> RubygemsGemPage:
+        """Gems by name (hosted: pushed; proxy: info file cached; group: the members')."""
+
+    async def versions(self, ctx: BrowseContext, *, gem: str, cursor: str | None, limit: int) -> RubygemsVersionPage:
+        """One gem's versions (one per platform), newest first; raises ``NotFound`` for an unknown gem."""
 
 
 @runtime_checkable

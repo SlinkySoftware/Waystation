@@ -39,6 +39,7 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | NuGet | `Package@version` (`Newtonsoft.Json@13.0.3`), `Package` (= the newest stable version, else the newest) | the flat container version list, the version's `.nupkg` (checked and verified against the catalog hash as for a client) and `.nuspec` | version lists (`v3-flatcontainer/<id>/index.json`) and registration indexes (`v3/registration/<id>/index.json`) |
 | Composer | `vendor/name:version` (`monolog/monolog:3.8.1`, any spelling that normalises the same; `dev-main` reads the `~dev` document), `vendor/name` (= the newest stable version, else the newest) | the package's `p2` document, the version's archive when the repository serves it (checked, verified and pinned as for a client) | `p2` documents (tagged and `~dev`, same path) |
 | Cargo | `crate@<exact SemVer version>` (`serde@1.0.228`), `crate` (= highest non-yanked release) | the crate's index file, then the version's `.crate` (verified against the index `cksum`) | index files `index/<prefix>/<crate>` (same path) |
+| RubyGems | `gem:version` (`rake:13.2.1`), `gem:version-platform` (`nokogiri:1.18.8-x86_64-linux`), `gem` (= the newest release of the `ruby` platform, else the newest) | the gem's info file, the version's `.gem` (verified against the info checksum as for a client) and its `quick/Marshal.4.8` gemspec | `versions`, `names`, info files (same path) |
 
 Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
 below). Left for later: PyPI (`project==version`), Helm (`chart@version`), Galaxy, Terraform, Swift.
@@ -1057,9 +1058,71 @@ registry authentication (RFC 3139, `auth-required`). Client: `sparse+<base>/repo
   - Not yet: owner management, `cargo search` against the upstream (only crates this repository knows), the live
     smoke for cargo, indexes served over the older Git protocol.
 
-## RubyGems — Phase 6
-Compact index (`/versions`, `/info/<gem>`, `/names`) + `/gems/<name>.gem`, `/quick/Marshal.4.8/*.gemspec.rz`;
-hosted `POST /api/v1/gems`. Clients: gem, bundler.
+## RubyGems — Phase 6 (built, T-P6-GEMS)
+RubyGems repositories (`formats/rubygems/`), proxy, hosted and group. Clients: gem and Bundler
+(`Operations/clients/rubygems.md`).
+
+**Layout** (`/repository/<repo>/`): the compact index (https://guides.rubygems.org/rubygems-org-compact-index-api/)
+`versions` (`created_at: <time>`, `---`, then `<gem> <v>[,<v>...] <md5 of info/<gem>>`; append-only upstream: a
+later line adds versions, `-<v>` removes one, its MD5 replaces the earlier), `info/<gem>` (`---`, then
+`<version>[-<platform>] <dep>:<req>[&<req>][,...]|checksum:<sha256>[,ruby:<req>][,rubygems:<req>]`, runtime
+dependencies only), `names`; `gems/<name>-<version>[-<platform>].gem`; `quick/Marshal.4.8/<same>.gemspec.rz`
+(zlib of a marshalled `Gem::Specification`); the legacy `specs.4.8.gz`, `latest_specs.4.8.gz`,
+`prerelease_specs.4.8.gz` (gzip of a marshalled `[[name, Gem::Version, platform], ...]`); hosted `POST api/v1/gems`
+(`gem push`) and `DELETE api/v1/gems/yank` (`gem yank`, form `gem_name`, `version`, `platform`). The retired
+dependency API (`api/v1/dependencies*`) answers `404` everywhere, so clients use the compact index. Names are
+case-sensitive (`[A-Za-z0-9._-]`); versions are `Gem::Version` strings and sort as `Gem::Version#<=>` does
+(`waystation_common.rubygems`: canonical segments, a letter segment sorts before any number, so `1.0.a < 1.0 <
+1.0.1`; a version with a letter is a prerelease). A file name `<name>-<version>[-<platform>]` is read at each `-` that
+precedes a digit (a name may hold `-<digit>`); the index decides which reading exists.
+
+**Proxy** (upstream URL: a RubyGems server with the compact index, e.g. `https://rubygems.org`):
+- `versions` (at most 512 MiB), `names` and `info/<gem>` are cached as metadata (revalidated after the metadata max
+  age), checked to be compact index files and served as they are by X-Accel with `Repr-Digest` / `Digest`
+  (`sha-256=:<base64>:` of the whole file, added by the server and re-added by nginx on the blob location). Bundler
+  (2.5+) keeps a copy and asks for the tail with `Range: bytes=<size-1>-` and `If-None-Match`: the server answers
+  `304` itself, nginx serves the `206` range of the cached file, and Bundler appends it and checks the digest (a
+  mismatch after the upstream rewrote its file makes Bundler fetch it whole). Bundler before 2.5 compares the MD5 of
+  the file with the `ETag` instead; Waystation's ETags are blob digests, so old Bundler falls back to full downloads.
+- `.gem` files are cached as content (at most 512 MiB, kept forever) once their SHA-256 matches the `checksum` of the
+  version's line in the gem's cached info file (when the version is not listed, the info file is revalidated once);
+  a version without a checksum is refused (`400`), a different file `502`, nothing stored.
+- Gemspecs (`quick/Marshal.4.8`, kept forever) and the legacy `specs` indexes are opaque: only checked to inflate
+  (zlib/gzip, bounded) and, for a gemspec, to start with the Marshal 4.8 header. Ruby Marshal data is never read.
+- A gem summary (`rubygems_gems`) is written in the background when an info file is cached.
+
+**Hosted**: `gem push` sends the `.gem` as the body with the API key as the whole `Authorization` value (no scheme):
+the server accepts a bare API token there on `/repository/...` (`security.authn`); push needs `write`, yank `delete`.
+The upload (at most 512 MiB, quota first) is read in a thread (`formats.rubygems.package`): a plain tar of at most 16
+regular files with plain names (`metadata.gz`, `data.tar.gz`, `checksums.yaml.gz`, `*.sig`; no links, paths or
+duplicates), `metadata.gz` at most 1 MiB inflating to at most 4 MiB, parsed by a YAML `SafeLoader` whose scalars are
+all strings and whose Ruby tags (`!ruby/object:Gem::Specification`, `Gem::Version`, `Gem::Requirement`,
+`Gem::Dependency`) are plain mappings (aliases at most 1,000, nesting 32), the fields validated (name, version,
+platform, dependencies with requirement operators `= != > < >= <= ~>`, Ruby/RubyGems requirements); `data.tar.gz`
+must be gzip (hashed, never unpacked); `checksums.yaml.gz`, when present, must match the SHA-256/SHA-512 of the other
+members. Stored as `gems/<full name>.gem` with its details on the asset (`assets.rubygems`, including its info line)
+and `quick/Marshal.4.8/<full name>.gemspec.rz` written by `formats.rubygems.marshal` (a Marshal 4.8 writer for exactly
+what `Gem::SafeMarshal` loads: the 19-field `Gem::Specification._dump` array with `Gem::Version`,
+`Gem::Requirement` and `Gem::Dependency` objects). Write policies as everywhere (`disable_redeploy` → `409` for the
+same version and platform). Yank removes the version's files; the version is gone from the index (pushing it again
+follows the write policy). `versions` (one line per gem, the MD5 of its rendered info file), `info/<gem>` (versions in
+push order), `names` and the legacy `specs` indexes are rendered per request (`ETag`, `304`, `HEAD`, `Repr-Digest`;
+`Range` ignored: a full `200`, which Bundler accepts). Audited as `content.upload` / `content.delete`, target
+`rubygems_gem`.
+
+**Group**: `versions` and `names` merged from the members (a proxy's cached file, a hosted repository's rendered one)
+whenever a member's changes, kept in the blob store and served by X-Accel (`Range`, `Repr-Digest`); a gem only one
+member has keeps that member's versions and MD5, a gem several have gets the union of their versions and the MD5 of
+the merged info file (computed for at most 500 such gems; beyond, an MD5 that makes Bundler re-read the info file).
+`info/<gem>`: the one member that has it answers as it does; several members' lines are merged (the first member
+that has a version and platform wins it). `.gem` files and gemspecs from the first member that stores or caches them,
+else the proxy members in order. The legacy `specs` indexes list the hosted members' gems only (a proxy's are opaque).
+
+**Components, cleanup, browse**: `.gem` files are the component files (`gems/<name>-<version>[-<platform>].gem`;
+cleanup also takes the version's gemspec, same rank, per gem and platform); `Gem::Version` order for `version_sort`,
+cleanup and the browse views (`GET rubygems/gems`, `GET rubygems/versions?gem=`: one row per version and platform,
+checksum, Ruby requirement, runtime dependencies, cached, pusher); global search finds gems by name. Prefetch: see
+"Prefetch". Nexus: `rubygems-*` repositories import; gems are kept forever.
 
 ## Composer — Phase 6 (built, T-P6-COMPOSER)
 Composer 2 repositories (`formats/composer/`), proxy, hosted and group. Client: composer 2 (`Operations/clients/composer.md`).

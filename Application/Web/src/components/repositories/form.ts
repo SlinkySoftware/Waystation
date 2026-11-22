@@ -11,9 +11,9 @@ export type FormFormat = M0Format
 export type FormType = 'proxy' | 'hosted' | 'group'
 
 /** Formats whose hosted repositories are served (the create flow enables the "Hosted" tile for these). */
-export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift', 'nuget', 'composer', 'cargo']
+export const HOSTED_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'helm', 'galaxy', 'yum', 'apt', 'terraform', 'swift', 'nuget', 'composer', 'cargo', 'rubygems']
 /** Formats whose group repositories are served (the create flow enables the "Group" tile for these). */
-export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'nuget', 'composer', 'cargo']
+export const GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'pypi', 'go', 'helm', 'galaxy', 'nuget', 'composer', 'cargo', 'rubygems']
 /** Formats whose groups may name a hosted writable member (uploads sent to the group land there). */
 export const WRITABLE_GROUP_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'pypi', 'helm', 'galaxy', 'nuget', 'cargo']
 
@@ -157,6 +157,7 @@ export const PRESETS: Record<M0Format, Preset[]> = {
   ],
   pypi: [{ id: 'pypi', label: 'pypi.org', apply: { name: 'pypi-proxy', upstreamUrl: 'https://pypi.org' } }],
   composer: [{ id: 'packagist', label: 'repo.packagist.org', apply: { name: 'composer-proxy', upstreamUrl: 'https://repo.packagist.org' } }],
+  rubygems: [{ id: 'rubygems', label: 'rubygems.org', apply: { name: 'rubygems-proxy', upstreamUrl: 'https://rubygems.org' } }],
   nuget: [{ id: 'nugetorg', label: 'nuget.org', apply: { name: 'nuget-proxy', upstreamUrl: 'https://api.nuget.org/v3/index.json' } }],
   go: [{ id: 'goproxy', label: 'proxy.golang.org', apply: { name: 'go-proxy', upstreamUrl: 'https://proxy.golang.org' } }],
   cargo: [{ id: 'crates', label: 'crates.io', apply: { name: 'cargo-proxy', upstreamUrl: 'https://index.crates.io/' } }],
@@ -364,6 +365,7 @@ function formatOptions(m: RepoFormModel): RepositoryWrite['format_options'] {
     }
     case 'yum':
       return m.type === 'proxy' ? { repo_path: m.repoPath.trim(), gpg_key: m.gpgKey?.trim() || null, repomd_keys: m.repomdKeys.trim() || null } : {}
+    case 'rubygems':
     case 'helm':
     case 'cargo':
       return {}
@@ -457,7 +459,7 @@ export function toWrite(m: RepoFormModel): RepositoryWrite {
 // ---------------------------------------------------------------- prefetch (T-O12)
 
 /** Formats whose proxies can warm a list of items and keep popular metadata fresh. */
-export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo']
+export const PREFETCH_FORMATS: readonly FormFormat[] = ['docker', 'npm', 'raw', 'maven', 'go', 'nuget', 'composer', 'cargo', 'rubygems']
 /** Server limits of the warm list (PrefetchConfig). */
 export const WARM_MAX_ITEMS = 200
 export const WARM_MAX_LENGTH = 512

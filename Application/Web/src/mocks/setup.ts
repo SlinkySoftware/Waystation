@@ -489,6 +489,29 @@ function composer(repo: Repository): SetupClient[] {
   return [{ id: 'composer', label: 'Composer', snippets }]
 }
 
+/** RubyGems: Bundler (Gemfile source, credentials), the gem CLI; gem push for hosted repositories. */
+function rubygems(repo: Repository): SetupClient[] {
+  const url = `${BASE_URL}/repository/${repo.name}/`
+  const s = (id: string, title: string, content: string, language = 'shell', filename: string | null = null, description?: string): SetupClient['snippets'][number] => ({ id, title, description, language, filename, os: null, content })
+  const members = repo.type === 'group' ? `One source for the members, in order: ${(repo.group?.members ?? []).join(', ')}. ` : ''
+  const bundler: SetupClient['snippets'] = [
+    s('bundler-source', 'Use this repository in a Gemfile', `source "${url}"\n\ngem "rake", "~> 13.2"`, 'ruby', 'Gemfile', `${members}Replace the rubygems.org source line.`),
+    s('bundler-auth', 'Credentials', `bundle config set --global ${url} {{USERNAME}}:{{TOKEN}}`, 'shell', null, 'An API token is the password; leave it out when anonymous reads are allowed.'),
+    s('bundler-mirror', 'Or mirror rubygems.org for every project', `bundle config set --global mirror.https://rubygems.org ${url}`),
+  ]
+  const gem: SetupClient['snippets'] = [
+    s('gem-sources', 'Use this repository as the only source', `gem sources --remove https://rubygems.org/\ngem sources --add ${url}`),
+    s('gem-install', 'Install a gem', `gem install rake --source ${url}`),
+  ]
+  if (repo.type === 'hosted') {
+    gem.push(s('gem-push', 'Push a gem', `gem build example-demo.gemspec\nGEM_HOST_API_KEY={{TOKEN}} gem push example-demo-1.0.0.gem --host ${url}`, 'shell', null, 'The API token goes in GEM_HOST_API_KEY (or ~/.gem/credentials). Needs the write permission.'))
+  }
+  return [
+    { id: 'bundler', label: 'Bundler', snippets: bundler },
+    { id: 'gem', label: 'gem CLI', snippets: gem },
+  ]
+}
+
 /** Go: GOPROXY (the checksum database through the repository), private modules, .netrc credentials. */
 function go(repo: Repository): SetupClient[] {
   const url = `${BASE_URL}/repository/${repo.name}`
@@ -596,7 +619,7 @@ function terraformHosted(repo: Repository, host: string, s: Snip): SetupClient[]
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : repo.format === 'rubygems' ? rubygems(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {
