@@ -5,6 +5,15 @@ All notable changes, newest first. Each entry: date, task ID, summary.
 The task-level engineering log (every task, with what landed) is [History/BUILD_HISTORY.md](History/BUILD_HISTORY.md).
 
 ## 2026-11-23
+- **Release 1.0.0.** Waystation 1.0: pull-through cache and private registry for Docker/OCI, npm, PyPI, Maven,
+  apt, yum, Go, Helm, Terraform/OpenTofu, Ansible Galaxy, Swift, NuGet, Cargo, RubyGems, Composer, conda, Alpine apk,
+  Hugging Face and raw files, with proxy, hosted and group repositories where the format supports them; Docker
+  dedicated port connectors; prefetch; support bundle; secret-key rotation; the v1.0 security review (ASVS L2,
+  `make security-scan`); as-built documentation with an admin guide, a client guide per format and a generated API
+  reference. Images: `ghcr.io/slinkysoftware/waystation-{server,worker,web}:1.0.0` (linux/amd64, linux/arm64).
+  Upgrading from 0.2.x: pull the 1.0.0 images and restart; `init` applies the schema changes. Split-host workers need
+  `WAYSTATION_INTERNAL_URL` (prefetch) and docker connector ports are listed in `WAYSTATION_DOCKER_CONNECTORS`
+  (DEPLOYMENT.md).
 - T-R02: documentation structure for v1.0. `Documents/TASKS.md` lists open work only (the v1.0.0 release and a
   post-1.0 backlog collected from the follow-ups of completed tasks); every completed and dropped task row moved
   verbatim to `Documents/History/BUILD_HISTORY.md`, and `Documents/Notes/` (the 0.1 UI tour and feedback log) moved to

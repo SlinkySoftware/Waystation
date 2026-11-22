@@ -2347,7 +2347,7 @@ export const en = {
   },
   placeholder: {
     title: '{page} is on its way',
-    text: 'This page is planned (task {task}) and not part of the M0 feedback build.',
+    text: 'This page is not available in this release.',
     back: 'Back to the dashboard',
   },
   notFound: {

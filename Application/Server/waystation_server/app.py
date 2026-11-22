@@ -22,6 +22,7 @@ from fastapi import Depends, FastAPI
 from waystation_common.settings import Settings, get_settings
 from waystation_server import api, health, oidc_auth, plugins, prefetch, problems, registry_auth, routing, wellknown
 from waystation_server.api import openapi
+from waystation_server.api.auth import VERSION
 from waystation_server.clientip import ClientResolver
 from waystation_server.middleware import HeadMiddleware, RequestContextMiddleware
 from waystation_server.security import access
@@ -48,7 +49,7 @@ def create_app(settings: Settings | None = None, *, services: Services | None = 
 
     app = FastAPI(
         title='Waystation API',
-        version='0.1.0',
+        version=VERSION,
         docs_url=None,
         redoc_url=None,
         openapi_url=f'{API_PREFIX}/openapi.json',

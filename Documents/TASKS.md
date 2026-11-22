@@ -16,12 +16,6 @@ How tasks are worked:
   the system as built.
 - New follow-up work found while finishing a task gets its own row in the backlog below.
 
-## Release
-
-| ID | Task | Depends | Status | Acceptance |
-|---|---|---|---|---|
-| T-R03 | v1.0.0 release: multi-arch images, SBOM, provenance, release notes | R01, R02 | TODO | `v1.0.0` tag matching `VERSION`; `release.yml` publishes multi-arch (amd64, arm64) images with SBOM and provenance attestations; CHANGELOG `[1.0.0]` section and GitHub release notes |
-
 ## Backlog (post-1.0)
 
 Follow-ups recorded when the 1.0 tasks closed. None blocks the release.
