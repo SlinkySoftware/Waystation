@@ -12,7 +12,7 @@
     "url": "https://deb.debian.org/debian/dists/trixie-updates/InRelease"
   },
   "response": {
-    "body_sha256": "fae629219bd1c601113a845425bda3a66e508d64a21c4b995d9157e26aa3ae11",
+    "body_sha256": "cb29874521334369e46e700e3e05cf9d4a550c4cd29144f2c2a323f960b8e47a",
     "body_size": 47340,
     "headers": [
       [
@@ -21,11 +21,11 @@
       ],
       [
         "last-modified",
-        "Sun, 08 Nov 2026 08:11:09 GMT"
+        "Sun, 22 Nov 2026 02:10:07 GMT"
       ],
       [
         "etag",
-        "\"b8ec-65fbf634de878\""
+        "\"b8ec-660d3f9e6d123\""
       ],
       [
         "cache-control",

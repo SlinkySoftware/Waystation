@@ -12,16 +12,16 @@
     "url": "https://security.ubuntu.com/ubuntu/dists/resolute-security/InRelease"
   },
   "response": {
-    "body_sha256": "7f66b756f1b4eb0dee5076fe9cd08c7502510da510a86fa25f888449a131f7fe",
+    "body_sha256": "f4c76cf06d9e3e44d3fe86f13d2285ee50b89ee8d1aaf2743873d0c441766361",
     "body_size": 137403,
     "headers": [
       [
         "last-modified",
-        "Sun, 08 Nov 2026 00:29:54 GMT"
+        "Sat, 21 Nov 2026 09:51:03 GMT"
       ],
       [
         "etag",
-        "\"218bb-65fb8f1c26d9d\""
+        "\"218bb-660c64c7e092b\""
       ],
       [
         "accept-ranges",
@@ -37,7 +37,7 @@
       ],
       [
         "expires",
-        "Sun, 08 Nov 2026 10:21:36 GMT"
+        "Sun, 22 Nov 2026 06:09:58 GMT"
       ]
     ],
     "status": 200

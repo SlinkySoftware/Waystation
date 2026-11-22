@@ -12,16 +12,16 @@
     "url": "https://archive.ubuntu.com/ubuntu/dists/resolute-updates/InRelease"
   },
   "response": {
-    "body_sha256": "f100a1a2f57a39b2f67a7f34219a462c474d4c275b456a94c2d5f1bccf077f25",
+    "body_sha256": "78b0347aed909a5a2f06951df3be17f8ab22416b61747e759299d63ffa7f0916",
     "body_size": 137401,
     "headers": [
       [
         "last-modified",
-        "Sun, 08 Nov 2026 00:30:30 GMT"
+        "Sun, 22 Nov 2026 00:19:08 GMT"
       ],
       [
         "etag",
-        "\"218b9-65fb8f3e30cdb\""
+        "\"218b9-660d26d04af1e\""
       ],
       [
         "accept-ranges",
@@ -37,7 +37,7 @@
       ],
       [
         "expires",
-        "Sun, 08 Nov 2026 10:21:38 GMT"
+        "Sun, 22 Nov 2026 06:10:07 GMT"
       ]
     ],
     "status": 200

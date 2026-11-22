@@ -45,12 +45,18 @@ case "$HARNESS_CLIENT" in
         "proxy": {"upstream_url": "https://archive.raspberrypi.com/debian/"}}' >/dev/null \
         || fail 'could not create the repository raspberrypi-files'
     fi
-    step 'fetch the Raspberry Pi archive key through Waystation (raw proxy)'
-    code=$(_ws_http GET "$WAYSTATION_URL/repository/raspberrypi-files/raspberrypi.gpg.key")
-    [ "$code" = 200 ] || fail "raspberrypi.gpg.key returned $code"
-    grep -q 'BEGIN PGP PUBLIC KEY BLOCK' /tmp/ws-api.out || fail 'raspberrypi.gpg.key is not an armored public key'
+    # The archive's raspberrypi.gpg.key carries a binding signature that Debian 13's sqv policy rejects; Raspberry Pi
+    # OS trusts the same key from the raspberrypi-archive-keyring package, pinned here by its SHA256.
+    step 'fetch the Raspberry Pi archive keyring package through Waystation (raw proxy)'
+    deb=pool/main/r/raspberrypi-archive-keyring/raspberrypi-archive-keyring_2025.1+rpt1_all.deb
+    code=$(_ws_http GET "$WAYSTATION_URL/repository/raspberrypi-files/$deb")
+    [ "$code" = 200 ] || fail "$deb returned $code"
+    [ "$(sha256sum /tmp/ws-api.out | cut -d' ' -f1)" = \
+      2e727149d7acb8cc7f604e66d0049161039c8aa1eaf1175e54f9e69d963d60e4 ] || fail "$deb: unexpected SHA256"
+    rm -rf /tmp/rpi-keyring
+    dpkg-deb -x /tmp/ws-api.out /tmp/rpi-keyring || fail "$deb: not a package"
     mkdir -p /etc/apt/keyrings
-    cp /tmp/ws-api.out /etc/apt/keyrings/raspberrypi.asc  # apt reads armored keys from *.asc
+    cp /tmp/rpi-keyring/usr/share/keyrings/raspberrypi-archive-keyring.pgp /etc/apt/keyrings/raspberrypi.pgp
     ;;
   *) fail "unknown client $HARNESS_CLIENT" ;;
 esac
