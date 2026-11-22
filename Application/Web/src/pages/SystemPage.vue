@@ -1,6 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <!-- Administration → System (UI_DESIGN §4.10, SPEC §4.12): version, MongoDB and Valkey health, the data volume (with
-     the free-space floor where writes stop) and the support bundle (later). Refreshes every 15 s while open. -->
+     the free-space floor where writes stop) and the support bundle download (a redacted zip, T-O10). Refreshes every
+     15 s while open. -->
 <template>
   <q-page class="ws-page">
     <PageHeader :title="t('nav.system')" :caption="t('admin.system.caption')">
@@ -81,15 +82,19 @@
         <q-skeleton v-else height="80px" />
       </PageCard>
 
-      <PageCard :title="t('admin.system.supportBundle')">
-        <div class="text-muted">{{ t('admin.system.supportBundleText') }}</div>
+      <PageCard :title="t('admin.system.supportBundle')" :caption="t('admin.system.supportBundleCaption')">
+        <template #actions>
+          <q-btn unelevated no-caps color="primary" :icon="iconDownload" :label="t('admin.system.supportBundleDownload')" :loading="downloading" data-test="support-bundle" @click="downloadBundle" />
+        </template>
+        <p class="bundle__text">{{ t('admin.system.supportBundleText') }}</p>
+        <div class="bundle__note" role="note"><q-icon :name="iconShield" size="16px" /> {{ t('admin.system.supportBundleRedacted') }}</div>
       </PageCard>
     </div>
   </q-page>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 import { api, call, errorMessage } from '@/api/client'
 import EmptyState from '@/components/EmptyState.vue'
@@ -97,10 +102,11 @@ import PageCard from '@/components/PageCard.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import TimeCell from '@/components/TimeCell.vue'
 import { useAsync } from '@/composables/useAsync'
+import { useNotify } from '@/composables/useNotify'
 import { usePolling } from '@/composables/usePolling'
 import { t } from '@/i18n'
 import { formatBytes } from '@/utils/format'
-import { iconError, iconMemory, iconOk, iconRefresh, iconStorage, iconWarning } from '@/utils/icons'
+import { iconDownload, iconError, iconMemory, iconOk, iconRefresh, iconShield, iconStorage, iconWarning } from '@/utils/icons'
 
 const state = useAsync(() => call(api.GET('/system')))
 usePolling(() => true, () => state.reload(), 15_000)
@@ -109,6 +115,29 @@ const storage = computed(() => info.value?.storage ?? null)
 const share = (bytes: number | null) => (storage.value?.total_bytes && bytes !== null ? `${((bytes / storage.value.total_bytes) * 100).toFixed(1)}%` : '0%')
 /** Within twice the floor where writes stop. */
 const low = computed(() => Boolean(storage.value && storage.value.free_bytes !== null && storage.value.free_bytes < storage.value.min_free_bytes * 2))
+
+// The support bundle: fetched through the generated client (session cookie), then handed to the browser as a file.
+const notify = useNotify()
+const downloading = ref(false)
+async function downloadBundle(): Promise<void> {
+  downloading.value = true
+  try {
+    const { data, error: problem, response } = await api.GET('/system/support-bundle', { parseAs: 'blob' })
+    if (!response.ok || !data) throw problem ?? new Error(response.statusText || t('admin.system.supportBundleFailed'))
+    const name = /filename="?([^";]+)"?/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? 'waystation-support.zip'
+    const url = URL.createObjectURL(data)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = name
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    notify.success(t('admin.system.supportBundleDownloaded'))
+  } catch (cause) {
+    notify.error(cause, t('admin.system.supportBundleFailed'))
+  } finally {
+    downloading.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -243,6 +272,26 @@ const low = computed(() => Boolean(storage.value && storage.value.free_bytes !==
 .volume__floor-text {
   margin-top: 6px;
   font-size: var(--fs-12);
+}
+
+.bundle__text {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.bundle__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: var(--fs-13);
+  color: var(--text-secondary);
+}
+
+.bundle__note .q-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--q-primary);
 }
 
 .volume__warn {

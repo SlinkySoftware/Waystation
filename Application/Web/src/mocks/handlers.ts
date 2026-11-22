@@ -32,6 +32,7 @@ import { nexusImportHandlers } from './nexusImport'
 import { provisioningHandlers } from './provisioning'
 import { tasksHandlers } from './tasks'
 import { setupGuide } from './setup'
+import { supportBundleHandlers } from './supportBundle'
 import { mockSearch, type SearchParams } from './search'
 import { RANGES, statsSummary, trafficSeries } from './stats'
 import { digestHex, digestUsage, HISTORY_STEPS, repoDedup, storageHistory, type TopBy, topArtifacts, type TopRepoBy, topRepositories } from './top'
@@ -387,6 +388,9 @@ export const handlers = [
 
   // ---------------------------------------------------------------- users, groups, roles, settings, system (T-U08)
   ...adminHandlers({ guard, problem, notFound, latency, currentUser: signedInUser, storage: () => ({ total: world.storageTotal, used: world.storageUsed + 312 * 1024 ** 3 }) }, admin),
+
+  // ---------------------------------------------------------------- support bundle (T-O10)
+  ...supportBundleHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),
 
   // ---------------------------------------------------------------- tasks and workers (T-O04)
   ...tasksHandlers({ guard, problem, notFound, latency, currentUser: signedInUser }),

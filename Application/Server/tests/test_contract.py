@@ -91,6 +91,7 @@ IMPLEMENTED: set[tuple[str, str]] = {
     ('/settings', 'get'),
     ('/settings', 'put'),
     ('/system', 'get'),
+    ('/system/support-bundle', 'get'),
     ('/service-accounts/{account_id}/tokens', 'get'),
     ('/service-accounts/{account_id}/tokens', 'post'),
     ('/service-accounts/{account_id}/tokens/{token_id}', 'delete'),

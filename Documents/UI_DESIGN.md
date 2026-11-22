@@ -259,7 +259,9 @@ the profile's token dialog, secret shown once) and permissions). **Settings**: G
 local administrators", saved at once; turning it on for yourself takes you to the profile page), Docker
 routing (default repository, aliases), and the environment limits read-only with their variable names. **System**:
 version tiles, MongoDB/Valkey cards (status, version, round trip), the data volume bar with a marker at the
-free-space floor; refreshes every 15 s. Refusals: 403 shows "Not allowed", 409 "Not possible", with the server's
+free-space floor; refreshes every 15 s; a "Support bundle" card (T-O10): what the zip holds, a note that secrets are
+removed but host names, repository names and log messages remain (review before sharing), and a primary "Download
+support bundle" button (spinner while the server builds it; success or failure toast). Refusals: 403 shows "Not allowed", 409 "Not possible", with the server's
 reason (dialogs for row actions, a banner in forms). Phones: every table becomes cards with the actions inline.
 **Webhooks** (T-O05, `/admin/webhooks`, rail item for `admin`): one table (webhook icon, name, target URL in mono,
 description; events in words ("All events", "Content: upload, delete"); repository scope; last delivery as a status

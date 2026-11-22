@@ -20,3 +20,8 @@ async def put(db: Database, section: str, values: dict[str, Any], by: str | None
     doc = {'_id': section, **values, 'updated_at': datetime.now(UTC), 'updated_by': by}
     await db[SETTINGS].replace_one({'_id': section}, doc, upsert=True)
     return doc
+
+
+async def all_sections(db: Database, limit: int = 100) -> list[dict[str, Any]]:
+    """Every stored section (support bundle; a handful of singleton documents)."""
+    return [dict(doc) async for doc in db[SETTINGS].find({}).limit(limit)]

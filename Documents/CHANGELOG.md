@@ -26,6 +26,14 @@ All notable changes, newest first. Each entry: date, task ID, summary.
   reason `undecryptable`). UI: Tasks page label, description and run summary; audit category "Secret keys"; MSW
   mock task. Docs: `Operations/SECRET_KEY_ROTATION.md` (procedure, what depends on old keys, when to remove one),
   linked from DEPLOYMENT, BACKUP and TRY_IT; ARCHITECTURE §7/§10, DATA_MODEL and SPECIFICATION updated.
+- T-O10: support bundle. Administration → System has a "Download support bundle" card; `GET
+  /api/v1/system/support-bundle` (`admin`, audited `system.support_bundle`) answers a zip with README, manifest,
+  versions (Waystation, Python, OS/kernel, MongoDB and FCV, Valkey, workers, migrations), the effective environment
+  settings (secrets `<redacted>`, URIs without credentials) and stored instance settings, repository and auth provider
+  configuration (secrets as `*_set` flags, CA bundles as fingerprints), health (dependencies, data volume, low-disk
+  guard, workers and queues, upstream health and auto-block), recent failed/dead/interrupted job runs and dead
+  letters, and recent errors. Every server and worker now keeps its WARNING/ERROR log records in the Valkey stream
+  `errors:recent` (bounded, non-blocking, floods summarised, 7 days). Contract, MSW mock and tests.
 - T-M04 dropped (owner): no Nexus hosted-content migration job; MIGRATING_FROM_NEXUS.md and SPECIFICATION say
   hosted content is copied with client tools.
 - T-F03: no scheduled CI any more (owner): the Gitea `clients-live` and `perf` workflows lost their nightly runs.

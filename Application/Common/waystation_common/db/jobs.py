@@ -178,6 +178,20 @@ async def page_runs(db: Database, query: RunQuery, *, after: tuple[datetime, str
     return [doc async for doc in cursor]
 
 
+async def recent_problem_runs(
+    db: Database, *, statuses: Sequence[str] = ('failed', 'dead', 'interrupted'), limit: int = 100, log_lines: int = 20
+) -> list[Document]:
+    """The newest runs with one of ``statuses``, each with only the last ``log_lines`` of its log (support bundle;
+    index ``status_started``)."""
+    cursor = (
+        db[JOB_RUNS]
+        .find({'status': {'$in': list(statuses)}}, {'log': {'$slice': -log_lines}})
+        .sort('started_at', -1)
+        .limit(limit)
+    )
+    return [doc async for doc in cursor]
+
+
 async def get_run(db: Database, run_id: str) -> Document | None:
     return await db[JOB_RUNS].find_one({'_id': run_id})
 
