@@ -40,6 +40,7 @@ the server's internal prefetch route, `waystation_server.prefetch`):
 | Composer | `vendor/name:version` (`monolog/monolog:3.8.1`, any spelling that normalises the same; `dev-main` reads the `~dev` document), `vendor/name` (= the newest stable version, else the newest) | the package's `p2` document, the version's archive when the repository serves it (checked, verified and pinned as for a client) | `p2` documents (tagged and `~dev`, same path) |
 | Cargo | `crate@<exact SemVer version>` (`serde@1.0.228`), `crate` (= highest non-yanked release) | the crate's index file, then the version's `.crate` (verified against the index `cksum`) | index files `index/<prefix>/<crate>` (same path) |
 | Conda | `<subdir>/<name>` (newest version listed), `<subdir>/<name>==<version>` (every build), `<subdir>/<name>==<version>=<build>` (`noarch/tzdata==2025b`, `linux-64/numpy==2.1.3`) | the subdir's `repodata.json.zst` (else `repodata.json`), its indexing awaited, then the matching package files (verified against the listing) | `channeldata.json` (repodata files are revalidated on client requests) |
+| Hugging Face | `<repo_id>[@<revision>]` (every file of the revision, default `main`; ≤ 2,000 files and 200 GiB), `<repo_id>[@<revision>]:<path>` (one file); datasets as `datasets/<repo_id>...` (`julien-c/dummy-unknown`, `openai-community/gpt2@main:config.json`) | the revision's info document, then each file at its commit (verified as for a client) | info documents of branches and tags (`api/<kind>s/<id>[/revision/<rev>]`, same path) |
 | RubyGems | `gem:version` (`rake:13.2.1`), `gem:version-platform` (`nokogiri:1.18.8-x86_64-linux`), `gem` (= the newest release of the `ruby` platform, else the newest) | the gem's info file, the version's `.gem` (verified against the info checksum as for a client) and its `quick/Marshal.4.8` gemspec | `versions`, `names`, info files (same path) |
 
 Other formats: not yet (their repositories refuse prefetch settings); apt has its own worker refresh (`apt.refresh`,
@@ -1242,6 +1243,74 @@ refused). Not yet: JLAP and sharded repodata, groups, conda and pixi in the harn
 ## Alpine apk — Phase 6
 `<branch>/<repo>/<arch>/APKINDEX.tar.gz` (signed by Alpine keys; pass through) + `.apk` files. Proxy only. Client: apk.
 
-## Hugging Face — Phase 6
-Hub HTTP API subset used by `huggingface_hub` (`/api/models/<id>/revision/<rev>`, `/<id>/resolve/<rev>/<file>`
-with `X-Repo-Commit`, `ETag`, LFS redirects). Proxy only; large files. Client: `HF_ENDPOINT=<repo url>`.
+## Hugging Face — Phase 6 (built, T-P6-HF)
+A proxy of the Hugging Face Hub (`formats/huggingface/`) for `huggingface_hub` and everything built on it
+(transformers, diffusers, datasets, sentence-transformers, the `hf` CLI): `HF_ENDPOINT=<base>/repository/<repo>` (no
+trailing slash). Models and datasets; proxy repositories only (hosted and group repositories are refused: the Hub's
+upload API is not implemented, and a group would have to merge commit histories). Client guide
+`Operations/clients/huggingface.md`.
+
+**Routes** (`paths`, below `/repository/<repo>/`; `GET`/`HEAD` only, `405` otherwise, anything else `404`):
+`api/models/<id>` and `api/models/<id>/revision/<rev>` (repository info), `api/models/<id>/tree/<rev>[/<path>]` (file
+listing; `recursive`, `expand`, `cursor`, `limit`), `<id>/resolve/<rev>/<path>` (a file); datasets as `api/datasets/...`
+and `datasets/<id>/resolve/...`. A repo id is `<name>` or `<namespace>/<name>` (`waystation_common.huggingface`:
+letters, digits, `-_.`, ≤ 96 per part; the two-segment reading wins where both fit, as on the Hub). Revisions: a
+commit (40 hex), a branch or tag without `/`, `refs/pr/<n>`, `refs/convert/<name>` (huggingface_hub percent-encodes
+them; the router has decoded them, so other names with `/` are not routable: documented limitation). Spaces, Xet
+token routes, `paths-info` and the rest of the Hub API answer 404.
+
+**Info documents** are fetched as `api/<kind>s/<id>[/revision/<rev>]?blobs=true` (every sibling with `size`, `blobId`
+and, for LFS files, `lfs.sha256`/`lfs.size`) and cached as metadata under the client's path (≤ 64 MiB; ≤ 1 M entries;
+JSON object with a 40-hex `sha` required, else `502` and nothing cached). A branch's or tag's document is revalidated
+after the repository's metadata max age; a commit's never changes (kept 10 years). Clients get the cached document
+for any query (`expand`, `securityStatus` are ignored; siblings always carry the blob fields). The plugin parses it in a
+thread (in-process cache by blob) and resolves a revision to its commit and file table from it (sibling paths are
+normalised; invalid entries are skipped). A commit that a cached revision document named (`huggingface_repos.refs`,
+or in memory) is answered from that document without an upstream request, so `snapshot_download` (info of `main`,
+then files at the commit) costs one document and an offline repository still answers for those commits.
+
+**Files**: `GET <id>/resolve/<rev>/<path>` resolves the revision, looks the file up (`404` with `X-Error-Code:
+EntryNotFound` when the revision has no such file) and serves it as content keyed by commit and path,
+`[datasets/]<id>/resolve/<commit>/<path>` (a moved branch never serves another commit's bytes; identical bytes share
+one blob), fetched from `<upstream>/<id>/resolve/<commit>/<path>`. The Hub answers with a relative redirect for
+regular files (`/api/resolve-cache/...`) and a signed redirect to its CDN for LFS and Xet-backed files; redirects are
+followed through the SSRF guard only to the upstream URL's host and the repository's `cdn_hosts` (default
+`huggingface.co`, `*.huggingface.co`, `*.hf.co`; the engine's `AssetSpec.redirect_allowed`), anything else fails the
+fetch (`502`). LFS files are verified against the listed sha256 and size, other files against their git blob id (sha1
+of `blob <size>\0` + content, in a thread) and size, before anything is committed: a mismatch cuts the transfer
+(nothing cached). Files stream through the engine (tee to the client and the blob store, coalescing, fills that
+outlive their client; the default 64 GiB size limit applies). Responses carry `X-Repo-Commit`, `X-Linked-Etag` and
+`X-Linked-Size` (also on X-Accel hits: the blob location re-adds them).
+
+**HEAD** on a file is answered from the info document without contacting the upstream and without downloading
+anything, as `huggingface_hub.file_download.get_hf_file_metadata` expects: `200` (no redirect, so the client downloads
+the same URL from Waystation), `X-Repo-Commit`, `ETag` = `X-Linked-Etag` = the LFS sha256 (else the git blob id),
+`X-Linked-Size` = `Content-Length` = the size. huggingface_hub names cached blobs after that etag, so its local cache is
+interchangeable with one filled from the Hub.
+
+**Xet**: huggingface_hub with hf_xet (installed by default) downloads a file with the Xet protocol straight from the
+Hub's storage when a HEAD carries `X-Xet-Hash` or a tree entry carries `xetHash`. Waystation never sends the header and
+stores info and tree documents without `xetHash` fields, so every file comes over HTTP through the proxy.
+
+**Tree listings** (`snapshot_download` lists the commit's files): cached as metadata per folder and canonical query
+(`api/<kind>s/<id>/tree/<rev>[/<path>]?recursive=..&expand=..[&limit=..][&cursor=..]`, ≤ 64 MiB, a JSON array; a
+commit's listing never changes), `xetHash` removed, the `Link` header (next page) rewritten to the repository.
+
+**Upstream credentials**: the repository's bearer credential (a Hub token, for gated and private repositories) is sent
+to the upstream URL's host only, never to the CDN; a client's credentials are never forwarded (`HF_TOKEN` is a
+Waystation API token). Gated and private models are then readable by everyone the repository's RBAC allows.
+
+**Prefetch**: see "Prefetch". **Browse, search, components, cleanup**: `huggingface_repos` (one summary per model or
+dataset: `latest` commit of the default branch, `refs` = revisions asked for and the commit each resolved to) written
+when an info document or a file is cached; `GET huggingface/models` (cached files, bytes, downloads per model),
+`huggingface/revisions?model=` (refs and the commits with cached files), `huggingface/files?model=&commit=`; global
+search by model id (kind `package`, browse link `model`). Components: name = repo id (`datasets` namespace for
+datasets), version = commit (`org/model@<12 hex>`). Cleanup groups files per model, the commit as the version,
+commits ordered by when their newest file was cached (every file of a commit shares its rank). Nexus
+`huggingface-proxy` repositories are imported (content kept forever: verified and keyed by commit).
+
+Clients verified (harness, recorded fixtures of `julien-c/dummy-unknown`): huggingface_hub 2.4 with hf_xet:
+`get_hf_file_metadata`, `hf_hub_download` (a regular and an LFS file behind the Xet bridge CDN redirect),
+`hf download`, `snapshot_download`; again from a fresh client cache with the repository offline; a Waystation API
+token as `HF_TOKEN`, a bad token refused. Not yet: the Hub's upload API (hosted), groups, Spaces, Xet passthrough,
+`paths-info`, revisions with `/` other than `refs/pr|convert/...`, the live smoke.

@@ -237,6 +237,49 @@ function conda(repo: Repository): SetupClient[] {
   return clients
 }
 
+/** Hugging Face proxies: HF_ENDPOINT for huggingface_hub (and the libraries built on it), the hf CLI and Python. */
+function huggingface(repo: Repository): SetupClient[] {
+  const endpoint = `${BASE_URL}/repository/${repo.name}`
+  const model = 'julien-c/dummy-unknown'
+  const snippet = (id: string, title: string, content: string, language = 'shell', description?: string): SetupSnippet => ({ id, title, description, language, filename: null, os: null, content })
+  const env: [string, string][] = [['HF_ENDPOINT', endpoint]]
+  const auth: [string, string][] = [['HF_ENDPOINT', endpoint], ['HF_TOKEN', '{{TOKEN}}']]
+  const shellEnv = snippet(
+    'hf-endpoint',
+    'Point the Hugging Face libraries at this repository',
+    env.map(([k, v]) => `export ${k}=${v}`).join('\n'),
+    'shell',
+    'huggingface_hub (and transformers, diffusers, datasets, sentence-transformers... which use it) then downloads models through Waystation. No trailing slash.',
+  )
+  const token = snippet(
+    'hf-token',
+    'Credentials (repositories that need them)',
+    auth.map(([k, v]) => `export ${k}=${v}`).join('\n'),
+    'shell',
+    "HF_TOKEN is a Waystation API token here, sent as a bearer token to Waystation only. Gated and private models are fetched with the repository's own Hugging Face token, configured on the repository.",
+  )
+  return [
+    { id: 'hf-cli', label: 'hf CLI', snippets: [
+      shellEnv,
+      on('windows', shellEnv, { content: psEnv(env), language: 'powershell' }),
+      token,
+      on('windows', token, { content: psEnv(auth), language: 'powershell' }),
+      snippet('hf-download', 'Download a model', `hf download ${model}\nhf download ${model} config.json --revision main`, 'shell', 'huggingface_hub 1.0 and later (pip install -U huggingface_hub).'),
+      snippet('hf-cli-legacy', 'Older huggingface_hub (before 1.0)', `huggingface-cli download ${model}`),
+    ] },
+    { id: 'hf-python', label: 'Python', snippets: [
+      snippet(
+        'hf-python',
+        'Download from Python',
+        `import os\nos.environ['HF_ENDPOINT'] = '${endpoint}'  # before huggingface_hub is imported\n\nfrom huggingface_hub import hf_hub_download, snapshot_download\n\nconfig = hf_hub_download('${model}', 'config.json')\nfolder = snapshot_download('${model}', revision='main')\n`,
+        'python',
+        'huggingface_hub reads HF_ENDPOINT when it is imported; setting it in the environment is simpler. Add HF_TOKEN (a Waystation API token) when the repository needs credentials.',
+      ),
+      snippet('hf-transformers', 'transformers', `HF_ENDPOINT=${endpoint} python -c "from transformers import AutoConfig; print(AutoConfig.from_pretrained('${model}'))"`),
+    ] },
+  ]
+}
+
 /** Hosted apt: the repository's signing key, a deb822 source with Signed-By, credentials, and curl uploads. */
 function aptHosted(repo: Repository): SetupClient[] {
   const opts = (repo.format_options ?? {}) as AptOptions
@@ -647,7 +690,7 @@ function terraformHosted(repo: Repository, host: string, s: Snip): SetupClient[]
 
 export function setupGuide(repo: Repository): SetupGuide {
   const clients =
-    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'conda' ? conda(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : repo.format === 'rubygems' ? rubygems(repo) : raw(repo)
+    repo.format === 'docker' ? docker(repo) : repo.format === 'npm' ? npm(repo) : repo.format === 'apt' ? apt(repo) : repo.format === 'yum' ? yum(repo) : repo.format === 'maven' ? maven(repo) : repo.format === 'pypi' ? pypi(repo) : repo.format === 'go' ? go(repo) : repo.format === 'helm' ? helm(repo) : repo.format === 'galaxy' ? galaxy(repo) : repo.format === 'terraform' ? terraform(repo) : repo.format === 'swift' ? swift(repo) : repo.format === 'cargo' ? cargo(repo) : repo.format === 'conda' ? conda(repo) : repo.format === 'nuget' ? nuget(repo) : repo.format === 'composer' ? composer(repo) : repo.format === 'rubygems' ? rubygems(repo) : repo.format === 'huggingface' ? huggingface(repo) : raw(repo)
   const opts = (repo.format_options ?? {}) as DockerOptions
   const notes: string[] = []
   if (repo.format === 'docker') {

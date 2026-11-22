@@ -155,8 +155,10 @@ async def test_field_errors(admin: httpx.AsyncClient) -> None:
         },
     )
     assert fields(private) == {'proxy.upstream_url': 'ssrf'}
-    unknown = await admin.post(API, json=docker_hub(name='apk-x', format='apk'))
-    assert fields(unknown)['format'] == 'unsupported'
+    unsupported = await admin.post(
+        API, json=docker_hub(name='hf-x', format='huggingface', type='hosted', proxy=None, format_options={})
+    )
+    assert fields(unsupported)['type'] == 'unsupported'  # Hugging Face: proxy repositories only
 
 
 async def test_secret_is_write_only_and_encrypted(admin: httpx.AsyncClient, services: Services) -> None:
@@ -279,6 +281,7 @@ async def test_openapi_documents_format_options(client: httpx.AsyncClient) -> No
         'CondaOptions',
         'ComposerOptions',
         'RubygemsOptions',
+        'HuggingfaceOptions',
         'DockerOptions',
         'GalaxyOptions',
         'HelmOptions',

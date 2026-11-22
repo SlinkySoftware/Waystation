@@ -1438,6 +1438,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/repositories/{name}/huggingface/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** Hub models and datasets a Hugging Face proxy has served, by name */
+        get: operations["listHuggingfaceModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/huggingface/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** One model's resolved revisions and the commits with cached files */
+        get: operations["listHuggingfaceRevisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repositories/{name}/huggingface/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        /** The cached files of one commit of a model, by path */
+        get: operations["listHuggingfaceFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/repositories/{name}/conda/packages": {
         parameters: {
             query?: never;
@@ -3990,8 +4047,20 @@ export interface components {
          * @description RubyGems: no options yet
          */
         RubygemsOptions: Record<string, never>;
+        /** HuggingfaceOptions */
+        HuggingfaceOptions: {
+            /**
+             * @description Hosts the proxy may follow file download redirects to (the Hub sends LFS and Xet files to its CDN with signed URLs): exact host names or `*.<domain>` for any host below that domain. The upstream URL's host is always allowed too; a redirect anywhere else fails the download (502)
+             * @default [
+             *       "huggingface.co",
+             *       "*.huggingface.co",
+             *       "*.hf.co"
+             *     ]
+             */
+            cdn_hosts: string[];
+        };
         /** @description Format-specific options; the shape follows the repository's `format` */
-        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["CargoOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"] | components["schemas"]["CondaOptions"] | components["schemas"]["RubygemsOptions"];
+        FormatOptions: components["schemas"]["DockerOptions"] | components["schemas"]["NpmOptions"] | components["schemas"]["AptOptions"] | components["schemas"]["RawOptions"] | components["schemas"]["YumOptions"] | components["schemas"]["MavenOptions"] | components["schemas"]["PypiOptions"] | components["schemas"]["GoOptions"] | components["schemas"]["HelmOptions"] | components["schemas"]["GalaxyOptions"] | components["schemas"]["TerraformOptions"] | components["schemas"]["SwiftOptions"] | components["schemas"]["CargoOptions"] | components["schemas"]["NugetOptions"] | components["schemas"]["ComposerOptions"] | components["schemas"]["CondaOptions"] | components["schemas"]["RubygemsOptions"] | components["schemas"]["HuggingfaceOptions"];
         /**
          * @description `soft`: warn at 80 % and 100 %; `hard`: also refuse uploads and new cache fills once reached (cached content is still served; proxy downloads pass through uncached)
          * @enum {string}
@@ -4580,6 +4649,82 @@ export interface components {
             crate: components["schemas"]["CargoCrate"];
             /** @description Newest first (SemVer) */
             items: components["schemas"]["CargoVersion"][];
+            next_cursor: string | null;
+        };
+        HuggingfaceModel: {
+            /** @description The model id, `datasets/<id>` for a dataset */
+            name: string;
+            /** @description The Hub repo id */
+            repo_id: string;
+            /** @enum {string} */
+            kind: "model" | "dataset";
+            /** @description The commit the default branch resolved to last */
+            latest_commit: string | null;
+            /** @description Revisions clients asked for (branches, tags) */
+            revisions: number;
+            /** @description Files cached (every commit) */
+            files: number;
+            size_bytes: number;
+            /** @default 0 */
+            downloads: number;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+            /** Format: date-time */
+            updated_at?: string | null;
+        };
+        HuggingfaceModelPage: {
+            items: components["schemas"]["HuggingfaceModel"][];
+            next_cursor: string | null;
+        };
+        HuggingfaceRef: {
+            /** @description Branch, tag or refs/pr/<n> a client asked for */
+            revision: string;
+            commit: string;
+            /** Format: date-time */
+            resolved_at?: string | null;
+        };
+        HuggingfaceCommit: {
+            commit: string;
+            /** @description Revisions that resolved to this commit when last checked */
+            revisions: string[];
+            /** @description Files of this commit cached */
+            files: number;
+            size_bytes: number;
+            /**
+             * Format: date-time
+             * @description First file cached
+             */
+            cached_at?: string | null;
+            /** @default 0 */
+            downloads: number;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+        };
+        HuggingfaceRevisionList: {
+            model: components["schemas"]["HuggingfaceModel"];
+            /** @description Most recently resolved first */
+            refs: components["schemas"]["HuggingfaceRef"][];
+            /** @description Commits with cached files, most recently cached first */
+            commits: components["schemas"]["HuggingfaceCommit"][];
+        };
+        HuggingfaceFile: {
+            /** @description Path in the Hub repository */
+            path: string;
+            size: number;
+            /** @description SHA-256 of the cached file (hex) */
+            sha256: string;
+            /** Format: date-time */
+            cached_at?: string | null;
+            /** @default 0 */
+            downloads: number;
+            /** Format: date-time */
+            last_downloaded_at?: string | null;
+        };
+        HuggingfaceFilePage: {
+            model: string;
+            commit: string;
+            /** @description By path */
+            items: components["schemas"]["HuggingfaceFile"][];
             next_cursor: string | null;
         };
         CondaPackage: {
@@ -8779,6 +8924,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CargoVersionPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listHuggingfaceModels: {
+        parameters: {
+            query?: {
+                /** @description Name substring */
+                q?: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Models and datasets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HuggingfaceModelPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listHuggingfaceRevisions: {
+        parameters: {
+            query: {
+                /** @description Model id, `datasets/<id>` for a dataset */
+                model: string;
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revisions and commits */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HuggingfaceRevisionList"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listHuggingfaceFiles: {
+        parameters: {
+            query: {
+                /** @description Model id, `datasets/<id>` for a dataset */
+                model: string;
+                /** @description Commit (40 hex digits) */
+                commit: string;
+                /** @description Opaque cursor from a previous page's `next_cursor` */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["RepoName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Files */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HuggingfaceFilePage"];
                 };
             };
             404: components["responses"]["NotFound"];

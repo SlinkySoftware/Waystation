@@ -1,0 +1,45 @@
+{
+  "request": {
+    "auth": "none",
+    "body_sha256": null,
+    "headers": [
+      [
+        "accept",
+        "*/*"
+      ]
+    ],
+    "method": "GET",
+    "url": "https://huggingface.co/api/resolve-cache/models/julien-c/dummy-unknown/60b8d3fe22aebb024b573f1cca224db3126d10f3/.gitattributes?%2Fjulien-c%2Fdummy-unknown%2Fresolve%2F60b8d3fe22aebb024b573f1cca224db3126d10f3%2F.gitattributes=&etag=%22ae8c63daedbd4206d7d40126955d4e6ab1c80f8f%22"
+  },
+  "response": {
+    "body_sha256": "f049f7c0d16eaffe605baca479013bcb7a3847077cf6e548ba7b228831cf9c38",
+    "body_size": 391,
+    "headers": [
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "content-length",
+        "391"
+      ],
+      [
+        "etag",
+        "\"ae8c63daedbd4206d7d40126955d4e6ab1c80f8f\""
+      ],
+      [
+        "accept-ranges",
+        "bytes"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''.gitattributes; filename=\".gitattributes\";"
+      ],
+      [
+        "vary",
+        "Origin"
+      ]
+    ],
+    "status": 200
+  }
+}

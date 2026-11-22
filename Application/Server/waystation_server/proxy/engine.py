@@ -267,6 +267,9 @@ class AssetSpec:
     # ``ensure`` only: an upstream ``204 No Content`` is a valid (empty) document whose ``store_headers`` carry the
     # answer (a Terraform module registry's download endpoint: ``X-Terraform-Get``).
     no_content_ok: bool = False
+    # Every redirect target (absolute URL) the upstream answers with must pass this check, else the fetch fails with
+    # ``UpstreamError`` (a Hugging Face proxy allows only its CDN hosts). The SSRF guard applies to every hop anyway.
+    redirect_allowed: Callable[[str], bool] | None = None
 
 
 def _origin(url: str) -> tuple[str, str, int]:
@@ -828,6 +831,9 @@ class ProxyEngine:
                 url = urljoin(url, response.headers['location'])
                 if urlsplit(url).scheme not in ('http', 'https'):
                     raise UpstreamError('upstream redirected to an unsupported URL')
+                if spec.redirect_allowed is not None and not spec.redirect_allowed(url):
+                    await self._failed(req, 'redirect to a host that is not allowed', blocking=False)
+                    raise UpstreamError('upstream redirected to a host this repository does not allow')
                 continue
             if status == 401 and auth is not None and not challenged:
                 challenged = True

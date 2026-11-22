@@ -2,10 +2,9 @@
 
 Every route needs ``browse`` on the repository (yanking: ``write``; hidden repositories answer 404, ARCHITECTURE §7).
 The generic folder listing works for every format; the format views (``/npm/*``, ``/apt/*``, ``/docker/*``,
-``/maven/*``, ``/pypi/*``, ``/go/*``, ``/cargo/*``, ``/conda/*``) answer 404 for a repository of another format,
-or whose plugin
-has no browser yet. The REST layer reaches a format's views only through its registered plugin's ``browser``
-attribute and the protocols in ``waystation_server.browse.models`` (ARCHITECTURE §3).
+``/maven/*``, ``/pypi/*``, ``/go/*``, ``/cargo/*``, ``/conda/*``, ``/huggingface/*``) answer 404 for a repository
+of another format, or whose plugin has no browser yet. The REST layer reaches a format's views only through its
+registered plugin's ``browser`` attribute and the protocols in ``waystation_server.browse.models`` (ARCHITECTURE §3).
 """
 
 from __future__ import annotations
@@ -48,6 +47,10 @@ from waystation_server.browse.models import (
     HelmBrowser,
     HelmChartPage,
     HelmVersionPage,
+    HuggingfaceBrowser,
+    HuggingfaceFilePage,
+    HuggingfaceModelPage,
+    HuggingfaceRevisionList,
     MavenArtifactPage,
     MavenBrowser,
     MavenVersionPage,
@@ -139,6 +142,13 @@ def _conda(svc: Services, repo: RepoConfig) -> CondaBrowser:
     browser = _browser(svc, repo, 'conda')
     if not isinstance(browser, CondaBrowser):
         raise NotFound('not a conda repository')
+    return browser
+
+
+def _huggingface(svc: Services, repo: RepoConfig) -> HuggingfaceBrowser:
+    browser = _browser(svc, repo, 'huggingface')
+    if not isinstance(browser, HuggingfaceBrowser):
+        raise NotFound('not a Hugging Face repository')
     return browser
 
 
@@ -922,6 +932,65 @@ async def list_conda_files(
     repo: RepoConfig = request.state.repo
     return await _conda(svc, repo).files(
         _context(svc, repo), package=package, subdir=subdir, cursor=cursor, limit=limit
+    )
+
+
+# ---------------------------------------------------------------------------- huggingface
+HfModel = Annotated[str, Query(max_length=256, description='Model id, `datasets/<id>` for a dataset')]
+
+
+@router.get(
+    '/repositories/{name}/huggingface/models',
+    response_model=HuggingfaceModelPage,
+    operation_id='listHuggingfaceModels',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_huggingface_models(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    cursor: Cursor = None,
+    limit: Limit = 50,
+) -> HuggingfaceModelPage:
+    repo: RepoConfig = request.state.repo
+    return await _huggingface(svc, repo).models(_context(svc, repo), q=q, cursor=cursor, limit=limit)
+
+
+@router.get(
+    '/repositories/{name}/huggingface/revisions',
+    response_model=HuggingfaceRevisionList,
+    operation_id='listHuggingfaceRevisions',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_huggingface_revisions(
+    name: str, request: Request, svc: ServicesDep, model: HfModel
+) -> HuggingfaceRevisionList:
+    repo: RepoConfig = request.state.repo
+    return await _huggingface(svc, repo).revisions(_context(svc, repo), model=model)
+
+
+@router.get(
+    '/repositories/{name}/huggingface/files',
+    response_model=HuggingfaceFilePage,
+    operation_id='listHuggingfaceFiles',
+    responses=NOT_FOUND,
+)
+@access.requires_repo(Action.BROWSE)
+async def list_huggingface_files(
+    name: str,
+    request: Request,
+    svc: ServicesDep,
+    model: HfModel,
+    commit: Annotated[str, Query(min_length=40, max_length=40, description='Commit (40 hex digits)')],
+    cursor: Cursor = None,
+    limit: Limit = 100,
+) -> HuggingfaceFilePage:
+    repo: RepoConfig = request.state.repo
+    return await _huggingface(svc, repo).files(
+        _context(svc, repo), model=model, commit=commit, cursor=cursor, limit=limit
     )
 
 

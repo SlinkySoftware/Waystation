@@ -25,6 +25,10 @@ location /_blobs/ {
     add_header Repr-Digest $upstream_http_repr_digest always;  # RubyGems compact index (Bundler checks appends)
     add_header X-Swift-Package-Signature-Format $upstream_http_x_swift_package_signature_format always;
     add_header X-Swift-Package-Signature $upstream_http_x_swift_package_signature always;
+    # Hugging Face file downloads: the commit and the Hub's file identity (huggingface_hub reads them).
+    add_header X-Repo-Commit $upstream_http_x_repo_commit always;
+    add_header X-Linked-Etag $upstream_http_x_linked_etag always;
+    add_header X-Linked-Size $upstream_http_x_linked_size always;
     add_header X-Request-Id $upstream_http_x_request_id always;
     add_header X-Content-Type-Options nosniff always;
 }

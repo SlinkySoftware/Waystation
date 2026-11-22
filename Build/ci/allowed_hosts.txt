@@ -59,6 +59,10 @@ schemas.microsoft.com
 packagist.org
 # RubyGems (T-P6-GEMS): rubygems.org and index.rubygems.org (compact index, gems)
 rubygems.org
+# Hugging Face (T-P6-HF): the Hub (huggingface.co) and the CDN hosts it redirects file downloads to (*.hf.co:
+# cdn-lfs.hf.co, cas-bridge.xethub.hf.co, us.aws.cdn.hf.co...)
+huggingface.co
+hf.co
 
 # Public upstreams: Linux distribution mirrors
 deb.debian.org

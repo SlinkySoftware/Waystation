@@ -54,6 +54,7 @@ COMPOSER_PACKAGES = 'composer_packages'  # one summary per Composer package a re
 CONDA_PACKAGES = 'conda_packages'  # conda package files: repodata listings (proxy), uploads (hosted)
 CONDA_NAMES = 'conda_names'  # one summary per conda package name a repository has (browse, global search)
 RUBYGEMS_GEMS = 'rubygems_gems'  # one summary per gem a repository has (browse, search)
+HUGGINGFACE_REPOS = 'huggingface_repos'  # one summary per Hub model/dataset a proxy has served (browse, search)
 UPLOAD_SESSIONS = 'upload_sessions'
 REPO_USAGE = 'repo_usage'
 # --- operations, stats, audit
@@ -568,6 +569,14 @@ SPECS: tuple[CollectionSpec, ...] = (
             # One summary per package name a repository lists (proxy: indexed repodata; hosted: uploads).
             _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
             *_search_indexes(base=False),
+        ),
+    ),
+    CollectionSpec(
+        HUGGINGFACE_REPOS,
+        (
+            # One summary per Hub repository (``<id>`` / ``datasets/<id>``) a Hugging Face proxy has served.
+            _ix('repo_name_unique', [('repo_id', ASCENDING), ('name', ASCENDING)], unique=True),
+            *_search_indexes(base=True),
         ),
     ),
     CollectionSpec(

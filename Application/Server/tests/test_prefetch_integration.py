@@ -293,6 +293,29 @@ async def test_warm_cargo_crates(services: Services, server: prefetch.ServerClie
     assert 'crates/itoa/itoa-1.1.0.crate' not in paths  # yanked: not the latest
 
 
+async def test_warm_huggingface_revisions(
+    services: Services, server: prefetch.ServerClient, upstream: FakeUpstream
+) -> None:
+    commit = 'c' * 40
+    files = {'config.json': b'{"a": 1}', 'sub/weights.bin': TGZ}
+    blob_id = hashlib.sha1(b'blob 8\0' + files['config.json'], usedforsecurity=False).hexdigest()
+    siblings = [
+        {'rfilename': 'config.json', 'blobId': blob_id, 'size': 8},
+        {'rfilename': 'sub/weights.bin', 'size': len(TGZ), 'lfs': {'sha256': sha(TGZ), 'size': len(TGZ)}},
+    ]
+    upstream.routes['/api/models/org/tiny/revision/main?blobs=true'] = Respond(
+        200, {}, json.dumps({'sha': commit, 'siblings': siblings}).encode()
+    )
+    for name, data in files.items():
+        upstream.routes[f'/org/tiny/resolve/{commit}/{name}'] = Respond(200, {}, data)
+    hf = await add(services, 'repo-hf', 'huggingface', upstream.url)
+    await set_warm(services, hf, 'org/tiny', 'org/tiny@main:config.json', 'org/tiny:nothere.bin')
+    result = await prefetch.warm(services.db, services.valkey, server, repo_id=hf)
+    assert (result['items'], result['ok'], result['failed']) == (3, 2, 1), result
+    paths = {d['path'] async for d in services.db[ASSETS].find({'repo_id': hf}, {'path': 1})}
+    assert {f'org/tiny/resolve/{commit}/{name}' for name in files} | {'api/models/org/tiny/revision/main'} == paths
+
+
 async def test_a_client_shares_the_warm_fill(
     client: httpx.AsyncClient, services: Services, server: prefetch.ServerClient, upstream: FakeUpstream
 ) -> None:

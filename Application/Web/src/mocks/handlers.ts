@@ -26,6 +26,7 @@ import { hostedProviderList, hostedProviderVersionsFor, terraformModuleList, ter
 import { mavenArtifactsFor, mavenListing, mavenVersionsFor } from './fixtures/maven'
 import { composerPackageList, composerVersionsFor } from './fixtures/composer'
 import { condaFilesFor, condaPackageList } from './fixtures/conda'
+import { huggingfaceFilesFor, huggingfaceModelList, huggingfaceRevisionsFor } from './fixtures/huggingface'
 import { rubygemsGemList, rubygemsVersionsFor } from './fixtures/rubygems'
 import { nugetPackageList, nugetSetListing, nugetVersionsFor } from './fixtures/nuget'
 import { pypiProjectList, pypiVersionsFor, pypiYank } from './fixtures/pypi'
@@ -844,6 +845,35 @@ export const handlers = [
     const found = condaFilesFor(repo.name, repo.type === 'hosted', url.searchParams.get('package') ?? '', url.searchParams.get('subdir'))
     if (!found) return notFound()
     return HttpResponse.json({ package: found.package, ...paginate(found.files, url) })
+  }),
+  http.get(`${API}/repositories/:name/huggingface/models`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'huggingface')
+    if (!repo || repo.type !== 'proxy') return error ?? notFound()
+    const url = new URL(request.url)
+    return HttpResponse.json(paginate(huggingfaceModelList(repo.name, url.searchParams.get('q') ?? undefined), url))
+  }),
+  http.get(`${API}/repositories/:name/huggingface/revisions`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'huggingface')
+    if (!repo || repo.type !== 'proxy') return error ?? notFound()
+    const found = huggingfaceRevisionsFor(repo.name, new URL(request.url).searchParams.get('model') ?? '')
+    return found ? HttpResponse.json(found) : notFound()
+  }),
+  http.get(`${API}/repositories/:name/huggingface/files`, async ({ request, params }) => {
+    const denied = guard(request)
+    if (denied) return denied
+    await latency()
+    const { repo, error } = repoGuard(params.name, 'huggingface')
+    if (!repo || repo.type !== 'proxy') return error ?? notFound()
+    const url = new URL(request.url)
+    const found = huggingfaceFilesFor(repo.name, url.searchParams.get('model') ?? '', url.searchParams.get('commit') ?? '')
+    if (!found) return notFound()
+    return HttpResponse.json({ model: found.model, commit: found.commit, ...paginate(found.files, url) })
   }),
   http.post(`${API}/repositories/:name/pypi/yank`, async ({ request, params }) => {
     const denied = guard(request)
