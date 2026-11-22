@@ -1,6 +1,6 @@
 # Gitea: the k6 performance suite (T-P2-PERF, tests/perf/README.md, Documents/Operations/CI.md). Gitea runs on
 # local runners at no cost. The CI profile runs after every push to main and on manual runs (choose the profile);
-# the full profile (1M assets, 500 concurrent downloads) runs nightly. Budgets warn until M2 (STRICT=1 fails them).
+# the full profile (1M assets, 500 concurrent downloads) runs nightly. Since M2 a budget over its limit fails the run.
 # Each run uploads tests/perf/.results (report.md, measured.json, raw results) as an artifact.
 #
 # The runner must run jobs on the host (an `ubuntu-latest:host` runner label) or in a container whose checkout path

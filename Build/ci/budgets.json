@@ -1,5 +1,5 @@
 {
-  "$comment": "Performance budgets (SPECIFICATION §5.1, ARCHITECTURE §9). Read by Build/ci/budgets.py (make budgets) and Application/Web/scripts/bundle-budget.mjs. 'enforce' is 'warn' (reported, never fails the build) until milestone M2, then 'fail'. 'source' names the file the check that measures the metric leaves behind: the k6 suite (make perf, tests/perf/README.md) writes tests/perf/.results/measured.json; a budget whose source has not run shows 'not measured'. The dashboard paint budget has no source yet (a browser check, not k6).",
+  "$comment": "Performance budgets (SPECIFICATION §5.1, ARCHITECTURE §9). Read by Build/ci/budgets.py (make budgets) and Application/Web/scripts/bundle-budget.mjs. 'enforce' is 'fail' for every budget since milestone M2 (2026-11-22); 'warn' (reported, never fails the build) is for a new budget being introduced. 'source' names the file the check that measures the metric leaves behind: the k6 suite (make perf, tests/perf/README.md) writes tests/perf/.results/measured.json; a budget whose source has not run shows 'not measured'. The dashboard paint budget has no source yet (a browser check, not k6).",
   "milestone_enforced_from": "M2",
   "budgets": [
     {
@@ -15,7 +15,7 @@
       "description": "Cache hit, content asset, server-side time to first byte p95",
       "limit": 15,
       "unit": "ms",
-      "enforce": "warn",
+      "enforce": "fail",
       "source": "tests/perf/.results/measured.json"
     },
     {
@@ -23,7 +23,7 @@
       "description": "Cache hit, metadata asset p95",
       "limit": 25,
       "unit": "ms",
-      "enforce": "warn",
+      "enforce": "fail",
       "source": "tests/perf/.results/measured.json"
     },
     {
@@ -31,7 +31,7 @@
       "description": "Docker manifest HEAD/GET (cached) p95",
       "limit": 20,
       "unit": "ms",
-      "enforce": "warn",
+      "enforce": "fail",
       "source": "tests/perf/.results/measured.json"
     },
     {
@@ -39,7 +39,7 @@
       "description": "Cache miss added TTFB vs direct upstream fetch",
       "limit": 30,
       "unit": "ms",
-      "enforce": "warn",
+      "enforce": "fail",
       "source": "tests/perf/.results/measured.json"
     },
     {
@@ -47,7 +47,7 @@
       "description": "Cache miss throughput loss vs direct upstream fetch",
       "limit": 5,
       "unit": "%",
-      "enforce": "warn",
+      "enforce": "fail",
       "source": "tests/perf/.results/measured.json"
     },
     {
@@ -55,7 +55,7 @@
       "description": "API list/search endpoints p95 at 1M assets",
       "limit": 150,
       "unit": "ms",
-      "enforce": "warn",
+      "enforce": "fail",
       "source": "tests/perf/.results/measured.json"
     },
     {
@@ -63,7 +63,7 @@
       "description": "Dashboard first meaningful paint (cold, LAN)",
       "limit": 1000,
       "unit": "ms",
-      "enforce": "warn",
+      "enforce": "fail",
       "source": null
     },
     {
@@ -71,7 +71,7 @@
       "description": "Live event latency (transfer progress to UI)",
       "limit": 1000,
       "unit": "ms",
-      "enforce": "warn",
+      "enforce": "fail",
       "source": "tests/perf/.results/measured.json"
     },
     {
@@ -79,7 +79,7 @@
       "description": "Errors with 500 concurrent downloads on 4 vCPU",
       "limit": 0,
       "unit": "errors",
-      "enforce": "warn",
+      "enforce": "fail",
       "source": "tests/perf/.results/measured.json"
     }
   ]

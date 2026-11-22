@@ -50,9 +50,8 @@ jobs:
         run: |
           make gen-api
           git diff --exit-code -- Application/Web/src/api
-      - name: Performance budgets (warnings until M2)
+      - name: Performance budgets
         if: ${{ !cancelled() }}
-        continue-on-error: true
         run: make --no-print-directory budgets MARKDOWN=1 | tee -a "$GITHUB_STEP_SUMMARY"
 
   clients:

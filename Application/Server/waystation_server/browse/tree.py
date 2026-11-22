@@ -4,7 +4,9 @@ The tree is the asset keys (``assets.path``) split on ``/``. A page lists folder
 path byte order (that is name order, except that a folder sorts as ``<name>/``). Folders carry no size; their
 ``child_count`` (direct children: files and sub-folders) is counted up to ``CHILD_COUNT_CAP`` and null beyond: one
 read of at most ``CHILD_COUNT_SPAN`` paths covers the small folders of a page, the others are walked one by one (one
-index seek per sub-folder at most, ``CHILD_COUNT_CONCURRENCY`` at a time).
+index seek per sub-folder at most, ``CHILD_COUNT_CONCURRENCY`` at a time), all of them together within
+``CHILD_COUNT_READS`` index reads; a folder whose count did not fit is null too (T-P2-PERF: a root of big folders
+with many sub-folders each cost one read per sub-folder, about a thousand per page).
 The cursor is ``(phase, last key)``.
 
 A path that has no assets under it answers 404 (a file path is not a folder).
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
 CHILD_COUNT_CAP = 100
 CHILD_COUNT_CONCURRENCY = 8
 CHILD_COUNT_SPAN = 2048  # paths read at once to count the children of small folders
+CHILD_COUNT_READS = 64  # index reads the per-folder walks of one page may spend together
 FILE_FIELDS: dict[str, int] = {
     'path': 1,
     'size': 1,
@@ -108,16 +111,20 @@ async def list_folder(db: Database, repo_id: str, path: str, *, cursor: str | No
 
 async def _child_counts(db: Database, repo_id: str, prefix: str, entries: list[FolderEntry]) -> None:
     """``child_count`` of the page's folders: one bounded read over the range they span counts the small ones; each
-    folder that did not fit is walked on its own, up to ``CHILD_COUNT_CAP`` children."""
+    folder that did not fit is walked on its own, up to ``CHILD_COUNT_CAP`` children, the walks sharing
+    ``CHILD_COUNT_READS`` reads."""
     folders = [e for e in entries if e.kind == 'folder']
     if not folders:
         return
     small = await browse_db.span_children(db, repo_id, prefix, [e.name for e in folders], limit=CHILD_COUNT_SPAN)
     gate = asyncio.Semaphore(CHILD_COUNT_CONCURRENCY)
+    budget = browse_db.ReadBudget(CHILD_COUNT_READS)
 
     async def count(entry: FolderEntry) -> None:
         async with gate:
-            entry.child_count = await browse_db.count_children(db, repo_id, entry.path + '/', cap=CHILD_COUNT_CAP)
+            entry.child_count = await browse_db.count_children(
+                db, repo_id, entry.path + '/', cap=CHILD_COUNT_CAP, budget=budget
+            )
 
     rest = []
     for entry in folders:
