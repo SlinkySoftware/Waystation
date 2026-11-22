@@ -77,7 +77,7 @@ your own disk, at LAN speed, even when Docker Hub rate-limits you or the upstrea
 | Hugging Face Hub (models and datasets) | yes | | | huggingface_hub, transformers, `hf` |
 | Raw files (GitHub releases, any HTTP) | yes | yes | yes | curl, wget |
 
-Client setup for every format is in [`Documents/Operations/clients/`](Documents/Operations/clients/), and each
+Client setup for every format is in the [client guides](Documents/Operations/clients/README.md), and each
 repository's "Set me up" panel shows the same configuration with your URL filled in.
 
 ## Quick start
@@ -133,14 +133,15 @@ destructive.
 |---|---|
 | What Waystation does, in detail | [Specification](Documents/SPECIFICATION.md) |
 | Installing and running it | [Try it](Documents/Operations/TRY_IT.md), [Deployment](Documents/Operations/DEPLOYMENT.md), [Reverse proxies](Documents/Operations/REVERSE_PROXIES.md) |
-| Client configuration per format | [Client guides](Documents/Operations/clients/) |
+| Client configuration per format | [Client guides](Documents/Operations/clients/README.md) |
 | Moving from Nexus | [Migrating from Nexus](Documents/Operations/MIGRATING_FROM_NEXUS.md) |
-| Day-two operations | [Backup and restore](Documents/Operations/BACKUP.md), [Monitoring](Documents/Operations/MONITORING.md), [Provisioning](Documents/Operations/PROVISIONING.md), [Webhooks](Documents/Operations/WEBHOOKS.md), [Secret-key rotation](Documents/Operations/SECRET_KEY_ROTATION.md) |
+| Day-two operations | [Administration guide](Documents/Operations/ADMIN_GUIDE.md), [Backup and restore](Documents/Operations/BACKUP.md), [Monitoring](Documents/Operations/MONITORING.md), [Provisioning](Documents/Operations/PROVISIONING.md), [Webhooks](Documents/Operations/WEBHOOKS.md), [Secret-key rotation](Documents/Operations/SECRET_KEY_ROTATION.md) |
 | How it is built | [Architecture](Documents/Architecture/ARCHITECTURE.md), [Data model](Documents/Architecture/DATA_MODEL.md), [Format protocols](Documents/Architecture/FORMATS.md), [UI design](Documents/UI_DESIGN.md) |
+| REST API | [API reference](Documents/API/REFERENCE.md) (generated from the OpenAPI document) |
 | Security | [ASVS Level 2 review](Documents/Security/ASVS_L2.md), [Dependencies and container scan](Documents/Security/DEPENDENCIES.md) |
 | What changed | [Changelog](Documents/CHANGELOG.md) |
 
-The REST API is described by an OpenAPI document served by every installation at `/api/v1/openapi.json`.
+Every installation also serves its OpenAPI document at `/api/v1/openapi.json`.
 
 ## Architecture at a glance
 

@@ -67,9 +67,11 @@ someone's environment. Everything below is for working on the code.
 - Frontend: Quasar 2 / Vue 3 / TypeScript strict, `<script setup lang="ts">` only, Pinia, `openapi-fetch` with types
   generated from the server's OpenAPI schema (`make gen-api`; CI fails if the generated file is stale).
   `package-lock.json` committed. Never render untrusted text with `v-html`.
-- API change = server route + schema + regenerated client + UI in the same change.
-- New format = a plugin under `waystation_server/formats/<format>/` implementing the `Format` protocol, plus real-
-  client tests in `tests/clients/<format>/` (FORMATS.md "Definition of done for a format").
+- API change = server route + schema + regenerated client (`make gen-api`) + regenerated API reference
+  (`make api-docs`, `Documents/API/`; a unit test fails when it is stale) + UI in the same change.
+- New format = a plugin under `waystation_server/formats/<format>/` (a `FormatDescriptor` and a `FormatPlugin`,
+  ARCHITECTURE §11), plus real-client tests in `tests/clients/<format>/` (FORMATS.md "Definition of done for a
+  format").
 - When you finish a task, **in the same change**: remove its row from `Documents/TASKS.md` and append it to
   `Documents/History/BUILD_HISTORY.md` as DONE (date and summary), add a dated `Documents/CHANGELOG.md` entry, and
   update every spec/architecture section whose behaviour changed. The specification and architecture documents
